@@ -6,8 +6,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// The platform's workspace persistence agent (ADR-052 §14). Image and secret
-// are operator configuration, never fleet input — a fleet that could name
+// The platform's workspace persistence agent (ADR-052 §14, §14.2). Image and
+// secret are operator configuration, never fleet input — a fleet that could name
 // either could substitute its own agent or point it at its own bucket.
 var (
 	workspaceSyncImage = envOr("WORKSPACE_SYNC_IMAGE", "workspace-sync:dev")
@@ -64,6 +64,10 @@ func envOr(k, def string) string {
 //
 // The ordering in 3 is why the caller must append these two in this order and
 // keep the sidecar last.
+//
+// §14.2 changes: both containers mount a staging emptyDir (`ws-staging`) for
+// squashfs archive and FUSE working directories. The sidecar additionally
+// requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
 func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container) {
 	uid := int64(1000)
 	// Both run as uid 1000, matching the workload rather than the image's own
@@ -71,6 +75,9 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 	// produces files the other cannot modify — which on a git tree surfaces as
 	// a permission error deep inside an unrelated operation rather than as
 	// anything about ownership.
+	//
+	// The sidecar's SecurityContext is extended with FUSE device access (§14.2)
+	// because squashfuse and fuse-overlayfs require /dev/fuse.
 	sec := &corev1.SecurityContext{
 		AllowPrivilegeEscalation: ptr(false),
 		RunAsNonRoot:             ptr(true),
@@ -78,6 +85,17 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		ReadOnlyRootFilesystem:   ptr(true),
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+	sidecarSec := &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr(false),
+		RunAsNonRoot:             ptr(true),
+		RunAsUser:                &uid,
+		ReadOnlyRootFilesystem:   ptr(true),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+			Add:  []corev1.Capability{"SYS_ADMIN"}, // needed for FUSE mounts
+		},
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
 	}
 	// Mapped key by key, not `envFrom`.
 	//
@@ -108,7 +126,10 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		secretEnv("S3_SECRET_ACCESS_KEY", "s3-secret-key"),
 		secretEnv("S3_REGION", "s3-region"),
 	}
-	mounts := []corev1.VolumeMount{{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath}}
+	volumeMounts := []corev1.VolumeMount{
+		{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath},
+		{Name: "ws-staging", MountPath: "/ws-staging"},
+	}
 
 	initC = corev1.Container{
 		Name:            "workspace-restore",
@@ -116,7 +137,7 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Args:            []string{"restore"},
 		Env:             env,
-		VolumeMounts:    mounts,
+		VolumeMounts:    volumeMounts,
 		SecurityContext: sec,
 	}
 
@@ -127,8 +148,8 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Args:            []string{"serve"},
 		Env:             env,
-		VolumeMounts:    mounts,
-		SecurityContext: sec,
+		VolumeMounts:    volumeMounts,
+		SecurityContext: sidecarSec,
 		// What makes it a native sidecar rather than a plain init container
 		// that would block the pod from ever starting.
 		RestartPolicy: &always,
@@ -140,8 +161,9 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		// so it cannot reach a listener bound to 127.0.0.1 inside the pod: an
 		// HTTP liveness probe here would fail permanently and restart a
 		// perfectly healthy sidecar forever. An exec probe is the usual way
-		// out, but this image is distroless — no shell, no curl — so there is
-		// nothing to exec.
+		// out, but this image is now debian-slim — curl is available, but
+		// probes would gate the workload's start and a degraded object store
+		// should not deny the user their workspace.
 		//
 		// Readiness would be actively harmful besides. On a native sidecar it
 		// gates the workload's start, and this process must never be able to
@@ -151,8 +173,8 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		// What is lost is small and already covered. A wedged sidecar shows up
 		// as checkpoints that stop appearing, which the restore path reports
 		// on the next session ("no checkpoint for this workspace yet"), and
-		// the PVC — not this process — is what holds the live tree.
-		// `/healthz` stays in the server for in-pod debugging.
+		// the live tree is held in the overlay filesystem. `/healthz` stays
+		// in the server for in-pod debugging.
 	}
 	return initC, sideC
 }

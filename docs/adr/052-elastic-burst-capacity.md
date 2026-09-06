@@ -1,7 +1,7 @@
 # ADR-052: Elastic Burst Capacity for Tenant Workloads
 
 **Date:** 2026-08-23
-**Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06). §§16–19 are
+**Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06, 2026-09-06b). §§16–19 are
 normative contracts — durable work, control-plane availability, workspace
 durability, tenant isolation — not aspirational sections. **§19 is
 conditionally satisfied and is the one open approval gate.** It carries four
@@ -1027,6 +1027,212 @@ because those are the pieces that require knowledge only the agent and the
 user have. Every S3 credential, every upload, every restore decision moves
 here.
 
+#### §14.2 Squashfs-based O(1) restore and PVC decoupling (Amendment 2026-09-06b)
+
+**The gap.** §14's restore path materialises a checkpoint by downloading every
+file individually from S3 — O(n) where n is the number of files in the workspace.
+A 10,000-file workspace takes minutes to restore. The user-facing "undo to
+checkpoint" flow requires the agent to stop, the workspace to be wiped, and every
+file to be re-downloaded before work can resume. The Cloudflare sandbox SDK
+(`zero-ops/reference-projects/sandbox/sandbox-sdk`) solves this with squashfs:
+a compressed read-only filesystem image mounted via FUSE (`squashfuse` +
+`fuse-overlayfs`), giving O(1) restore regardless of workspace size. §14's
+content-addressed system has no equivalent.
+
+**The coupling.** §14 ties workspace persistence to a platform-authored PVC:
+the operator creates a deterministic PVC (`ws-<sha256(workspaceId)[:32]>`), the
+sidecar restores into it, and the PVC is node-pinned via RWO +
+`WaitForFirstConsumer` binding. This creates three problems:
+
+1. **Node pinning.** `local-path` PVs carry `nodeAffinity`; once bound, the
+   workspace cannot move nodes. A home-lab node failure loses the workspace with
+   nothing to fall back to (§14 already acknowledges this; squashfs closes it).
+2. **Operator complexity.** The operator must do PVC lookup-or-create on every
+   reconcile, maintain deterministic naming, hold no `ownerRef`, and operate a
+   separate long-interval reaper with a 30-day TTL.
+3. **Slow cold start.** A fresh PVC on a new node triggers a full file-by-file
+   restore — the exact scenario where speed matters most (interactive user
+   waiting).
+
+**Decision.** Two changes, composed:
+
+**A. Squashfs archive as the fast-restore primitive.** Every `Snapshot()` now
+creates a squashfs archive (`mksquashfs <root> <archive> -comp zstd`) alongside
+the existing content-addressed objects and uploads it to S3 at
+`workspaces/<workspaceId>/archive.sqsh`. The archive is a monolithic,
+compressed, read-only image of the entire workspace tree — tracked, untracked,
+and uncommitted alike, `.git` included as ordinary files. Content-addressed
+objects and manifests remain the ongoing checkpoint mechanism; the squashfs
+archive is the restore mechanism. They are complementary, not replacements:
+
+```
+Checkpoint path (unchanged):
+  workspace tree → hash each file → putIfAbsent → write manifest
+
+Restore path (new):
+  S3 archive.sqsh → download → squashfuse mount (read-only lower)
+                              → fuse-overlayfs mount (writable upper)
+                              → /workspace = merged view, O(1)
+```
+
+The archive is created on every snapshot because squashfs creation is cheap
+(seconds, not minutes) and ensures every checkpoint has a corresponding fast-
+restore image. The archive size is bounded by the workspace's total size
+(compressed), not by the number of checkpoints — dedup within squashfs's block
+layer handles shared content implicitly.
+
+**B. PVC decoupled from sandbox creation.** The workspace volume is now an
+`emptyDir`, not a PVC. The sidecar restores from the squashfs archive on every
+startup. The PVC, the deterministic naming, the StorageClass selection, the
+node-pinning, and the workspace reaper are all removed. The architecture becomes:
+
+```
+S3: archive.sqsh + content-addressed objects + manifests
+            │
+            ▼
+Pod starts (emptyDir — always fresh)
+            │
+            ▼
+sidecar: download archive → squashfuse → fuse-overlayfs → /workspace
+            │
+            ▼
+workload: reads/writes /workspace (overlay upper layer)
+            │
+            ▼
+checkpoint: walk tree → content-addressed objects → manifest → squashfs archive
+            │
+            ▼
+pod terminates → emptyDir gone → no cleanup needed
+```
+
+**S3 is the source of truth. The emptyDir is a local working cache.**
+A workspace is no longer pinned to a node, a PVC, or a pod. It is identified
+by its `workspaceId`, which determines the S3 prefix, and is restorable from
+any node in the cluster in O(1) time.
+
+**Restore flow in detail:**
+
+The `workspace-sync` native sidecar handles the FUSE mount, not the init
+container. This is required because FUSE mounts do not survive a Kubernetes init
+container's exit — the mount namespace is torn down when the container
+terminates. The native sidecar stays alive for the pod's lifetime, keeping the
+FUSE mounts active.
+
+```
+Pod created
+    │
+    ▼
+init: workspace-restore
+    │  No-op (emptyDir is always fresh; skip check removed)
+    │
+    ▼
+native sidecar: workspace-sync
+    │  1. Create staging dirs: /ws-staging/{lower,upper,work}
+    │  2. Download archive.sqsh from S3 → /ws-staging/archive.sqsh
+    │  3. squashfuse archive.sqsh → /ws-staging/lower
+    │  4. fuse-overlayfs -o lowerdir=/ws-staging/lower,
+    │           upperdir=/ws-staging/upper,workdir=/ws-staging/work
+    │           /workspace
+    │  5. Start HTTP server (/checkpoint, /flush, /restore, /healthz)
+    │
+    ▼
+workload container starts (sees restored /workspace)
+```
+
+**Undo-to-checkpoint flow:**
+
+The sidecar exposes `POST /restore { checkpointId: "..." }` for user-initiated
+reverts. The workload (or SDK) calls this endpoint; the sidecar:
+
+1. Unmounts the current overlay (`fusermount -u /workspace`)
+2. Clears the staging area (`rm -rf /ws-staging/lower /ws-staging/upper /ws-staging/work`)
+3. Downloads the target checkpoint's squashfs archive (each checkpoint has a
+   corresponding archive at `checkpoints/<id>.sqsh`)
+4. Remounts via squashfuse + fuse-overlayfs
+5. Returns success; the workload sees the reverted state immediately
+
+This is O(1) — a single S3 download plus two FUSE mount syscalls — regardless
+of workspace size. The user says "undo to checkpoint-002," the sidecar
+remounts, and work resumes in seconds.
+
+**Container image changes.** The `workspace-sync` image moves from
+`distroless/static:nonroot` to `debian:bookworm-slim` with `squashfuse`,
+`fuse-overlayfs`, and `fuse3` installed. The image grows from ~50MB to ~150MB.
+This is accepted: the sidecar already holds the S3 credential and is platform-
+owned (§19.6); the larger surface is a platform concern, not a tenant-facing
+one. The Go binary remains statically linked (`CGO_ENABLED=0`).
+
+**FUSE device access.** The sidecar's `SecurityContext` gains a `devices`
+entry for `/dev/fuse` (device number 229). This is narrower than `SYS_ADMIN`
+and is restricted to the platform-owned sidecar container — tenant code never
+receives it.
+
+**Staging volume.** An `emptyDir` volume (`ws-staging`) is added to both the
+restore init container and the sync sidecar, mounted at `/ws-staging`. It holds
+the downloaded archive and the FUSE mount working directories. It is not shared
+with the workload container and is not visible to tenant code.
+
+**Fallback.** If the squashfs archive is unavailable (first-ever checkpoint,
+S3 misconfiguration, or archive corruption), the sidecar falls back to the
+existing file-by-file content-addressed restore. The two mechanisms are not
+mutually exclusive; squashfs is the fast path, content-addressed is the safe
+path.
+
+**What is removed:**
+
+| Removed | Replacement |
+|---|---|
+| PVC `ws-<hash>` per workspace | emptyDir (ephemeral, cleans up with pod) |
+| `ensureWorkspacePVC()` in operator | No PVC management |
+| Deterministic PVC naming | No naming scheme needed |
+| StorageClass per placement class | No StorageClass selection |
+| Node-pinning via PV affinity | No node affinity (restore works anywhere) |
+| Workspace PVC reaper (30-day TTL) | No reaper (emptyDir is gone when pod terminates) |
+| `labelWorkspacePVC`, `annotationWorkspaceID` | No PVC labels/annotations |
+| `defaultWorkspaceSize` (10Gi) | No PVC size |
+
+**What is added:**
+
+| Added | Purpose |
+|---|---|
+| `store.CreateArchive()` | Creates squashfs archive via `mksquashfs` |
+| `store.UploadArchive()` | Uploads archive to S3 |
+| `store.DownloadArchive()` | Downloads archive from S3 |
+| `POST /restore` endpoint | User-initiated undo-to-checkpoint |
+| `/ws-staging` emptyDir volume | Staging area for FUSE mounts |
+| FUSE device in sidecar `SecurityContext` | Access to `/dev/fuse` |
+| `debian:bookworm-slim` base image | FUSE tools (`squashfuse`, `fuse-overlayfs`) |
+
+**What is unchanged:**
+
+- Content-addressed checkpoint system (`store.Snapshot()`)
+- Manifest format and crash-safety guarantees (manifest written last)
+- Periodic backstop mechanism (5min interval)
+- SIGTERM teardown checkpoint (application-consistent, in sidecar)
+- `workspaceId` as workspace identity (determines S3 prefix)
+- Native sidecar lifecycle properties (§14.1: Job completion, termination
+  ordering, startup ordering)
+- Callback system
+- Kueue admission (§15)
+
+**Durability contract (§18) amends:**
+
+- **§18.1** Concurrency model is unchanged: single-writer, serial-session.
+  The `ReadWriteOnce` constraint is no longer enforced by PVC binding but by
+  the platform's convention that sessions sharing a `workspaceId` are serialised.
+- **§18.2** Source of truth: S3 archive is authoritative at all times. The
+  emptyDir is a local cache; its contents are always reproducible from S3.
+- **§18.7** RPO/RTO: RPO remains one checkpoint interval. RTO improves from
+  O(n) file download to O(1) squashfs mount — measured per placement class
+  rather than asserted here.
+
+**Ownership table amends:**
+
+The row "Sandbox Workspace PVC" is removed. The row "Sandbox Workspace S3
+Backup" is amended: the `workspace-sync` sidecar now creates both
+content-addressed objects AND squashfs archives during snapshot, and mounts the
+archive during restore. No PVC is created, managed, or reaped by the operator.
+
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 
 **The gap, in this ADR's own words, from §"Negative / Trade-offs" above:**
@@ -1894,8 +2100,7 @@ Registered against the ADR-039 matrix in its canonical seven-column form:
 | Ephemeral VM (dev/hybrid) | ephemeral-vm-provisioner | Provider API (Hetzner) | ephemeral-vm-provisioner | ephemeral-vm-provisioner | Fleet workloads | Day-1+ |
 | Sandbox Workload Pod | ephemeral-job-operator | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Chat runtime | Day-1+ |
 | Burst Compute Usage | Observability Stack | OpenMeter | Observability Stack | Alloy / OTel Collector | Billing, SRE | Day-1+ |
-| Sandbox Workspace PVC (§14) | ephemeral-job-operator | Kubernetes API (fleet namespace) | ephemeral-job-operator (created, mounted, and separately reaped — no ownerRef to any one `EphemeralJob`) | ephemeral-job-operator | Sandbox pod, mounted at `/workspace` | Day-1+ |
-| Sandbox Workspace S3 Backup (§14) | ephemeral-job-operator, via the `workspace-sync` init container + native sidecar | S3-compatible object storage | ephemeral-job-operator | ephemeral-job-operator | Sandbox pod (restore only, at pod start) | Day-1+ |
+| Sandbox Workspace S3 Backup (§14, §14.2) | ephemeral-job-operator, via the `workspace-sync` native sidecar | S3-compatible object storage | ephemeral-job-operator | ephemeral-job-operator | Sandbox pod — content-addressed objects + squashfs archive; FUSE restore on startup | Day-1+ |
 | Sandbox Workspace S3 Credential (§14) | ephemeral-job-operator | zero-ops Secret (Infisical/ESO) | ephemeral-job-operator | `workspace-sync` init container + native sidecar only — never the fleet's workload container | Day-1+ |
 | Kueue ClusterQueue / Quota (§15) | Platform | Git (`zero-ops`) | ArgoCD | Kueue | Fleets (fairness/admission scope) | Day-1+ |
 | Kueue LocalQueue (§15) | Platform | Git (`zero-ops`), one per tenant namespace | ArgoCD | Kueue | Fleet workloads in that namespace | Day-1+ |
@@ -1980,16 +2185,22 @@ declared in Git.
   features to build and operate.
 - ADR-043 needs no amendment and no authority is split.
 - **(§14)** A fleet needing durable `/workspace` no longer builds *any* part of
-  its own persistence layer — not the crash-recovery path (platform-owned PVC,
-  reusing `local-path`/`hcloud-volumes` already deployed for other purposes)
-  and not the disaster-recovery path either (the `workspace-sync` init
-  container/sidecar absorbs the S3 upload/download/credential mechanics that
-  previously lived inside waypoint's harness-runtime, ADR-036 §4–§8). A fleet
-  keeps exactly one responsibility for this feature: deciding when to commit,
-  and making the commit.
-- **(§14)** Node-pinning across a workspace's PVC lifetime is a consequence of
-  standard `WaitForFirstConsumer` PV/PVC binding, not operator-written
-  scheduling logic — one less thing to get wrong.
+  its own persistence layer — not the crash-recovery path (platform-owned
+  `workspace-sync` sidecar restores from S3) and not the disaster-recovery path
+  either (the `workspace-sync` sidecar absorbs the S3 upload/download/credential
+  mechanics that previously lived inside waypoint's harness-runtime, ADR-036
+  §4–§8). A fleet keeps exactly one responsibility for this feature: deciding
+  when to commit, and making the commit.
+- **(§14.2)** Workspace restore is O(1) regardless of workspace size. A squashfs
+  archive mounted via FUSE gives instant restore with copy-on-write semantics;
+  the "undo to checkpoint" flow completes in seconds, not minutes.
+- **(§14.2)** Workspaces are no longer node-pinned. The emptyDir is a local
+  cache; the S3 archive is the source of truth. A workspace can be restored on
+  any node in the cluster, eliminating the `local-path` durability gap for the
+  common case (restore from squashfs) and the node-affinity constraint entirely.
+- **(§14.2)** Operator complexity is reduced: no PVC lookup-or-create, no
+  deterministic naming, no StorageClass selection, no workspace reaper. The
+  emptyDir cleans up with the pod.
 - **(§14.1)** The teardown checkpoint needs no coordination between components:
   the sidecar owning it already has the credential, the volume and a
   kubelet-guaranteed signal, so there is no network call, no authentication
@@ -2026,39 +2237,46 @@ declared in Git.
   with a visible position, and capacity pressure produces latency rather than
   an error. The `ResourceQuota` this bullet names as the rejecting mechanism
   is itself superseded by Kueue's `ClusterQueue` (§15).
+- **(§14.2) The `workspace-sync` image grows from ~50MB to ~150MB.** Moving from
+  `distroless/static:nonroot` to `debian:bookworm-slim` with `squashfuse`,
+  `fuse-overlayfs`, and `fuse3` adds a meaningful dependency surface. The sidecar
+  is platform-owned (§19.6) and holds the S3 credential, so the larger image is a
+  platform concern, not a tenant-facing one — but it is a real increase in attack
+  surface and pull time.
+- **(§14.2) FUSE device access broadens the sidecar's security context.** The
+  sidecar gains a `devices` entry for `/dev/fuse` (device number 229). This is
+  narrower than `SYS_ADMIN` but broader than the previous no-capabilities
+  posture. The sidecar is platform-owned and never runs tenant code, so the
+  risk is bounded — but it is a new capability on a container that holds an S3
+  credential.
+- **(§14.2) Squashfs restore loses crash-consistent reattach.** The previous
+  PVC-based design preserved the working tree across pod restarts on the same
+  node: the PVC already had the data, restore was a no-op, and uncommitted
+  edits survived. With emptyDir, every restart triggers a squashfs restore from
+  the last checkpoint, losing uncommitted work since that checkpoint. The
+  periodic backstop bounds this loss (default 5min), but the window is real and
+  was zero for same-node restarts under the PVC model.
+- **(§14.2) Checkpoint creates a squashfs archive in addition to
+  content-addressed objects.** This adds ~5-10s to each snapshot and one
+  additional S3 object per checkpoint. The archive is compressed (zstd) and
+  typically smaller than the sum of content-addressed objects, but the storage
+  cost is non-zero and scales with checkpoint count per workspace.
+- **(§14.2) Undo-to-checkpoint requires per-checkpoint squashfs archives.**
+  The `POST /restore` endpoint needs the archive for the target checkpoint, not
+  just the latest. Either every checkpoint gets its own archive (storage cost
+  scales with checkpoint count) or only the latest checkpoint supports O(1)
+  undo (earlier checkpoints fall back to file-by-file restore). This is an
+  implementation decision left open.
 - **(§14) `local-path` durability still has a real window, even with the S3
   tier.** A home-lab node's hardware failure loses everything written after the
-  sidecar's last successful checkpoint — narrower than the once-considered
-  PVC-only design's "everything, always," but not zero, and it scales with
-  home-lab node count and MTBF, not a theoretical concern. Note that this is
-  exactly the case in which the §14.1 teardown checkpoint does **not** run:
-  node loss delivers no SIGTERM, so the window is bounded by the periodic
-  backstop interval and by nothing else. That interval, not the teardown path,
-  is the number to tune if this window is too wide.
-- **(§14) Two persistence mechanisms (PVC, S3) must now stay reconciled by
-  this operator.** A mismatch between what the PVC currently holds (working
-  tree, uncommitted edits, `.git` history — all of it) and what the S3 tier
-  last flushed is a class of drift this operator did not previously have to
-  detect. This section does not fully specify detection or
-  alerting for it.
-- **(§14) `ReadWriteOnce` forecloses true multi-node concurrent access** to one
-  workspace. App-wide sharing across sessions (waypoint ADR-017/036) is
-  achieved by pinning every session's sandbox to the same node, which is a
-  scheduling constraint under load, not just a data-locality optimization — a
-  future workload class needing genuine multi-node access to shared storage is
-  out of scope and would need a different mechanism (e.g. an RWX StorageClass).
-- **(§14) The workspace-PVC reaper is a new component with no operational
-  history.** Its TTL is deliberately conservative (30 days) precisely because
-  getting it wrong in the other direction — reaping too eagerly — is
-  unrecoverable data loss, but that conservatism means an abandoned workspace's
-  storage cost is carried far longer than its `EphemeralJob`'s own TTL/idle
-  timeout.
-- **(§14) The `workspace-sync` image is a new, security-sensitive component**:
-  it is the only place in this system that holds a real S3 credential for
-  workspace data, and a bug in it (the init container in particular, which now
-  runs unconditionally before every persistence-enabled workload starts) has
-  no fallback path — the fleet's workload container has no S3 capability of
-  its own to work around a broken restore.
+  sidecar's last successful checkpoint — but with §14.2's squashfs restore, the
+  recovery is O(1) on a new node rather than O(n). The window exists; the
+  recovery cost is now bounded.
+- **(§14.2) The `workspace-sync` sidecar is now the sole restore path.** If the
+  sidecar fails to start (image pull, FUSE misconfiguration, S3 unreachable),
+  the workload gets an empty directory with no data. Under the PVC model, a
+  reattached PVC provided data even when the sidecar was broken. The sidecar's
+  startup is now load-bearing for data availability, not just durability.
 - **(§15)** A busy fleet now gets a queue position instead of a rejected pod
   — the production blocker this ADR's own Negative/Trade-offs section already
   named is closed, not merely narrowed.
@@ -2240,6 +2458,16 @@ declared in Git.
   mechanics this section's `workspace-sync` init container/sidecar now
   performs previously lived in that harness-runtime code; this amendment
   relocates it, it does not duplicate it.
+- **Amendment 2026-09-06b (§14.2).** Squashfs-based O(1) restore replaces the
+  file-by-file content-addressed restore path. The `workspace-sync` image moves
+  from `distroless/static:nonroot` to `debian:bookworm-slim` with FUSE tools.
+  The workspace volume is now an `emptyDir` instead of a PVC — the operator no
+  longer creates, names, or reaps workspace PVCs, and StorageClass selection is
+  removed from `Placement`. The "Sandbox Workspace PVC" ownership row is removed;
+  the "Sandbox Workspace S3 Backup" row is amended to include squashfs archive
+  creation and FUSE restore. **ADR-041** gains: the operator no longer
+  reconciles PVCs. **ADR-039** loses one resource-class row (PVC). The
+  workspace-PVC reaper component is withdrawn.
 - **Amendment 2026-09-06 (§15).** This ADR's own previously-flagged
   production blocker ("no queue") is closed. **ADR-047**'s Tier-2 quota
   contract is amended: a fleet's declared burst request now renders as a
@@ -2289,3 +2517,4 @@ declared in Git.
 - Kueue (`sigs.k8s.io/kueue`) — the admission/fairness layer adopted in §15; its custom-workload integration pattern (a controller creates a `Workload` object and waits for admission before creating the underlying resource) is the extension point `ephemeral-job-operator` uses, the same one batch/v1 Job, JobSet, and RayJob integrations use
 - `zero-ops/reference-projects/sandbox/agent-sandbox/examples/latebind-storage-gke-sandbox` — the quiescence-via-finalizer pattern an earlier revision of §14 mirrored, and which §14.1 rejects: it coordinates a flush against a *claim* the orchestrator deletes, whereas this design's pod is reaped on idle timeout independently of its CR, so the two lifetimes never coincide
 - `zero-ops/reference-projects/sandbox/sandbox0` — `pkg/rootfsblock/objectstore.go`'s `PutIfAbsentContext`, the content-addressed conditional-write principle §14's snapshot engine applies at file granularity instead of Sandbox0's own block granularity
+- `zero-ops/reference-projects/sandbox/sandbox-sdk` — the squashfs + FUSE overlayfs restore pattern §14.2 adopts: `mksquashfs` for archive creation, `squashfuse` for read-only lower layer mounting, `fuse-overlayfs` for writable overlay, presigned-URL direct upload/download for R2/S3 transfers

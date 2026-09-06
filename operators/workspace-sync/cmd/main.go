@@ -21,8 +21,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -56,24 +58,14 @@ func main() {
 	}
 }
 
-// runRestore populates a FRESH volume and does nothing to a reattached one.
+// runRestore populates a fresh volume via squashfs FUSE mount (§14.2),
+// falling back to file-by-file content-addressed restore.
 //
-// The empty check is the whole correctness of this command. A reattached PVC
-// already holds the workspace — including edits made after the last checkpoint
-// — and ADR-052 §18.2 makes it authoritative while the sandbox runs. Restoring
-// over it would replace newer local state with an older remote copy, and would
-// additionally fail on git's read-only loose objects.
+// With emptyDir volumes, every pod starts empty, so there is no "reattached"
+// case to guard against — restore always runs.
 func runRestore(root string) error {
 	if err := os.MkdirAll(root, 0o777); err != nil {
 		return err
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return err
-	}
-	if len(entries) > 0 {
-		log.Printf("volume already populated (%d entries) — reattached, leaving it untouched", len(entries))
-		return nil
 	}
 
 	cfg, err := store.FromEnv()
@@ -86,19 +78,87 @@ func runRestore(root string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.New(cfg)
-	if err != nil {
-		return err
+
+	stagingRoot := os.Getenv("STAGING_ROOT")
+	if stagingRoot == "" {
+		stagingRoot = "/ws-staging"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	// Try FUSE restore first for O(1) speed.
+	if err := restoreWithFuse(ctx, root, stagingRoot, cfg); err != nil {
+		log.Printf("FUSE restore failed, falling back to file-by-file: %v", err)
+		return restoreFromFilesystem(ctx, root, cfg)
+	}
+	log.Printf("FUSE restore complete at %s", root)
+	return nil
+}
+
+// restoreWithFuse performs O(1) restore via squashfs + FUSE overlayfs (§14.2).
+//
+// It downloads the squashfs archive from S3, mounts it as a read-only lower
+// layer via squashfuse, and creates a writable overlay via fuse-overlayfs.
+// The FUSE mounts are kept alive by this process (the native sidecar) for the
+// pod's lifetime.
+//
+// stagingRoot is the staging directory (e.g. /ws-staging) where the archive
+// and FUSE working directories live. The overlay is mounted at workspaceRoot
+// (e.g. /workspace).
+func restoreWithFuse(ctx context.Context, workspaceRoot, stagingRoot string, cfg store.Config) error {
+	s, err := store.New(cfg)
+	if err != nil {
+		return err
+	}
+
+	// Create staging subdirectories for FUSE mounts.
+	lowerDir := stagingRoot + "/lower"
+	upperDir := stagingRoot + "/upper"
+	workDir := stagingRoot + "/work"
+	archivePath := stagingRoot + "/archive.sqsh"
+
+	for _, d := range []string{lowerDir, upperDir, workDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return fmt.Errorf("create staging dir %s: %w", d, err)
+		}
+	}
+
+	// Download the squashfs archive from S3.
+	if err := s.DownloadArchive(ctx, archivePath); err != nil {
+		return fmt.Errorf("download archive: %w", err)
+	}
+
+	// Mount squashfs as read-only lower layer.
+	cmd := exec.CommandContext(ctx, "squashfuse", archivePath, lowerDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("squashfuse: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+
+	// Mount fuse-overlayfs as writable merged view at workspaceRoot.
+	cmd = exec.CommandContext(ctx, "fuse-overlayfs",
+		"-o", fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir),
+		workspaceRoot)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Cleanup: unmount squashfs on failure.
+		exec.Command("fusermount", "-u", lowerDir).Run()
+		return fmt.Errorf("fuse-overlayfs: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
+}
+
+// restoreFromFilesystem performs the original file-by-file restore from S3.
+// Used as a fallback when squashfs archive is unavailable.
+func restoreFromFilesystem(ctx context.Context, root string, cfg store.Config) error {
+	s, err := store.New(cfg)
+	if err != nil {
+		return err
+	}
+
 	id, err := s.Latest(ctx)
 	if err != nil || id == "" {
-		// No checkpoint yet is a first run, not a failure.
-		log.Printf("no checkpoint for this workspace yet — starting empty (%v)", err)
-		return nil
+		return fmt.Errorf("no checkpoint available")
 	}
 	m, err := s.GetManifest(ctx, id)
 	if err != nil {
@@ -107,8 +167,20 @@ func runRestore(root string) error {
 	if err := s.Restore(ctx, root, m); err != nil {
 		return fmt.Errorf("restoring checkpoint %s: %w", id, err)
 	}
-	log.Printf("restored checkpoint %s (%d files, taken %s)", m.ID, len(m.Entries), m.CreatedAt.Format(time.RFC3339))
+	log.Printf("restored checkpoint %s (%d files, taken %s) via file-by-file", m.ID, len(m.Entries), m.CreatedAt.Format(time.RFC3339))
 	return nil
+}
+
+// unmountFuse tears down any active FUSE mounts at workspaceRoot and in stagingRoot.
+func unmountFuse(workspaceRoot, stagingRoot string) {
+	// Unmount overlay first (the merged view).
+	exec.Command("fusermount", "-u", workspaceRoot).Run()
+	// Then unmount squashfs lower.
+	exec.Command("fusermount", "-u", stagingRoot+"/lower").Run()
+	// Clean staging dirs.
+	os.RemoveAll(stagingRoot + "/lower")
+	os.RemoveAll(stagingRoot + "/upper")
+	os.RemoveAll(stagingRoot + "/work")
 }
 
 // runServe is the sidecar: one snapshot engine behind two triggers.
@@ -122,6 +194,25 @@ func runServe(root string) error {
 	notConfigured := errors.Is(err, store.ErrNotConfigured)
 	if err != nil && !notConfigured {
 		return err
+	}
+
+	// Phase 1: FUSE restore on startup (§14.2).
+	//
+	// The staging root holds the squashfs archive, FUSE working dirs, and
+	// overlay components. The overlay is mounted at the workspace root.
+	if !notConfigured {
+		stagingRoot := os.Getenv("STAGING_ROOT")
+		if stagingRoot == "" {
+			stagingRoot = "/ws-staging"
+		}
+		if err := restoreWithFuse(context.Background(), root, stagingRoot, cfg); err != nil {
+			log.Printf("FUSE restore failed, falling back to file-by-file: %v", err)
+			if err := restoreFromFilesystem(context.Background(), root, cfg); err != nil {
+				return fmt.Errorf("restore on startup: %w", err)
+			}
+		} else {
+			log.Printf("FUSE restore complete at %s", root)
+		}
 	}
 
 	var s *store.Store
@@ -166,6 +257,11 @@ func runServe(root string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 		return snapshotCtx(ctx, name, desc, trigger)
+	}
+
+	stagingRoot := os.Getenv("STAGING_ROOT")
+	if stagingRoot == "" {
+		stagingRoot = "/ws-staging"
 	}
 
 	mux := http.NewServeMux()
@@ -224,6 +320,109 @@ func runServe(root string) error {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+
+	// POST /restore — undo-to-checkpoint (§14.2).
+	//
+	// Unmounts any existing FUSE mounts and re-creates the overlay from either
+	// a checkpoint-specific squashfs archive (if available) or the latest
+	// content-addressed checkpoint (fallback).
+	mux.HandleFunc("/restore", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if notConfigured {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "object storage not configured"})
+			return
+		}
+
+		var req struct {
+			CheckpointID string `json:"checkpointId"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		// Unmount existing FUSE mounts before restoring.
+		unmountFuse(root, stagingRoot)
+
+		var checkpointID string
+		if req.CheckpointID == "" {
+			// Restore latest checkpoint via FUSE.
+			if err := restoreWithFuse(context.Background(), root, stagingRoot, cfg); err != nil {
+				// Fallback to file-by-file.
+				if err := restoreFromFilesystem(context.Background(), root, cfg); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+					return
+				}
+				id, _ := s.Latest(context.Background())
+				checkpointID = id
+			} else {
+				id, _ := s.Latest(context.Background())
+				checkpointID = id
+			}
+		} else {
+			// Undo to a specific checkpoint.
+			if err := s.DownloadCheckpointArchive(context.Background(), req.CheckpointID, stagingRoot+"/archive.sqsh"); err != nil {
+				// Fallback: file-by-file restore from manifest.
+				m, err := s.GetManifest(context.Background(), req.CheckpointID)
+				if err != nil {
+					writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("checkpoint not found: %v", err)})
+					return
+				}
+				if err := s.Restore(context.Background(), root, m); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+					return
+				}
+				checkpointID = req.CheckpointID
+			} else {
+				// FUSE restore from checkpoint-specific archive.
+				lowerDir := stagingRoot + "/lower"
+				upperDir := stagingRoot + "/upper"
+				workDir := stagingRoot + "/work"
+				archivePath := stagingRoot + "/archive.sqsh"
+
+				for _, d := range []string{lowerDir, upperDir, workDir} {
+					os.MkdirAll(d, 0o755)
+				}
+
+				cmd := exec.CommandContext(context.Background(), "squashfuse", archivePath, lowerDir)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{"error": fmt.Sprintf("squashfuse: %v (%s)", err, strings.TrimSpace(string(out)))})
+					return
+				}
+
+				cmd = exec.CommandContext(context.Background(), "fuse-overlayfs",
+					"-o", fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir),
+					root)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					exec.Command("fusermount", "-u", lowerDir).Run()
+					writeJSON(w, http.StatusInternalServerError, map[string]any{"error": fmt.Sprintf("fuse-overlayfs: %v (%s)", err, strings.TrimSpace(string(out)))})
+					return
+				}
+				checkpointID = req.CheckpointID
+			}
+		}
+
+		resp := map[string]any{"restored": true}
+		if checkpointID != "" {
+			resp["checkpoint"] = checkpointID
+		}
+		writeJSON(w, http.StatusOK, resp)
+	})
+
+	// GET /list-checkpoints — returns checkpoint IDs in reverse chronological
+	// order, for the undo-to-checkpoint UI.
+	mux.HandleFunc("/list-checkpoints", func(w http.ResponseWriter, r *http.Request) {
+		if notConfigured {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "object storage not configured"})
+			return
+		}
+		ids, err := s.ListCheckpoints(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, ids)
 	})
 
 	port := os.Getenv("WORKSPACE_SYNC_PORT")
@@ -289,6 +488,11 @@ func runServe(root string) error {
 		// 1. Stop the backstop, so the ticker cannot start an upload that
 		//    races the final one for the same tree.
 		close(stop)
+
+		// 2. Unmount FUSE overlays before teardown checkpoint (§14.2).
+		//    This ensures the final snapshot captures a clean tree, not a
+		//    FUSE-mounted overlay that may be stale.
+		unmountFuse(root, stagingRoot)
 
 		// 2. Stop accepting new control requests, but let an in-flight
 		//    /checkpoint finish — Shutdown waits for active handlers rather

@@ -13,21 +13,14 @@ import (
 // whole of the ADR-052 §4 guarantee on the job path: a fleet cannot express
 // placement because EphemeralJobSpec has no field carrying it, so there is
 // nothing to mutate afterwards and nothing to reject.
+//
+// §14.2: StorageClass is removed. Workspace identity lives in S3, not in a
+// PVC — every pod starts with an emptyDir and the sidecar restores via FUSE
+// mount. Node affinity is gone.
 type Placement struct {
 	NodeSelector      map[string]string
 	Tolerations       []corev1.Toleration
 	PriorityClassName string
-
-	// StorageClass backs a WorkspacePersistence PVC for workloads of this class
-	// (ADR-052 §14).
-	//
-	// It belongs here, with the other placement-derived values, because storage
-	// on this platform is a property of WHERE a pod runs: home workers are
-	// served by node-local `local-path`, burst/cloud nodes by Hetzner's CSI. A
-	// PVC bound to the wrong one is not merely slower, it is unreachable from
-	// the node the pod is placed on — so resolving it from anything other than
-	// the placement class would let the two disagree.
-	StorageClass string
 }
 
 // The burst node's identity. These constants MUST match, exactly, the node
@@ -64,21 +57,6 @@ const (
 	NodeRoleWorkerKey = "node-role.kubernetes.io/worker"
 
 	BurstPriorityClass = "burst-tenant"
-
-	// StorageClasses backing WorkspacePersistence, one per placement class
-	// (ADR-052 §14). Both are cluster-provided and predate this feature —
-	// nothing here installs them.
-	//
-	// StorageClassHome is `local-path`
-	// (manifests/hub-core-services/storage/local-path-storage.yaml), whose
-	// provisioner DaemonSet is restricted to workload-location=home nodes. On a
-	// Kind cluster the same provisioner ships under the name `standard`, so
-	// waypoint's setup-kind.sh creates a `local-path` alias rather than have
-	// this constant differ by environment.
-	StorageClassHome = "local-path"
-	// StorageClassBurst is Hetzner's CSI class, applied per-spoke by the CAPI
-	// addon (manifests/providers/hetzner/base/spoke-addons/csi-addon-template.yaml).
-	StorageClassBurst = "hcloud-volumes"
 
 	// minWorkspaceGraceSeconds is the floor on terminationGracePeriodSeconds
 	// for a pod with a persisted workspace — the time the native sidecar has
@@ -127,6 +105,8 @@ var placements = map[string]Placement{
 	//
 	// ADR-046 §11: workload-location is never sufficient alone. Without the
 	// worker role a pod can land on a control-plane node carrying the label.
+	//
+	// §14.2: No StorageClass — workspace is emptyDir, restored via FUSE.
 	"home": {
 		NodeSelector: map[string]string{
 			WorkloadLocationKey: WorkloadLocationHome,
@@ -135,10 +115,6 @@ var placements = map[string]Placement{
 		// No toleration: home workers carry no burst taint. Adding one would be
 		// inert here and misleading to the next reader.
 		PriorityClassName: BurstPriorityClass,
-		// Node-local, hostPath-backed, no replication. ADR-052 §14 accepts that
-		// trade for this class and §18.7 states the consequence: losing the node
-		// loses everything written since the last checkpoint.
-		StorageClass: StorageClassHome,
 	},
 
 	"burst": {
@@ -157,10 +133,6 @@ var placements = map[string]Placement{
 		// ResourceQuota selects on, so the bound and the preemption order come
 		// from the same object.
 		PriorityClassName: BurstPriorityClass,
-		// Network-attached and reattachable to another node in-region, so node
-		// loss alone does not lose the workspace here — the asymmetry ADR-052
-		// §14 records between the two classes.
-		StorageClass: StorageClassBurst,
 	},
 }
 
@@ -176,19 +148,17 @@ func ResolvePlacement(class string) (Placement, bool) {
 	return p, ok
 }
 
-// Workspace PVC constants (ADR-052 §14).
+// Workspace volume constants (ADR-052 §14, §14.2).
 const (
-	// defaultWorkspaceSize is the platform's choice, not the fleet's. §14 keeps
-	// size out of the fleet-facing type on the same principle as StorageClass:
-	// a per-request size is a way to ask for storage that was not granted.
-	defaultWorkspaceSize = "10Gi"
-
 	// labelWorkspacePVC marks the PVCs the workspace reaper (§14) is allowed to
 	// consider. It exists so that reaper can never select a PVC this operator
 	// did not author.
+	//
+	// §14.2: This label is retained for backward compatibility but PVCs are no
+	// longer created by the operator. Workspaces now use emptyDir volumes.
 	labelWorkspacePVC = "compute.nutgraf.in/workspace"
 
-	// annotationWorkspaceID records the un-hashed workspace id, since the PVC
-	// name is a hash and is not reversible.
+	// annotationWorkspaceID records the workspace id on resources for
+	// observability.
 	annotationWorkspaceID = "compute.nutgraf.in/workspace-id"
 )

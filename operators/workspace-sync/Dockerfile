@@ -1,19 +1,16 @@
-FROM golang:1.26 AS builder
-WORKDIR /workspace
+FROM golang:1.24 AS build
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY cmd/ cmd/
-COPY internal/ internal/
-RUN CGO_ENABLED=0 go build -a -o workspace-sync ./cmd
+COPY . .
+RUN CGO_ENABLED=0 go build -o /workspace-sync ./cmd/main.go
 
-# distroless/static, matching ephemeral-job-operator: this holds the object
-# store credential, so it gets the smallest surface available. It needs
-# ca-certificates for TLS to the S3 endpoint, which the :nonroot base carries.
-FROM gcr.io/distroless/static:nonroot
-WORKDIR /
-COPY --from=builder /workspace/workspace-sync .
-# 65532 is distroless' nonroot uid. The workload runs as 1000 and both write to
-# the same volume, which is why the operator sets an fsGroup on the pod — see
-# buildPodSpec.
-USER 65532:65532
-ENTRYPOINT ["/workspace-sync"]
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    squashfuse fuse3 fuse-overlayfs fuse \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /workspace /ws-staging
+COPY --from=build /workspace-sync /usr/local/bin/workspace-sync
+RUN useradd -r -s /bin/false sync
+USER sync
+ENTRYPOINT ["workspace-sync"]

@@ -1,11 +1,13 @@
 // Package store is the content-addressed object layer behind a workspace
-// checkpoint (ADR-052 §14, §18).
+// checkpoint (ADR-052 §14, §18), with squashfs archive support for O(1)
+// restore (§14.2).
 //
-// Two kinds of object live under one workspace's prefix:
+// Three kinds of object live under one workspace's prefix:
 //
 //	<prefix>/objects/<sha256>          immutable file content, shared between
 //	                                   checkpoints of THIS workspace
 //	<prefix>/checkpoints/<id>.json     a manifest naming the tree
+//	<prefix>/archive.sqsh              squashfs image for fast FUSE restore
 //
 // Keys are scoped per workspace deliberately (§18.6). Dedup applies within a
 // workspace, not across them, which gives up cross-workspace sharing and buys
@@ -23,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -115,8 +118,10 @@ func New(cfg Config) (*Store, error) {
 	return &Store{c: c, bucket: cfg.Bucket, prefix: "workspaces/" + cfg.WorkspaceID}, nil
 }
 
-func (s *Store) objectKey(hash string) string { return s.prefix + "/objects/" + hash }
-func (s *Store) manifestKey(id string) string { return s.prefix + "/checkpoints/" + id + ".json" }
+func (s *Store) objectKey(hash string) string  { return s.prefix + "/objects/" + hash }
+func (s *Store) manifestKey(id string) string  { return s.prefix + "/checkpoints/" + id + ".json" }
+func (s *Store) archiveKey() string            { return s.prefix + "/archive.sqsh" }
+func (s *Store) checkpointArchiveKey(id string) string { return s.prefix + "/checkpoints/" + id + ".sqsh" }
 
 // hashFile returns the content address of a file. This is the whole basis of
 // dedup: two checkpoints differing in 3 of 10,000 files upload 3 objects,
@@ -198,6 +203,26 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	if err := s.setLatest(ctx, m.ID); err != nil {
 		return nil, err
 	}
+
+	// Create and upload squashfs archive for O(1) restore (§14.2).
+	// This is best-effort: if mksquashfs is unavailable (e.g. dev cluster
+	// without FUSE tools), the checkpoint itself is still valid — restore
+	// falls back to file-by-file content-addressed materialization.
+	archivePath := filepath.Join(os.TempDir(), "ws-archive-"+m.ID+".sqsh")
+	if err := s.CreateArchive(ctx, root, archivePath); err != nil {
+		// Log but don't fail: archive is an optimization, not a requirement.
+		fmt.Fprintf(os.Stderr, "warning: squashfs archive creation failed: %v\n", err)
+	} else {
+		if err := s.UploadArchive(ctx, archivePath); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: squashfs archive upload failed: %v\n", err)
+		}
+		// Also upload as per-checkpoint archive for undo-to-checkpoint.
+		if err := s.UploadCheckpointArchive(ctx, m.ID, archivePath); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: checkpoint archive upload failed: %v\n", err)
+		}
+		os.Remove(archivePath)
+	}
+
 	return m, nil
 }
 
@@ -308,4 +333,151 @@ func newID() string {
 	r := sha256.Sum256([]byte(fmt.Sprint(now, os.Getpid())))
 	copy(b[8:], r[:8])
 	return hex.EncodeToString(b)
+}
+
+// CreateArchive creates a squashfs archive from root at archivePath.
+//
+// The archive is a compressed, read-only filesystem image suitable for O(1)
+// restore via squashfuse + fuse-overlayfs (§14.2). Compression uses zstd for
+// speed and ratio; 8 processors are used for parallel compression.
+//
+// This is called during Snapshot() to ensure every checkpoint has a
+// corresponding fast-restore image.
+func (s *Store) CreateArchive(ctx context.Context, root, archivePath string) error {
+	cmd := exec.CommandContext(ctx, "mksquashfs", root, archivePath,
+		"-comp", "zstd",
+		"-processors", "8",
+		"-no-progress",
+		"-noappend",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mksquashfs: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// UploadArchive uploads a squashfs archive to S3 at the workspace's archive key.
+func (s *Store) UploadArchive(ctx context.Context, archivePath string) error {
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		return fmt.Errorf("stat archive: %w", err)
+	}
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open archive: %w", err)
+	}
+	defer f.Close()
+	_, err = s.c.PutObject(ctx, s.bucket, s.archiveKey(), f, info.Size(),
+		minio.PutObjectOptions{ContentType: "application/x-squashfs"})
+	return err
+}
+
+// UploadCheckpointArchive uploads a squashfs archive for a specific checkpoint,
+// enabling undo-to-any-checkpoint (§14.2).
+func (s *Store) UploadCheckpointArchive(ctx context.Context, checkpointID, archivePath string) error {
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		return fmt.Errorf("stat archive: %w", err)
+	}
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open archive: %w", err)
+	}
+	defer f.Close()
+	_, err = s.c.PutObject(ctx, s.bucket, s.checkpointArchiveKey(checkpointID), f, info.Size(),
+		minio.PutObjectOptions{ContentType: "application/x-squashfs"})
+	return err
+}
+
+// DownloadArchive downloads the squashfs archive from S3 to archivePath.
+//
+// Returns an error if the archive does not exist (first-ever checkpoint or
+// S3 misconfiguration). The caller should fall back to file-by-file restore.
+func (s *Store) DownloadArchive(ctx context.Context, archivePath string) error {
+	o, err := s.c.GetObject(ctx, s.bucket, s.archiveKey(), minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("get archive: %w", err)
+	}
+	defer o.Close()
+	// Check for 404 / not-found by reading the first byte.
+	var buf [1]byte
+	if _, err := o.Read(buf[:]); err != nil {
+		return fmt.Errorf("archive not found or empty: %w", err)
+	}
+	// Seek back and write to file.
+	if _, err := o.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seek archive: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(archivePath)
+	if err != nil {
+		return fmt.Errorf("create archive file: %w", err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, o); err != nil {
+		return fmt.Errorf("download archive: %w", err)
+	}
+	return nil
+}
+
+// DownloadCheckpointArchive downloads a squashfs archive for a specific
+// checkpoint, enabling undo-to-any-checkpoint (§14.2).
+func (s *Store) DownloadCheckpointArchive(ctx context.Context, checkpointID, archivePath string) error {
+	o, err := s.c.GetObject(ctx, s.bucket, s.checkpointArchiveKey(checkpointID), minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("get checkpoint archive: %w", err)
+	}
+	defer o.Close()
+	var buf [1]byte
+	if _, err := o.Read(buf[:]); err != nil {
+		return fmt.Errorf("checkpoint archive not found or empty: %w", err)
+	}
+	if _, err := o.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seek checkpoint archive: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(archivePath)
+	if err != nil {
+		return fmt.Errorf("create checkpoint archive file: %w", err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, o); err != nil {
+		return fmt.Errorf("download checkpoint archive: %w", err)
+	}
+	return nil
+}
+
+// ArchiveExists checks whether a squashfs archive exists in S3.
+func (s *Store) ArchiveExists(ctx context.Context) bool {
+	_, err := s.c.StatObject(ctx, s.bucket, s.archiveKey(), minio.StatObjectOptions{})
+	return err == nil
+}
+
+// ListCheckpoints returns checkpoint IDs in reverse chronological order
+// (newest first), for the undo-to-checkpoint UI.
+func (s *Store) ListCheckpoints(ctx context.Context) ([]string, error) {
+	prefix := s.prefix + "/checkpoints/"
+	ch := s.c.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: false,
+	})
+	var ids []string
+	for obj := range ch {
+		if obj.Err != nil {
+			return nil, obj.Err
+		}
+		name := strings.TrimPrefix(obj.Key, prefix)
+		name = strings.TrimSuffix(name, ".json")
+		if name == "" || name == "LATEST" {
+			continue
+		}
+		ids = append(ids, name)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(ids)))
+	return ids, nil
 }

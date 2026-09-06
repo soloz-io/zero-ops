@@ -266,13 +266,6 @@ func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alp
 		return nil, fmt.Errorf("unknown placement class %q", ej.Spec.PlacementClass)
 	}
 
-	// Before the Job, not alongside it: the pod references the claim by name, so
-	// a Job created first would produce a pod stuck unschedulable on a PVC that
-	// does not exist — a failure that reads as a scheduling problem.
-	if err := r.ensureWorkspacePVC(ctx, ej, placement); err != nil {
-		return nil, err
-	}
-
 	job := r.buildJob(ej, name, placement)
 	if err := ctrl.SetControllerReference(ej, job, r.Scheme); err != nil {
 		return nil, err
@@ -667,43 +660,41 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	// than an entry in .spec.containers.
 	var spec_initContainers []corev1.Container
 
-	// A persisted workspace REPLACES the workspace volume, whatever supplied it
-	// (ADR-052 §14).
+	// A persisted workspace REPLACES the workspace volume with an emptyDir
+	// (ADR-052 §14, §14.2).
 	//
-	// Replacing rather than appending is the whole point: the workload mounts
-	// `workspace` at /workspace either way, so swapping the volume's source is
-	// what makes persistence invisible to the workload. Appending a
-	// second volume under a different name would leave the container still
-	// mounting the emptyDir and the PVC attached to nothing — bound, healthy,
-	// and holding none of the data anyone expected.
+	// With emptyDir, workspace identity lives in S3, not in a PVC. Every pod
+	// starts empty, the sidecar restores via FUSE mount (§14.2), and the
+	// overlay filesystem holds the live tree for the pod's lifetime.
 	//
-	// This also overrides a fleet-supplied `workspace` volume. A fleet that both
-	// asks for persistence and supplies its own workspace volume has said two
-	// contradictory things, and the platform's answer wins for the same reason
-	// it does on placement (§4).
+	// A staging emptyDir is also added for squashfs archive and FUSE working
+	// directories (§14.2).
 	if ej.Spec.WorkspacePersistence != nil {
-		claim := workspacePVCName(ej.Spec.WorkspacePersistence.WorkspaceID)
 		replaced := false
 		for i := range volumes {
 			if volumes[i].Name == WorkspaceVolumeName {
-				volumes[i].VolumeSource = corev1.VolumeSource{
-					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim},
-				}
+				volumes[i].VolumeSource = corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
 				replaced = true
 				break
 			}
 		}
 		if !replaced {
 			volumes = append(volumes, corev1.Volume{
-				Name: WorkspaceVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim},
-				},
+				Name:         WorkspaceVolumeName,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			})
 		}
 		container.VolumeMounts = appendMountIfAbsent(container.VolumeMounts, corev1.VolumeMount{
 			Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath,
 		})
+
+		// Staging emptyDir for squashfs archive and FUSE working dirs (§14.2).
+		if !hasVolume(volumes, "ws-staging") {
+			volumes = append(volumes, corev1.Volume{
+				Name:         "ws-staging",
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			})
+		}
 
 		// The platform's persistence agent, in both of its shapes (§14).
 		//
@@ -936,13 +927,6 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	placement, ok := ResolvePlacement(ej.Spec.PlacementClass)
 	if !ok {
 		return ctrl.Result{}, fmt.Errorf("unknown placement class %q", ej.Spec.PlacementClass)
-	}
-
-	// Before the pod, for the same reason as the Job path: a pod referencing a
-	// claim that does not exist is unschedulable, and the scheduler's message
-	// blames the volume rather than the missing object.
-	if err := r.ensureWorkspacePVC(ctx, ej, placement); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	name := jobNameFor(ej)
@@ -1186,105 +1170,6 @@ func validateSpec(ej *computev1alpha1.EphemeralJob) (reason, message string, inv
 // created this Service itself, and it is kept so that moving ownership into the
 // operator does not also move every caller's address. status.serviceName is
 // published alongside it for anything that would rather read than derive.
-// workspacePVCName is the PVC backing a workspace (ADR-052 §14).
-//
-// Derived from a hash of the workspace id, not from the id itself. A workspace
-// id is caller-chosen — an app id, a session id, an arbitrary string — and need
-// not be a valid RFC 1123 subdomain, so using it directly would turn "this
-// workspace id contains an underscore" into a 422 on pod creation that names
-// the object and not the cause. The hash is also fixed-length, which keeps the
-// name inside the 253-character limit regardless of the input.
-//
-// Deterministic by construction: the same workspace id always resolves to the
-// same PVC, which is what makes a workspace outlive the EphemeralJob that first
-// created it and what lets a later session reattach to it.
-func workspacePVCName(workspaceID string) string {
-	sum := sha256.Sum256([]byte(workspaceID))
-	return "ws-" + hex.EncodeToString(sum[:])[:32]
-}
-
-// ensureWorkspacePVC creates the workspace's PVC if it does not exist.
-//
-// **No ownerRef, deliberately** (ADR-052 §14). Every other object this operator
-// authors is owned by the EphemeralJob so that deleting the CR garbage-collects
-// it — that is exactly the wrong behaviour here. An EphemeralJob is reaped on a
-// timescale of minutes by the idle clock; the workspace is meant to survive
-// that and be reattached by the next session. An ownerRef would make the first
-// idle-timeout silently delete the user's work.
-//
-// The consequence is that nothing reclaims these automatically, which is why
-// §14 requires a separate long-interval reaper keyed on last use. That reaper
-// is not this function's job and must not be approximated here.
-//
-// AlreadyExists is success, not a conflict: concurrent sessions of the same
-// workspace race to create it and both must end up bound to the same claim.
-func (r *EphemeralJobReconciler) ensureWorkspacePVC(
-	ctx context.Context, ej *computev1alpha1.EphemeralJob, p Placement,
-) error {
-	wp := ej.Spec.WorkspacePersistence
-	if wp == nil {
-		return nil
-	}
-	logger := log.FromContext(ctx)
-	name := workspacePVCName(wp.WorkspaceID)
-
-	existing := &corev1.PersistentVolumeClaim{}
-	err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: ej.Namespace}, existing)
-	if err == nil {
-		logger.V(4).Info("workspace PVC already exists", "pvc", name, "workspaceId", wp.WorkspaceID)
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return fmt.Errorf("reading workspace PVC %s: %w", name, err)
-	}
-
-	if p.StorageClass == "" {
-		return fmt.Errorf(
-			"placement class %q defines no StorageClass, so workspacePersistence cannot be satisfied",
-			ej.Spec.PlacementClass,
-		)
-	}
-
-	size := defaultWorkspaceSize
-	sc := p.StorageClass
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ej.Namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "ephemeral-job-operator",
-				labelWorkspacePVC:              "true",
-			},
-			Annotations: map[string]string{
-				// The un-hashed id, for a human reading `kubectl get pvc -o yaml`
-				// who would otherwise have only a hash to work from.
-				annotationWorkspaceID: wp.WorkspaceID,
-			},
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			// ReadWriteOnce is a decision, not a default (ADR-052 §18.1): a
-			// workspace is single-writer/serial-session, and the RWO binding is
-			// what serialises successive sandboxes onto the node holding the
-			// data.
-			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			StorageClassName: &sc,
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(size)},
-			},
-		},
-	}
-
-	if err := r.Create(ctx, pvc); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			// Another session for the same workspace won the race. Correct.
-			return nil
-		}
-		return fmt.Errorf("creating workspace PVC %s: %w", name, err)
-	}
-	logger.Info("created workspace PVC",
-		"pvc", name, "workspaceId", wp.WorkspaceID, "storageClass", sc, "size", size)
-	return nil
-}
 
 func serviceNameFor(ej *computev1alpha1.EphemeralJob) string {
 	return ej.Name + "-svc"

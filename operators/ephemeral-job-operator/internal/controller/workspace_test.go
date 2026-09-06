@@ -37,63 +37,10 @@ func TestWorkspaceSpecCannotExpressStorage(t *testing.T) {
 	}
 }
 
-// TestWorkspacePVCNameIsStableAndValid covers the two properties the name has
-// to have at once, which pull in opposite directions.
-//
-// Stable: the same workspace id must always resolve to the same claim, or a
-// second session would silently get a fresh empty disk instead of reattaching —
-// the failure would look like data loss with nothing in error.
-//
-// Valid: workspace ids are caller-chosen and need not be RFC 1123 subdomains,
-// so the name is a hash. Passing the id through would turn "this id has an
-// underscore" into a 422 on pod creation that names the volume, not the id.
-func TestWorkspacePVCNameIsStableAndValid(t *testing.T) {
-	ids := []string{
-		"app_123",                      // underscore: illegal in a k8s name
-		"App/With/Slashes",             // slashes and capitals
-		"a" + strings.Repeat("b", 400), // longer than the 253 limit
-		"01JQ8XN0X4V4Z0RTP0J0X2M9AB",   // a ULID, the common real case
-		"",                             // degenerate, must still produce a legal name
-	}
-
-	valid := func(s string) bool {
-		if s == "" || len(s) > 253 {
-			return false
-		}
-		for _, r := range s {
-			if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '.' {
-				return false
-			}
-		}
-		return !strings.HasPrefix(s, "-") && !strings.HasSuffix(s, "-")
-	}
-
-	seen := map[string]string{}
-	for _, id := range ids {
-		got := workspacePVCName(id)
-
-		if !valid(got) {
-			t.Errorf("workspacePVCName(%q) = %q, which is not a legal RFC 1123 name", id, got)
-		}
-		if again := workspacePVCName(id); again != got {
-			t.Errorf("workspacePVCName(%q) is not deterministic: %q then %q", id, got, again)
-		}
-		if prev, dup := seen[got]; dup {
-			t.Errorf("workspacePVCName collided: %q and %q both produced %q", prev, id, got)
-		}
-		seen[got] = id
-	}
-}
-
-// TestPersistedWorkspaceReplacesTheEmptyDir is the behaviour the whole feature
-// rests on, and the one with a silent failure mode.
-//
-// The workload mounts `workspace` at /workspace either way. If the PVC were
-// APPENDED as a second volume rather than replacing the emptyDir's source, the
-// container would go on mounting the emptyDir while the PVC sat bound and empty
-// — every check would pass, the claim would look healthy, and none of the data
-// would be on it.
-func TestPersistedWorkspaceReplacesTheEmptyDir(t *testing.T) {
+// TestPersistedWorkspaceIsAnEmptyDir is the behaviour the whole feature rests
+// on (§14.2): workspace identity lives in S3, not in a PVC. Every pod starts
+// with an emptyDir and the sidecar restores via FUSE mount.
+func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 	r := &EphemeralJobReconciler{}
 	p, _ := ResolvePlacement("home")
 
@@ -106,6 +53,7 @@ func TestPersistedWorkspaceReplacesTheEmptyDir(t *testing.T) {
 
 	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
 
+	// 1. Workspace volume must be emptyDir, not PVC.
 	var ws *corev1.Volume
 	for i := range spec.Volumes {
 		if spec.Volumes[i].Name == WorkspaceVolumeName {
@@ -115,19 +63,15 @@ func TestPersistedWorkspaceReplacesTheEmptyDir(t *testing.T) {
 	if ws == nil {
 		t.Fatalf("no %q volume in the pod spec", WorkspaceVolumeName)
 	}
-	if ws.PersistentVolumeClaim == nil {
-		t.Fatalf("%q volume is not PVC-backed (got %+v) — the workload would write to an emptyDir while the claim sat empty",
+	if ws.PersistentVolumeClaim != nil {
+		t.Fatalf("%q volume is PVC-backed (got %+v) — §14.2 says workspace identity lives in S3, not a PVC",
 			WorkspaceVolumeName, ws.VolumeSource)
 	}
-	if got, want := ws.PersistentVolumeClaim.ClaimName, workspacePVCName("app-1"); got != want {
-		t.Errorf("claim name = %q, want %q", got, want)
-	}
-	if ws.EmptyDir != nil {
-		t.Errorf("%q volume still carries an emptyDir source alongside the claim", WorkspaceVolumeName)
+	if ws.EmptyDir == nil {
+		t.Fatalf("%q volume is not emptyDir (got %+v)", WorkspaceVolumeName, ws.VolumeSource)
 	}
 
-	// Exactly one workspace volume: two would be rejected by the API server, and
-	// the message names the pod rather than the cause.
+	// 2. Exactly one workspace volume.
 	n := 0
 	for _, v := range spec.Volumes {
 		if v.Name == WorkspaceVolumeName {
@@ -138,7 +82,7 @@ func TestPersistedWorkspaceReplacesTheEmptyDir(t *testing.T) {
 		t.Errorf("found %d %q volumes, want exactly 1", n, WorkspaceVolumeName)
 	}
 
-	// And the workload actually mounts it.
+	// 3. Workload mounts it.
 	mounted := false
 	for _, m := range spec.Containers[0].VolumeMounts {
 		if m.Name == WorkspaceVolumeName && m.MountPath == WorkspaceMountPath {
@@ -147,6 +91,39 @@ func TestPersistedWorkspaceReplacesTheEmptyDir(t *testing.T) {
 	}
 	if !mounted {
 		t.Errorf("workload does not mount %q at %s", WorkspaceVolumeName, WorkspaceMountPath)
+	}
+
+	// 4. Staging emptyDir present for FUSE mounts (§14.2).
+	var staging *corev1.Volume
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == "ws-staging" {
+			staging = &spec.Volumes[i]
+		}
+	}
+	if staging == nil {
+		t.Error("no ws-staging volume — squashfs archive needs a staging dir for FUSE mounts (§14.2)")
+	} else if staging.EmptyDir == nil {
+		t.Error("ws-staging volume is not emptyDir")
+	}
+
+	// 5. Sidecar has SYS_ADMIN capability for FUSE mounts.
+	for i := range spec.InitContainers {
+		c := &spec.InitContainers[i]
+		if c.Name == "workspace-sync" && c.SecurityContext != nil {
+			if c.SecurityContext.Capabilities == nil {
+				t.Error("workspace-sync has no capabilities — FUSE mounts need SYS_ADMIN")
+			} else {
+				found := false
+				for _, cap := range c.SecurityContext.Capabilities.Add {
+					if cap == "SYS_ADMIN" {
+						found = true
+					}
+				}
+				if !found {
+					t.Error("workspace-sync missing SYS_ADMIN capability — needed for squashfuse + fuse-overlayfs (§14.2)")
+				}
+			}
+		}
 	}
 }
 
@@ -175,17 +152,10 @@ func TestWithoutPersistenceWorkspaceStaysEphemeral(t *testing.T) {
 			}
 		}
 	}
-}
-
-// TestEveryPlacementClassHasAStorageClass stops a class being added without
-// one. The failure it prevents is not a compile error but a runtime refusal:
-// ensureWorkspacePVC would reject the request for a class that resolves to an
-// empty StorageClass, which reads as "persistence is broken" rather than "this
-// class was never given storage".
-func TestEveryPlacementClassHasAStorageClass(t *testing.T) {
-	for class, p := range placements {
-		if p.StorageClass == "" {
-			t.Errorf("placement class %q defines no StorageClass; workspacePersistence cannot be satisfied for it (ADR-052 §14)", class)
+	// No staging volume without persistence.
+	for _, v := range spec.Volumes {
+		if v.Name == "ws-staging" {
+			t.Error("ws-staging volume present without workspacePersistence — should only be added when persistence is requested")
 		}
 	}
 }
