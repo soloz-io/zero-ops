@@ -11,7 +11,7 @@ PUBLIC_ENDPOINTS=(
   "infisical.{zone}      | /api/status                 | 200                 | yes       | infisical api"
   "console.{zone}        | /                           | 200 302 303 404     | yes       | console"
   "argocd.{zone}         | /healthz                    | 200                 | yes       | argocd"
-  "dashboard.{zone}      | /                           | 200 302 401         | yes       | dashboard"
+  "dashboard.{zone}      | /                           | 200 302 401         | yes       | headlamp"
   "mail.{apex}           | /                           | 200 302 401 404     | yes       | mail"
   "smtp.{apex}           | /                           | 200 302 401 404     | yes       | smtp"
 )
