@@ -77,9 +77,26 @@ data:
               audiences:
               - https://api.dev.nutgraf.in/mcp
               jwks:
-                # Zitadel publishes signing keys at /oauth/v2/keys and returns
-                # 404 for the conventional /.well-known/jwks.json.
-                url: http://zitadel.platform-identity.svc.cluster.local:8080/oauth/v2/keys
+                # The PUBLIC issuer URL, not the in-cluster Service address.
+                #
+                # Two constraints meet here. Zitadel publishes signing keys at
+                # /oauth/v2/keys and 404s the conventional /.well-known/jwks.json.
+                # And it is multi-instance: it resolves the instance from the
+                # request origin, so a fetch addressed to
+                # zitadel.platform-identity.svc.cluster.local matches no instance
+                # and answers 404 with a PLAIN-TEXT body --
+                #
+                #   Error: failed to load JWKS: expected value at line 1 column 1
+                #
+                # which reads as a corrupt document rather than a wrong host.
+                #
+                # auth-proxy solves this by dialling in-cluster and overriding the
+                # Host header, but agentgateway's jwks block takes only a URL, so
+                # the public name is the only spelling that resolves the instance.
+                # That makes this fetch depend on the hub Gateway and its
+                # certificate being up, which is acceptable: agentgateway IS the
+                # gateway, so it cannot serve traffic before they are anyway.
+                url: https://id.dev.nutgraf.in/oauth/v2/keys
               resourceMetadata:
                 resource: https://api.dev.nutgraf.in/mcp
                 mcpProtocolVersion: "2024-11-05"

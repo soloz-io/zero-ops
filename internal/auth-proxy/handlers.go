@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sync/atomic"
 	"time"
 )
@@ -127,6 +128,21 @@ func (h *Handler) SetReady() {
 // JWKSURL is the in-cluster URL signing keys are fetched from.
 func (h *Handler) JWKSURL() string { return h.jwksURL }
 
+// IssuerHost is the host:port the issuer identifies itself by. Every request to
+// the in-cluster address must carry it as the Host header (see proxy below).
+func (h *Handler) IssuerHost() string { return issuerHost(h.issuerURL) }
+
+// issuerHost extracts the host[:port] from an absolute issuer URL. An
+// unparseable value yields "", which leaves Go's default behaviour rather than
+// sending a malformed header.
+func issuerHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
 func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -138,11 +154,25 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	req.Header = r.Header.Clone()
-	// The in-cluster Service address is not the issuer. Zitadel builds URLs from
-	// its configured ExternalDomain rather than from this header, but the header
-	// is corrected anyway so a request never carries a host the origin does not
-	// serve.
-	req.Host = ""
+	// The Host header MUST name the issuer, not the Service being dialled.
+	//
+	// Zitadel is multi-instance: it resolves which instance a request belongs to
+	// from the request's origin, and a request arriving with the in-cluster
+	// Service name matches no instance:
+	//
+	//   unable to set instance using origin
+	//   zitadel.platform-identity.svc.cluster.local:8080
+	//   (ExternalDomain is id.dev.nutgraf.in) ... Instance not found
+	//
+	// It answers 404 with a PLAIN-TEXT body, so a caller expecting JWKS fails
+	// while parsing rather than while connecting -- "expected value at line 1
+	// column 1" -- which reads as a corrupt document rather than a wrong host.
+	//
+	// So the connection goes to the in-cluster address (no dependency on this
+	// service's own gateway, DNS or certificate) while the Host header carries
+	// the public issuer. Setting it empty, as this once did, makes Go send the
+	// URL's host and reproduces the 404 above.
+	req.Host = issuerHost(h.issuerURL)
 	req.URL.RawQuery = r.URL.RawQuery
 
 	noRedirectClient := &http.Client{

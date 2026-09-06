@@ -42,7 +42,24 @@ type JWTValidator struct {
 	fetchTimeout     time.Duration
 	refreshInterval  time.Duration
 	client           *http.Client
-	mu               sync.RWMutex
+	// jwksHost overrides the Host header on the JWKS fetch. Empty means "use the
+	// URL's host", which is the conventional behaviour.
+	jwksHost string
+	mu       sync.RWMutex
+}
+
+// NewJWTValidator builds a validator that fetches signing keys from jwksURL.
+//
+// jwksHost, when set, is sent as the Host header on that fetch. It exists
+// because Zitadel resolves its instance from the request origin: keys are
+// fetched over the in-cluster Service address, which matches no instance, so the
+// header must carry the public issuer or the fetch answers 404 in plain text.
+// Empty leaves Go's default (the URL's own host), which is correct for an issuer
+// that does not multiplex on Host.
+func NewJWTValidatorWithHost(jwksURL, jwksHost, expectedAudience string, ttl, fetchTimeout time.Duration) *JWTValidator {
+	v := NewJWTValidator(jwksURL, expectedAudience, ttl, fetchTimeout)
+	v.jwksHost = jwksHost
+	return v
 }
 
 func NewJWTValidator(jwksURL, expectedAudience string, ttl, fetchTimeout time.Duration) *JWTValidator {
@@ -172,6 +189,10 @@ func (v *JWTValidator) fetchJWKS() (*JWKS, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", v.jwksURL, nil)
 	if err != nil {
 		return nil, err
+	}
+	// See NewJWTValidatorWithHost: the issuer may key its instance off this.
+	if v.jwksHost != "" {
+		req.Host = v.jwksHost
 	}
 
 	resp, err := v.client.Do(req)

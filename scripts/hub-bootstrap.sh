@@ -1848,6 +1848,12 @@ main() {
     # nothing unhealthy in the cluster — it fails in the browser only.
     run_gate "oauth-clients" "OAuth client registration"
 
+    # The public APIs answer over the hostnames a real client uses. Object-level
+    # checks cannot see this: every pod, Service, Route and Certificate can be
+    # Healthy while DNS, the listener, the certificate or the hostname match is
+    # wrong and the endpoint answers nothing.
+    run_gate "public-api-endpoints" "public API endpoints"
+
     if [[ -z "$SPOKEPOOL_NAME" ]]; then
         error_exit "SPOKEPOOL_NAME must be set via --spoke flag or SPOKEPOOL_NAME env var for provider '$PROVIDER'"
     fi

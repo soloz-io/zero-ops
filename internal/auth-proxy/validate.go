@@ -28,8 +28,9 @@ func (h *Handler) ValidateHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Validate JWT
-	validator := NewJWTValidator(
+	validator := NewJWTValidatorWithHost(
 		h.jwksURL,
+		h.IssuerHost(),
 		h.expectedAudience,
 		time.Hour,     // 1-hour TTL
 		5*time.Second, // fetch timeout

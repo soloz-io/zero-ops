@@ -50,8 +50,9 @@ func main() {
 	// the readiness probe fails, no traffic is routed here, and the pod's own
 	// status names the reason. The retry loop then flips it Ready when the issuer
 	// appears, with no restart.
-	validator := authproxy.NewJWTValidator(
+	validator := authproxy.NewJWTValidatorWithHost(
 		handler.JWKSURL(),
+		handler.IssuerHost(),
 		cfg.ExpectedJWTAudience,
 		cfg.JWKSCacheTTL,
 		cfg.JWKSFetchTimeout,
