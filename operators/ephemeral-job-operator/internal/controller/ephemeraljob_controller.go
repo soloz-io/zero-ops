@@ -684,11 +684,25 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			})
 		}
+		// HostToContainer is the workload's half of the propagation pair.
+		//
+		// The sidecar mounts fuse-overlayfs at this path in ITS mount
+		// namespace, and containers in a pod do not share mount namespaces. The
+		// sidecar's mount is Bidirectional, which pushes it out to the host;
+		// this makes the workload pick it up from there. Set on one side only
+		// and the agent sees an empty emptyDir while restore reports success.
+		hostToContainer := corev1.MountPropagationHostToContainer
 		container.VolumeMounts = appendMountIfAbsent(container.VolumeMounts, corev1.VolumeMount{
-			Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath,
+			Name:             WorkspaceVolumeName,
+			MountPath:        WorkspaceMountPath,
+			MountPropagation: &hostToContainer,
 		})
 
-		// Staging emptyDir for squashfs archive and FUSE working dirs (§14.2).
+		// Staging emptyDir for the squashfs archive, the FUSE working
+		// directories, and the readiness marker (§14.2). Deliberately NOT
+		// mounted into the workload: it holds the overlay's upper layer, and a
+		// tenant able to write there could edit its own workspace out from
+		// under the filesystem presenting it.
 		if !hasVolume(volumes, "ws-staging") {
 			volumes = append(volumes, corev1.Volume{
 				Name:         "ws-staging",
@@ -696,28 +710,23 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 			})
 		}
 
-		// The platform's persistence agent, in both of its shapes (§14).
+		// The platform's persistence agent — ONE container, not two (§14.2).
 		//
-		// These are added by the OPERATOR, never by the fleet: they carry the
+		// It is added by the OPERATOR, never by the fleet: it carries the
 		// object-store credential, and §19.6 makes agent-vault the only
 		// credential channel into the workload container. A fleet-supplied
-		// sidecar could not be trusted with this and a fleet-supplied init
-		// container could skip the restore entirely.
+		// sidecar could not be trusted with this.
+		//
+		// The `workspace-restore` init container that used to precede it is
+		// gone. A FUSE mount does not outlive the container that made it — the
+		// mount namespace goes with the process — so an init container could
+		// only ever download the archive the sidecar downloads again, or mount
+		// an overlay destroyed before the workload starts. Restore has one
+		// owner now, and the startup probe on this container is what holds the
+		// workload back until that restore is finished.
 		wsID := ej.Spec.WorkspacePersistence.WorkspaceID
-		initC, sideC := workspaceSyncContainers(wsID)
-		// Both go in initContainers, restore first, and the sync sidecar LAST.
-		//
-		// The sidecar is a native sidecar (restartPolicy: Always), so this is
-		// not the ordinary "runs to completion" list: entries before it must
-		// finish before it starts, and it keeps running once it has. That
-		// gives the exact sequence this needs — restore populates the volume,
-		// then sync comes up, then the workload starts against a workspace
-		// that is both restored and already being watched.
-		//
-		// It must stay last for the first half of that to hold: a plain init
-		// container appended after a native sidecar would start only once the
-		// sidecar became ready, not once it exited.
-		spec_initContainers = append(spec_initContainers, initC, sideC)
+		keep := resolveKeepCheckpoints(ej.Spec.WorkspacePersistence)
+		spec_initContainers = append(spec_initContainers, workspaceSyncContainer(wsID, keep))
 	}
 
 	// A writable /tmp, always.

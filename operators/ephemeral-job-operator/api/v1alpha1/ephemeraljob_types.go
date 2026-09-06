@@ -337,11 +337,17 @@ type EphemeralJobSpec struct {
 	WorkspacePersistence *WorkspacePersistenceSpec `json:"workspacePersistence,omitempty"`
 }
 
-// WorkspacePersistenceSpec asks for a durable /workspace (ADR-052 §14).
+// WorkspacePersistenceSpec asks for a durable /workspace (ADR-052 §14, §14.2).
 //
-// Deliberately one field. Everything else about the volume is a platform
-// decision, and each additional knob here would be a way for a fleet to
+// Deliberately small. Everything about HOW the workspace is stored — the
+// bucket, the credential, the agent image, the volume, the mount — is a
+// platform decision, and each such knob here would be a way for a fleet to
 // contradict one.
+//
+// KeepCheckpoints is the exception, and the distinction is worth stating: it
+// does not change any mechanism, only how much history is retained. That is a
+// product question about the fleet's own users ("how far back can they undo?"),
+// which the platform is in no position to answer for them.
 type WorkspacePersistenceSpec struct {
 	// WorkspaceID identifies the WORKSPACE, not this request.
 	//
@@ -357,7 +363,44 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	WorkspaceID string `json:"workspaceId"`
+
+	// KeepCheckpoints is how many checkpoints this workspace retains
+	// (ADR-052 §14.2). Unset means 5.
+	//
+	// It is how far back a user can "undo to a checkpoint", so the right value
+	// is a property of the fleet's product, not of the platform: a coding agent
+	// making frequent small edits wants more history than one that checkpoints
+	// once per long-running job.
+	//
+	// BOUNDED, because it is also a storage-consumption knob. Every retained
+	// checkpoint owns a full compressed copy of the workspace — squashfs
+	// archives do not share blocks with one another — so this multiplies the
+	// fleet's object-store footprint directly. The maximum is what stops one
+	// fleet's preference from becoming the platform's bill.
+	//
+	// LOWERING IT DELETES DATA. Retention is applied after the next snapshot,
+	// so reducing this from 20 to 5 discards fifteen checkpoints the next time
+	// the workspace is checkpointed. The operator does not warn about that; a
+	// fleet lowering the value is presumed to mean it.
+	//
+	// Applied per POD, from the CR that created it. Two concurrent sessions on
+	// one workspaceId that disagree would each prune to their own value —
+	// harmless because §18.1 serialises sessions per workspace, and worth
+	// knowing if that ever stops being true.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=50
+	KeepCheckpoints *int32 `json:"keepCheckpoints,omitempty"`
 }
+
+// DefaultKeepCheckpoints is the retention used when a fleet asks for none.
+//
+// Must stay equal to store.DefaultKeepCheckpoints in the workspace-sync module
+// — they are two copies of one number, in two Go modules that cannot import
+// each other. The operator always sets the env var explicitly, so the sidecar's
+// own default is only reached when something else runs it.
+const DefaultKeepCheckpoints int32 = 5
 
 // Mode is the workload lifecycle. See EphemeralJobSpec.Mode.
 // +kubebuilder:validation:Enum=Job;Service

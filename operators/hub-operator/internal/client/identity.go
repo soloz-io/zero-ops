@@ -49,6 +49,28 @@ func NewIdentityClient(baseURL string) *IdentityClient {
 }
 
 // TenantIdentity is what the identity service reports back.
+// OAuthClient is one client a FLEET declares (ADR-053).
+//
+// It carries no credential. The fleet says what it needs -- a name, whether the
+// client authenticates with a secret, and where its callback lives -- and the
+// identity service provisions it against the issuer and publishes the
+// identifiers the issuer allocates. Keeping the declaration on this side of the
+// boundary is what stops the platform assuming a client set (ADR-047).
+type OAuthClient struct {
+	// Name is unique within the tenant. The client is registered under
+	// "<tenantId>-<Name>".
+	Name string
+
+	// Confidential is true when the client authenticates with a secret. A public
+	// client uses PKCE and has no credential to store.
+	Confidential bool
+
+	// RedirectPaths are appended to the fleet's public host. An issuer matches
+	// redirect URIs EXACTLY, so a client provisioned without its callback fails
+	// at the authorization endpoint before any credential is entered.
+	RedirectPaths []string
+}
+
 type TenantIdentity struct {
 	TenantRef  string `json:"tenantRef"`
 	ProjectRef string `json:"projectRef"`
@@ -61,12 +83,24 @@ type TenantIdentity struct {
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*TenantIdentity, error) {
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
+	// Sent as declared. The service provisions exactly this set and no more, so a
+	// fleet that declares nothing gets no clients rather than a default one.
+	clients := make([]map[string]any, 0, len(oauthClients))
+	for _, oc := range oauthClients {
+		clients = append(clients, map[string]any{
+			"name":          oc.Name,
+			"confidential":  oc.Confidential,
+			"redirectPaths": oc.RedirectPaths,
+		})
+	}
+
 	body, err := json.Marshal(map[string]any{
 		"redirectUris":     redirectURIs,
 		"postLogoutUris":   postLogoutURIs,
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
+		"oauthClients":     clients,
 	})
 	if err != nil {
 		return nil, err

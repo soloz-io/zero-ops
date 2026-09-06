@@ -499,6 +499,7 @@ func apiError(op string, status int, body string) error {
 func kubectlExec(ctx context.Context, podName string, args ...string) (string, error) {
 	cmdArgs := append([]string{
 		"exec", "-n", infisicalNamespace, "pod/" + podName,
+		"-c", "infisical-standalone-infisical",
 		"--",
 	}, args...)
 

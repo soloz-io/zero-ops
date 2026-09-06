@@ -82,4 +82,31 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   {{- end }}
+
+  {{- /*
+    ADR-053: the OAuth clients this fleet declares.
+    The fleet names them, says which are confidential, and says where each one's
+    callback lives; the platform provisions them against the issuer and publishes
+    the allocated identifiers back. That split is the point (ADR-047): a client
+    name is the fleet's to choose, and a platform that assumed one would be
+    encoding one tenant's architecture for every tenant.
+    redirectPaths travels with the client because an issuer matches redirect URIs
+    EXACTLY. Under Hydra these reached the issuer through an OAuth2Client CR, so
+    the XR carried only what the credential producer needed; Zitadel has no such
+    controller, so the registration data has to arrive here too or the client is
+    created with no callback and login fails at the authorization endpoint.
+    A fleet declaring no clients passes nothing and receives none.
+  */}}
+  {{- with (.Values.oauth | default dict).clients }}
+  oauth:
+    clients:
+    {{- range . }}
+      - name: {{ .name }}
+        type: {{ .type | default "confidential" }}
+        {{- with .redirectPaths }}
+        redirectPaths:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
 {{- end }}

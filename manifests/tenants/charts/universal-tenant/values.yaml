@@ -105,26 +105,55 @@ gateway:
 
 oauth:
   # Public hostname this fleet serves, e.g. waypoint.dev.nutgraf.in
-  #
-  # Still declared, because it is where a login returns to: the redirect URIs the
-  # identity service registers are derived from it, and preflight cross-checks it
-  # against public.hosts so a login cannot redirect to a name with no listener.
   publicHost: ""
-  # There is deliberately NO client list here (ADR-060).
+  # OAuth clients this fleet declares (ADR-053). One per service that INITIATES an
+  # OAuth flow; a service that only validates tokens is not a client. An empty list
+  # renders nothing, which is how a fleet with no OAuth declares it — there is no
+  # enabled flag, because the list already says whether anything is wanted.
   #
-  # Clients were declared per fleet because Hydra let the platform mint a
-  # credential and push it: hydra-maester reconciled an OAuth2Client CR, so any
-  # number of clients cost only a list entry. Zitadel generates client secrets
-  # itself and discloses them once, so the platform cannot supply one and the
-  # producer is the issuer. Provisioning is therefore done by the Tenant Identity
-  # Service, which creates exactly the two clients the architecture uses -- the
-  # public browser client the gateway authenticates people with, and one
-  # confidential client for the server-side token exchange -- and publishes their
-  # identifiers to the tenant's Infisical path.
+  # The FLEET declares; the PLATFORM provisions. A client's name, type and callback
+  # are the fleet's to choose (ADR-047: a platform binary must not contain a tenant
+  # identifier, and "every tenant has a bff" is one). The platform creates each
+  # declared client against the issuer and publishes the identifiers it allocates.
   #
-  # A fleet needing a third client is a change to that service, not a value here.
-  # That is the point: a list a fleet could extend was a list a fleet could use to
-  # register redirect URIs the platform never reviewed.
+  # Each entry:
+  #   name              required; unique within the tenant. Registered as
+  #                     "<tenantId>-<name>". Changing it is not an in-place update
+  #                     — the registration is removed and recreated — so choose once.
+  #   type              public | confidential (default confidential). A confidential
+  #                     client receives a generated secret; a public one uses PKCE
+  #                     and holds no secret material.
+  #   redirectPaths     paths appended to publicHost. REQUIRED for any client that
+  #                     completes a browser flow: an issuer matches redirect URIs
+  #                     exactly, with no wildcards, so an unregistered callback
+  #                     fails at the authorization endpoint before any credential
+  #                     is entered — which reads as a broken login page rather than
+  #                     a missing registration.
+  #   grantTypes        default [authorization_code, refresh_token]
+  #   responseTypes     default [code]
+  #   scope             space-separated; default "openid offline_access"
+  #   extraRedirectUris absolute URIs, for local/dev callbacks
+  #
+  # Everything else is DERIVED from `name` — nothing below is chosen per fleet:
+  #
+  #   client identifier   <tenantId>-<name>              e.g. acme-bff
+  #   Infisical keys      OAUTH_<NAME>_CLIENT_ID         name uppercased, - becomes _
+  #                       OAUTH_<NAME>_CLIENT_SECRET
+  #
+  # A confidential client's credential is delivered to its workload under those SAME
+  # Infisical key names. Do not rename them on the way through: the correspondence
+  # between what is stored and what is read stops being visible, and no validator
+  # sees fleet-registry ExternalSecrets, so a rename that drifts is caught by nothing
+  # — the secret simply never resolves and the sync wave never reports healthy.
+  # The tenant is not part of the key; the folder path and the namespace scope it.
+  #
+  # WHO GENERATES THE SECRET CHANGED (ADR-060). Under Hydra the platform minted a
+  # credential into Infisical and hydra-maester pushed it to the issuer. Zitadel
+  # generates its own and discloses it exactly once, so the direction is inverted:
+  # the issuer produces, and the identity service captures and publishes. That is
+  # why there is no rotationId here any more — nothing re-pushes a value the
+  # platform chose.
+  clients: []
 tier: starter
 
 # Region for tenant resources (required)

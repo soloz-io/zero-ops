@@ -90,6 +90,13 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// time, and the seeded condition is that durable record.
 	isFirstTime := !r.isConditionTrue(ainativesaas, conditionTypeDBSeeded)
 
+	// The fleet's declared OAuth clients, read from the tenant resource.
+	//
+	// Read here and passed to the identity service, never invented: a client's
+	// name, type and callback belong to the fleet (ADR-047 forbids a tenant
+	// identifier in platform code, and "every tenant has a bff" is one).
+	oauthClients := declaredOAuthClients(ainativesaas)
+
 	// OAuth client credentials are NOT generated here (ADR-060).
 	//
 	// Zitadel will not accept a supplied client secret — it generates one and
@@ -155,7 +162,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// tenant. Absent means false, so a fleet that says nothing gets the
 			// closed behaviour rather than inheriting somebody else's choice.
 			selfReg, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "identity", "selfRegistration")
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, ownerEmail, selfReg, redirects, postLogout)
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, ownerEmail, selfReg, redirects, postLogout, oauthClients)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
@@ -251,6 +258,52 @@ const conditionTypeDBSeeded = "TenantDBCredentialsSeeded"
 // The operator then refuses to create a key that never existed and reports
 // "manual recovery required" for which the platform ships no recovery path.
 const conditionTypeCacheSeeded = "TenantCacheCredentialSeeded"
+
+// declaredOAuthClients reads the OAuth clients declared on the tenant resource
+// (ADR-053).
+//
+// A client with no explicit type is treated as confidential. The safe default is
+// the one that provisions a credential nothing consumes, rather than the one
+// that silently skips a credential something needs.
+//
+// redirectPaths travels with the client because an issuer matches redirect URIs
+// EXACTLY, with no wildcards. Under Hydra these reached the issuer through an
+// OAuth2Client CR and never passed through here; Zitadel has no such controller,
+// so a client provisioned without its callback fails at the authorization
+// endpoint before any credential is entered.
+func declaredOAuthClients(obj *unstructured.Unstructured) []client2.OAuthClient {
+	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "oauth", "clients")
+	if err != nil || !found {
+		return nil
+	}
+
+	var clients []client2.OAuthClient
+	for _, entry := range raw {
+		fields, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := fields["name"].(string)
+		if name == "" {
+			continue
+		}
+		clientType, _ := fields["type"].(string)
+		var paths []string
+		if rp, ok := fields["redirectPaths"].([]interface{}); ok {
+			for _, p := range rp {
+				if s, ok := p.(string); ok {
+					paths = append(paths, s)
+				}
+			}
+		}
+		clients = append(clients, client2.OAuthClient{
+			Name:          name,
+			Confidential:  clientType != "public",
+			RedirectPaths: paths,
+		})
+	}
+	return clients
+}
 
 // conditionState enumerates the three terminal states for TenantDBCredentialsSeeded.
 type conditionState int

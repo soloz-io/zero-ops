@@ -38,7 +38,7 @@ var defaultRoles = []struct{ Key, Display string }{
 // The order is a dependency chain, not a preference: an application belongs to a
 // project, a project belongs to an organisation, and a role belongs to a
 // project.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -65,7 +65,21 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		return nil, fmt.Errorf("ensure role assertion for %q: %w", tenantID, err)
 	}
 
-	clientID, err := a.ensureOIDCApp(ctx, orgID, projectID, tenantID+"-public-client", redirectURIs, postLogoutURIs)
+	// The browser client's NAME comes from the fleet when the fleet declared one.
+	//
+	// A fleet chooses what its clients are called (ADR-047), so a name this
+	// package picked would be one the fleet could not change. The fallback below
+	// is a generic default for a fleet that declares nothing, not an assumption
+	// about any tenant's architecture.
+	publicName := "public-client"
+	for _, c := range oauthClients {
+		if !c.Confidential && c.Name != "" {
+			publicName = c.Name
+			break
+		}
+	}
+
+	clientID, err := a.ensureOIDCApp(ctx, orgID, projectID, tenantID+"-"+publicName, redirectURIs, postLogoutURIs)
 	if err != nil {
 		return nil, fmt.Errorf("ensure application for %q: %w", tenantID, err)
 	}

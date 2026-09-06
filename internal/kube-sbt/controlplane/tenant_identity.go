@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
@@ -20,7 +21,7 @@ import (
 // allocated by the issuer, so it cannot be derived and cannot be written into a
 // values file ahead of time; publishing it here is what lets a tenant be
 // onboarded without anyone copying an identifier between systems.
-func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error) {
+func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("controlplane: tenantID is required")
 	}
@@ -35,7 +36,7 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, owne
 		return nil, fmt.Errorf("controlplane: the configured identity provider does not provision tenant identities")
 	}
 
-	identity, err := provisioner.EnsureTenantIdentity(ctx, tenantID, ownerEmail, selfRegistration, redirectURIs, postLogoutURIs)
+	identity, err := provisioner.EnsureTenantIdentity(ctx, tenantID, ownerEmail, selfRegistration, redirectURIs, postLogoutURIs, oauthClients)
 	if err != nil {
 		return nil, fmt.Errorf("controlplane: provision identity for tenant %q: %w", tenantID, err)
 	}
@@ -52,82 +53,80 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, owne
 		return nil, fmt.Errorf("controlplane: publish client id for tenant %q: %w", tenantID, err)
 	}
 
-	if err := cp.ensureBFFClient(ctx, provisioner, tenantID); err != nil {
+	if err := cp.ensureDeclaredClients(ctx, provisioner, tenantID, oauthClients); err != nil {
 		return nil, err
 	}
 
 	return identity, nil
 }
 
-// ensureBFFClient provisions and publishes the tenant's server-side OAuth
-// credential.
+// ensureDeclaredClients provisions the clients THIS FLEET DECLARED and publishes
+// what the issuer allocates for each.
+//
+// It iterates the declaration and invents nothing. An earlier version of this
+// function assumed a single client named "bff" and derived its Infisical keys
+// from that name, which put a tenant's architecture in platform code -- ADR-047
+// forbids exactly that, and a fleet with two back-ends, or none, was
+// unrepresentable.
 //
 // Read-before-write, and the read is the whole design. The issuer discloses a
 // generated secret exactly once, so the only way to recover an existing one is
-// to regenerate it — which invalidates the credential the running workload is
-// holding. Asking the store first means a reconcile of a tenant that is already
-// provisioned touches nothing, and a regeneration happens only when there is
+// to regenerate it -- which invalidates the credential the running workload is
+// holding. Asking the store first means a reconcile of an already-provisioned
+// tenant touches nothing, and a regeneration happens only when there is
 // genuinely nothing to break.
 //
-// Failing here fails the call. A tenant whose gateway can authenticate a person
-// but whose BFF cannot obtain a token is a tenant that logs in and then 401s on
-// its first API call, which reads as a broken application rather than as
-// incomplete provisioning.
-func (cp *ControlPlane) ensureBFFClient(ctx context.Context, provisioner interfaces.ITenantIdentityProvisioner, tenantID string) error {
-	appName := bffClientName(tenantID)
-
-	stored, err := cp.cfg.SecretManager.GetTenantSecret(ctx, tenantID, bffClientSecretKey)
-	if err == nil && stored != nil {
-		if v, ok := stored[bffClientSecretKey].(string); ok && v != "" {
-			// Already provisioned. Confirm the client still exists without
-			// disturbing its secret, so a client deleted in the issuer is still
-			// recreated rather than silently missing.
-			if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, false); cerr != nil {
-				return fmt.Errorf("controlplane: verify server-side client for tenant %q: %w", tenantID, cerr)
-			}
-			return nil
+// Public clients are skipped: PKCE carries the proof and there is no secret to
+// store. Their identifier is already published as OIDC_CLIENT_ID by the caller.
+func (cp *ControlPlane) ensureDeclaredClients(ctx context.Context, provisioner interfaces.ITenantIdentityProvisioner, tenantID string, clients []models.OAuthClient) error {
+	for _, decl := range clients {
+		if !decl.Confidential || decl.Name == "" {
+			continue
 		}
-	}
 
-	clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, true)
-	if err != nil {
-		return fmt.Errorf("controlplane: provision server-side client for tenant %q: %w", tenantID, err)
-	}
-	if clientSecret == "" {
-		return fmt.Errorf("controlplane: server-side client for tenant %q returned no secret to publish", tenantID)
-	}
+		appName := tenantID + "-" + decl.Name
+		idKey, secretKey := oauthKeys(decl.Name)
 
-	if err := cp.cfg.SecretManager.StoreTenantSecret(ctx, tenantID, bffClientIDKey,
-		map[string]interface{}{bffClientIDKey: clientID}); err != nil {
-		return fmt.Errorf("controlplane: publish server-side client id for tenant %q: %w", tenantID, err)
-	}
-	if err := cp.cfg.SecretManager.StoreTenantSecret(ctx, tenantID, bffClientSecretKey,
-		map[string]interface{}{bffClientSecretKey: clientSecret}); err != nil {
-		return fmt.Errorf("controlplane: publish server-side client secret for tenant %q: %w", tenantID, err)
+		stored, err := cp.cfg.SecretManager.GetTenantSecret(ctx, tenantID, secretKey)
+		if err == nil && stored != nil {
+			if v, ok := stored[secretKey].(string); ok && v != "" {
+				// Already provisioned. Confirm the client still exists without
+				// disturbing its secret, so a client deleted at the issuer is
+				// recreated rather than silently missing.
+				if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, false); cerr != nil {
+					return fmt.Errorf("controlplane: verify client %q for tenant %q: %w", decl.Name, tenantID, cerr)
+				}
+				continue
+			}
+		}
+
+		clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, true)
+		if err != nil {
+			return fmt.Errorf("controlplane: provision client %q for tenant %q: %w", decl.Name, tenantID, err)
+		}
+		if clientSecret == "" {
+			return fmt.Errorf("controlplane: client %q for tenant %q returned no secret to publish", decl.Name, tenantID)
+		}
+
+		if err := cp.cfg.SecretManager.StoreTenantSecret(ctx, tenantID, idKey,
+			map[string]interface{}{idKey: clientID}); err != nil {
+			return fmt.Errorf("controlplane: publish id for client %q of tenant %q: %w", decl.Name, tenantID, err)
+		}
+		if err := cp.cfg.SecretManager.StoreTenantSecret(ctx, tenantID, secretKey,
+			map[string]interface{}{secretKey: clientSecret}); err != nil {
+			return fmt.Errorf("controlplane: publish secret for client %q of tenant %q: %w", decl.Name, tenantID, err)
+		}
 	}
 	return nil
 }
 
-// bffClientName is the application name the issuer holds for a tenant's
-// server-side client. Derived, never configured: a name a fleet could choose
-// would be a name a fleet could point at another tenant's client.
-func bffClientName(tenantID string) string { return tenantID + "-bff" }
-
-// The keys the tenant's ExternalSecret projects from.
+// oauthKeys derives the Infisical keys for a declared client name, matching the
+// contract the tenant chart documents: OAUTH_<NAME>_CLIENT_ID and _SECRET, the
+// name uppercased with hyphens becoming underscores.
 //
-// Shared with the fleet's values by convention, the same coupling
-// tenantOIDCClientSecretName carries and with the same failure: renaming one
-// side leaves an ExternalSecret waiting for a key that never appears, and the
-// symptom is a pod that never starts rather than an error naming either side.
-const (
-	bffClientIDKey     = "OAUTH_BFF_CLIENT_ID"
-	bffClientSecretKey = "OAUTH_BFF_CLIENT_SECRET"
-)
-
-// tenantOIDCClientSecretName is the name the tenant's ExternalSecret reads.
-//
-// Shared between this service and the tenant chart by convention, which is a
-// coupling worth naming: changing it here without changing the ExternalSecret
-// leaves a gateway waiting for a key that will never appear, and the symptom is
-// a pod that never starts rather than an error mentioning either side.
-const tenantOIDCClientSecretName = "OIDC_CLIENT_ID"
+// Derived from the fleet's chosen name, never from a name this package knows.
+// The tenant is not part of the key; the folder path scopes it.
+func oauthKeys(name string) (idKey, secretKey string) {
+	seg := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	return "OAUTH_" + seg + "_CLIENT_ID", "OAUTH_" + seg + "_CLIENT_SECRET"
+}

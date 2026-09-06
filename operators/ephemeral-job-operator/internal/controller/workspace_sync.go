@@ -2,8 +2,18 @@ package controller
 
 import (
 	"os"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+
+	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
+)
+
+// The bounds the CRD advertises, restated here because this operator clamps to
+// them rather than trusting that admission enforced them.
+const (
+	minKeepCheckpoints int32 = 1
+	maxKeepCheckpoints int32 = 50
 )
 
 // The platform's workspace persistence agent (ADR-052 §14, §14.2). Image and
@@ -68,7 +78,8 @@ func envOr(k, def string) string {
 // §14.2 changes: both containers mount a staging emptyDir (`ws-staging`) for
 // squashfs archive and FUSE working directories. The sidecar additionally
 // requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
-func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container) {
+func workspaceSyncContainer(workspaceID string, keepCheckpoints int32) corev1.Container {
+	var sideC corev1.Container
 	uid := int64(1000)
 	// Both run as uid 1000, matching the workload rather than the image's own
 	// nonroot uid. The two processes write the same volume, and a uid mismatch
@@ -78,25 +89,40 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 	//
 	// The sidecar's SecurityContext is extended with FUSE device access (§14.2)
 	// because squashfuse and fuse-overlayfs require /dev/fuse.
-	sec := &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr(false),
-		RunAsNonRoot:             ptr(true),
-		RunAsUser:                &uid,
-		ReadOnlyRootFilesystem:   ptr(true),
-		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-	}
+	// The FUSE sidecar is PRIVILEGED, and that is the honest cost of §14.2.
+	//
+	// An earlier version of this asked for `SYS_ADMIN` with
+	// allowPrivilegeEscalation=false and runAsNonRoot=true, described in the
+	// ADR as "narrower than SYS_ADMIN". That combination cannot mount anything,
+	// for four independent reasons:
+	//
+	//  1. Bidirectional mount propagation — without which the workload cannot
+	//     see the overlay at all — is rejected by the kubelet on a
+	//     non-privileged container.
+	//  2. /dev/fuse does not exist in the container. Kubernetes SecurityContext
+	//     has no `devices` field; exposing a device needs a device plugin or
+	//     privileged mode. squashfuse fails with "device not found".
+	//  3. allowPrivilegeEscalation=false sets NoNewPrivs, which blocks setuid
+	//     execution — and squashfuse and fuse-overlayfs both mount through
+	//     fusermount3, which is setuid root.
+	//  4. A capability added to a container that then setuids to a non-root
+	//     user is dropped from the effective set unless the binary carries file
+	//     capabilities. These do not.
+	//
+	// So the choice is privileged or no FUSE, and the ADR should say so rather
+	// than describe a middle ground that does not exist. What keeps this within
+	// §19.6 is that the container is platform-authored and platform-owned: a
+	// fleet cannot supply it, name its image, or exec into it, and the tenant's
+	// own workload container is unchanged — unprivileged, no added
+	// capabilities, no device access, and still no ServiceAccount token.
+	privileged := true
 	sidecarSec := &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr(false),
-		RunAsNonRoot:             ptr(true),
-		RunAsUser:                &uid,
-		ReadOnlyRootFilesystem:   ptr(true),
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-			Add:  []corev1.Capability{"SYS_ADMIN"}, // needed for FUSE mounts
-		},
-		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
+		Privileged:             &privileged,
+		RunAsUser:              ptr(int64(0)),
+		RunAsNonRoot:           ptr(false),
+		ReadOnlyRootFilesystem: ptr(true),
 	}
+	_ = uid
 	// Mapped key by key, not `envFrom`.
 	//
 	// The Secret's keys are kebab-case (`s3-endpoint-url`), because that is how
@@ -126,19 +152,25 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		secretEnv("S3_SECRET_ACCESS_KEY", "s3-secret-key"),
 		secretEnv("S3_REGION", "s3-region"),
 	}
+	// Bidirectional on the workspace mount is what makes the restore visible.
+	//
+	// Containers in a pod share a network namespace but NOT a mount namespace.
+	// A fuse-overlayfs mount this container makes at /workspace is, by default,
+	// invisible to the workload container — which would go on seeing the bare
+	// emptyDir. The restore would log success and the agent would find nothing.
+	//
+	// Bidirectional propagates the mount back to the host and onward into the
+	// workload's HostToContainer mount (set in buildPodSpec). Kubernetes allows
+	// Bidirectional ONLY on a privileged container, which is why this one is
+	// privileged — see sidecarSec.
+	bidirectional := corev1.MountPropagationBidirectional
 	volumeMounts := []corev1.VolumeMount{
-		{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath},
+		{
+			Name:             WorkspaceVolumeName,
+			MountPath:        WorkspaceMountPath,
+			MountPropagation: &bidirectional,
+		},
 		{Name: "ws-staging", MountPath: "/ws-staging"},
-	}
-
-	initC = corev1.Container{
-		Name:            "workspace-restore",
-		Image:           workspaceSyncImage,
-		ImagePullPolicy: corev1.PullIfNotPresent,
-		Args:            []string{"restore"},
-		Env:             env,
-		VolumeMounts:    volumeMounts,
-		SecurityContext: sec,
 	}
 
 	always := corev1.ContainerRestartPolicyAlways
@@ -150,6 +182,30 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		Env:             env,
 		VolumeMounts:    volumeMounts,
 		SecurityContext: sidecarSec,
+
+		// Gates the workload's start on the workspace actually being ready
+		// (§14.2). For a native sidecar the kubelet waits for the startup probe
+		// before starting the next container, so this is what guarantees the
+		// agent never opens a half-restored tree.
+		//
+		// exec, not httpGet: the kubelet probes from the node against the pod
+		// IP, and this process binds 127.0.0.1, so an HTTP probe could never
+		// succeed. The marker lives in the staging emptyDir, which is fresh on
+		// every pod, so it cannot survive from a previous life.
+		//
+		// failureThreshold × periodSeconds = 10 minutes, matching the restore
+		// timeout in the sidecar. A restore slower than that is a fault, and
+		// the pod should fail rather than hang indefinitely.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{
+					Command: []string{"test", "-f", "/ws-staging/.ready"},
+				},
+			},
+			InitialDelaySeconds: 1,
+			PeriodSeconds:       2,
+			FailureThreshold:    300,
+		},
 		// What makes it a native sidecar rather than a plain init container
 		// that would block the pod from ever starting.
 		RestartPolicy: &always,
@@ -176,5 +232,46 @@ func workspaceSyncContainers(workspaceID string) (initC, sideC corev1.Container)
 		// the live tree is held in the overlay filesystem. `/healthz` stays
 		// in the server for in-pod debugging.
 	}
-	return initC, sideC
+	sideC.Env = append(sideC.Env,
+		corev1.EnvVar{
+			// The uid the workload runs as, so a file-by-file restore hands the
+			// tree back to it rather than leaving it root-owned (see the
+			// sidecar's workspaceUID). Kept in sync with the pod
+			// securityContext below.
+			Name: "WORKSPACE_UID", Value: "1000",
+		},
+		corev1.EnvVar{
+			// Retention, resolved by the caller from the CR (§14.2).
+			//
+			// Always set explicitly, even when it equals the default, so the
+			// value that governs a running pod is visible in `kubectl describe`
+			// rather than implied by the sidecar's own fallback. A retention
+			// bound that has to be inferred is one nobody checks.
+			Name: "KEEP_CHECKPOINTS", Value: strconv.Itoa(int(keepCheckpoints)),
+		},
+	)
+	return sideC
+}
+
+// resolveKeepCheckpoints turns the fleet's optional request into the value the
+// sidecar runs with (§14.2).
+//
+// Clamped as well as defaulted. The CRD's Minimum/Maximum already reject an
+// out-of-range value at admission, but this operator must not depend on that:
+// a CR applied before the schema was updated, or through a path that skipped
+// validation, would otherwise reach the sidecar — and `keep: 0` there means
+// "prune everything but the newest", while a negative would be read as
+// "unbounded". Neither is a value a fleet can be assumed to have meant.
+func resolveKeepCheckpoints(ws *computev1alpha1.WorkspacePersistenceSpec) int32 {
+	if ws == nil || ws.KeepCheckpoints == nil {
+		return computev1alpha1.DefaultKeepCheckpoints
+	}
+	switch n := *ws.KeepCheckpoints; {
+	case n < minKeepCheckpoints:
+		return minKeepCheckpoints
+	case n > maxKeepCheckpoints:
+		return maxKeepCheckpoints
+	default:
+		return n
+	}
 }

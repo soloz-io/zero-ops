@@ -106,23 +106,81 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 		t.Error("ws-staging volume is not emptyDir")
 	}
 
-	// 5. Sidecar has SYS_ADMIN capability for FUSE mounts.
+	// 5. The sidecar is privileged, and the workload is NOT.
+	//
+	// SYS_ADMIN was tried and cannot work: Bidirectional mount propagation is
+	// refused on a non-privileged container, /dev/fuse cannot be exposed
+	// without privileged or a device plugin, and allowPrivilegeEscalation=false
+	// blocks the setuid fusermount3 both tools mount through. Privileged is the
+	// real cost of the FUSE path — so this asserts it deliberately rather than
+	// letting it drift in unnoticed, and asserts just as deliberately that the
+	// blast radius stops at the platform's own container.
+	var sync *corev1.Container
 	for i := range spec.InitContainers {
-		c := &spec.InitContainers[i]
-		if c.Name == "workspace-sync" && c.SecurityContext != nil {
-			if c.SecurityContext.Capabilities == nil {
-				t.Error("workspace-sync has no capabilities — FUSE mounts need SYS_ADMIN")
-			} else {
-				found := false
-				for _, cap := range c.SecurityContext.Capabilities.Add {
-					if cap == "SYS_ADMIN" {
-						found = true
-					}
-				}
-				if !found {
-					t.Error("workspace-sync missing SYS_ADMIN capability — needed for squashfuse + fuse-overlayfs (§14.2)")
-				}
-			}
+		if spec.InitContainers[i].Name == "workspace-sync" {
+			sync = &spec.InitContainers[i]
+		}
+	}
+	if sync == nil {
+		t.Fatal("no workspace-sync container")
+	}
+	if sync.SecurityContext == nil || sync.SecurityContext.Privileged == nil || !*sync.SecurityContext.Privileged {
+		t.Error("workspace-sync is not privileged — squashfuse, fuse-overlayfs and Bidirectional " +
+			"mount propagation all require it (§14.2)")
+	}
+	if sc := spec.Containers[0].SecurityContext; sc != nil {
+		if sc.Privileged != nil && *sc.Privileged {
+			t.Error("the WORKLOAD container is privileged; the FUSE requirement must not leak " +
+				"out of the platform's own sidecar (§19.6)")
+		}
+		if sc.Capabilities != nil && len(sc.Capabilities.Add) > 0 {
+			t.Errorf("workload container gained capabilities %v; §19.6 keeps tenant code unprivileged",
+				sc.Capabilities.Add)
+		}
+	}
+
+	// 6. Mount propagation, both halves.
+	//
+	// Containers in a pod share a network namespace but not a mount namespace,
+	// so the sidecar's fuse-overlayfs mount reaches the workload only through
+	// this pair. With either half missing, restore reports success and the
+	// agent sees an empty directory — a silent failure with no error anywhere.
+	if len(sync.VolumeMounts) == 0 {
+		t.Fatal("workspace-sync has no volume mounts")
+	}
+	var syncWs *corev1.VolumeMount
+	for i := range sync.VolumeMounts {
+		if sync.VolumeMounts[i].Name == WorkspaceVolumeName {
+			syncWs = &sync.VolumeMounts[i]
+		}
+	}
+	if syncWs == nil {
+		t.Fatal("workspace-sync does not mount the workspace volume")
+	}
+	if syncWs.MountPropagation == nil || *syncWs.MountPropagation != corev1.MountPropagationBidirectional {
+		t.Errorf("workspace-sync workspace mount propagation = %v, want Bidirectional — "+
+			"without it the FUSE mount never leaves this container", syncWs.MountPropagation)
+	}
+	var loadWs *corev1.VolumeMount
+	for i := range spec.Containers[0].VolumeMounts {
+		if spec.Containers[0].VolumeMounts[i].Name == WorkspaceVolumeName {
+			loadWs = &spec.Containers[0].VolumeMounts[i]
+		}
+	}
+	if loadWs == nil {
+		t.Fatal("workload does not mount the workspace volume")
+	}
+	if loadWs.MountPropagation == nil || *loadWs.MountPropagation != corev1.MountPropagationHostToContainer {
+		t.Errorf("workload workspace mount propagation = %v, want HostToContainer — "+
+			"without it the agent sees the bare emptyDir", loadWs.MountPropagation)
+	}
+
+	// 7. The staging volume must NOT reach the workload: it holds the overlay's
+	// upper layer, and tenant write access there bypasses the filesystem
+	// presenting the workspace.
+	for _, m := range spec.Containers[0].VolumeMounts {
+		if m.Name == "ws-staging" {
+			t.Error("workload mounts ws-staging; the overlay upper layer must stay platform-only")
 		}
 	}
 }
@@ -285,19 +343,23 @@ func TestWorkspaceSyncIsANativeSidecar(t *testing.T) {
 		}
 	}
 
-	var sync, restore *corev1.Container
-	syncIdx, restoreIdx := -1, -1
+	var sync *corev1.Container
 	for i := range spec.InitContainers {
 		switch spec.InitContainers[i].Name {
 		case "workspace-sync":
-			sync, syncIdx = &spec.InitContainers[i], i
+			sync = &spec.InitContainers[i]
 		case "workspace-restore":
-			restore, restoreIdx = &spec.InitContainers[i], i
+			// A separate restore init container cannot work under §14.2: a FUSE
+			// mount dies with the mount namespace of the container that made
+			// it, so this one could only download an archive the sidecar
+			// downloads again, or mount an overlay destroyed before the
+			// workload ever starts.
+			t.Error("a workspace-restore init container is present; restore has exactly one " +
+				"owner, and it is the native sidecar that can keep the mount alive")
 		}
 	}
-	if sync == nil || restore == nil {
-		t.Fatalf("expected both workspace containers in .spec.initContainers, got sync=%v restore=%v",
-			sync != nil, restore != nil)
+	if sync == nil {
+		t.Fatal("no workspace-sync container in .spec.initContainers")
 	}
 
 	// 2. restartPolicy: Always is the whole difference between a native sidecar
@@ -306,29 +368,34 @@ func TestWorkspaceSyncIsANativeSidecar(t *testing.T) {
 		t.Errorf("workspace-sync restartPolicy = %v, want Always — without it this is a plain "+
 			"init container and the pod hangs before the workload ever starts", sync.RestartPolicy)
 	}
-	// The restore step is the opposite: it must run to completion.
-	if restore.RestartPolicy != nil {
-		t.Errorf("workspace-restore restartPolicy = %v, want nil — it must terminate before the "+
-			"sidecar starts", *restore.RestartPolicy)
-	}
 
-	// 3. Ordering. Init containers run in sequence, and a native sidecar starts
-	//    only once the plain ones before it have finished — so restore must come
-	//    first, or the sidecar would begin snapshotting a workspace still being
-	//    populated.
-	if restoreIdx > syncIdx {
-		t.Errorf("workspace-restore at index %d comes after workspace-sync at %d; the sidecar "+
-			"would start against an unrestored workspace", restoreIdx, syncIdx)
+	// 3. A startup probe, and specifically an EXEC one.
+	//
+	// This reverses an earlier decision, because §14.2 changed what the sidecar
+	// does. It now performs the restore the workload depends on, so the
+	// workload must not start until that finishes — and for a native sidecar,
+	// the startup probe is what the kubelet gates the next container on.
+	//
+	// It must not be httpGet: the kubelet probes from the node against the pod
+	// IP, and this process binds 127.0.0.1, so an HTTP probe can only ever
+	// fail. Liveness and readiness stay absent — a wedged or unreachable object
+	// store is degraded durability, not a reason to restart a healthy sidecar
+	// or to deny the user their workspace.
+	if sync.StartupProbe == nil {
+		t.Error("workspace-sync has no startupProbe; the workload would start against a " +
+			"workspace that is still being restored")
+	} else {
+		if sync.StartupProbe.Exec == nil {
+			t.Error("workspace-sync startupProbe is not exec; an httpGet probe cannot reach a " +
+				"listener bound to 127.0.0.1 and would fail forever")
+		}
+		if sync.StartupProbe.HTTPGet != nil {
+			t.Error("workspace-sync startupProbe uses httpGet against a loopback-bound server")
+		}
 	}
-
-	// Probes would be actively harmful here: the kubelet dials the pod IP and
-	// the sidecar binds 127.0.0.1, so an httpGet liveness probe fails forever
-	// and restarts a healthy sidecar; a readiness probe on a native sidecar
-	// gates the workload's start, letting an unreachable bucket deny the user
-	// their workspace.
-	if sync.LivenessProbe != nil || sync.ReadinessProbe != nil || sync.StartupProbe != nil {
-		t.Error("workspace-sync declares a probe; the kubelet probes the pod IP and this " +
-			"process binds loopback, so it can only ever fail")
+	if sync.LivenessProbe != nil || sync.ReadinessProbe != nil {
+		t.Error("workspace-sync declares a liveness or readiness probe; neither can reach a " +
+			"loopback-bound server, and readiness on a native sidecar gates the workload")
 	}
 }
 
@@ -377,5 +444,106 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 	if spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != shorter {
 		t.Errorf("grace period = %v on a job with no persisted workspace, want the fleet's %d untouched",
 			spec.TerminationGracePeriodSeconds, shorter)
+	}
+}
+
+// TestKeepCheckpointsIsFleetSelectableAndBounded covers the one storage knob a
+// fleet may set (ADR-052 §14.2).
+//
+// Both halves matter. Unset must mean the default rather than zero — and zero
+// reaching the sidecar would mean "keep only the newest", quietly destroying a
+// fleet's history. Out-of-range must clamp rather than pass through: the CRD's
+// minimum/maximum reject those at admission, but a CR applied before the schema
+// was updated would otherwise arrive here unvalidated.
+func TestKeepCheckpointsIsFleetSelectableAndBounded(t *testing.T) {
+	keep := func(n int32) *int32 { return &n }
+
+	tests := []struct {
+		name string
+		in   *int32
+		want int32
+	}{
+		{"unset uses the default", nil, computev1alpha1.DefaultKeepCheckpoints},
+		{"a fleet's own value is honoured", keep(20), 20},
+		{"the minimum is allowed", keep(1), 1},
+		{"the maximum is allowed", keep(50), 50},
+		{"zero clamps up, never to 'keep only the newest'", keep(0), minKeepCheckpoints},
+		{"negative clamps up", keep(-3), minKeepCheckpoints},
+		{"above the bound clamps down", keep(10000), maxKeepCheckpoints},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveKeepCheckpoints(&computev1alpha1.WorkspacePersistenceSpec{
+				WorkspaceID: "app-1", KeepCheckpoints: tc.in,
+			})
+			if got != tc.want {
+				t.Errorf("resolveKeepCheckpoints = %d, want %d", got, tc.want)
+			}
+		})
+	}
+
+	if got := resolveKeepCheckpoints(nil); got != computev1alpha1.DefaultKeepCheckpoints {
+		t.Errorf("resolveKeepCheckpoints(nil) = %d, want the %d default",
+			got, computev1alpha1.DefaultKeepCheckpoints)
+	}
+}
+
+// TestKeepCheckpointsReachesTheSidecar closes the loop: a value accepted in the
+// CR is worthless if it never reaches the process that acts on it.
+//
+// It is always set explicitly, even at the default, so the retention governing
+// a running pod is visible in `kubectl describe` rather than implied by a
+// fallback inside the sidecar.
+func TestKeepCheckpointsReachesTheSidecar(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
+
+	env := func(ws *computev1alpha1.WorkspacePersistenceSpec) string {
+		spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+			Spec: computev1alpha1.EphemeralJobSpec{Image: img, WorkspacePersistence: ws},
+		}, p, corev1.Container{Name: "workload"})
+		for _, c := range spec.InitContainers {
+			if c.Name != "workspace-sync" {
+				continue
+			}
+			for _, e := range c.Env {
+				if e.Name == "KEEP_CHECKPOINTS" {
+					return e.Value
+				}
+			}
+			t.Fatal("workspace-sync has no KEEP_CHECKPOINTS env; the fleet's retention " +
+				"choice would be silently ignored")
+		}
+		t.Fatal("no workspace-sync container")
+		return ""
+	}
+
+	if got := env(&computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"}); got != "5" {
+		t.Errorf("KEEP_CHECKPOINTS with no fleet value = %q, want \"5\"", got)
+	}
+	n := int32(12)
+	if got := env(&computev1alpha1.WorkspacePersistenceSpec{
+		WorkspaceID: "app-1", KeepCheckpoints: &n,
+	}); got != "12" {
+		t.Errorf("KEEP_CHECKPOINTS with a fleet value of 12 = %q, want \"12\"", got)
+	}
+}
+
+// TestDefaultKeepCheckpointsMatchesTheSidecar guards a number that exists twice.
+//
+// The operator and workspace-sync are separate Go modules and cannot import one
+// another, so this constant is duplicated. The operator always sets the env var
+// explicitly, so a drift would not change behaviour today — it would make the
+// two sources of truth disagree about what "the default" is, which is how the
+// next reader gets it wrong.
+func TestDefaultKeepCheckpointsMatchesTheSidecar(t *testing.T) {
+	// Mirrors store.DefaultKeepCheckpoints in
+	// operators/workspace-sync/internal/store/store.go.
+	const sidecarDefault int32 = 5
+	if computev1alpha1.DefaultKeepCheckpoints != sidecarDefault {
+		t.Errorf("api DefaultKeepCheckpoints = %d but workspace-sync uses %d; update both",
+			computev1alpha1.DefaultKeepCheckpoints, sidecarDefault)
 	}
 }

@@ -1016,7 +1016,7 @@ serial-session — rather than leaving it as an implementation consequence.**
 
 **Both the PVC and the S3 tier are this operator's responsibility now, in
 full.** The PVC closes the crash/restart/idle-recreate gap. The
-`workspace-sync` init container/sidecar closes the gap the PVC cannot — a
+`workspace-sync` sidecar closes the gap the PVC cannot — a
 home-lab node's hardware failure (`local-path` has no replication) and moving
 a workspace to a different node entirely — and it is what previously lived,
 S3 credential and all, inside waypoint's harness-runtime (ADR-036 §4–§8).
@@ -1077,9 +1077,55 @@ Restore path (new):
 
 The archive is created on every snapshot because squashfs creation is cheap
 (seconds, not minutes) and ensures every checkpoint has a corresponding fast-
-restore image. The archive size is bounded by the workspace's total size
-(compressed), not by the number of checkpoints — dedup within squashfs's block
-layer handles shared content implicitly.
+restore image.
+
+**Archives do not deduplicate against each other, and retention is what bounds
+storage.** An earlier draft claimed the total was bounded by workspace size
+because "dedup within squashfs's block layer handles shared content
+implicitly". That is wrong: squashfs deduplicates *within* a single archive,
+never *across* archives. Each checkpoint archive is an independent blob, so
+without a bound, storage grows linearly with the number of checkpoints ever
+taken — reintroducing exactly the "one big archive every time" cost that §14's
+content-addressed design was chosen to avoid.
+
+Retention is therefore not housekeeping, it is the property that makes this
+section affordable:
+
+- **The newest N checkpoints survive**, N defaulting to 5 and **selectable by
+  the fleet** via `spec.workspacePersistence.keepCheckpoints`. This is the one
+  storage knob the fleet-facing type exposes, and the distinction from §14's
+  "the fleet states WHICH workspace and nothing else" is deliberate: it changes
+  no mechanism, only how much history is kept. How far back a user can undo is a
+  question about the fleet's own product — a coding agent checkpointing every
+  turn wants more history than one checkpointing per long-running job — and the
+  platform is in no position to answer it for them.
+
+  It is **bounded to 1..50** and clamped by the operator as well as by the CRD
+  schema, because it is simultaneously a cost knob: each retained checkpoint is
+  a full compressed copy of the workspace, so an unbounded value would let one
+  fleet's preference become the platform's bill. The operator clamps
+  independently of admission so that a CR applied before the schema was updated
+  cannot deliver `keep: 0` — which the sidecar would read as "keep only the
+  newest" and act on destructively.
+
+  **Lowering it deletes checkpoints** at the next snapshot. The operator does
+  not warn; a fleet lowering the value is presumed to mean it.
+- **Pruning runs immediately after a snapshot**, the only moment a checkpoint
+  can become surplus.
+- **Surplus manifests and their `.sqsh` archives are deleted, and then
+  `objects/` is swept** against the manifests that *remain*. Capping archives
+  alone would bound only the large objects; `objects/` accumulates one entry per
+  distinct file version forever, so without the sweep half the growth is
+  uncapped. Per-workspace key scoping (§18.6) is what makes a sweep safe to do
+  by prefix.
+- **`keep <= 0` deletes nothing.** Defence in depth behind the clamp above: if
+  a zero ever reaches the sidecar anyway, retention must degrade to unbounded
+  storage — recoverable — never to an empty bucket.
+
+The `objects/` layer still earns its place: it is what the restore falls back to
+when an archive is missing or unmountable, and it is per-file rather than
+per-workspace, so a checkpoint that changes 3 of 10,000 files still uploads 3
+objects. What it no longer does alone is bound total storage.
 
 **B. PVC decoupled from sandbox creation.** The workspace volume is now an
 `emptyDir`, not a PVC. The sidecar restores from the squashfs archive on every
@@ -1118,26 +1164,67 @@ container's exit — the mount namespace is torn down when the container
 terminates. The native sidecar stays alive for the pod's lifetime, keeping the
 FUSE mounts active.
 
+There is **no `workspace-restore` init container**. A separate one cannot
+work — its mount would die with its own mount namespace — so it could only
+download an archive the sidecar downloads again, or mount an overlay destroyed
+before the workload starts. Restore has exactly one owner.
+
 ```
 Pod created
     │
     ▼
-init: workspace-restore
-    │  No-op (emptyDir is always fresh; skip check removed)
-    │
-    ▼
-native sidecar: workspace-sync
+native sidecar: workspace-sync serve   (restartPolicy: Always)
     │  1. Create staging dirs: /ws-staging/{lower,upper,work}
     │  2. Download archive.sqsh from S3 → /ws-staging/archive.sqsh
-    │  3. squashfuse archive.sqsh → /ws-staging/lower
-    │  4. fuse-overlayfs -o lowerdir=/ws-staging/lower,
-    │           upperdir=/ws-staging/upper,workdir=/ws-staging/work
-    │           /workspace
-    │  5. Start HTTP server (/checkpoint, /flush, /restore, /healthz)
+    │  3. squashfuse -o allow_other archive.sqsh → /ws-staging/lower
+    │  4. fuse-overlayfs -o lowerdir=…,upperdir=…,workdir=…,allow_other
+    │           /workspace          (Bidirectional → visible to workload)
+    │  5. Write /ws-staging/.ready
+    │  6. Start HTTP server (/checkpoint, /flush, /restore,
+    │                        /list-checkpoints, /healthz)
     │
     ▼
-workload container starts (sees restored /workspace)
+startupProbe: test -f /ws-staging/.ready
+    │  kubelet holds the workload here until restore has finished
+    ▼
+workload container starts (sees the restored /workspace)
 ```
+
+**Gating.** The workload must not start against a half-restored tree, and for a
+native sidecar the kubelet gates the next container on the **startup probe**. It
+is an `exec` probe on a marker file, not `httpGet`: the kubelet probes from the
+node against the pod IP, and this server binds `127.0.0.1`, so an HTTP probe
+could only ever fail. The marker lives in the staging `emptyDir`, fresh on every
+pod, so it cannot survive from a previous life. No liveness or readiness probe —
+a degraded object store is reduced durability, not a reason to restart a healthy
+sidecar or to deny the user a workspace.
+
+**Failure is fatal, deliberately.** Restore distinguishes three outcomes:
+
+| Condition | Behaviour |
+|---|---|
+| Archive present | Mount it — O(1) |
+| No archive, no manifest | Genuinely new workspace — start empty |
+| No archive, manifests exist | File-by-file restore (pre-§14.2, or archive creation failed) |
+| **Anything else** | **Fail. The sidecar exits, the marker is never written, the workload never starts.** |
+
+That last row is a data-loss guard, not defensive style. With §14.2 there is no
+PVC and no third copy, so if an unreachable bucket produced "empty workspace"
+instead of a failure, the workload would start on an empty tree, the periodic
+backstop would upload that emptiness as a new checkpoint, and **retention would
+evict the real checkpoints behind it within five intervals.** A sandbox that
+refuses to start is always recoverable; one that silently starts empty is not.
+
+The same guard exists at the other end: `Snapshot` refuses to write a checkpoint
+containing **zero** entries when the workspace already has one, because a real
+agent workspace always holds at least `.git`, and an empty tree is a mount or
+restore failure rather than a change worth recording. Restore-side and
+snapshot-side together bracket the window in which this design could destroy the
+data it exists to protect.
+
+An earlier revision of this section had precisely that bug in the opposite
+direction: "no checkpoint yet" was returned as an *error*, so enabling object
+storage — a durability feature — made every brand-new sandbox fail to start.
 
 **Undo-to-checkpoint flow:**
 
@@ -1156,21 +1243,79 @@ of workspace size. The user says "undo to checkpoint-002," the sidecar
 remounts, and work resumes in seconds.
 
 **Container image changes.** The `workspace-sync` image moves from
-`distroless/static:nonroot` to `debian:bookworm-slim` with `squashfuse`,
-`fuse-overlayfs`, and `fuse3` installed. The image grows from ~50MB to ~150MB.
+`distroless/static:nonroot` to `debian:bookworm-slim` with **`squashfs-tools`,
+`squashfuse`, `fuse-overlayfs` and `fuse3`** installed. The image grows from
+~50MB to ~150MB.
+
+`squashfs-tools` is the one easily omitted, because `squashfuse` sounds as
+though it would provide `mksquashfs` and does not. Without it every
+`CreateArchive` fails — and since archive creation is best-effort, the failure
+is one log line and the O(1) restore path silently never exists.
 This is accepted: the sidecar already holds the S3 credential and is platform-
 owned (§19.6); the larger surface is a platform concern, not a tenant-facing
 one. The Go binary remains statically linked (`CGO_ENABLED=0`).
 
-**FUSE device access.** The sidecar's `SecurityContext` gains a `devices`
-entry for `/dev/fuse` (device number 229). This is narrower than `SYS_ADMIN`
-and is restricted to the platform-owned sidecar container — tenant code never
-receives it.
+**Mount propagation — the mount is not visible without it.** Containers in a
+pod share a network namespace but **not a mount namespace**. A `fuse-overlayfs`
+mount the sidecar makes at `/workspace` is, by default, invisible to the
+workload container, which goes on seeing the bare `emptyDir`. Restore logs
+success, the agent finds nothing, and no error is raised anywhere.
 
-**Staging volume.** An `emptyDir` volume (`ws-staging`) is added to both the
-restore init container and the sync sidecar, mounted at `/ws-staging`. It holds
-the downloaded archive and the FUSE mount working directories. It is not shared
-with the workload container and is not visible to tenant code.
+The mount therefore requires a propagation **pair**, and both halves are
+mandatory:
+
+| Container | `mountPropagation` on the workspace volume |
+|---|---|
+| `workspace-sync` (sidecar) | `Bidirectional` — pushes the mount out to the host |
+| workload | `HostToContainer` — picks it up from there |
+
+`allow_other` is required on both FUSE mounts for the same class of reason: a
+FUSE mount is accessible only to the uid that created it, the sidecar mounts as
+root, and the workload runs as uid 1000. Without it the agent gets `EACCES` on
+its own workspace.
+
+**The sidecar is privileged, and that is the real cost of this section.**
+
+An earlier draft of §14.2 specified a `devices` entry for `/dev/fuse`
+(device 229), described as "narrower than `SYS_ADMIN`". That mechanism does not
+exist and the narrower variant cannot work, for four independent reasons:
+
+1. Kubernetes `SecurityContext` has **no `devices` field**. Exposing a device
+   requires a device plugin or privileged mode; otherwise `/dev/fuse` is simply
+   absent and `squashfuse` fails with "device not found".
+2. `Bidirectional` propagation — without which the workload cannot see the
+   overlay at all — is **rejected by the kubelet on a non-privileged container**.
+3. `allowPrivilegeEscalation: false` sets `NoNewPrivs`, which blocks setuid
+   execution — and both tools mount through `fusermount3`, which is setuid root.
+4. A capability added to a container that then drops to a non-root uid leaves
+   the effective set unless the binary carries file capabilities. These do not.
+
+So the choice is `privileged: true` or no FUSE. This ADR takes the former and
+states it plainly rather than describing a middle ground that does not exist.
+
+What keeps it inside §19.6 is *where* the privilege sits: the container is
+platform-authored and platform-owned, a fleet can neither supply it, name its
+image, nor exec into it, and the **tenant's workload container is unchanged** —
+unprivileged, no added capabilities, no device access, no ServiceAccount token.
+The `ws-staging` volume holding the overlay's upper layer is likewise not
+mounted into the workload, so tenant code cannot write around the filesystem
+presenting its own workspace.
+
+This is a genuine widening of the platform's trust surface and should be
+weighed against the O(1) restore it buys. If that trade proves unattractive,
+the fallback is the §14 content-addressed path, which needs none of it.
+
+**Staging volume.** An `emptyDir` volume (`ws-staging`) is mounted at
+`/ws-staging` in the sidecar. It holds the downloaded archive, the FUSE working
+directories, the archive being built during a snapshot, and the readiness
+marker. It is **not** mounted into the workload container: it contains the
+overlay's upper layer, and tenant write access there would bypass the filesystem
+presenting the workspace.
+
+Everything written locally goes here rather than to `os.TempDir()`. Both
+containers run with `readOnlyRootFilesystem`, and the operator mounts a writable
+`/tmp` onto the **workload only** — so an archive built in `/tmp` failed on
+every single snapshot, silently, because archive creation is best-effort.
 
 **Fallback.** If the squashfs archive is unavailable (first-ever checkpoint,
 S3 misconfiguration, or archive corruption), the sidecar falls back to the
@@ -1182,6 +1327,7 @@ path.
 
 | Removed | Replacement |
 |---|---|
+| `workspace-restore` init container | None — the sidecar owns restore (a mount cannot outlive an init container) |
 | PVC `ws-<hash>` per workspace | emptyDir (ephemeral, cleans up with pod) |
 | `ensureWorkspacePVC()` in operator | No PVC management |
 | Deterministic PVC naming | No naming scheme needed |
@@ -1196,12 +1342,17 @@ path.
 | Added | Purpose |
 |---|---|
 | `store.CreateArchive()` | Creates squashfs archive via `mksquashfs` |
+| `store.Prune()` + `planRetention()` | Retention: keep newest N, sweep unreferenced objects |
+| `spec.workspacePersistence.keepCheckpoints` | Fleet-selectable retention, 1..50, default 5 |
+| `mountPropagation` pair (Bidirectional / HostToContainer) | Makes the FUSE mount visible to the workload |
+| `startupProbe` (exec, marker file) | Holds the workload until restore completes |
+| `privileged: true` on the sidecar | FUSE mount + Bidirectional propagation |
+| `WORKSPACE_UID` env | Chowns a file-by-file restore back to the workload uid |
 | `store.UploadArchive()` | Uploads archive to S3 |
 | `store.DownloadArchive()` | Downloads archive from S3 |
 | `POST /restore` endpoint | User-initiated undo-to-checkpoint |
-| `/ws-staging` emptyDir volume | Staging area for FUSE mounts |
-| FUSE device in sidecar `SecurityContext` | Access to `/dev/fuse` |
-| `debian:bookworm-slim` base image | FUSE tools (`squashfuse`, `fuse-overlayfs`) |
+| `/ws-staging` emptyDir volume | Staging area for FUSE mounts, archives, readiness marker |
+| `debian:bookworm-slim` base image | FUSE tools + `squashfs-tools` |
 
 **What is unchanged:**
 
@@ -2238,17 +2389,23 @@ declared in Git.
   an error. The `ResourceQuota` this bullet names as the rejecting mechanism
   is itself superseded by Kueue's `ClusterQueue` (§15).
 - **(§14.2) The `workspace-sync` image grows from ~50MB to ~150MB.** Moving from
-  `distroless/static:nonroot` to `debian:bookworm-slim` with `squashfuse`,
-  `fuse-overlayfs`, and `fuse3` adds a meaningful dependency surface. The sidecar
+  `distroless/static:nonroot` to `debian:bookworm-slim` with `squashfs-tools`,
+  `squashfuse`, `fuse-overlayfs` and `fuse3` adds a meaningful dependency
+  surface. The sidecar
   is platform-owned (§19.6) and holds the S3 credential, so the larger image is a
   platform concern, not a tenant-facing one — but it is a real increase in attack
   surface and pull time.
-- **(§14.2) FUSE device access broadens the sidecar's security context.** The
-  sidecar gains a `devices` entry for `/dev/fuse` (device number 229). This is
-  narrower than `SYS_ADMIN` but broader than the previous no-capabilities
-  posture. The sidecar is platform-owned and never runs tenant code, so the
-  risk is bounded — but it is a new capability on a container that holds an S3
-  credential.
+- **(§14.2) The FUSE sidecar must run `privileged: true`.** This is the
+  largest single cost of §14.2 and it is not reducible: `/dev/fuse` cannot be
+  exposed through `SecurityContext` (no `devices` field exists),
+  `Bidirectional` mount propagation is refused on non-privileged containers,
+  and `NoNewPrivs` blocks the setuid `fusermount3` both tools mount through. A
+  `SYS_ADMIN`-only variant was specified in an earlier draft and cannot work.
+  The container is platform-owned, never runs tenant code, and the workload
+  container stays unprivileged with no added capabilities — but a privileged
+  container holding an S3 credential is a materially larger blast radius than
+  the distroless, capability-free sidecar it replaces. If this trade is judged
+  unattractive, §14's content-addressed path requires none of it.
 - **(§14.2) Squashfs restore loses crash-consistent reattach.** The previous
   PVC-based design preserved the working tree across pod restarts on the same
   node: the PVC already had the data, restore was a no-op, and uncommitted
@@ -2455,7 +2612,7 @@ declared in Git.
   `sync.py`'s former per-turn `git commit` trigger, since ordinary
   checkpointing is no longer a git operation at all (only an explicit user
   "finalize" still triggers a commit). All S3 upload/download/credential
-  mechanics this section's `workspace-sync` init container/sidecar now
+  mechanics this section's `workspace-sync` sidecar now
   performs previously lived in that harness-runtime code; this amendment
   relocates it, it does not duplicate it.
 - **Amendment 2026-09-06b (§14.2).** Squashfs-based O(1) restore replaces the

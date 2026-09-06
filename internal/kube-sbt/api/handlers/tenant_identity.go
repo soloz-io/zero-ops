@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
 )
 
 // TenantIdentityHandler provisions a tenant's identity resources at the issuer.
@@ -40,6 +41,14 @@ type ensureTenantIdentityRequest struct {
 	// account in it. Scoped to this tenant's organisation by the gateway, so it
 	// cannot create accounts anywhere else.
 	SelfRegistration bool `json:"selfRegistration"`
+	// OAuthClients are the clients this FLEET declares. Exactly this set is
+	// provisioned and no more: a fleet that declares none gets none, rather than
+	// a set the platform chose for it (ADR-047).
+	OAuthClients []struct {
+		Name          string   `json:"name"`
+		Confidential  bool     `json:"confidential"`
+		RedirectPaths []string `json:"redirectPaths"`
+	} `json:"oauthClients"`
 }
 
 // EnsureIdentity is idempotent: it reports the tenant's identity whether it
@@ -69,7 +78,16 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		return
 	}
 
-	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs)
+	clients := make([]models.OAuthClient, 0, len(req.OAuthClients))
+	for _, oc := range req.OAuthClients {
+		clients = append(clients, models.OAuthClient{
+			Name:          oc.Name,
+			Confidential:  oc.Confidential,
+			RedirectPaths: oc.RedirectPaths,
+		})
+	}
+
+	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return

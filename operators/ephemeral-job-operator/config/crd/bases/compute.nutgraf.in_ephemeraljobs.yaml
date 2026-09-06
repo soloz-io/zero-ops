@@ -4287,6 +4287,24 @@ spec:
                   storage it was not granted, and the fleet-facing type is the only place
                   that can be made incapable of saying so.
                 properties:
+                  keepCheckpoints:
+                    description: |-
+                      KeepCheckpoints is how many checkpoints this workspace retains
+                      (ADR-052 §14.2). Unset means 5.
+
+                      It is how far back a user can "undo to a checkpoint", so the right value
+                      is a property of the fleet's product, not of the platform.
+
+                      BOUNDED, because it is also a storage-consumption knob: every retained
+                      checkpoint owns a full compressed copy of the workspace, since squashfs
+                      archives do not share blocks with one another.
+
+                      LOWERING IT DELETES DATA. Retention is applied after the next snapshot,
+                      so reducing this discards the surplus checkpoints at that point.
+                    format: int32
+                    maximum: 50
+                    minimum: 1
+                    type: integer
                   workspaceId:
                     description: |-
                       WorkspaceID identifies the WORKSPACE, not this request.

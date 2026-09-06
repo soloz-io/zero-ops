@@ -32,7 +32,7 @@ type ITenantIdentityProvisioner interface {
 	// selfRegistration is reconciled, not applied once: it is a security
 	// boundary, and one that lives only in a provider console can be re-opened
 	// by an upgrade or a support session with nothing to notice.
-	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error)
+	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
 
 	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
 	//
