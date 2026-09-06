@@ -14,5 +14,5 @@ resources:
 # image is always an immutable reference to a specific build rather than whatever
 # `latest` happened to point at when a pod last restarted.
 images:
-- digest: sha256:a8b34096f2e3e4fc1950e9636e7b53276effe2b3d4296dfcd47835d8be13c808
+- digest: sha256:fc977af58fa2b4c54ba256c2c9d56129c4af0c4aced2c1b4ffa98e33cfaaaf43
   name: ghcr.io/soloz-io/zero-ops/auth-proxy
