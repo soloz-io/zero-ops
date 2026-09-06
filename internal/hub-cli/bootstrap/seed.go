@@ -455,9 +455,9 @@ func (o *Orchestrator) awaitBoundaryInventory(ctx context.Context, kubeconfig st
 		Interval: 10 * time.Second,
 		// Generation is a repository read and a reconcile, not a deployment, so
 		// this is bounded well below the readiness waits that follow it. A
-		// boundary that has not produced its Applications in five minutes has a
+		// boundary that has not produced its Applications in ten minutes has a
 		// problem that waiting longer does not fix.
-		Timeout: 5 * time.Minute,
+		Timeout: 10 * time.Minute,
 	}
 	return waiter.Wait(ctx, kubeconfig)
 }
