@@ -99,6 +99,29 @@ spec:
             duration: 30s
             maxDuration: 10m
   templatePatch: |
+    {{"{{-"}} if has .appName (list "platform-redis") {{"}}"}}
+    metadata:
+      annotations:
+        # Client-side diff for these Applications only (ADR-061 note).
+        #
+        # Server-side diff is on controller-wide, because it is the only thing
+        # that distinguishes CRD defaulting from real drift under
+        # ServerSideApply. Two kinds of resource cannot be diffed that way:
+        #
+        #   a type created AT RUNTIME -- a Crossplane XR or an operator CRD --
+        #   has no entry in the controller's cached OpenAPI schema, and the diff
+        #   fails with "unable to resolve parseableType for GroupVersionKind";
+        #
+        #   a StatefulSet whose spec has changed in an immutable field fails the
+        #   dry-run apply outright with "Forbidden: updates to statefulset spec
+        #   for fields other than replicas, ordinals, template ...", where a
+        #   client-side diff would simply have shown the difference.
+        #
+        # Both read as a broken Application rather than as a diff strategy that
+        # cannot describe the resource. Neither is a startup race that resolves
+        # itself, so the exception is declared.
+        argocd.argoproj.io/compare-options: ServerSideDiff=false
+    {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:

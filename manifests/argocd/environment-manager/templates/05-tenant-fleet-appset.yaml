@@ -41,6 +41,26 @@ spec:
   template:
     metadata:
       name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-xr'
+      annotations:
+        # Client-side diff for this Application only.
+        #
+        # Server-side diff is enabled controller-wide (see the platform-argocd
+        # descriptor) because it is the only thing that makes CRD defaulting
+        # noise distinguishable from real drift. It cannot be used here: it asks
+        # the API server to dry-run an apply, which needs an OpenAPI schema for
+        # the managed kind, and a Crossplane XR's kind is created AT RUNTIME by
+        # its XRD -- on a fresh hub, ~80 minutes after the controller started.
+        # The controller's cached schema has no entry for it and the diff fails
+        # with
+        #
+        #   unable to resolve parseableType for GroupVersionKind:
+        #   nutgraf.in/v1alpha1, Kind=AINativeSaaS
+        #
+        # which reads as a broken XR rather than as a diff strategy that cannot
+        # see a type invented after it started. The condition is a permanent
+        # property of composing types at runtime, not a startup race that
+        # resolves itself, so it is declared rather than waited out.
+        argocd.argoproj.io/compare-options: ServerSideDiff=false
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
