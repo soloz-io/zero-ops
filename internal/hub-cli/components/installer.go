@@ -77,7 +77,7 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 	}
 
 	// Update repos
-	cmd = exec.CommandContext(ctx, "helm", "repo", "update")
+	cmd = exec.CommandContext(ctx, "helm", "repo", "update", "argo")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to update helm repos: %w\n%s", err, output)
 	}
