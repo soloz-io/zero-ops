@@ -53,27 +53,29 @@ data:
               # minted by Zitadel says id.dev.nutgraf.in and is rejected against
               # the old value as a spoofed provider.
               issuer: https://id.dev.nutgraf.in
-              # NO audiences list, and this is a deliberate reduction that must
-              # be closed (ADR-060).
+              # The audience the gateway requires, and it is NOT yet what
+              # Zitadel mints (ADR-060, Open).
               #
-              # Hydra minted whatever audience the consent step granted, so
-              # https://api.dev.nutgraf.in/mcp could simply be required here.
-              # Zitadel does not mint arbitrary audiences: a token carries the
-              # client id and, with the project-audience scope, the PROJECT id --
-              # both allocated by the issuer, so neither can be written into this
-              # file at render time.
+              # REQUIRED FIELD. Omitting it does not relax the check, it stops
+              # agentgateway booting:
               #
-              # Listing the old URL would reject every token, since nothing can
-              # ever produce it; listing nothing means the gateway validates the
-              # issuer and the signature but not the intended recipient, so a
-              # token minted for another relying party of the SAME issuer is
-              # accepted here. That is narrower than it sounds -- the issuer is
-              # the platform's own -- but it is not nothing.
+              #   Error: binds[0].listeners[0].routes[2].policies.mcpAuthentication:
+              #   missing field `audiences`
               #
-              # Closing it needs the platform project id published the way
-              # OIDC_CLIENT_ID already is, and the tenant gateway requesting
-              # urn:zitadel:iam:org:project:id:<projectID>:aud so the claim is
-              # actually present. Tracked as the open item in ADR-060.
+              # which takes down the gateway fronting ALL tenant traffic, not
+              # just MCP. Removing it is strictly worse than leaving it wrong.
+              #
+              # Hydra minted whatever audience the consent step granted, so this
+              # URL was simply required here. Zitadel mints the client id and,
+              # with the project-audience scope, the project id -- both allocated
+              # by the issuer, so neither can be written into this file at render
+              # time. Until the platform project id is published the way
+              # OIDC_CLIENT_ID already is, an MCP token will fail this check.
+              #
+              # The failure is confined to the MCP route and is loud: a rejected
+              # token, not a silent acceptance.
+              audiences:
+              - https://api.dev.nutgraf.in/mcp
               jwks:
                 # Zitadel publishes signing keys at /oauth/v2/keys and returns
                 # 404 for the conventional /.well-known/jwks.json.

@@ -32,12 +32,6 @@ func mapRoleToSecretName(roleName string) string {
 		return "control-plane-db-credentials"
 	case "hub_centralized":
 		return "hub-db-credentials"
-	case "hub_hydra":
-		return "hydra-db-credentials"
-	case "hub_kratos":
-		return "kratos-db-credentials"
-	case "hub_keto":
-		return "keto-db-credentials"
 	case "hub_zitadel":
 		return "zitadel-db-credentials"
 	default:
@@ -46,12 +40,12 @@ func mapRoleToSecretName(roleName string) string {
 	}
 }
 
-// mapRoleToSecretNamespace returns the namespace where the secret is located
-// Ory services (Hydra, Kratos, Keto) have their secrets in platform-identity
-// All other services have secrets in platform-data
+// mapRoleToSecretNamespace returns the namespace where the secret is located.
+// The identity provider's credential lives in platform-identity; every other
+// service's lives in platform-data.
 func mapRoleToSecretNamespace(roleName, defaultNamespace string) string {
 	switch roleName {
-	case "hub_hydra", "hub_kratos", "hub_keto", "hub_zitadel":
+	case "hub_zitadel":
 		return secretNamespaceIdentity
 	default:
 		return defaultNamespace
@@ -170,19 +164,43 @@ func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alp
 
 	namespace := hubEnv.Spec.Database.Namespace
 
-	// Process each role from CR spec
+	// The whole plan, before any of it runs.
+	//
+	// This loop returns on the first failure, so a role whose Secret is missing
+	// stops every role AFTER it. That happened: hub_hydra outlived the Ory stack
+	// in the CR spec, its Secret was gone, and the loop never reached hub_zitadel
+	// — which then could not authenticate to Postgres, with nothing in any log
+	// connecting the two. Naming the plan up front and the skipped remainder on
+	// failure is what makes that visible without reading this function.
+	planned := make([]string, 0, len(hubEnv.Spec.Database.Roles))
 	for _, roleSpec := range hubEnv.Spec.Database.Roles {
-		logger.Info("Processing database role", "role", roleSpec.Name)
+		planned = append(planned, roleSpec.Name)
+	}
+	logger.Info("Provisioning database roles", "count", len(planned), "roles", planned)
 
+	// Process each role from CR spec
+	for i, roleSpec := range hubEnv.Spec.Database.Roles {
 		// Map role name to valid K8s secret name and namespace
 		secretName := mapRoleToSecretName(roleSpec.Name)
 		secretNamespace := mapRoleToSecretNamespace(roleSpec.Name, namespace)
+
+		logger.Info("Processing database role",
+			"role", roleSpec.Name, "position", fmt.Sprintf("%d/%d", i+1, len(planned)),
+			"database", roleSpec.Database, "secret", secretNamespace+"/"+secretName)
+
+		// skipped names every role this failure prevents from being reached, so
+		// the consequence is in the same line as the cause.
+		skipped := planned[i+1:]
 
 		secret := &corev1.Secret{}
 		if err := rm.client.Get(ctx, client.ObjectKey{
 			Name:      secretName,
 			Namespace: secretNamespace,
 		}, secret); err != nil {
+			logger.Error(err, "Role credential Secret missing; every later role is skipped",
+				"role", roleSpec.Name, "secret", secretNamespace+"/"+secretName,
+				"skipped", skipped,
+				"hint", "a role declared in HubEnvironment.spec.database.roles whose Secret no longer exists blocks the rest of the list")
 			return fmt.Errorf("failed to get secret %s in namespace %s: %w", secretName, secretNamespace, err)
 		}
 
@@ -191,17 +209,24 @@ func (rm *RoleManager) CreateOrUpdateRoles(ctx context.Context, hubEnv *opsv1alp
 
 		// Create or update role
 		if err := rm.createOrUpdateRole(ctx, username, password, roleSpec); err != nil {
+			logger.Error(err, "Role create/update failed; every later role is skipped",
+				"role", roleSpec.Name, "username", username, "skipped", skipped)
 			return fmt.Errorf("failed to create/update role %s: %w", roleSpec.Name, err)
 		}
 
 		// Grant permissions
 		// Requirement 6.8: Grant permissions based on CR specifications
 		if err := rm.grantPermissions(ctx, username, roleSpec); err != nil {
+			logger.Error(err, "Grant failed; every later role is skipped",
+				"role", roleSpec.Name, "username", username, "skipped", skipped)
 			return fmt.Errorf("failed to grant permissions to role %s: %w", roleSpec.Name, err)
 		}
 
-		logger.Info("Role configured successfully", "role", roleSpec.Name)
+		logger.Info("Role configured successfully",
+			"role", roleSpec.Name, "username", username, "position", fmt.Sprintf("%d/%d", i+1, len(planned)))
 	}
+
+	logger.Info("All database roles provisioned", "count", len(planned), "roles", planned)
 
 	// Prune orphaned roles
 	// Requirement 6.15: Delete roles not in CR spec
@@ -265,9 +290,16 @@ func (rm *RoleManager) createOrUpdateRole(ctx context.Context, username, passwor
 		escapedPassword := strings.ReplaceAll(password, "'", "''")
 		alterSQL := fmt.Sprintf("ALTER ROLE \"%s\" WITH PASSWORD '%s'", username, escapedPassword)
 		if _, err := rm.db.ExecContext(ctx, alterSQL); err != nil {
+			logger.Error(err, "ALTER ROLE failed; this role cannot authenticate", "username", username)
 			return fmt.Errorf("failed to update role password: %w", err)
 		}
-		logger.Info("Updated role password", "username", username)
+		// The SQL is never logged — it carries the password in cleartext. The
+		// fingerprint is the first eight hex of its SHA-256, which is enough to
+		// tell "the Secret changed" from "the same value was reapplied" across
+		// reconciles without disclosing it.
+		logger.Info("Updated role password (ALTER ROLE)",
+			"username", username,
+			"secretPasswordFingerprint", fmt.Sprintf("%x", sha256.Sum256([]byte(password)))[:8])
 	}
 
 	return nil

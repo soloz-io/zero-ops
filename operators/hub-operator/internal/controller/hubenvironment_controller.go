@@ -490,9 +490,15 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		// TODO(ADR-023): Replace with Crossplane provider-sql for roles and Atlas Operator for migrations
 		if err := roleManager.CreateOrUpdateRoles(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to provision database roles")
+			// This phase blocks every phase after it, so the message says so.
+			// A reconcile that stops here leaves the identity provider unable to
+			// authenticate to Postgres, and the only visible symptom is a
+			// CrashLoop in a different namespace.
+			logger.Error(err, "Failed to provision database roles — reconcile stops here; no later phase runs",
+				"nextPhasesBlocked", []string{"IdentityReady", "NATSStreamsConfigured"})
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 		}
+		logger.Info("Phase 2 complete: database roles provisioned")
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 			Type:               "DatabaseRolesProvisioned",
@@ -579,6 +585,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Leaving the readiness gate in place would be worse than leaving it out: the
 	// Deployment it waits for cannot exist, so the reconcile would stall on
 	// "Waiting for Hydra" for ever while reporting a healthy operator.
+	logger.Info("Phase 3: identity provider lifecycle is external (ADR-060); marking IdentityReady")
 	meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 		Type:               "IdentityReady",
 		Status:             metav1.ConditionTrue,

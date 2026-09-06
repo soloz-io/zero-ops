@@ -35,23 +35,44 @@ func main() {
 		cfg.MCPGatewayBaseURL,
 	)
 
-	// Verify JWKS connectivity before reporting ready.
-	log.Println("Performing initial JWKS fetch...")
+	// Readiness is the issuer being reachable, and it is reported rather than
+	// asserted at startup.
+	//
+	// This used to exit if the first JWKS fetch failed. That was survivable when
+	// the issuer was Hydra and an init container had already blocked until it was
+	// up; against Zitadel it is not. Zitadel initialises its database on first
+	// boot and is legitimately unreachable for minutes, so a hard exit turns a
+	// dependency that has not arrived yet into CrashLoopBackOff on THIS
+	// component -- which reads as auth-proxy being broken and hides the issuer
+	// that actually is.
+	//
+	// Staying un-Ready expresses the same requirement without the misattribution:
+	// the readiness probe fails, no traffic is routed here, and the pod's own
+	// status names the reason. The retry loop then flips it Ready when the issuer
+	// appears, with no restart.
 	validator := authproxy.NewJWTValidator(
 		handler.JWKSURL(),
 		cfg.ExpectedJWTAudience,
 		cfg.JWKSCacheTTL,
 		cfg.JWKSFetchTimeout,
 	)
-	// Trigger initial fetch by attempting to get a non-existent key
-	_, err = validator.Validate("eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3QifQ.e30.test")
-	if err == nil || !strings.Contains(err.Error(), "failed to fetch JWKS") {
-		// JWKS fetch succeeded (error is expected for invalid token, but fetch worked)
-		log.Println("Initial JWKS fetch successful")
-		handler.SetReady()
-	} else {
-		log.Fatalf("Initial JWKS fetch failed: %v", err)
-	}
+	// A syntactically valid token that cannot verify: reaching a "cannot verify"
+	// error means the fetch itself worked, which is the only thing being probed.
+	const probeToken = "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3QifQ.e30.test"
+	go func() {
+		for attempt := 1; ; attempt++ {
+			_, err := validator.Validate(probeToken)
+			if err == nil || !strings.Contains(err.Error(), "failed to fetch JWKS") {
+				log.Println("JWKS reachable; reporting ready")
+				handler.SetReady()
+				return
+			}
+			if attempt == 1 || attempt%10 == 0 {
+				log.Printf("JWKS not reachable yet (attempt %d): %v", attempt, err)
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}()
 
 	// Only the machine surfaces the Gateway routes here are served.
 	//

@@ -42,35 +42,21 @@ spec:
       - SELECT
       - INSERT
       - UPDATE
-    - name: hub_hydra
-      database: hydra
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
-    - name: hub_kratos
-      database: kratos
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
-    # Zitadel evaluation (spike, runs alongside Ory).
+    # The identity provider's role (ADR-060).
     #
-    # Unlike the Ory services it OWNS its database rather than holding DML
-    # grants on one: Zitadel runs its own schema migrations at startup, so it
-    # needs DDL. Ownership is set on the Database CR; the permissions below are
-    # the DML floor the role manager applies to every declared role.
+    # It OWNS its database rather than holding DML grants on one: Zitadel runs
+    # its own schema migrations at startup, so it needs DDL. Ownership is set on
+    # the Database CR; the permissions below are the DML floor the role manager
+    # applies to every declared role.
+    #
+    # hub_hydra, hub_kratos and hub_keto were removed with the Ory stack. Leaving
+    # a role here whose credential Secret no longer exists is not inert: the role
+    # manager iterates this list in order and returns on the first failure, so
+    # every role AFTER the missing one is skipped -- including this one. The
+    # symptom is Zitadel unable to authenticate to Postgres, which names neither
+    # the removed service nor this file.
     - name: hub_zitadel
       database: zitadel
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
-    - name: hub_keto
-      database: keto
       permissions:
       - SELECT
       - INSERT

@@ -440,37 +440,12 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Centralized hub DB credentials",
 	},
 	{
-		UsernameKey: "hub-hydra-db-username",
-		PasswordKey: "hub-hydra-db-password",
-		Username:    "hub_hydra",
-		Description: "Hydra DB credentials",
-	},
-	{
-		UsernameKey: "hub-kratos-db-username",
-		PasswordKey: "hub-kratos-db-password",
-		Username:    "hub_kratos",
-		Description: "Kratos DB credentials",
-	},
-	{
-		UsernameKey: "hub-keto-db-username",
-		PasswordKey: "hub-keto-db-password",
-		Username:    "hub_keto",
-		Description: "Keto DB credentials",
-	},
-	{
-		// Zitadel evaluation (ADR pending). Runs ALONGSIDE Ory during the spike:
-		// its own database user and its own database, so a rollback is deleting
-		// one Application rather than untangling shared state.
+		// The identity provider's database credential (ADR-060). The Ory entries
+		// that stood beside this one were removed with their stack.
 		UsernameKey: "hub-zitadel-db-username",
 		PasswordKey: "hub-zitadel-db-password",
 		Username:    "hub_zitadel",
 		Description: "Zitadel DB credentials",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "hub-hydra-system-secret",
-		Username:    "",
-		Description: "Hydra system secret for cookie/session encryption",
 	},
 	{
 		// Zitadel's masterkey encrypts everything it stores at rest, and
@@ -523,20 +498,7 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		Description: "OpenMeter Svix signing secret (also generates JWT token)",
 	},
-	{
-		UsernameKey: "",
-		PasswordKey: "hub-kratos-ui-cookie-secret",
-		Username:    "",
-		Description: "Kratos UI cookie session encryption secret (32-byte random)",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "hub-kratos-ui-csrf-cookie-secret",
-		Username:    "",
-		Description: "Kratos UI CSRF cookie secret (32-byte random)",
-	},
-	// AgentGateway's OIDC session cookie encryption key. It belongs here for the
-	// same reason as the two Kratos UI entries above and hub-hydra-system-secret:
+	// AgentGateway's OIDC session cookie encryption key. It belongs here because
 	// it is a random value with no external source, so leaving it out of this
 	// registry made it the one cookie secret an operator had to seed by hand into
 	// a freshly rebuilt Infisical — and nothing said so. The symptom was

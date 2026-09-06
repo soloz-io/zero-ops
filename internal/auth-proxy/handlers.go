@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,7 +31,10 @@ type Handler struct {
 	expectedAudience  string
 	authPublicBaseURL string
 	mcpGatewayBaseURL string
-	ready             bool
+	// ready is set from the background probe in cmd/auth-proxy and read by every
+	// health check, so it is atomic rather than a plain bool. It used to be
+	// written once before the server started, when a plain field was safe.
+	ready atomic.Bool
 }
 
 func NewHandler(issuerURL, internalURL string, timeout time.Duration, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL string) *Handler {
@@ -108,7 +112,7 @@ func (h *Handler) ProxyJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {
-	if !h.ready {
+	if !h.ready.Load() {
 		http.Error(w, "Not ready", http.StatusServiceUnavailable)
 		return
 	}
@@ -117,7 +121,7 @@ func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) SetReady() {
-	h.ready = true
+	h.ready.Store(true)
 }
 
 // JWKSURL is the in-cluster URL signing keys are fetched from.
