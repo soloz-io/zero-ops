@@ -17,5 +17,6 @@ resources:
   - platform-db-pooler.yaml
   - platform-db.yaml
   - s3-credentials-es.yaml
+  - stalwart-db-credentials-es.yaml
   - scheduled-backup.yaml
   - stalwart-database.yaml
