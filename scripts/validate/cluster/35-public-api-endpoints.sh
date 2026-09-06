@@ -2,9 +2,9 @@
 
 PUBLIC_ENDPOINTS=(
   # host                 | path                        | expect              | plaintext | label
-  "id.{zone}             | /.well-known/openid-configuration | 200           | yes       | issuer discovery"
-  "id.{zone}             | /oauth/v2/keys              | 200                 | no        | issuer JWKS"
-  "id.{zone}             | /ui/v2/login/loginname      | 200 302 303 400     | no        | issuer login UI"
+  "id.{zone}             | /.well-known/openid-configuration | 200           | yes       | zitadal issuer discovery"
+  "id.{zone}             | /oauth/v2/keys              | 200                 | no        | zitadal issuer JWKS"
+  "id.{zone}             | /ui/v2/login/loginname      | 200 302 303 400     | no        | zitadal issuer login UI"
   "auth.{zone}           | /.well-known/oauth-authorization-server | 200      | yes       | auth metadata"
   "auth.{zone}           | /.well-known/openid-configuration | 200           | no        | auth discovery passthrough"
   "api.{zone}            | /                           | 200 401 403 404     | yes       | api gateway"
