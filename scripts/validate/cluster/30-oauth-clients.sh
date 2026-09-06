@@ -59,23 +59,33 @@ validate_oauth_clients() {
     fi
 
     # Infisical coordinates, straight from the committed artifacts.
-    local infisical_url infisical_client_id secrets_project_id env_slug
+    local infisical_url secrets_project_id env_slug
     infisical_url=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_issuer'))['spec']['url'])" 2>/dev/null)
-    infisical_client_id=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_issuer'))['spec']['authentication']['universalAuth']['clientId'])" 2>/dev/null)
     secrets_project_id=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_bootstrap'))['data']['INFISICAL_SECRETS_PROJECT_ID'])" 2>/dev/null)
     env_slug=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_bootstrap'))['data']['INFISICAL_ENVIRONMENT_SLUG'])" 2>/dev/null)
 
-    if [[ -z "$infisical_client_id" || -z "$secrets_project_id" ]]; then
-        soft_fail "ADR-045 artifacts carry no Infisical identity yet — bootstrap has not reached the Infisical API phase"
+    if [[ -z "$secrets_project_id" ]]; then
+        soft_fail "ADR-045 artifacts carry no Infisical project yet — bootstrap has not reached the Infisical API phase"
         return 0
     fi
 
-    # The one value that is NOT in Git, because it is a credential.
-    local infisical_client_secret
-    infisical_client_secret=$(kc get secret infisical-auth -n platform-security \
+    # The machine identity, read from where the platform itself reads it.
+    #
+    # platform-ops/infisical-auth, keys client-id and client-secret, is what the
+    # infisical-backend ClusterSecretStore authenticates with
+    # (spec.provider.infisical.auth.universalAuthCredentials) and what the CLI
+    # creates (constants.NamespaceOps in components/secrets_database_impl.go).
+    # Both id and secret come from the Secret rather than the id from the
+    # ADR-045 artifact: the artifact is the issuer's copy, and a validator that
+    # reads a different source than the platform can pass while the platform
+    # cannot authenticate, or fail while it can.
+    local infisical_client_id infisical_client_secret
+    infisical_client_id=$(kc get secret infisical-auth -n platform-ops \
+        -o jsonpath='{.data.client-id}' 2>/dev/null | base64 -d 2>/dev/null)
+    infisical_client_secret=$(kc get secret infisical-auth -n platform-ops \
         -o jsonpath='{.data.client-secret}' 2>/dev/null | base64 -d 2>/dev/null)
-    if [[ -z "$infisical_client_secret" ]]; then
-        soft_fail "Secret platform-security/infisical-auth absent — the machine identity that reads Infisical does not exist yet"
+    if [[ -z "$infisical_client_secret" || -z "$infisical_client_id" ]]; then
+        soft_fail "Secret platform-ops/infisical-auth absent or incomplete — the machine identity that reads Infisical does not exist yet"
         return 0
     fi
 
