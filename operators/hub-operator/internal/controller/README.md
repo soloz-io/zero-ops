@@ -237,7 +237,6 @@ Check dependency status:
 ```bash
 kubectl get cluster platform-db -o jsonpath='{.status.conditions}'
 kubectl get deployment infisical -n platform-ops
-kubectl get deployment hydra -n ory-system
 kubectl get statefulset nats -n platform-core
 ```
 

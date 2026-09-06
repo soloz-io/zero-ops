@@ -62,9 +62,6 @@ type SecretMapping struct {
 // ├─────────────────────────────────────────────────────────────────────────┤
 // │ • control-plane-db-credentials  → Uploaded directly to Infisical       │
 // │ • hub-db-credentials            → Uploaded directly to Infisical       │
-// │ • hydra-db-credentials          → Uploaded directly to Infisical       │
-// │ • kratos-db-credentials         → Uploaded directly to Infisical       │
-// │ • keto-db-credentials           → Uploaded directly to Infisical       │
 // └─────────────────────────────────────────────────────────────────────────┘
 var CLISecretMappings = []SecretMapping{
 	// ========================================================================
@@ -412,9 +409,7 @@ type ApplicationSecretDefinition struct {
 // │ APPLICATION SECRETS (Operator uploads to Infisical → ESO creates in K8s)│
 // ├─────────────────────────────────────────────────────────────────────────┤
 // │ 1. control-plane-db-credentials  → mcp_server database user            │
-// │ 2. hydra-db-credentials          → hydra database user                 │
-// │ 3. kratos-db-credentials         → kratos database user                │
-// │ 4. keto-db-credentials           → keto database user                  │
+// │ 2. hub-db-credentials            → centralized hub database user       │
 // └─────────────────────────────────────────────────────────────────────────┘
 var ApplicationSecretMappings = []ApplicationSecretDefinition{
 	{

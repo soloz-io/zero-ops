@@ -92,11 +92,10 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// OAuth client credentials are NOT generated here (ADR-060).
 	//
-	// They used to be: the platform minted a secret into Infisical and
-	// hydra-maester pushed it to Hydra. Zitadel will not accept a supplied client
-	// secret — it generates one and discloses it once — so the direction is
-	// inverted and the issuer is now the producer. The Tenant Identity Service
-	// captures it and publishes the same two keys this used to write.
+	// Zitadel will not accept a supplied client secret — it generates one and
+	// discloses it once — so the direction is inverted and the issuer is now the
+	// producer. The Tenant Identity Service captures it and publishes the same
+	// two keys this used to write.
 	//
 	// Generating here as well would be worse than redundant: two producers writing
 	// OAUTH_*_CLIENT_SECRET would take turns overwriting each other, and the

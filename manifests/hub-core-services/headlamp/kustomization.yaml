@@ -9,7 +9,7 @@ kind: Kustomization
 #   1. Apply a custom read-only ClusterRole (not cluster-admin)
 #   2. Override resource limits for the hub's constrained nodes
 #
-# OIDC: public client registered via hydra-maester CRD (no client secret).
+# OIDC: public client registered via Zitadel (no client secret).
 # Requires ArgoCD kustomize.buildOptions: --enable-helm (set in the 01 appset).
 
 helmCharts:

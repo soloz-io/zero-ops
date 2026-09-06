@@ -17,7 +17,7 @@ kube-sbt is the REST API server for the kube-sbt metering and billing system. It
 
 ## Dependencies
 - **OpenMeter API**: `openmeter-api.platform-billing.svc.cluster.local`
-- **Ory Kratos**: `kratos-public.platform-identity.svc.cluster.local`
+- **Zitadel**: `id.dev.nutgraf.in` (via gateway)
 - **NATS**: `nats.platform-messaging.svc.cluster.local:4222`
 - **Redis**: `redis.platform-billing.svc.cluster.local:6379`
 
@@ -25,7 +25,7 @@ kube-sbt is the REST API server for the kube-sbt metering and billing system. It
 
 ### Prerequisites
 1. OpenMeter deployed and healthy
-2. Ory Stack (Kratos) deployed
+2. Zitadel (identity provider) deployed
 3. NATS JetStream deployed
 4. Redis deployed
 
@@ -106,8 +106,8 @@ kubectl logs -n platform-billing -l app=kube-sbt --tail=100
 # Test OpenMeter connectivity
 kubectl exec -n platform-billing -it <pod-name> -- wget -O- http://openmeter-api.platform-billing.svc.cluster.local/health
 
-# Test Kratos connectivity
-kubectl exec -n platform-billing -it <pod-name> -- wget -O- http://kratos-public.platform-identity.svc.cluster.local/health/ready
+# Test Zitadel connectivity
+kubectl exec -n platform-billing -it <pod-name> -- wget -O- https://id.dev.nutgraf.in/debug/endpoints
 ```
 
 ### Network Policy issues

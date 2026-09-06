@@ -23,35 +23,28 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-    - name: infisical
-      database: infisical
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
     - name: hub_centralized
       database: hub
       permissions:
       - SELECT
       - INSERT
       - UPDATE
-    - name: hydra
-      database: hydra
+    - name: hub_zitadel
+      database: zitadel
       permissions:
       - SELECT
       - INSERT
       - UPDATE
       - DELETE
-    - name: kratos
-      database: kratos
+    - name: stalwart
+      database: stalwart
       permissions:
       - SELECT
       - INSERT
       - UPDATE
       - DELETE
-    - name: keto
-      database: keto
+    - name: openmeter
+      database: openmeter
       permissions:
       - SELECT
       - INSERT

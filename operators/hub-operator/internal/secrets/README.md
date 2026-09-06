@@ -17,9 +17,6 @@ Orchestrates the generation of all Secret Zero secrets. Idempotent - safe to cal
 - `platform-db-app` - BasicAuth credentials for platform-db-app user
 - `infisical-db-credentials` - PostgreSQL credentials for Infisical
 - `infisical-postgres-connection` - Connection string with SSL mode
-- `hydra-db-credentials` - PostgreSQL credentials for Ory Hydra
-- `kratos-db-credentials` - PostgreSQL credentials for Ory Kratos
-- `keto-db-credentials` - PostgreSQL credentials for Ory Keto
 - `platform-db-ca` - Self-signed CA certificate (TLS secret type)
 
 **All secrets include:**

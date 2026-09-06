@@ -78,7 +78,6 @@ SpokePool
 | `sigs.k8s.io/controller-runtime` | Operator framework |
 | `github.com/golang-migrate/migrate/v4` | Database migrations |
 | `github.com/nats-io/nats.go` | NATS JetStream client |
-| `github.com/ory/hydra-client-go/v2` | Ory Hydra OAuth2 client |
 | `github.com/cloudnative-pg/cloudnative-pg` | CNPG API types |
 
 ## Development

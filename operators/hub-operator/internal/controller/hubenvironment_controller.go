@@ -576,15 +576,13 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Identity readiness is no longer gated on a Deployment this operator watches,
 	// and OAuth clients are no longer registered here (ADR-060).
 	//
-	// Both existed for Hydra. Readiness waited on the `ory-hydra` Deployment in
-	// the identity namespace, and registration pushed platform-minted client
-	// secrets into Hydra's admin API. Zitadel generates client secrets itself and
-	// discloses them once, so there is nothing for this operator to push, and the
-	// Tenant Identity Service owns provisioning (ADR-041).
+	// Zitadel generates client secrets itself and discloses them once, so there
+	// is nothing for this operator to push, and the Tenant Identity Service owns
+	// provisioning (ADR-041).
 	//
 	// Leaving the readiness gate in place would be worse than leaving it out: the
 	// Deployment it waits for cannot exist, so the reconcile would stall on
-	// "Waiting for Hydra" for ever while reporting a healthy operator.
+	// "Waiting for identity" for ever while reporting a healthy operator.
 	logger.Info("Phase 3: identity provider lifecycle is external (ADR-060); marking IdentityReady")
 	meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 		Type:               "IdentityReady",
