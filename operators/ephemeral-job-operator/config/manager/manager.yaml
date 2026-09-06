@@ -69,7 +69,7 @@ spec:
             # never published this image; the first CI run replaces it with a
             # real digest and the workflow fails loudly if it cannot.
             - name: WORKSPACE_SYNC_IMAGE
-              value: ghcr.io/soloz-io/workspace-sync:latest
+              value: ghcr.io/soloz-io/workspace-sync@sha256:fc5d962e733a19f2caef2862f7f199ae8d4b05699ad0993bb3af0e99533c8655
             # The object-store credential, by reference. Marked optional in the
             # pod spec, so a cluster without it runs with checkpoints no-op'ing
             # rather than failing every sandbox (§14's one legitimate no-op).
