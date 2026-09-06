@@ -62,22 +62,6 @@ kubectl patch appproject boundary-03 -n platform-ops \
 
 ## Prompts
 
-claude code building "lord of rings" world
-
-building ios app on devin
-
-ask questions in free form text. 
-not using ask tool. 
-is easy to copy
-
-Report me back when http://waypoint.nutgraf.in/ is accessible and frontend + bff+ sdk + cnpg all running well.
-
-------------
-summarize the current status and challenge yu have in making the waypoint url accssible
-
--------
-Always launch multiple subagents in parallel to complete the tasks quicker.
-
 -------
 report back the current status update on changes made nd findings so that i can provide feedback.
 keep the feedback loop open.

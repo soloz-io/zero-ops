@@ -4,15 +4,18 @@
 **Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06). §§16–19 are
 normative contracts — durable work, control-plane availability, workspace
 durability, tenant isolation — not aspirational sections. **§19 is
-conditionally satisfied, and this is the one open approval gate:** §19.2
-records a live confidentiality gap (effective sandbox egress is any host on
-443) and §19.3 fully specifies the replacement control — including its
-normative TLS-inspection decision — but that control is **designed and not
-yet built**. No tenant-facing confidentiality claim may be made until §19.3
-ships and its continuous verification passes. §20 records the CAPI/Kubernetes
-version floor these contracts assume, the requirement that deployed artifacts
-pin exact versions rather than prose, and the two re-measurement obligations
-the upgrade carries.
+conditionally satisfied and is the one open approval gate.** It carries four
+live gaps, each stated with its evidence rather than implied: effective
+sandbox egress is any host on 443 (§19.2, replacement control specified in
+§19.3 but not built); the existing policy check passes over that open boundary
+and so must not be read as verification (§19.5); sandbox pods automount a
+ServiceAccount token and the workload container still holds `DATABASE_URL` and
+`WAYPOINT_INTERNAL_TOKEN`, so the single-channel credential contract is not yet
+in force (§19.6); and credentials are stored as plaintext literals in the
+`EphemeralJob` CR (§19.6). No tenant-facing confidentiality claim may be made
+until these close. §20 records the CAPI/Kubernetes version floor these
+contracts assume, the requirement that deployed artifacts pin exact versions
+rather than prose, and the two re-measurement obligations the upgrade carries.
 **Relates to:** ADR-005 (unified abstraction layers in Crossplane), ADR-011 (declarative over imperative), ADR-012 (billing/metering), ADR-014 (platform-owned stateful infrastructure), ADR-033 (fleet scale targets), ADR-034 (control-plane failure domains), ADR-036 (pluggable provider architecture), ADR-039 (ownership model), ADR-041 (controller responsibility matrix), ADR-043 (control plane authority), ADR-046 (placement classes, burst worker pool), ADR-047 (fleet tenant deployment contract), `crossplane-capi-ownership-pattern`
 
 ---
@@ -1419,8 +1422,8 @@ platform.
 | Pod runtime | `runAsNonRoot`, `runAsUser: 1000`, seccomp `RuntimeDefault`, `drop: [ALL]`, read-only root + explicit tmpfs | Platform (operator authors the pod) | `buildPodSpec` (§8) |
 | Placement | `nodeSelector`/toleration/`priorityClassName` unrepresentable in the fleet-facing CR | Platform | §4, §7 |
 | Quota / fairness | Kueue `ClusterQueue`, `burst-tenant` PriorityClass | Platform | §5, §15 |
-| Network egress | cluster-wide default-deny `CiliumClusterwideNetworkPolicy` | Platform | `sandbox-network-policy.yaml` |
-| Credentials | injected into platform-authored sidecars only; never into the tenant container | Platform | `agent-vault` (§14), `workspace-sync` (§14) |
+| Network egress | cluster-wide default-deny `CiliumClusterwideNetworkPolicy` | Platform | `sandbox-network-policy.yaml` — **not effective today, §19.2/§19.3** |
+| Credentials | single-channel injection at the proxy layer; no credential in the tenant container | Platform | `agent-vault` — **partially true today, §19.6** |
 | Storage | PVC provisioned and mounted by the operator; fleets cannot author PVCs | Platform | §14, ADR-047 Tier 3 exclusion |
 
 The invariant tying these together, and the one that MUST hold for any future
@@ -1451,13 +1454,39 @@ rows are enforced and verifiable today; this one is not, and the contract is
 therefore **conditionally satisfied, with the condition named in §19.3**.
 
 **19.3 The replacement egress control — specified here, not yet built.** The
-`toFQDNs` approach MUST be abandoned rather than retried further. The evidence
-is that the path is exhausted, not misconfigured: `enable-l7-proxy: true` and
-`dnsproxy-enable-transparent-mode: true` are both already set
-(`cilium-config-base.yaml`), four candidate fixes were attempted, and the FQDN
-cache stayed empty (verified 2026-09-01, recorded in the policy file). A
-control whose enforcement depends on a cache that does not populate is not a
-control, and a fifth attempt is not a plan.
+`toFQDNs` approach MUST NOT be the sandbox egress control. **An earlier draft
+justified this by calling the FQDN path "exhausted." That was wrong, and the
+correction strengthens the decision rather than weakening it.** The path is not
+exhausted — it is diagnosed and unfixed, which is a different and more
+actionable thing (`.agents/spec/enhancements/2026-08-31.md`, items 9–11):
+
+- The mechanism is established, not mysterious: `ip rule` priority 9 sends
+  fwmark `0x200/0xf00` to table 2004 (`local default dev lo`), so a
+  TPROXY-matched DNS packet is **misrouted rather than dropped** and never
+  reaches the DNS proxy socket. Every hop up to local delivery is measured
+  correct; `proxy received 0` is the only failure.
+- The obvious fix is **falsified with a reason**: the priority-8 exemption
+  (`to 100.64.0.0/10 lookup 52`) covers *tailnet* destinations, and a DNS query
+  to CoreDNS is addressed to a **pod**. The notes say it directly — "same class
+  of fault, different path, and it needs its own exemption" — and that
+  exemption has not been written.
+- The exemptions that do exist live only in the mangle-guard DaemonSet
+  (`cilium-addon-hybrid.yaml`), which is `nodeSelector`-pinned to
+  `node-role.kubernetes.io/control-plane`. **Every sandbox runs on a worker,
+  where none of them are applied.**
+
+The reason to build an independent control is therefore not that the FQDN path
+cannot be repaired, but that repairing it is **upstream-grade work on Cilium
+1.17.18 with no established fix, and diagnosing it in place has already cost a
+live tenant its DNS**. The platform's own conclusion is to reproduce it in a
+scratch namespace rather than bisect further on a spoke. A tenant-isolation
+boundary MUST NOT wait on that.
+
+**This fault is also not only a sandbox problem, and MUST be tracked
+independently of §19.3.** The same inert `toFQDNs` rules are why the BFF's JWKS
+fetch fails, surfacing as `401 Unauthenticated` on a request the gateway
+authenticated correctly. Building the egress proxy does not fix that, and
+closing §19.3 MUST NOT be treated as closing it.
 
 The replacement MUST NOT depend on the DNS-proxy path at all:
 
@@ -1591,6 +1620,113 @@ enforcement depends on a selector MUST have a corresponding check asserting it
 selects a non-zero endpoint set, and that check MUST run continuously rather
 than at install time. An isolation control that cannot be observed to be
 working is not a control.
+
+**The existing check satisfies half of this, and its green light is currently
+misleading.** `scripts/validate/cluster/76-policy-selects-nothing.sh` already
+implements the non-inertness half well — it distinguishes a wrong selector
+(pods carry the label keys but none match: hard fail) from a workload simply
+not running (nothing carries the keys: reported, not failed), and it hard-fails
+when its own matcher cannot answer. That is the right shape. But it asserts
+only that a policy **selects** endpoints, never that the policy **denies**
+anything. The sandbox policy's selector is correct today, so this check
+**passes right now, against a policy whose effective posture is
+`toEntities: world` on 443** (§19.2). A control that reports green over an
+open egress boundary is worse than no check, because it converts an
+unmitigated gap into an apparently-verified one.
+
+A second check is therefore required, and §19 is not satisfied without it: a
+**negative assertion** that a sandbox-identity workload is *refused* when it
+attempts a non-allowlisted destination. It MUST test refusal, not
+reachability — "egress works" is evidence of nothing — and it MUST run
+continuously against the live policy, not once at install.
+
+**19.6 Single-channel credential contract — agent-vault is the only credential
+path, by construction.**
+
+The platform authors the sandbox pod (§4), so *which* mechanisms can deliver a
+credential into it is a platform decision, not a fleet convention. This
+subsection makes it one. **agent-vault, injecting at the L7 proxy layer, is the
+sole permitted channel.** Every other mechanism is forbidden, and forbidden in
+the strong sense §4 uses: not discouraged, but absent from the object the
+platform authors.
+
+The pattern already exists in the codebase and this generalises it rather than
+inventing it: `buildHarnessEnv` already sets `AI_GATEWAY_API_KEY:
+'sk-proxy-managed'` — a **placeholder** in the workload's environment, with the
+real key held only by agent-vault and injected into matching outbound requests.
+That is the target shape for every credential.
+
+**Forbidden, and each MUST be enforced rather than documented:**
+
+- **No secret-valued environment variable in the workload container.** Where a
+  library requires the variable to exist, it receives a non-secret placeholder,
+  as `AI_GATEWAY_API_KEY` already does.
+- **No Secret volume mounts in the workload container.**
+- **`automountServiceAccountToken: false`.** This is currently **unset** in the
+  operator's `buildPodSpec`, so it defaults to `true` and every sandbox pod
+  carries a projected ServiceAccount token that tenant-authored code can read
+  and present to the API server. This is a live gap, not a hypothetical, and it
+  is the cheapest one on this list to close.
+- **No ExternalSecret targeting a sandbox workload.** ADR-047 already denies
+  fleets ExternalSecret authorship; this extends the same rule to the sandbox
+  pod as a target.
+
+**Credentials MUST NOT appear as literals in the `EphemeralJob` CR.** They do
+today: `createSandbox` passes `AGENTREGISTRY_GITHUB_TOKEN`,
+`AGENTREGISTRY_TAVILY_API_KEY`, `AGENTREGISTRY_RUNPOD_AUTH` and
+`AI_GATEWAY_API_KEY` as literal values in the CR's `sidecars[].env`, which
+means every one of them is stored in plaintext in etcd and readable by anyone
+holding `get ephemeraljobs` in the tenant namespace. The CR is a *request*, not
+a secret store. The operator MUST instead resolve these from a platform-owned
+Secret by reference when it authors the sidecar, and the CR schema MUST NOT
+accept credential literals — unrepresentable beats forbidden, per §4.
+
+**Two credentials cannot use this channel today. Naming them is the point:**
+
+- **`WAYPOINT_INTERNAL_TOKEN`** is in the workload container's environment. It
+  *can* move to agent-vault in principle — the SDK is reached over HTTP — but
+  two things block it: agent-vault's `NO_PROXY` deliberately exempts
+  `.svc.cluster.local` and `waypoint-sdk`, so that traffic bypasses the proxy
+  by design, and injection would require agent-vault to set a custom header
+  name (`x-waypoint-internal-token`) rather than the bearer/basic forms it is
+  known to support. Both are tractable; neither is done.
+- **`DATABASE_URL`** carries a Postgres password into the workload container
+  and **cannot** move to agent-vault at all: agent-vault is an HTTP/HTTPS MITM
+  proxy and the Postgres wire protocol is not HTTP. There is no version of the
+  single-channel rule that captures it.
+
+The `DATABASE_URL` case is the honest residual and MUST be recorded as such
+rather than glossed. The north star is that the sandbox holds no database
+credential because it has no direct database access — all persistence flows
+through the SDK's HTTP API, and the pooler egress rule is removed from the
+sandbox policy. That is a substantial change to harness-runtime, which uses the
+connection directly (LangGraph's Postgres checkpointer among others), so it is
+not a same-change fix. Until then the required mitigations are: a **per-session
+credential**, **least-privilege grants** (only the tables the harness genuinely
+uses), and a **short TTL**, with the network policy continuing to restrict
+reachability to the pooler alone.
+
+**Token scope is a control, not a detail.** agent-vault registers `github.com`
+and `api.github.com` and injects `GITHUB_TOKEN` automatically. Combined with
+§19.3's allowlist necessarily containing GitHub, the platform is not merely
+permitting egress to a write-capable host — it is **supplying the write
+credential for it**. The exfiltration channel §19.3 names is therefore
+credentialed by default. The mitigating control is token scope, and it is
+mandatory: the injected GitHub credential MUST be fine-grained, scoped to the
+specific repositories a session legitimately needs, and short-lived. A
+broadly-scoped or long-lived token converts an accepted residual risk into an
+unbounded one.
+
+**Why this makes agent-vault's in-pod bypassability acceptable.** agent-vault's
+proxy is wired through `HTTPS_PROXY`/`HTTP_PROXY` in `/shared/proxy.env`, so an
+agent with a shell can unset them and skip it. That is **not** a hole in this
+contract, because bypassing agent-vault is self-defeating: the bypassing
+request simply arrives without the injected credential. The security boundary
+is never agent-vault — it is §19.3's out-of-pod egress proxy, which the agent
+cannot bypass because the network policy gives the pod no other path off-node.
+The correct division, stated so it is not re-litigated: **agent-vault is a
+credential-injection convenience inside the trust boundary; the egress proxy is
+the trust boundary.** This is also why §19.3 forbids collapsing the two.
 
 ### 20. Platform version floor (Amendment 2026-09-06)
 
@@ -1944,6 +2080,32 @@ declared in Git.
   out-of-pod egress proxy enforcing the allowlist at CONNECT/SNI — but
   **specifying a control is not deploying one**, and §19 is explicitly
   conditionally satisfied until it ships.
+- **A code review against the contract found four further gaps, all now stated
+  in §19 rather than discovered later** — and finding them is the argument for
+  writing normative contracts at all, since each was invisible while the
+  boundary lived as scattered implementation:
+  - `automountServiceAccountToken` is unset in `buildPodSpec`, so every
+    sandbox pod carries a readable ServiceAccount token (§19.6). Cheapest of
+    the four to close.
+  - The workload container holds `DATABASE_URL` (with password) and
+    `WAYPOINT_INTERNAL_TOKEN`, so §19.1's credential row was overstated and is
+    now qualified (§19.6).
+  - Credentials are passed as **plaintext literals in the `EphemeralJob` CR**,
+    putting them in etcd and in reach of anyone with `get ephemeraljobs` in the
+    namespace (§19.6).
+  - `76-policy-selects-nothing.sh` **passes today over the open egress
+    boundary**, because it verifies non-inertness rather than refusal (§19.5).
+    A check that reports green over an unmitigated gap is worse than no check.
+- **§19.6 makes credential delivery single-channel by construction**, which is
+  a genuine tightening rather than a restatement: the platform authors the pod,
+  so forbidden mechanisms are *absent* rather than merely disallowed, and the
+  `AI_GATEWAY_API_KEY: 'sk-proxy-managed'` placeholder already in the codebase
+  is the shape being generalised rather than a new invention.
+- **§19.6 also refuses to pretend `DATABASE_URL` fits.** agent-vault is an
+  HTTP proxy and Postgres is not HTTP, so the single-channel rule cannot cover
+  it; the ADR states the north star (no direct DB access from the sandbox) and
+  the interim mitigations (per-session, least-privilege, short-TTL) instead of
+  claiming a coverage it does not have.
 - **§19.3 introduces a new availability chokepoint by construction.** Routing
   all sandbox egress through a platform proxy means that proxy's outage is a
   total egress outage for every sandbox, where today's (insecure) posture has

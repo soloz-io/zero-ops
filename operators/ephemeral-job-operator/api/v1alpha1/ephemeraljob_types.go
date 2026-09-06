@@ -264,6 +264,38 @@ type EphemeralJobSpec struct {
 	// TerminationGracePeriodSeconds for the pod.
 	// +optional
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+
+	// WorkspacePersistence gives the workload a durable /workspace (ADR-052 §14).
+	//
+	// The fleet states WHICH workspace and nothing else. StorageClass, PVC
+	// naming, size and reuse are the operator's, for the same reason placement
+	// is (§4): a fleet that could name a StorageClass could place its data on
+	// storage it was not granted, and the fleet-facing type is the only place
+	// that can be made incapable of saying so.
+	// +optional
+	WorkspacePersistence *WorkspacePersistenceSpec `json:"workspacePersistence,omitempty"`
+}
+
+// WorkspacePersistenceSpec asks for a durable /workspace (ADR-052 §14).
+//
+// Deliberately one field. Everything else about the volume is a platform
+// decision, and each additional knob here would be a way for a fleet to
+// contradict one.
+type WorkspacePersistenceSpec struct {
+	// WorkspaceID identifies the WORKSPACE, not this request.
+	//
+	// Two EphemeralJobs carrying the same WorkspaceID resolve to the same PVC —
+	// that is the point, not a collision to defend against. It is how a
+	// workspace outlives the sandbox that created it, and how successive
+	// sessions of one app see the same disk.
+	//
+	// The PVC name is derived from a hash of this rather than from the value
+	// itself: a workspace id is caller-chosen and need not be an RFC 1123
+	// subdomain, and a name the API server rejects would surface as a 422 on
+	// pod creation rather than as anything about the id.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	WorkspaceID string `json:"workspaceId"`
 }
 
 // Mode is the workload lifecycle. See EphemeralJobSpec.Mode.
