@@ -21,7 +21,7 @@ kind: Kustomization
 helmCharts:
   - name: infisical-standalone
     repo: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
-    version: 1.7.5
+    version: 1.10.0
     releaseName: infisical-standalone
     namespace: platform-security
     valuesFile: values.yaml

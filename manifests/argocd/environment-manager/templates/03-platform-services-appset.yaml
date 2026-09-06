@@ -198,7 +198,7 @@ spec:
         # ROOT CAUSE of recurring Infisical migration-lock failures.
         #
         # The chart stamps a wall-clock timestamp into the Deployment AND its pod
-        # template (templates/infisical.yaml, both 1.7.5 and 1.10.0):
+        # template (templates/infisical.yaml, 1.10.0+):
         #
         #     updatedAt: {{"{{"}} now | date "2006-01-01 MST 15:04:05" {{"}}"}}
         #
