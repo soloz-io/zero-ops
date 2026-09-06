@@ -88,11 +88,23 @@ spec:
         login: true
         passwordSecret:
           name: infisical-db-credentials
-      - name: stalwart
-        ensure: present
-        login: true
-        passwordSecret:
-          name: stalwart-db-credentials
+      # ONLY infisical. ADR-023's addendum extends CNPG's remit past "physical
+      # cluster + superuser" for the Day-0 bootstrap role "and only this case",
+      # and removes anything listed here from HubEnvironment.spec.database.roles
+      # so exactly one controller owns each role.
+      #
+      # stalwart was added here and did not belong. It is an application role
+      # whose credential arrives by the ordinary path (Infisical -> ESO), so it
+      # belongs to hub-operator's RoleManager like hub_zitadel and openmeter.
+      # Having it here broke it in a way that looked fine: CNPG created the role
+      # before the Secret existed, recorded
+      #
+      #   "passwordStatus": {"stalwart": {"transactionID": 763}}
+      #
+      # with no resourceVersion, and then never re-read the Secret because the
+      # role's transaction id had not changed -- so it detected no drift and left
+      # the role permanently password-less. RoleManager instead issues ALTER ROLE
+      # on every reconcile, so a Secret that arrives late is still applied.
 
   # ADR-014: stateful workloads run on worker nodes, always. The location half of
   # the ADR-046 §11 placement class is supplied by the provider overlay.
