@@ -141,7 +141,7 @@ func restoreWithFuse(ctx context.Context, workspaceRoot, stagingRoot string, cfg
 		workspaceRoot)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Cleanup: unmount squashfs on failure.
-		exec.Command("fusermount", "-u", lowerDir).Run()
+		exec.Command("fusermount3", "-u", lowerDir).Run()
 		return fmt.Errorf("fuse-overlayfs: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
 
@@ -174,9 +174,9 @@ func restoreFromFilesystem(ctx context.Context, root string, cfg store.Config) e
 // unmountFuse tears down any active FUSE mounts at workspaceRoot and in stagingRoot.
 func unmountFuse(workspaceRoot, stagingRoot string) {
 	// Unmount overlay first (the merged view).
-	exec.Command("fusermount", "-u", workspaceRoot).Run()
+	exec.Command("fusermount3", "-u", workspaceRoot).Run()
 	// Then unmount squashfs lower.
-	exec.Command("fusermount", "-u", stagingRoot+"/lower").Run()
+	exec.Command("fusermount3", "-u", stagingRoot+"/lower").Run()
 	// Clean staging dirs.
 	os.RemoveAll(stagingRoot + "/lower")
 	os.RemoveAll(stagingRoot + "/upper")
@@ -395,7 +395,7 @@ func runServe(root string) error {
 					"-o", fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir),
 					root)
 				if out, err := cmd.CombinedOutput(); err != nil {
-					exec.Command("fusermount", "-u", lowerDir).Run()
+					exec.Command("fusermount3", "-u", lowerDir).Run()
 					writeJSON(w, http.StatusInternalServerError, map[string]any{"error": fmt.Sprintf("fuse-overlayfs: %v (%s)", err, strings.TrimSpace(string(out)))})
 					return
 				}
