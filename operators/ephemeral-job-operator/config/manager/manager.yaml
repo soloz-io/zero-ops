@@ -52,6 +52,29 @@ spec:
             # ADR-052 §11: measured p95 for this spoke's burst placement class.
             # Reported, never acted on by deletion.
             - --provisioning-budget=6m
+          env:
+            # The workspace persistence agent this operator injects into every
+            # sandbox pod that asks for workspacePersistence (ADR-052 §14).
+            #
+            # PINNED BY DIGEST, and the digest is the deployed artifact — the
+            # :latest and :<sha> tags the workflow pushes beside it are for
+            # humans reading the registry. Same rule as this operator's own
+            # image in kustomization.yaml, and it matters more here: this
+            # container runs before the workload and can overwrite a user's
+            # workspace on restore, so an image that changes silently underneath
+            # a running fleet is the one thing it must not be.
+            #
+            # Written by .github/workflows/workspace-sync.yml on every build.
+            # The value below is the bootstrap placeholder for a repo that has
+            # never published this image; the first CI run replaces it with a
+            # real digest and the workflow fails loudly if it cannot.
+            - name: WORKSPACE_SYNC_IMAGE
+              value: ghcr.io/soloz-io/workspace-sync:latest
+            # The object-store credential, by reference. Marked optional in the
+            # pod spec, so a cluster without it runs with checkpoints no-op'ing
+            # rather than failing every sandbox (§14's one legitimate no-op).
+            - name: WORKSPACE_SYNC_SECRET
+              value: workspace-sync-s3
           ports:
             - containerPort: 8080
               name: metrics

@@ -1,0 +1,106 @@
+name: workspace-sync
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - operators/workspace-sync/**
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operators/workspace-sync/go.mod
+          cache-dependency-path: operators/workspace-sync/go.sum
+
+      # Tested before it is published, unlike the operator workflow beside this
+      # one. This image holds the object-store credential and is the only thing
+      # that can overwrite a user's workspace on restore, so shipping it on a
+      # green docker build alone is a worse trade here than the extra minute.
+      - name: Vet and test
+        working-directory: operators/workspace-sync
+        run: |
+          go vet ./...
+          go test ./... -race
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: operators/workspace-sync
+          # amd64 only, for the reason documented at length in
+          # ephemeral-job-operator.yml: every node in the fleet is x86, nothing
+          # here cross-compiles, and the non-native leg runs under QEMU.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/workspace-sync:${{ github.sha }}
+            ghcr.io/soloz-io/workspace-sync:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      # The digest is written into the OPERATOR's config, not this component's:
+      # workspace-sync has no Deployment of its own. It runs as an init
+      # container and a sidecar that ephemeral-job-operator injects into every
+      # sandbox pod (ADR-052 §14), so the reference that has to move is the
+      # operator's WORKSPACE_SYNC_IMAGE.
+      - name: Pull latest remote changes
+        run: git pull --rebase
+
+      - name: Pin the new image by digest in the operator's manager env
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cd operators/ephemeral-job-operator/config/manager
+          python3 - <<'PY'
+          import os, re, pathlib, sys
+
+          digest = os.environ["DIGEST"]
+          # A tag here would defeat the point: the whole reason to pin is that
+          # this image can overwrite a workspace on restore, and a moving
+          # reference makes "which code did that" unanswerable after the fact.
+          if not digest.startswith("sha256:"):
+              sys.exit(f"expected a sha256 digest from buildx, got {digest!r}")
+          ref = f"ghcr.io/soloz-io/workspace-sync@{digest}"
+
+          p = pathlib.Path("manager.yaml")
+          s = p.read_text()
+          new, n = re.subn(
+              r"(name: WORKSPACE_SYNC_IMAGE\n\s+value: ).*",
+              lambda m: m.group(1) + ref,
+              s,
+          )
+          # Fail loudly rather than publish an image nothing points at. A silent
+          # no-op here ships a new agent that no fleet ever runs, and the only
+          # symptom is that a fix appears not to have worked.
+          if n != 1:
+              sys.exit(
+                  f"expected exactly 1 WORKSPACE_SYNC_IMAGE entry in manager.yaml, rewrote {n}"
+              )
+          p.write_text(new)
+          print(f"pinned WORKSPACE_SYNC_IMAGE -> {ref}")
+          PY
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operators/ephemeral-job-operator/config/manager/manager.yaml
+          git commit -m "chore(workspace-sync): update image to ${{ github.sha }}" || exit 0
+          git push

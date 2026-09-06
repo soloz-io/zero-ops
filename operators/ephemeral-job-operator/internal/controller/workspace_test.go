@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
@@ -186,5 +187,100 @@ func TestEveryPlacementClassHasAStorageClass(t *testing.T) {
 		if p.StorageClass == "" {
 			t.Errorf("placement class %q defines no StorageClass; workspacePersistence cannot be satisfied for it (ADR-052 §14)", class)
 		}
+	}
+}
+
+// TestNoServiceAccountTokenInTenantPods guards ADR-052 §19.6.
+//
+// AutomountServiceAccountToken was UNSET here, which defaults to true, so every
+// sandbox pod carried a projected API credential that tenant-authored code
+// could read. The threat model is untrusted code with a shell, and the failure
+// is silent — nothing reports a token that is merely present.
+func TestNoServiceAccountTokenInTenantPods(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+	ej := &computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image: "example.com/img@sha256:" + strings.Repeat("a", 64),
+		},
+	}
+
+	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+
+	if spec.AutomountServiceAccountToken == nil {
+		t.Fatal("AutomountServiceAccountToken is unset, which defaults to TRUE — tenant code can read an API credential (ADR-052 §19.6)")
+	}
+	if *spec.AutomountServiceAccountToken {
+		t.Error("AutomountServiceAccountToken is true; agent-vault must be the only credential channel (ADR-052 §19.6)")
+	}
+}
+
+// TestTerminalEventIDIsStablePerOutcome is the property a callback receiver
+// deduplicates on (ADR-052 §16.2).
+//
+// Delivery is at-least-once: the window between a receiver committing its side
+// effect and this operator persisting ConditionCallbackDelivered cannot be
+// closed from this side. So the key must be identical across redeliveries of
+// ONE outcome and different across outcomes — otherwise a receiver either
+// double-applies or silently drops a real second event.
+func TestTerminalEventIDIsStablePerOutcome(t *testing.T) {
+	ej := &computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{RequestID: "req-1"},
+	}
+
+	a := terminalEventID(ej, computev1alpha1.PhaseSucceeded)
+	b := terminalEventID(ej, computev1alpha1.PhaseSucceeded)
+	if a != b {
+		t.Errorf("same outcome produced different ids: %q then %q — a redelivery would be treated as new work", a, b)
+	}
+
+	if f := terminalEventID(ej, computev1alpha1.PhaseFailed); f == a {
+		t.Error("Succeeded and Failed share a terminal event id; a receiver would drop the second as a duplicate")
+	}
+
+	other := &computev1alpha1.EphemeralJob{Spec: computev1alpha1.EphemeralJobSpec{RequestID: "req-2"}}
+	if terminalEventID(other, computev1alpha1.PhaseSucceeded) == a {
+		t.Error("different requests share a terminal event id")
+	}
+
+	// No RequestID: must still produce a usable key rather than collapsing every
+	// unnamed request onto one id.
+	u1 := &computev1alpha1.EphemeralJob{}
+	u1.UID = "uid-1"
+	u2 := &computev1alpha1.EphemeralJob{}
+	u2.UID = "uid-2"
+	if terminalEventID(u1, computev1alpha1.PhaseSucceeded) == terminalEventID(u2, computev1alpha1.PhaseSucceeded) {
+		t.Error("requests without a RequestID collide on UID fallback")
+	}
+}
+
+// TestJobIgnoresDisruptionFailures covers the half of §16.3 with a real cost on
+// burst capacity: preemption and node drain are infrastructure-transient, and
+// counting them against the retry budget fails a workload for something it did
+// not do. Expressed as podFailurePolicy so the API server makes the judgement
+// rather than this operator re-deriving it from pod status.
+func TestJobIgnoresDisruptionFailures(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("burst")
+	ej := &computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image: "example.com/img@sha256:" + strings.Repeat("a", 64),
+		},
+	}
+
+	job := r.buildJob(ej, "j", p)
+	if job.Spec.PodFailurePolicy == nil {
+		t.Fatal("no podFailurePolicy: disruption would consume the retry budget (ADR-052 §16.3)")
+	}
+	found := false
+	for _, rule := range job.Spec.PodFailurePolicy.Rules {
+		for _, c := range rule.OnPodConditions {
+			if c.Type == corev1.DisruptionTarget && rule.Action == batchv1.PodFailurePolicyActionIgnore {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("podFailurePolicy does not Ignore DisruptionTarget; preemption on burst capacity would fail the job")
 	}
 }

@@ -103,11 +103,48 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if !ej.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
+		// Flush the workspace before the pod goes away (ADR-052 §14).
+		//
+		// Finalizer-gated rather than a preStop hook: a hook has a hard grace
+		// period and no retry, so a slow flush is simply cut off — and the work
+		// it was writing is the uncommitted work this whole layer exists to
+		// protect. A finalizer holds deletion open until the operator releases
+		// it, which is the only mechanism that can actually wait.
+		return r.finalizeWorkspace(ctx, &ej)
+	}
+
+	// Take the finalizer BEFORE anything is created. Adding it later leaves a
+	// window in which a delete arriving mid-provision skips the flush entirely,
+	// and that window is exactly when a fast session ends.
+	if ej.Spec.WorkspacePersistence != nil && !hasFinalizer(&ej) {
+		ej.Finalizers = append(ej.Finalizers, workspaceFinalizer)
+		if err := r.Update(ctx, &ej); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if isTerminal(ej.Status.Phase) {
+		// Cancelling something already terminal is a no-op (ADR-052 §16.4). A
+		// result that happened is not undone by a later cancel, and overwriting
+		// the terminal phase would lose why it actually ended.
 		return r.reconcileTTL(ctx, &ej)
+	}
+
+	// Cancellation, before any provisioning work (ADR-052 §16.4).
+	//
+	// Checked here so it resolves from ANY non-terminal phase with one rule.
+	// The one phase it may not short-circuit is Checkpointing: a cancel that
+	// interrupts an in-flight workspace flush destroys exactly the uncommitted
+	// work §14 exists to protect, so it waits.
+	if ej.Spec.Cancelled {
+		if ej.Status.Phase == computev1alpha1.PhaseCheckpointing {
+			l.Info("cancellation deferred: workspace flush in flight", "name", ej.Name)
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+		l.Info("cancelling on request", "name", ej.Name, "phase", ej.Status.Phase)
+		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseCancelled,
+			"Cancelled", "cancelled by the submitter")
 	}
 
 	// Reject an unrunnable request once, here, instead of letting it fail later
@@ -287,6 +324,29 @@ func (r *EphemeralJobReconciler) buildJob(
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: &backoff,
+			// Failure classification expressed in native Job semantics, not
+			// re-derived here (ADR-052 §16.3).
+			//
+			// The API server owns this judgement and makes it consistently; an
+			// operator inspecting pod status to decide "was that a disruption or
+			// a real failure?" is reimplementing a decision Kubernetes already
+			// makes, and getting it subtly different for this one workload type.
+			//
+			// Ignore on DisruptionTarget is the load-bearing half: preemption,
+			// node drain and eviction are INFRASTRUCTURE-transient (§16.3), and
+			// counting them against the retry budget would fail a workload for
+			// something it did not do — on burst capacity, where preemption is
+			// routine, that is the difference between a job that survives
+			// scale-down and one that does not.
+			PodFailurePolicy: &batchv1.PodFailurePolicy{
+				Rules: []batchv1.PodFailurePolicyRule{{
+					Action: batchv1.PodFailurePolicyActionIgnore,
+					OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{{
+						Type:   corev1.DisruptionTarget,
+						Status: corev1.ConditionTrue,
+					}},
+				}},
+			},
 			// ActiveDeadlineSeconds is DELIBERATELY NOT SET.
 			//
 			// batch/v1 measures it from the Job's own start, which includes the
@@ -349,6 +409,9 @@ func (r *EphemeralJobReconciler) markFinished(
 	ej.Status.CompletionTime = &now
 	ej.Status.ExitCode = exit
 	ej.Status.ObservedGeneration = ej.Generation
+	// Set before the callback fires, so every delivery of this outcome — including
+	// a redelivery after a crash — carries the same dedupe key (ADR-052 §16.2).
+	ej.Status.TerminalEventID = terminalEventID(ej, phase)
 	status := metav1.ConditionTrue
 	if phase != computev1alpha1.PhaseSucceeded {
 		status = metav1.ConditionFalse
@@ -377,6 +440,7 @@ func (r *EphemeralJobReconciler) markTerminal(
 	ej.Status.CompletionTime = &now
 	ej.Status.Message = msg
 	ej.Status.ObservedGeneration = ej.Generation
+	ej.Status.TerminalEventID = terminalEventID(ej, phase)
 	meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
 		Type:               computev1alpha1.ConditionCapacity,
 		Status:             metav1.ConditionFalse,
@@ -385,6 +449,28 @@ func (r *EphemeralJobReconciler) markTerminal(
 		ObservedGeneration: ej.Generation,
 	})
 	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
+}
+
+// terminalEventID is the receiver's deduplication key (ADR-052 §16.2).
+//
+// Derived from the request's identity and its terminal phase, so it is
+// identical across every REDELIVERY of one outcome and different for any other
+// outcome. That is the property a receiver needs and the only one this side can
+// actually provide: delivery is at-least-once, because the window between the
+// receiver committing a side effect and this operator persisting
+// ConditionCallbackDelivered cannot be closed from here.
+//
+// Prefers Spec.RequestID and falls back to the CR's UID. The UID is stable for
+// the object's lifetime, which is enough to deduplicate redeliveries of the
+// same terminal outcome; RequestID is better because it also survives the
+// object being recreated for the same logical work.
+func terminalEventID(ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase) string {
+	id := ej.Spec.RequestID
+	if id == "" {
+		id = string(ej.UID)
+	}
+	sum := sha256.Sum256([]byte(id + "|" + string(phase)))
+	return hex.EncodeToString(sum[:])[:32]
 }
 
 func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -439,6 +525,13 @@ func (r *EphemeralJobReconciler) fireCallback(
 		"exitCode": exit,
 		"output":   ej.Spec.Output,
 		"message":  ej.Status.Message,
+		// The receiver's deduplication key (ADR-052 §16.2). Delivery is
+		// at-least-once — ConditionCallbackDelivered suppresses the common
+		// reconcile-driven duplicate but cannot close the crash window between
+		// the receiver committing and this operator persisting that condition.
+		// A receiver that ignores this field is unprotected against redelivery.
+		"terminalEventId": ej.Status.TerminalEventID,
+		"requestId":       ej.Spec.RequestID,
 	})
 	if err != nil {
 		// Unmarshallable payload is a programming error, not a transient one:
@@ -569,6 +662,11 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		}
 	}
 
+	// Operator-authored containers, kept separate from the fleet's until the
+	// pod spec is assembled so a fleet's Sidecars list cannot displace them.
+	var spec_initContainers []corev1.Container
+	var sidecarsExtra []corev1.Container
+
 	// A persisted workspace REPLACES the workspace volume, whatever supplied it
 	// (ADR-052 §14).
 	//
@@ -606,6 +704,18 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		container.VolumeMounts = appendMountIfAbsent(container.VolumeMounts, corev1.VolumeMount{
 			Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath,
 		})
+
+		// The platform's persistence agent, in both of its shapes (§14).
+		//
+		// These are added by the OPERATOR, never by the fleet: they carry the
+		// object-store credential, and §19.6 makes agent-vault the only
+		// credential channel into the workload container. A fleet-supplied
+		// sidecar could not be trusted with this and a fleet-supplied init
+		// container could skip the restore entirely.
+		wsID := ej.Spec.WorkspacePersistence.WorkspaceID
+		initC, sideC := workspaceSyncContainers(wsID)
+		spec_initContainers = append(spec_initContainers, initC)
+		sidecarsExtra = append(sidecarsExtra, sideC)
 	}
 
 	// A writable /tmp, always.
@@ -643,10 +753,19 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	// rejection names the container, but it is the pod that is never created —
 	// and the request that named an envelope for its workload looks, from the
 	// outside, like one that did not.
-	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars))
+	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars)+len(sidecarsExtra))
 	for _, c := range ej.Spec.Sidecars {
 		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
 		sidecars = append(sidecars, c)
+	}
+	// Operator-authored sidecars go last, so a fleet cannot shadow one by
+	// declaring a container of the same name earlier in its own list.
+	for _, c := range sidecarsExtra {
+		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
+		sidecars = append(sidecars, c)
+	}
+	for i := range spec_initContainers {
+		withRequests(&spec_initContainers[i], defaultSidecarRequestCPU, defaultSidecarRequestMemory)
 	}
 
 	// Never for a job; Always for a service.
@@ -667,8 +786,22 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		restart = corev1.RestartPolicyAlways
 	}
 
+	// No ServiceAccount token in a tenant workload (ADR-052 §19.6).
+	//
+	// This was UNSET, which defaults to true, so every sandbox pod carried a
+	// projected token at /var/run/secrets/kubernetes.io/serviceaccount that
+	// tenant-authored agent code could read and present to the API server. The
+	// threat model here is explicitly untrusted code with a shell, and §19.6
+	// requires agent-vault to be the only credential channel — a mounted API
+	// credential is a second one, obtained without asking.
+	//
+	// Nothing in a workload needs it: the operator talks to the API server, the
+	// workload does not.
+	automount := false
+
 	spec := corev1.PodSpec{
-		RestartPolicy: restart,
+		RestartPolicy:                restart,
+		AutomountServiceAccountToken: &automount,
 
 		// ── ADR-052 §4: placement, written by the component that authors the
 		// pod. There is no fleet-supplied input to any of these three fields.
@@ -690,6 +823,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 			RunAsUser:      ptr(int64(1000)),
 			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 		},
+		InitContainers:                spec_initContainers,
 		Containers:                    append([]corev1.Container{container}, sidecars...),
 		Volumes:                       volumes,
 		ImagePullSecrets:              ej.Spec.ImagePullSecrets,

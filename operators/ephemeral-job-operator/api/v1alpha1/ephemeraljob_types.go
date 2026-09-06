@@ -16,12 +16,35 @@ import (
 type Phase string
 
 const (
-	PhasePending      Phase = "Pending"
+	// PhasePending is the request as accepted, before admission (ADR-052 §15).
+	//
+	// Kept as "Pending" rather than renamed to "Accepted": the value is written
+	// into status and read by clients, so renaming it would break every consumer
+	// mid-flight for a wording improvement. §15's Accepted is this.
+	PhasePending Phase = "Pending"
+	// PhaseQueued means Kueue holds the workload and has not admitted it
+	// (ADR-052 §15). Distinct from Provisioning on purpose: this is waiting on
+	// QUOTA, that is waiting on a NODE, and a submitter that cannot tell them
+	// apart cannot tell "someone else is using the cell" from "capacity is being
+	// built for me".
+	PhaseQueued Phase = "Queued"
+	// PhaseAdmitted means Kueue granted quota and the pod is about to exist.
+	PhaseAdmitted Phase = "Admitted"
+	// PhaseProvisioning is the pod existing but unschedulable while capacity is
+	// created (§7).
 	PhaseProvisioning Phase = "Provisioning"
 	PhaseRunning      Phase = "Running"
-	PhaseSucceeded    Phase = "Succeeded"
-	PhaseFailed       Phase = "Failed"
-	PhaseTimedOut     Phase = "TimedOut"
+	// PhaseCheckpointing is a Service-mode workload whose workspace flush is in
+	// flight during teardown (ADR-052 §15, §16.4). It exists so that a cancel
+	// arriving mid-flush is not mistaken for a workload that can be deleted now.
+	PhaseCheckpointing Phase = "Checkpointing"
+	PhaseSucceeded     Phase = "Succeeded"
+	PhaseFailed        Phase = "Failed"
+	PhaseTimedOut      Phase = "TimedOut"
+	// PhaseCancelled is an explicit submitter cancellation (ADR-052 §16.4),
+	// deliberately distinct from Failed and TimedOut: it is not a fault, and a
+	// caller that retries on failure must not retry on this.
+	PhaseCancelled Phase = "Cancelled"
 )
 
 // Condition types surfaced on status.
@@ -265,6 +288,42 @@ type EphemeralJobSpec struct {
 	// +optional
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 
+	// RequestID is the submitter's stable identity for this unit of work
+	// (ADR-052 §16.1).
+	//
+	// Stable across retries, so a resubmission is recognised as the SAME work
+	// rather than producing a second execution. The CR name is already derived
+	// deterministically by the caller and reused on 409, which gave this
+	// property to the sandbox path by accident; recording it explicitly makes it
+	// the contract for every path and lets §16.1's spec-conflict rule be
+	// enforced rather than assumed.
+	//
+	// Optional: existing callers that rely on deterministic naming alone keep
+	// working unchanged.
+	// +optional
+	RequestID string `json:"requestId,omitempty"`
+
+	// Cancelled asks the platform to stop this work (ADR-052 §16.4).
+	//
+	// A spec field rather than a delete, because delete is not expressible as an
+	// intent that survives: the object would be gone and with it any record of
+	// why it ended, and a Service-mode workload mid-workspace-flush needs the
+	// flush to finish before its pod goes away (§16.4). Cancelling something
+	// already terminal is a no-op — a result that happened is not undone.
+	// +optional
+	Cancelled bool `json:"cancelled,omitempty"`
+
+	// RetryLimit bounds INFRASTRUCTURE-transient retries only (ADR-052 §16.3).
+	//
+	// Capacity waiting is explicitly not failure and never consumes this: a
+	// workload may sit queued indefinitely without exhausting its retries, which
+	// is the whole point of §15's queue. Workload-terminal failures (a non-zero
+	// exit) do not consume it either — they are terminal immediately.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=3
+	// +optional
+	RetryLimit int32 `json:"retryLimit,omitempty"`
+
 	// WorkspacePersistence gives the workload a durable /workspace (ADR-052 §14).
 	//
 	// The fleet states WHICH workspace and nothing else. StorageClass, PVC
@@ -348,6 +407,25 @@ type EphemeralJobStatus struct {
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// TerminalEventID is the stable key for this request's terminal outcome
+	// (ADR-052 §16.2).
+	//
+	// Delivery of the terminal callback is AT-LEAST-ONCE, not exactly-once:
+	// there is an unclosable window between the receiver committing its side
+	// effect and this operator persisting ConditionCallbackDelivered, so a crash
+	// in between redelivers. This id is identical across every redelivery of the
+	// same outcome and different for any other, so a receiver can deduplicate on
+	// it. A receiver that does not deduplicate is protected by nothing on this
+	// side of the boundary.
+	// +optional
+	TerminalEventID string `json:"terminalEventId,omitempty"`
+
+	// RetryCount is how many INFRASTRUCTURE-transient attempts have been spent
+	// against Spec.RetryLimit (ADR-052 §16.3). Capacity waiting never increments
+	// it.
+	// +optional
+	RetryCount int32 `json:"retryCount,omitempty"`
 
 	// JobName is the batch/v1 Job this request owns. Job mode only — a
 	// Service-mode request owns a Pod directly, because a batch/v1 Job exists
