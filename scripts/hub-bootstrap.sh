@@ -1842,8 +1842,10 @@ main() {
 
     step9_wait_database
 
-    # The identity stack is up; prove hydra-maester actually registered the OAuth
-    # clients. An unregistered redirect_uri fails only in the browser.
+    # The identity stack is up; prove the tenants' OAuth clients exist IN Zitadel
+    # (ADR-060). The service creating them reports its own failures, but a client
+    # deleted, renamed, or created in the wrong organisation afterwards leaves
+    # nothing unhealthy in the cluster — it fails in the browser only.
     run_gate "oauth-clients" "OAuth client registration"
 
     if [[ -z "$SPOKEPOOL_NAME" ]]; then

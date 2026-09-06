@@ -87,9 +87,56 @@ resources:
 
 replicaCount: 1
 
+# Long-lived prerequisites are ArgoCD-managed resources, NOT Helm hooks.
+#
+# The chart's DEFAULTS annotate the ServiceAccounts, Role, RoleBinding and config
+# ConfigMaps as helm.sh/hook=pre-install,pre-upgrade with
+# hook-delete-policy=before-hook-creation. Under `helm install` that is right:
+# Helm runs the hook phase to completion once, so delete-and-recreate is safe.
+#
+# Under continuous reconciliation it is not. ArgoCD re-evaluates PreSync on every
+# sync attempt, and an attempt that has not finished leaves the setup Job pending
+# while the NEXT attempt deletes the ServiceAccount that Job is waiting to use:
+#
+#   pods "zitadel-setup-" is forbidden: error looking up service account
+#   platform-identity/zitadel: serviceaccount "zitadel" not found
+#
+# Every retry repeats the deletion, so the Job never starts, the schema is never
+# created, and Zitadel crashes on a database it can reach --
+# `relation "queue.river_queue" does not exist`, created by RiverMigrateRepeatable
+# inside cmd/setup -- which names nothing connected to the deleted account. The
+# hooks all report Succeeded, because they did run.
+#
+# null, NOT {}. Helm deep-merges maps, so an empty map leaves the chart's
+# defaults in place and renders identically; null removes the key. Verified by
+# rendering both.
+#
+# The chart exposes these as ordinary values precisely so a GitOps deployment can
+# do this. It is NOT the same as SkipHooks=true on the Application, which would
+# also skip zitadel-init (creates the database and user) and zitadel-setup
+# (creates the schema) -- ArgoCD would then never create them at all, turning a
+# transient failure into a permanent one.
+#
+# The three Jobs deliberately KEEP their hooks: they are genuine one-shot
+# initialisation, must run before the Deployment (weights 1 then 2), and are
+# restartable by design -- cmd/setup runs cleanup on interruption so a retry
+# "can pick up where we left off rather than booting into a broken state".
+serviceAccount:
+  annotations: null
+
+configMap:
+  annotations: null
+
 # The login UI is its own Deployment and Service in Zitadel v4. It shares the
 # hostname and takes the longer prefix, which Gateway API matches first.
 login:
+  # Same reasoning as the two above: prerequisites, not hooks.
+  serviceAccount:
+    annotations: null
+
+  configMap:
+    annotations: null
+
   gateway:
     httpRoute:
       enabled: true
