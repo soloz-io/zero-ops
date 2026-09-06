@@ -373,11 +373,29 @@ func (o *Orchestrator) activateBoundary(ctx context.Context, kubeconfig string, 
 		// still report, so the bootstrap's account of itself is unchanged.
 		return nil
 	}
-	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"patch", "appproject", boundaryProject(n), "-n", "platform-ops",
-		"--type", "merge", "-p", `{"spec":{"syncWindows":null}}`)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to activate boundary %02d: %w\n%s", n, err, out)
+	// Cumulative: boundaries 1..n, not n alone.
+	//
+	// applySeed runs at the START of every boundary phase and restates all six
+	// AppProjects with their deny window, which re-freezes every boundary
+	// activated so far. Opening only boundary n then leaves exactly one boundary
+	// open — the current one — and the previous ones closed behind it.
+	//
+	// During the run that is invisible, because each phase does its work while
+	// its own boundary is open. It surfaces afterwards: the bootstrap finishes
+	// with boundaries 01-05 denied and only 06 open, so nothing in them can ever
+	// sync again. A boundary 01 Application that needs to pick up a credential
+	// rotated later sits OutOfSync-but-Healthy for ever, with the deny window as
+	// the only evidence and nothing pointing at it.
+	//
+	// Re-opening 1..n restores the invariant the sequence is supposed to express:
+	// every boundary reached so far is open, and the ones beyond n are not.
+	for i := 1; i <= n; i++ {
+		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"patch", "appproject", boundaryProject(i), "-n", "platform-ops",
+			"--type", "merge", "-p", `{"spec":{"syncWindows":null}}`)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to activate boundary %02d: %w\n%s", i, err, out)
+		}
 	}
 	return nil
 }
