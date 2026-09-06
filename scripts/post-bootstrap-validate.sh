@@ -633,7 +633,7 @@ check_spoke() {
     fi
 
     local capi_cluster_phase
-    capi_cluster_phase=$(kc get cluster "$SPOKEPOOL_NAME" -n platform-capi \
+    capi_cluster_phase=$(kc get clusters.cluster.x-k8s.io "$SPOKEPOOL_NAME" -n platform-capi \
         -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
     if [[ "$capi_cluster_phase" == "Provisioned" ]]; then
         log_pass "CAPI Cluster $SPOKEPOOL_NAME: Provisioned"
@@ -762,7 +762,7 @@ check_kyverno_crd_established() {
 
 check_spoke_cnpg() {
     local phase
-    phase=$(kc_spoke get cluster shared-cnpg -n platform-data \
+    phase=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
         -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
     if [[ "$phase" == "Cluster in healthy state" ]]; then
         log_pass "Spoke CNPG shared-cnpg: healthy"

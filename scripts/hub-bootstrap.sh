@@ -123,7 +123,7 @@ error_exit() {
 dump_cluster_diagnostics() {
     local cluster_name="$1"
     log "── diagnostics: cluster/$cluster_name ─────────────────────────────"
-    kubectl get cluster "$cluster_name" -n platform-capi \
+    kubectl get clusters.cluster.x-k8s.io "$cluster_name" -n platform-capi \
         --kubeconfig="$KUBECONFIG_PATH" \
         -o jsonpath='{range .status.conditions[*]}{.type}={.status}  {.reason}  {.message}{"\n"}{end}' 2>&1 | tee -a "$LOG_DIR/bootstrap.log" || true
     log "── diagnostics: infrastructure objects ────────────────────────────"
@@ -1236,7 +1236,7 @@ step10_wait_spokepool() {
     while [[ $cluster_attempt -le $cluster_max_attempts ]]; do
         # Get cluster phase and conditions
         local cluster_phase
-        cluster_phase=$(kubectl get cluster "$cluster_name" -n platform-capi \
+        cluster_phase=$(kubectl get clusters.cluster.x-k8s.io "$cluster_name" -n platform-capi \
             --kubeconfig="$KUBECONFIG_PATH" \
             -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
 
@@ -1244,7 +1244,7 @@ step10_wait_spokepool() {
         # made this loop undiagnosable from its own log: every terminal CAPH failure
         # and every genuinely-slow provision print the identical line.
         local infra_line infra_ready infra_rest infra_reason infra_msg
-        infra_line=$(kubectl get cluster "$cluster_name" -n platform-capi \
+        infra_line=$(kubectl get clusters.cluster.x-k8s.io "$cluster_name" -n platform-capi \
             --kubeconfig="$KUBECONFIG_PATH" \
             -o jsonpath='{range .status.conditions[?(@.type=="InfrastructureReady")]}{.status}|{.reason}|{.message}{end}' 2>/dev/null || echo "")
         [[ -z "$infra_line" ]] && infra_line="False||"
@@ -1254,12 +1254,12 @@ step10_wait_spokepool() {
         infra_msg="${infra_rest#*|}"
 
         local cp_ready
-        cp_ready=$(kubectl get cluster "$cluster_name" -n platform-capi \
+        cp_ready=$(kubectl get clusters.cluster.x-k8s.io "$cluster_name" -n platform-capi \
             --kubeconfig="$KUBECONFIG_PATH" \
             -o jsonpath='{.status.conditions[?(@.type=="ControlPlaneReady")].status}' 2>/dev/null || echo "False")
 
         local workers_ready
-        workers_ready=$(kubectl get cluster "$cluster_name" -n platform-capi \
+        workers_ready=$(kubectl get clusters.cluster.x-k8s.io "$cluster_name" -n platform-capi \
             --kubeconfig="$KUBECONFIG_PATH" \
             -o jsonpath='{.status.v1beta2.conditions[?(@.type=="WorkerMachinesReady")].status}' 2>/dev/null || echo "False")
 

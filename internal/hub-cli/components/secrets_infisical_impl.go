@@ -335,7 +335,7 @@ func (i *Installer) UpgradeInfisicalTLS(ctx context.Context) error {
 	// Read CA certificate from CNPG-managed secret
 	caSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "platform-db-ca", metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to read platform-db-ca secret: %w\nEnsure database is deployed: kubectl get cluster platform-db -n platform-data", err)
+		return fmt.Errorf("failed to read platform-db-ca secret: %w\nEnsure database is deployed: kubectl get clusters.postgresql.cnpg.io platform-db -n platform-data", err)
 	}
 
 	caCert, ok := caSecret.Data["ca.crt"]

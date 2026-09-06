@@ -199,7 +199,9 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	checkCmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", cfg.BootstrapKubeconfig,
 		"--context", cfg.BootstrapContext,
-		"get", "cluster", p.clusterName,
+		// Fully qualified: CNPG registers a Cluster kind too, and the short name
+		// resolves to it once cloudnative-pg is installed (health.CAPIClusterKind).
+		"get", "clusters.cluster.x-k8s.io", p.clusterName,
 		"-n", constants.NamespaceCAPI,
 		"-o", "jsonpath={.status.phase}",
 	)

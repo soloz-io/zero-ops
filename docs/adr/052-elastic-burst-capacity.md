@@ -1,7 +1,12 @@
 # ADR-052: Elastic Burst Capacity for Tenant Workloads
 
 **Date:** 2026-08-23
-**Status:** Accepted (amended 2026-08-31, 2026-09-02)
+**Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06). §§16–19 are
+normative contracts — durable work, control-plane availability, workspace
+durability, tenant isolation — not aspirational sections. §19.2 records one
+open confidentiality gap that blocks any tenant-facing confidentiality claim.
+§20 records the CAPI/Kubernetes version floor these contracts assume, and the
+two re-measurement obligations the upgrade carries.
 **Relates to:** ADR-005 (unified abstraction layers in Crossplane), ADR-011 (declarative over imperative), ADR-012 (billing/metering), ADR-014 (platform-owned stateful infrastructure), ADR-033 (fleet scale targets), ADR-034 (control-plane failure domains), ADR-036 (pluggable provider architecture), ADR-039 (ownership model), ADR-041 (controller responsibility matrix), ADR-043 (control plane authority), ADR-046 (placement classes, burst worker pool), ADR-047 (fleet tenant deployment contract), `crossplane-capi-ownership-pattern`
 
 ---
@@ -713,6 +718,745 @@ that class. What changes is that on a hybrid spoke the binding limit is the
 hardware, not the quota — measured headroom is roughly 1.6 and 0.8 CPU across the
 two home workers, against a quota ceiling of 8 CPU those nodes cannot supply.
 
+### 14. Workspace persistence: a platform-owned PVC plus a platform-owned S3 tier (Amendment 2026-09-06)
+
+Some sandboxes need `/workspace` to survive pod recreation — a coding-agent
+sandbox whose disk holds work in progress, not a stateless request/response
+one. Until now this was a *fleet's* problem twice over: waypoint's
+harness-runtime hand-rolled git-commit-and-upload-to-S3 from inside the sandbox
+process (waypoint ADR-036 §4–§8) because the sandbox pod it received had no
+persistence primitive of its own (only `emptyDir`), *and* held a broker-scoped
+path to the S3 credential itself (`s3-presign.ts`) to do the upload. That is
+exactly the kind of thing §4's principle already forbids doing twice: a fleet
+holding provisioning-adjacent responsibility the platform should carry,
+because the platform authors the pod either way. This amendment moves both
+pieces — the disk and the S3 mechanics — to the operator. **Only two
+decisions remain the fleet's: when a unit of work is worth checkpointing
+(frequent, produces an S3 Workspace Checkpoint), and when a user has
+explicitly finalized their work (rare, produces a git commit)** — both are
+domain knowledge (what a conversation turn means, what the user asked for)
+the platform cannot have and should not try to have. Waypoint ADR-036 §10
+records that fleet-side delta; this section is the mechanism both decisions
+call into, and owns the diagrams below in full — ADR-036 §10 does not repeat
+them.
+
+**Component diagram (ASCII):**
+
+```
+                    TENANT (waypoint-sdk)
+             EphemeralJob.spec.workspacePersistence
+                       { workspaceId }
+                             │
+                             ▼
+        ┌────────────────────────────────────────┐
+        │    ephemeral-job-operator (platform)    │
+        │  buildPodSpec: PVC lookup-or-create     │
+        │   + init container + sidecar wiring     │
+        └────────────────────┬─────────────────────┘
+                             │
+          ┌──────────────────┼──────────────────────┐
+          ▼                  ▼                       ▼
+ ┌──────────────────┐ ┌──────────────────┐  ┌────────────────────────┐
+ │  PVC /workspace   │ │ init container:  │  │ sidecar: workspace-sync│
+ │  local-path (home)│ │ workspace-sync   │  │  on-demand /checkpoint │
+ │  hcloud-volumes   │ │ restore          │  │  + periodic backstop   │
+ │  (burst)          │ │ (runs once, at   │  │  + finalizer-gated     │
+ │                   │ │  pod start)      │  │    teardown flush      │
+ └─────────┬─────────┘ └────────┬─────────┘  └────────────┬────────────┘
+           │                    │                          │
+           │                    └───────────┬──────────────┘
+           │                                ▼
+           │                    ┌─────────────────────────────┐
+           │                    │  S3: content-addressed       │
+           │                    │  objects + per-checkpoint     │
+           │                    │  manifests                    │
+           │                    └─────────────────────────────┘
+           ▼
+ ┌───────────────────────────────┐
+ │  fleet's workload container    │
+ │  (e.g. harness-runtime)        │
+ │  — writes files continuously   │
+ │  — calls sidecar's local       │
+ │    /checkpoint endpoint        │
+ │  — only it ever runs           │
+ │    git commit (on finalize)    │
+ └───────────────────────────────┘
+```
+
+**Lifecycle (ASCII):**
+
+```
+Pod created
+     │
+     ▼
+init container: is the PVC freshly empty?
+     │                              │
+    yes                             no  (reattach after crash/idle-reap)
+     │                              │
+     ▼                              ▼
+download latest manifest       skip — PVC already
++ objects from S3,              has the data
+materialize verbatim
+     │                              │
+     └──────────────┬───────────────┘
+                    ▼
+        workload container starts
+                    │
+                    ▼
+    ┌───────────────────────────────────┐
+    │ loop: each turn / meaningful       │◄────────────────┐
+    │ boundary                           │                  │
+    │  workload writes files              │                  │
+    │  workload → POST /checkpoint        │                  │
+    │  sidecar hashes files, uploads      │                  │
+    │  only changed content, writes       │                  │
+    │  manifest, returns checkpoint_id    │                  │
+    └──────────────────┬──────────────────┘                  │
+                       │                                      │
+                       ▼                                      │
+       periodic backstop (anonymous, same  ────────────────────┘
+       engine, no name) — covers the span
+       since the last named checkpoint
+                       │
+                       ▼
+       idle-timeout fires, or explicit delete
+                       │
+                       ▼
+       operator adds a finalizer to the pod
+                       │
+                       ▼
+       signals the sidecar: snapshot now
+                       │
+                       ▼
+       sidecar uploads, reports done
+                       │
+                       ▼
+       operator removes the finalizer
+                       │
+                       ▼
+       pod terminates; PVC retained (no ownerRef
+       to the EphemeralJob) — reattaches next time
+       this workspaceId is used
+```
+
+**Component diagram (Mermaid, same information, for renderers that support it):**
+
+```mermaid
+graph TB
+    SDK["waypoint-sdk<br/>submits EphemeralJob"]
+    subgraph OPERATOR["ephemeral-job-operator (this ADR)"]
+        RECON["buildPodSpec: PVC lookup-or-create<br/>+ init container + sidecar wiring"]
+        INITC["init container: workspace-sync restore<br/>owned image, holds S3 credential via Secret"]
+        SIDEC["sidecar: workspace-sync<br/>snapshot engine — on-demand + periodic backstop<br/>+ finalizer-gated flush on teardown<br/>owned image, holds S3 credential via Secret"]
+        REAPER["separate reconcile loop:<br/>workspace-PVC reaper (30-day TTL)"]
+    end
+    subgraph POD["Sandbox Pod"]
+        PVC[("PVC /workspace<br/>local-path (home) | hcloud-volumes (burst)")]
+        WORKLOAD["fleet's workload container<br/>(e.g. harness-runtime)<br/>calls sidecar's local /checkpoint endpoint;<br/>only it ever runs git commit"]
+    end
+    S3[("S3: content-addressed objects + per-checkpoint manifests")]
+
+    SDK -->|EphemeralJob.spec.workspacePersistence.workspaceId| RECON
+    RECON -->|creates/reuses, no ownerRef| PVC
+    RECON -->|adds| INITC
+    RECON -->|adds| SIDEC
+    INITC -.->|mounts, runs once at pod start| PVC
+    SIDEC -.->|mounts, runs alongside workload| PVC
+    INITC <-->|download latest or a specific checkpoint's manifest + objects, only if PVC empty| S3
+    WORKLOAD -->|POST /checkpoint name, description| SIDEC
+    SIDEC <-->|hash, PutIfAbsent new objects, write manifest| S3
+    WORKLOAD -->|writes files + git commit (finalize only)| PVC
+    REAPER -.->|deletes abandoned PVCs, last-touched TTL| PVC
+```
+
+**Decision.** `EphemeralJobSpec` gains an optional field:
+
+```go
+type EphemeralJobSpec struct {
+    ...
+    // WorkspacePersistence gives the pod a durable /workspace, backed by both
+    // a PVC (crash/restart tier) and an S3-compatible object store (disaster
+    // recovery / cross-node-move tier). The operator owns StorageClass
+    // selection, PVC naming and reuse, the S3 credential, and the
+    // restore/flush mechanics; the fleet states only which workspace, never a
+    // storage mechanism (§4's rule, applied to storage: unrepresentable is
+    // stronger than a convention the fleet is trusted to follow).
+    WorkspacePersistence *WorkspacePersistenceSpec `json:"workspacePersistence,omitempty"`
+}
+
+type WorkspacePersistenceSpec struct {
+    // Identifies the workspace, not this request. Two EphemeralJobs with the
+    // same WorkspaceID — e.g. two sessions of the same app — resolve to the
+    // same PVC and the same S3 prefix. This is deliberate reuse, not a
+    // collision to guard against.
+    WorkspaceID string `json:"workspaceId"`
+}
+```
+
+**The operator adds two containers when this field is set, both from a single
+platform-owned image (`workspace-sync`, alongside `ephemeral-job-operator`
+itself — same packaging shape as `agent-vault`, never fleet-supplied):**
+
+**Terminology: S3 Workspace Checkpoints.** Immutable, independently addressable, point-in-time snapshots of the complete `/workspace` tree — tracked, untracked, and uncommitted files alike, `.git` included as an ordinary subdirectory, never as the payload. This is a distinct concept from a git commit (§ below) and the naming is deliberate: a design that instead synced only committed git objects and restored via `git checkout HEAD -- .` would silently discard any edit made after the agent's last commit — exactly the class of loss this whole mechanism exists to prevent, and exactly the failure mode observed once already (waypoint ADR-036: *"a session produced a complete app... and recorded zero sync activity... that work existed only until the pod died"*).
+
+**Correction to an earlier draft of this section:** it claimed content-addressed dedup "does not carry over to arbitrary working-tree files, which have no equivalent immutable content identity." That's wrong — any file has a content-addressed identity, namely a hash of its bytes; git's object model isn't required to get that property, and Sandbox0's own object store (`rootfsblock/objectstore.go`'s `ObjectStorePublisher.PutImmutable`, vendored at `zero-ops/reference-projects/sandbox/sandbox0`) proves it: it content-addresses and conditionally-writes (`PutIfAbsentContext`, fail-closed on a hash collision with different content) arbitrary byte payloads, not git blobs. `workspace-sync` is redesigned below as a snapshot engine on that same principle, adapted from Sandbox0's actual granularity (block ranges, tied to their custom NBD device — not portable here, see the earlier discussion in waypoint ADR-036 §10) to file granularity, which needs no block device at all.
+
+**Snapshot engine, not a backup uploader:**
+
+```mermaid
+graph TB
+    PVC[("PVC /workspace")] --> TRAV["filesystem traversal"]
+    TRAV --> HASH["hash each file's content<br/>(sha256 of bytes)"]
+    HASH --> CHECK{"object already exists<br/>in S3 at this hash?"}
+    CHECK -->|yes| SKIP["skip upload — reference existing object"]
+    CHECK -->|no| UPLOAD["PutIfAbsent: upload content-addressed object"]
+    SKIP --> MANIFEST
+    UPLOAD --> MANIFEST["write manifest:<br/>checkpoint_id, parent_checkpoint_id,<br/>workspace_id, path→content_hash map, metadata"]
+    MANIFEST --> S3[("S3")]
+```
+
+A checkpoint is one manifest plus whatever content-addressed objects it references. Two checkpoints that share 9,997 of 10,000 files cost exactly 3 new objects — deduplication falls out of content-addressing itself, with no need to diff against a specific parent to get it. `parent_checkpoint_id` is carried for lineage/diffing in the UI, not for the dedup property.
+
+**One primitive, two triggers — not two mechanisms:**
+- **On-demand, named.** The agent (harness-runtime) calls a local, credential-free control endpoint on the sidecar — `POST /checkpoint {name?, description?}` — at whatever boundary it considers meaningful (a turn, a tool call). The sidecar runs the snapshot engine above and returns a `checkpoint_id`. This is the common case, and it is why the sidecar needs no periodic timer to be the primary mechanism — the agent decides when a checkpoint is worth taking, exactly as it previously decided when a commit was worth making, just redirected to a different payload.
+- **Periodic, anonymous — a backstop only.** On a low-frequency interval, and at graceful teardown (finalizer-gated, see below), the sidecar runs the same snapshot engine with no name attached, covering the span since the agent's last on-demand checkpoint. This exists for the one case an on-demand checkpoint can't help: the agent crashes or the node dies mid-edit, before it ever called `/checkpoint`.
+
+Both triggers call the identical underlying function — there is one snapshot engine, not two.
+
+- **Init container (`workspace-sync restore`).** Runs before the workload container starts. Checks whether the PVC is freshly empty — first-ever provisioning for this `WorkspaceID`, or a genuine delete — and only then reads the workspace's latest manifest, downloads every object it references, and materializes the tree verbatim. On an ordinary reattach (idle-timeout recreate, crash restart) the PVC already has the data and this is a no-op, exiting immediately.
+- **Restore-to-a-specific-checkpoint** (not just latest) is the same operation parameterized by `checkpoint_id` instead of "latest" — this is what a user-initiated "undo to checkpoint-002" resolves to (see waypoint ADR-036 §10 for the caller-side flow and the checkpoint-history record this populates).
+- **Teardown flush is finalizer-gated**, not `preStop`-gated: when the operator is about to reap an idle `Service`-mode workload or process an explicit delete for a `WorkspacePersistence`-bearing pod, it adds a finalizer, signals the sidecar to snapshot now, waits for completion, then removes the finalizer to let deletion proceed. This mirrors the quiescence-via-finalizer pattern in the vendored `agent-sandbox` reference (`examples/latebind-storage-gke-sandbox`: *"quiescence is achieved by deleting the SandboxClaim. This initiates the pod deletion process but pauses due to the finalizer, allowing the orchestrator to flush all writes ... before the pod is actually gone"*) — a stronger guarantee than a `preStop` hook, which has a hard grace-period timeout and no retry, and which waypoint ADR-036 had already flagged as a standing gap for exactly this reason.
+- **S3 credential.** Provisioned into the init container and sidecar's env from a zero-ops-owned Secret (the platform's existing Infisical/ESO secret-delivery pattern), the same shape `agent-vault` already uses for GitHub/Tavily/RunPod/AI-Gateway credentials (`buildWorkloadContainer`, `agent-vault-entrypoint.sh`). The fleet's own workload container never receives this credential, brokered or otherwise — it only ever calls the sidecar's local, unauthenticated-to-S3 control endpoint.
+- **Checkpoint retention is an open question, not resolved here.** Deleting a manifest is cheap. Reclaiming the content-addressed objects it referenced is not automatically safe — another checkpoint (this workspace's or, if objects are ever shared cross-workspace, another's) may reference the same hash. This needs either per-workspace-scoped object keys (simpler, no cross-checkpoint reference-counting, some dedup benefit given up) or a real mark-and-sweep/reference-counted GC pass (more dedup, more complexity) — Sandbox0's own snapshot delete is consistent with not solving this eagerly either (*"Delete a snapshot... does not affect forks created from the same rootfs state"*, implying it doesn't naively free shared content on delete). Left as an implementation decision.
+
+**PVC naming and ownership.** The operator derives a PVC name deterministically
+from `WorkspaceID` (a short hash, not the raw string — RFC 1123 subdomain
+rules), looks it up, and creates it if absent. **The PVC carries no ownerRef to
+the `EphemeralJob` CR.** A CR is reaped by TTL/idle-timeout on a timescale of
+minutes; a workspace is meant to outlive any single sandbox's idle cycle, so CR
+garbage collection must never cascade into deleting the disk. A separate,
+long-interval reconcile loop (last-touched annotation, default 30-day TTL)
+garbage-collects abandoned workspace PVCs — deliberately conservative, because
+`reclaimPolicy: Delete` on `local-path` (below) means a PVC delete is an
+immediate, unrecoverable `rm -rf` with nothing to restore from.
+
+**StorageClass selection follows the same placement resolution §4 already
+performs, not a new input.** `local-path` for `placementClass: home` (already
+deployed cluster-wide, `manifests/hub-core-services/storage/local-path-
+storage.yaml`, DaemonSet-restricted to `workload-location: home` nodes);
+`hcloud-volumes` for burst/cloud placement (already deployed per-spoke via the
+CAPI addon template, `manifests/providers/hetzner/base/spoke-addons/csi-addon-
+template.yaml`). Both StorageClasses predate this amendment; nothing new is
+deployed to support it.
+
+**Node-pinning is a consequence of `WaitForFirstConsumer`, not operator code.**
+Both StorageClasses declare `volumeBindingMode: WaitForFirstConsumer`. The PV
+`local-path-provisioner` creates on first bind carries `nodeAffinity` for the
+specific node it landed on, and the default scheduler already refuses to place
+a pod whose PVC is bound to that PV anywhere else. So every subsequent
+`EphemeralJob` sharing a `WorkspaceID` is pinned to the same node as a
+consequence of ordinary PVC/PV binding — the operator writes no nodeSelector
+for this beyond what §4 already writes for `placementClass`.
+
+**Durability is asymmetric between the two StorageClasses, and this is an
+accepted trade, not an oversight.** `local-path` is `hostPath`-backed with no
+replication: that node's hardware failure or a manual drain permanently loses
+the workspace, with nothing to fall back to. `hcloud-volumes` is a real
+network-attached block volume — Hetzner's CSI can reattach it to a different
+node in-region, so node loss alone does not lose the workspace there. This
+mirrors an asymmetry §13 already established for compute placement itself
+(home-lab sandboxes on a hybrid spoke have no burst alternative); §14 extends
+the same accepted trade to the sandbox's disk. `ReadWriteOnce` is accepted
+platform-wide for this workload class: a workspace shared across sessions of
+one app (waypoint ADR-017/036 §4) is shared by pinning every session's sandbox
+to the same node, not by concurrent multi-node access. **§18.1 states this
+normatively as a product property — a workspace is single-writer,
+serial-session — rather than leaving it as an implementation consequence.**
+
+**Both the PVC and the S3 tier are this operator's responsibility now, in
+full.** The PVC closes the crash/restart/idle-recreate gap. The
+`workspace-sync` init container/sidecar closes the gap the PVC cannot — a
+home-lab node's hardware failure (`local-path` has no replication) and moving
+a workspace to a different node entirely — and it is what previously lived,
+S3 credential and all, inside waypoint's harness-runtime (ADR-036 §4–§8).
+Waypoint ADR-036 §10 records the corresponding reduction on the fleet side:
+harness-runtime keeps exactly two things — deciding when a unit of work is
+worth checkpointing, and deciding when the user has finalized their work —
+because those are the pieces that require knowledge only the agent and the
+user have. Every S3 credential, every upload, every restore decision moves
+here.
+
+### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
+
+**The gap, in this ADR's own words, from §"Negative / Trade-offs" above:**
+*"Admission rejection is the expected steady state, and this ADR provides no
+queue... a batch API whose common case is rejection is unusable without a
+queue and a submitter-visible position in it... this ADR does not settle
+[whether admission is synchronous] and must be decided before the job path
+carries production load."* This amendment settles it.
+
+**Decision: adopt Kueue as the admission/fairness layer, in front of the
+mechanism this ADR already owns — not in place of it.** Kueue does not
+replace `ephemeral-job-operator`, CAPI, Crossplane, or cluster-autoscaler; it
+sits between "a fleet submitted an `EphemeralJob`" and "the operator creates
+the underlying Job/Pod and lets the autoscaler see unschedulable demand"
+(§3). Concretely:
+
+- Each tenant namespace gets a Kueue `LocalQueue`, pointing at a shared
+  `ClusterQueue` scoped to the `burst-tenant` resource class this ADR already
+  defines (§5, §10). The `ClusterQueue`'s quota *is* the enforcement point
+  this ADR's `ResourceQuota`/`scopeSelector` mechanism (§5) used to be —
+  Kueue's admission check replaces it, rather than sitting alongside a
+  second, redundant quota; `maxNodes` (§2) is unaffected, since it bounds the
+  cell, not the fleet.
+- `ephemeral-job-operator`, on reconciling an `EphemeralJob`, creates a Kueue
+  `Workload` object representing its resource ask (Kueue's supported
+  extension point for a custom controller, the same integration model
+  batch/v1 Job, JobSet, and RayJob use) and waits for it to be admitted
+  before creating the underlying Job/Pod — this is the one new step in a
+  reconcile loop that otherwise proceeds exactly as it does today.
+- Fairness, priority, and preemption ordering are Kueue's own mechanisms
+  (`ClusterQueue` fair-sharing, workload priority), not new code this
+  operator has to write — the `burst-tenant` `PriorityClass` (§5) continues
+  to set the *pod-level* preemption floor against platform infrastructure;
+  Kueue's priority governs fairness *among* burst-tenant workloads
+  competing for the same `ClusterQueue`, a distinct axis this ADR did not
+  previously have at all.
+- Kueue reports pending-workload position/count on the `Workload` object,
+  which the operator projects into `EphemeralJob.status` the same way it
+  already projects pod/node conditions (§7) — so a submitter sees "queued,
+  position N" rather than a rejected pod with no further signal.
+
+**The state machine gains the phases Kueue's own admission step requires,
+plus one this ADR's workspace-persistence work (§14) already implies but
+never named:**
+
+```go
+const (
+    PhaseAccepted     Phase = "Accepted"     // CR created, not yet admitted
+    PhaseQueued       Phase = "Queued"       // Kueue Workload pending admission
+    PhaseAdmitted     Phase = "Admitted"     // Kueue granted quota; Job/Pod about to be created
+    PhaseProvisioning Phase = "Provisioning" // unchanged (§7): pod pending, capacity being created
+    PhaseRunning      Phase = "Running"      // unchanged
+    PhaseCheckpointing Phase = "Checkpointing" // Service mode + workspacePersistence only:
+                                                // the finalizer-gated flush (§14) is in flight
+    PhaseSucceeded    Phase = "Succeeded"
+    PhaseFailed       Phase = "Failed"
+    PhaseTimedOut     Phase = "TimedOut"
+    PhaseCancelled    Phase = "Cancelled"    // new: an explicit submitter cancellation, distinct
+                                              // from a timeout or a failure
+)
+```
+
+`PhasePending` (§7's original name) is renamed `PhaseAccepted` for clarity now
+that there are two distinct kinds of waiting (`Queued` before Kueue admits,
+`Provisioning` after, while capacity is created) where one undifferentiated
+`Pending` used to cover both — a submitter previously could not tell "waiting
+on quota" from "waiting on a node," which is exactly the ambiguity §7's
+`ConditionCapacity` reasons (`WaitingForCapacity` vs `QuotaRejected`) already
+existed to resolve for the second half; `Queued` extends the same principle
+to the first half.
+
+**Kueue's operating model, decided explicitly rather than left to defaults.**
+Kueue offers more than queue-and-admit, and the elastic-capacity setting makes
+several of its options load-bearing rather than cosmetic:
+
+| Mechanism | Decision | Reason |
+|---|---|---|
+| Fair sharing between `LocalQueue`s | **Enabled** | the reason for adopting Kueue at all (§15 opening) |
+| `waitForPodsReady` | **Enabled, with a placement-class-derived timeout** | see the warning below — the default is actively dangerous here |
+| Requeue on readiness timeout | **Enabled, with capped exponential backoff** | prevents an unschedulable workload monopolising an admission slot |
+| Preemption within `burst-tenant` | **Enabled** | fairness needs it; the pod-level floor against platform infrastructure remains the `PriorityClass` (§5), which Kueue does not touch |
+| `ProvisioningRequest` admission check | **Adopt if the CAPI autoscaler build supports it; otherwise deferred** | it reserves capacity *before* admitting, which fits burst exactly — but support depends on the hub's autoscaler build and MUST be verified rather than assumed |
+| All-or-nothing / gang admission | **Not applicable today, not disabled** | every workload here is a single pod; this becomes required the moment a multi-pod shape (JobSet, indexed Job) is introduced |
+| Topology-aware scheduling | **Rejected for now** | no gang or locality requirement exists for single-pod workloads; revisit with multi-pod |
+
+> **`waitForPodsReady` has a sharp edge on burst capacity, and its default
+> configuration violates §11.** Its purpose is to catch workloads admitted but
+> never becoming ready, and its remedy is to evict and requeue. On existing
+> capacity that is correct. On burst capacity, "admitted but not ready" is the
+> *normal* state for as long as a node takes to join — and §11 already
+> establishes, from a real incident, that deleting a workload whose node is
+> mid-join makes the autoscaler reverse the scale-up it had already started,
+> so the next attempt begins the same wait from nothing and the system
+> thrashes instead of converging. A `waitForPodsReady.timeout` left at a
+> pod-start-shaped default would therefore reintroduce exactly the failure
+> §11 exists to prevent, at a new layer.
+>
+> Therefore: `waitForPodsReady.timeout` MUST be no shorter than the placement
+> class's declared p95 cold-start budget (§11), the same quantity
+> `SANDBOX_READY_TIMEOUT_SECONDS` is already calibrated against, and eviction
+> MUST NOT fire while the workload's pod reports the provisioning-in-progress
+> signals §12 defines (`TriggeredScaleUp`, `PodScheduled=false` with a
+> scale-up in flight). Eviction is for workloads that are stuck, never for
+> workloads that are waiting.
+
+**This is additive to §7 and §8, not a rewrite of either.** The controller
+still authors the Job/Pod, still owns exactly the state machine (now richer),
+still writes placement directly (§4). Kueue governs *when* the controller is
+allowed to proceed, not *what* it creates or *where*.
+
+### 16. The durable work contract (Amendment 2026-09-06)
+
+Normative. This section replaces an earlier draft that listed these as future
+amendments; review was correct that they are API surface, not post-launch
+hardening. "MUST" here binds the operator's implementation, not a fleet.
+
+**16.1 Identity and idempotency.** Every submission MUST carry a
+fleet-supplied `requestId`, unique per logical unit of work and stable across
+retries. The CR's `metadata.name` is derived from it deterministically (§7
+already does this for sandboxes, from the session id, and reuses on `409
+Conflict` — this generalises that behaviour and makes it the contract rather
+than an implementation detail of one path). Consequences, all MUST:
+
+- A resubmission with the same `requestId` and an identical spec returns the
+  existing work item. It is not a new execution and MUST NOT produce a second
+  pod.
+- A resubmission with the same `requestId` and a *different* spec is rejected
+  with a terminal `SpecConflict` reason. Silently honouring either the old or
+  the new spec is forbidden — both are wrong for a caller that believes it
+  submitted the other.
+- Idempotency is enforced at the CR, which is the durable record. A caller
+  that never observes its own response still has exactly one work item.
+
+**16.2 Execution semantics: at-least-once, with exactly-once side effects at
+the callback.** The platform does not promise exactly-once *execution* — a
+node can die mid-run and the work is retried, which is the correct behaviour
+for a job. It promises exactly-once *terminal notification*:
+`ConditionCallbackDelivered` (§7, already implemented) is the marker that makes
+callback delivery idempotent across reconciles, restarts and resyncs. Fleets
+MUST treat the workload body itself as retryable and MUST NOT assume a single
+execution. Any operation that cannot tolerate re-execution belongs behind the
+fleet's own idempotency key, not behind an assumption this platform does not
+make.
+
+**16.3 Retry classification and budget.** Failures MUST be classified before
+they are retried, because the classes have opposite correct responses:
+
+| Class | Example | Response |
+|---|---|---|
+| Infrastructure-transient | node evicted, image pull timeout, DNS race on a cold node (§8) | retry, counts against budget |
+| Capacity | `QuotaRejected`, `CapacityUnavailable` (§12) | requeue in Kueue, does NOT count against the retry budget |
+| Workload-terminal | non-zero exit, `podFailurePolicy` match | terminal, no retry |
+| Platform-terminal | `SpecConflict`, malformed spec, admission rejection | terminal, no retry |
+
+The retry budget is bounded per work item (`spec.retryLimit`, default 3) and
+is a count of *infrastructure-transient* attempts only. Capacity waiting is
+explicitly not failure: a workload can sit queued indefinitely without
+consuming retries, which is the whole point of §15's queue.
+
+**The classification MUST be expressed in native Job semantics wherever
+Kubernetes can enforce it, not re-implemented in controller logic.** In
+`mode: Job`, `podFailurePolicy` is the mechanism: `Ignore` for the
+disruption-shaped conditions that make a failure infrastructure-transient
+(`DisruptionTarget` — preemption, node drain, eviction), `FailJob` for
+workload-terminal exit codes. That keeps the operator out of the business of
+re-deriving, from pod status, a judgement the API server will make correctly
+and consistently — and it means the table above is a specification of
+configuration rather than of new code. The operator's own classification
+logic is then confined to what `podFailurePolicy` cannot see: capacity
+conditions (§12), which are properties of the *scheduling* attempt rather
+than of a pod that ran. `mode: Service` has no `Job` object and therefore no
+`podFailurePolicy`; its restart behaviour remains the `RestartPolicy: Always`
+§8 already sets, and its terminal conditions remain the idle clock and
+explicit deletion.
+
+**16.4 Cancellation, and the race it creates.** Cancellation is a spec-level
+request (`spec.cancelled: true`), never a delete. It MUST be resolvable at any
+phase, and the resolution MUST be deterministic:
+
+- `Accepted`/`Queued`/`Admitted` → the Kueue `Workload` is withdrawn, no pod
+  is ever created, terminal phase `Cancelled`.
+- `Provisioning`/`Running` → the pod is deleted, terminal phase `Cancelled`.
+- Already terminal (`Succeeded`/`Failed`/`TimedOut`) → cancellation is a
+  no-op. The terminal phase MUST NOT be overwritten; a result that already
+  happened is not undone by a later cancel.
+- `Checkpointing` (§14, §15) → cancellation MUST wait for the in-flight
+  workspace flush to finish before the pod is removed. This is the one phase
+  where cancellation is not immediate, and the reason is §14's invariant: a
+  cancel that interrupts a flush destroys exactly the uncommitted work the
+  persistence layer exists to protect.
+
+**16.5 Recovery.** Each named failure has a defined convergence path, and none
+of them depend on in-memory state:
+
+- **Operator restart.** All state lives in the CR's `status` and in the Kueue
+  `Workload`; the operator reconstructs from a watch on both. A pod that
+  exists without a live CR is garbage-collected by ownerRef; a CR whose pod
+  vanished re-enters `Provisioning`, subject to the retry budget. **The
+  workspace PVC is exempt from ownerRef GC (§14) and MUST survive every
+  recovery path in this list.**
+- **Kueue restart.** `Workload` objects are durable API objects in the
+  spoke's own etcd. Admission state is re-derived; already-admitted workloads
+  are not re-queued behind newly submitted ones.
+- **Hub partition / autoscaler failure.** See §17 — these do not stop
+  admission or execution, only the creation of *new* capacity.
+- **Stale work detection.** A work item in a non-terminal phase whose pod has
+  not existed for longer than `provisioningGrace` MUST be re-driven or failed
+  explicitly. §11's rule still binds and is the sharp edge here: a workload
+  waiting on a node that is genuinely still being provisioned MUST NOT be
+  deleted, so staleness is measured from *last observed progress*, not from
+  submission time.
+
+### 17. Control-plane availability contract (Amendment 2026-09-06)
+
+Normative, and derived from where the components actually run rather than
+asserted: cluster-autoscaler is a **hub** component
+(`manifests/hub-core-services/cluster-autoscaler/`, driving CAPI
+`MachineDeployment`s through a management kubeconfig), while Kueue, the
+operator, the CRs and the workloads all run on the **spoke**. That split is
+the whole contract.
+
+**17.1 What a hub partition does and does not break.**
+
+| Capability | During a hub partition | Why |
+|---|---|---|
+| Submitting new work | **Works** | CR is written to the spoke's own API server |
+| Admission / queueing / fairness | **Works** | Kueue and its `Workload` objects are spoke-local |
+| Running work that fits existing capacity | **Works** | scheduler and kubelet are spoke-local |
+| Work already running | **Unaffected** | no hub component is in the data path |
+| Workspace checkpoint/restore (§14) | **Works** | S3 endpoint is reached directly from the spoke |
+| **Provisioning new burst nodes** | **Blocked** | autoscaler → CAPI → provider API all traverse the hub |
+| Scale-down / node reclamation | Blocked | same path |
+
+The single degraded behaviour is therefore precise: **during a hub partition
+the cell cannot grow.** Work that fits on existing capacity is admitted and
+runs normally; work that needs a new node stays `Queued` with
+`WaitingForCapacity` rather than failing, and drains when the hub returns.
+This is materially stronger than the pre-amendment posture, where the same
+condition surfaced as admission *rejection* (§15) — queueing converts a hub
+outage from an error the caller must handle into latency it must tolerate.
+
+**17.2 Objectives.** These are the contract; the numeric targets are fleet
+configuration, not constants of the architecture:
+
+- **RTO, new-work admission: unaffected by hub availability.** Not a target —
+  a structural property of 17.1. Admission depends on no hub component, and a
+  regression here is a design break, not a missed SLO.
+- **RTO, capacity recovery after a hub partition heals:** bounded by
+  autoscaler resync + node join, i.e. the same p95 cold-start budget §11
+  already requires each placement class to declare. No new number is invented
+  here; §11's budget is reused as the recovery target.
+- **RPO for work items: zero.** Work items are API objects; nothing about a
+  hub partition can lose one.
+- **Queued work survives a hub partition, a Kueue restart and an operator
+  restart** (16.5). Queue *position* is a derived view and MAY be recomputed;
+  the work item and its admission state MUST NOT be.
+
+**17.3 Explicitly not claimed.** A spoke API-server or etcd failure is a
+different failure domain and is out of scope for this ADR — it takes the
+workloads with it and is the spoke's own HA problem. This section is about the
+hub dependency only, which is the one this ADR introduced.
+
+### 18. Workspace durability contract (Amendment 2026-09-06)
+
+Normative. This section closes the items §14 left open.
+
+**18.1 Concurrency model — stated as a product property, not an
+implementation footnote.** A workspace is **single-writer, serial-session**.
+Exactly one sandbox pod may have a workspace mounted at a time; sessions
+sharing a `workspaceId` are serialised onto the same node by the RWO PVC
+binding (§14). This is a deliberate scope limit, and it is the correct one for
+a coding agent editing a working tree, where concurrent writers would produce
+a tree neither session intended. Multi-reader and multi-writer workspaces are
+**not** supported and MUST NOT be presented as available; a workload class
+that needs them requires a different storage primitive (RWX) and a different
+conflict model, and is out of scope for this ADR rather than a tuning change
+to it.
+
+**18.2 Source of truth, and it changes by phase.** This MUST be unambiguous
+because restore correctness depends on it:
+
+- While a sandbox is running, the **PVC is authoritative**. S3 is a lagging
+  copy.
+- Once the pod is gone, the **latest S3 checkpoint manifest is
+  authoritative**. The PVC may still exist and MAY be reused as a fast path,
+  but only after verification (18.4).
+- A `finalized` git commit (waypoint ADR-036 §10) is authoritative for
+  *project history* and is never overwritten by a workspace restore. Restoring
+  a checkpoint changes the working tree; it MUST NOT rewrite committed
+  history.
+
+**18.3 Consistency.** Checkpoints are **crash-consistent, not
+application-consistent.** The snapshot engine reads the tree while the agent
+may still be writing it, so a checkpoint captures a point-in-time filesystem
+state, not a quiesced one. This is acceptable *because* of when checkpoints
+are taken: the on-demand trigger (§14) fires at agent turn boundaries, when
+the agent is not mid-write, so the common case is quiescent in practice
+without needing a freeze primitive Kubernetes does not offer. The periodic
+backstop makes no such claim and MUST be treated as crash-consistent only.
+Manifests are written **last and atomically**: a manifest exists only if every
+object it references was fully uploaded first, so a partial upload is an
+absent checkpoint rather than a corrupt one.
+
+**18.4 Corruption detection.** Every object is stored under a key derived from
+its content hash (§14). On restore the engine MUST verify each downloaded
+object against the hash the manifest names, and MUST fail the restore loudly
+rather than materialise unverified bytes. This is close to free given the
+hashing the dedup path already performs, and it is the difference between
+"restore failed" and a workspace that silently contains something other than
+what was checkpointed.
+
+**18.5 Encryption and key management.** Objects MUST be encrypted at rest.
+Server-side encryption at the object store is the baseline requirement.
+Application-layer encryption before upload (the model Sandbox0 uses, per
+`docs/sandbox/snapshot-restore`) is **not** adopted: it defeats
+content-addressed dedup unless keyed deterministically, and deterministic
+keying reintroduces the correlation leak the encryption was for. The
+consequence MUST be stated rather than hidden — the object store operator can
+read workspace contents, so a workspace is only as confidential as the
+storage account holding it. Per-tenant key separation is a real requirement
+for a future multi-tenant confidentiality claim and is **not** satisfied
+today.
+
+**18.6 Retention and garbage collection.** Checkpoint objects are
+content-addressed and therefore shared between checkpoints, so per-checkpoint
+deletion is unsafe without reference tracking. The resolution:
+
+- Object keys MUST be **scoped per `workspaceId`**. Dedup applies within a
+  workspace, not across them. This gives up cross-workspace dedup and buys
+  three things worth more than it: deletion becomes a prefix operation, a
+  tenant's data is separable on request, and one workspace's checkpoint can
+  never be a load-bearing dependency of another tenant's.
+- Retention is **N most recent checkpoints per workspace plus all
+  `finalized`-referenced state**, N being fleet configuration.
+- GC is a mark-and-sweep over one workspace's prefix, run by the same
+  long-interval reconcile that reaps abandoned PVCs (§14), and MUST be
+  conservative: an unreferenced object is deleted only after a grace period,
+  because the alternative failure is unrecoverable.
+- A workspace's entire prefix is deletable in one operation, which is what
+  makes a tenant deletion or data-retention obligation satisfiable at all.
+
+**18.7 RPO/RTO.** RPO is bounded by checkpoint cadence: **zero for
+pod-level failures** (the PVC survives, §14) and **one checkpoint interval for
+node-level loss**. RTO for workspace availability after node loss is a fresh
+PVC plus a full restore of the latest manifest, which scales with workspace
+size and MUST be measured per placement class rather than asserted here.
+
+### 19. Tenant isolation contract (Amendment 2026-09-06)
+
+Normative, and consolidating what was previously scattered across this ADR,
+ADR-047, and code. The workload this protects against is **tenant-authored
+agent code with a shell**, which is the strongest threat model on the
+platform.
+
+**19.1 The boundary, in the order a request crosses it.**
+
+| Layer | Control | Owner | Where it lives today |
+|---|---|---|---|
+| Namespace | one per tenant; fleets cannot author cluster-scoped resources | Platform | ADR-047 Tier 1/2/3 |
+| Pod Security | `pod-security.kubernetes.io/enforce: restricted` | Platform | `universal-tenant/templates/namespace.yaml` |
+| Pod runtime | `runAsNonRoot`, `runAsUser: 1000`, seccomp `RuntimeDefault`, `drop: [ALL]`, read-only root + explicit tmpfs | Platform (operator authors the pod) | `buildPodSpec` (§8) |
+| Placement | `nodeSelector`/toleration/`priorityClassName` unrepresentable in the fleet-facing CR | Platform | §4, §7 |
+| Quota / fairness | Kueue `ClusterQueue`, `burst-tenant` PriorityClass | Platform | §5, §15 |
+| Network egress | cluster-wide default-deny `CiliumClusterwideNetworkPolicy` | Platform | `sandbox-network-policy.yaml` |
+| Credentials | injected into platform-authored sidecars only; never into the tenant container | Platform | `agent-vault` (§14), `workspace-sync` (§14) |
+| Storage | PVC provisioned and mounted by the operator; fleets cannot author PVCs | Platform | §14, ADR-047 Tier 3 exclusion |
+
+The invariant tying these together, and the one that MUST hold for any future
+addition: **every control in this table is enforced on an object the platform
+authors, not on one a fleet submits.** That is why §4's authorship argument
+generalises — a fleet cannot omit, relabel or weaken any row above.
+
+**19.2 A live gap, stated rather than implied.** The sandbox egress policy
+currently contains a stopgap `toEntities: world` rule permitting outbound
+HTTPS to any host on 443, because Cilium's FQDN cache does not populate on
+this platform and the intended `toFQDNs` allowlist consequently enforces
+deny-all. The file documents this honestly; this ADR elevates it, because a
+tenant-isolation contract that describes the *intended* allowlist while the
+*effective* posture is open-egress-on-443 would be false. **The effective
+egress posture for tenant agent code today is: any host, port 443.** Data
+exfiltration by tenant-authored code is therefore not currently prevented by
+network policy. The compensating controls are the credential boundary (19.1 —
+the tenant container holds no platform credential) and the fact that the
+allowlist it replaced already contained `github.com`, itself an exfiltration
+path. This MUST be closed before a confidentiality claim is made to any
+tenant, and its revisit trigger is already recorded in the policy file.
+
+**19.3 Policy-engine decision, made rather than inherited.** Kyverno's
+mutating placement policy is deleted, not migrated: §4/§8 made the operator
+the author of placement, so the mutation is redundant, and a redundant
+mutating webhook is a liability rather than defence in depth. The *validating*
+policy that rejects fleet-supplied placement is retained and MUST migrate to
+native `ValidatingAdmissionPolicy` (CEL, in-process, no webhook availability
+dependency).
+
+**The reason for deleting rather than replacing the mutating policy is
+redundancy, not unavailability — this distinction is load-bearing and was
+nearly lost.** An earlier draft of this section argued partly from the fact
+that native `MutatingAdmissionPolicy` did not exist at the platform's then-
+current Kubernetes v1.31. §20's upgrade makes that argument false, and an
+argument that expires on a version bump is not an argument. The decision
+stands on §4's principle alone: **the platform authors the pod, so there is
+nothing left to mutate at admission.** A future reader who notices that native
+mutating admission is now available MUST NOT read that as an invitation to
+reintroduce placement mutation — doing so would restore the weaker guarantee
+(placement present only while a policy is loaded and correctly scoped) that
+§4 and §8 deliberately traded away, and would reintroduce the silent failure
+mode that put every sandbox on home-lab capacity on the dev spoke.
+
+**19.4 Verification is part of the control, not an afterthought.** The egress
+policy's selector has silently matched zero endpoints **twice**, and a Cilium
+policy selecting nothing reports `Healthy` while enforcing nothing — the two
+states are indistinguishable from status. Therefore: any policy in 19.1 whose
+enforcement depends on a selector MUST have a corresponding check asserting it
+selects a non-zero endpoint set, and that check MUST run continuously rather
+than at install time. An isolation control that cannot be observed to be
+working is not a control.
+
+### 20. Platform version floor (Amendment 2026-09-06)
+
+CAPI and the Kubernetes version it provisions are upgraded as part of this
+ADR's implementation. Recording it here, rather than treating it as routine
+maintenance, because §§16–19 are normative contracts and two of them now
+depend on features the previous floor did not have — which makes the version
+an architectural assumption, not an operational detail.
+
+**What moves:**
+
+| Component | Was | Now | Where |
+|---|---|---|---|
+| `clusterctl` / CAPI providers | `v1.10.0` | latest supported | `internal/hub-cli/binaries/clusterctl.go` (pinned with known-good checksums — the pin and its checksums move together) |
+| Spoke Kubernetes | `v1.31.6` | current supported release | `spokepool-hetzner-composition.yaml`, `spokepool-hybrid-composition.yaml` (`Cluster.spec.topology.version`) |
+
+**The floor this ADR requires, stated as capabilities rather than as a point
+release**, because a point release is stale on write and a capability floor is
+testable:
+
+| Capability | Required by | Available from |
+|---|---|---|
+| `ValidatingAdmissionPolicy` (GA) | §19.3 — the native replacement for Kyverno's validating policy | v1.30 (already met before this upgrade) |
+| `podFailurePolicy` (GA) | §16.3 — retry classification expressed natively rather than re-derived | v1.31 (already met) |
+| Job `successPolicy`, `backoffLimitPerIndex` | §16.3, for any future multi-pod/indexed shape | v1.33 |
+| Kueue's current `Workload`/fair-sharing API surface | §15 | tracks recent Kubernetes; the upgrade removes it as a constraint |
+
+Nothing in §§14–19 requires `MutatingAdmissionPolicy`, at any version — see
+§19.3 for why that remains true *after* the upgrade makes it available, which
+is the one place this version change could otherwise be misread as licence to
+change a decision.
+
+**Two upgrade obligations that are this ADR's business, not generic upgrade
+hygiene:**
+
+- **§11's cold-start budget MUST be re-measured after the upgrade, not
+  carried over.** Every readiness deadline in this design — the operator's
+  provisioning timeout, `SANDBOX_READY_TIMEOUT_SECONDS`, and now §15's
+  `waitForPodsReady.timeout` — is calibrated against a p95 node-join time
+  that a new Kubernetes and a new CAPI can move in either direction. A stale
+  budget under the new floor produces exactly §15's thrash failure, silently.
+- **§19.4's selector-verification obligation applies with force during the
+  upgrade.** The sandbox egress policy's selector has already broken twice on
+  changes of exactly this kind — a component upgrade changing which labels
+  the pod-authoring component sets. The check that the policy selects a
+  non-zero endpoint set MUST pass on the upgraded spoke before it carries
+  tenant workloads, because the failure is silent and reports `Healthy`.
+
+**Not claimed:** this section does not assert that any specific newer feature
+(`VolumeAttributesClass` for §14/§18 storage classes, DRA for the GPU
+workloads §Context mentions) is adopted. They become *available*; adopting
+any of them is a separate decision with its own trade-offs, and listing them
+as unlocked is not the same as deciding to use them.
+
 ## Alternatives considered and rejected
 
 **Dedicated machine per workload (Virtual Kubelet + a new Crossplane provider).**
@@ -775,11 +1519,17 @@ Registered against the ADR-039 matrix in its canonical seven-column form:
 | Burst Machine | CAPH | Provider API | CAPI | CAPH | Burst pods | Day-1+ |
 | Burst Placement | Platform | Git (`zero-ops`) | ArgoCD | ephemeral-job-operator | Burst pods | Day-1+ |
 | Burst Placement Policy (defence in depth) | Platform | Git (`zero-ops`) | ArgoCD | Kyverno | Burst pods | Day-1+ |
-| Per-Fleet Burst Quota | Platform | Git (`fleet-registry`) | ArgoCD | kube-apiserver | Fleets | Day-1+ |
+| Per-Fleet Burst Quota (superseded by Kueue, §15) | Platform | Git (`fleet-registry`) | ArgoCD | Kueue `ClusterQueue` (was: kube-apiserver `ResourceQuota`) | Fleets | Day-1+ |
 | Ephemeral Job Request | Fleet workload | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Fleet workloads | Day-1+ |
 | Ephemeral VM (dev/hybrid) | ephemeral-vm-provisioner | Provider API (Hetzner) | ephemeral-vm-provisioner | ephemeral-vm-provisioner | Fleet workloads | Day-1+ |
 | Sandbox Workload Pod | ephemeral-job-operator | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Chat runtime | Day-1+ |
 | Burst Compute Usage | Observability Stack | OpenMeter | Observability Stack | Alloy / OTel Collector | Billing, SRE | Day-1+ |
+| Sandbox Workspace PVC (§14) | ephemeral-job-operator | Kubernetes API (fleet namespace) | ephemeral-job-operator (created, mounted, and separately reaped — no ownerRef to any one `EphemeralJob`) | ephemeral-job-operator | Sandbox pod, mounted at `/workspace` | Day-1+ |
+| Sandbox Workspace S3 Backup (§14) | ephemeral-job-operator, via the `workspace-sync` init container/sidecar | S3-compatible object storage | ephemeral-job-operator | ephemeral-job-operator | Sandbox pod (restore only, at pod start) | Day-1+ |
+| Sandbox Workspace S3 Credential (§14) | ephemeral-job-operator | zero-ops Secret (Infisical/ESO) | ephemeral-job-operator | `workspace-sync` init container/sidecar only — never the fleet's workload container | Day-1+ |
+| Kueue ClusterQueue / Quota (§15) | Platform | Git (`zero-ops`) | ArgoCD | Kueue | Fleets (fairness/admission scope) | Day-1+ |
+| Kueue LocalQueue (§15) | Platform | Git (`zero-ops`), one per tenant namespace | ArgoCD | Kueue | Fleet workloads in that namespace | Day-1+ |
+| Kueue Workload (§15) | ephemeral-job-operator | Kubernetes API (fleet namespace) | ephemeral-job-operator | Kueue (admission decision), ephemeral-job-operator (waits on it) | Day-1+ |
 
 **The deliberate split.** A fleet is Lifecycle Owner of the *request* — a
 `Sandbox` or an `EphemeralJob`. The platform owns every layer the request
@@ -859,6 +1609,23 @@ declared in Git.
 - Warm capacity and scale-down are settings on an existing component rather than
   features to build and operate.
 - ADR-043 needs no amendment and no authority is split.
+- **(§14)** A fleet needing durable `/workspace` no longer builds *any* part of
+  its own persistence layer — not the crash-recovery path (platform-owned PVC,
+  reusing `local-path`/`hcloud-volumes` already deployed for other purposes)
+  and not the disaster-recovery path either (the `workspace-sync` init
+  container/sidecar absorbs the S3 upload/download/credential mechanics that
+  previously lived inside waypoint's harness-runtime, ADR-036 §4–§8). A fleet
+  keeps exactly one responsibility for this feature: deciding when to commit,
+  and making the commit.
+- **(§14)** Node-pinning across a workspace's PVC lifetime is a consequence of
+  standard `WaitForFirstConsumer` PV/PVC binding, not operator-written
+  scheduling logic — one less thing to get wrong.
+- **(§14)** The finalizer-gated teardown flush is a materially stronger
+  guarantee than the `preStop` hook waypoint ADR-036 had flagged as a standing
+  gap — a `preStop` hook has a hard grace-period timeout and no retry; a
+  finalizer blocks deletion until the operator explicitly removes it, so a
+  slow or retried flush cannot be cut short by the pod terminating underneath
+  it.
 
 ### Negative / Trade-offs
 
@@ -876,17 +1643,139 @@ declared in Git.
   require a dedicated pool (§9), which is less efficient than shared nodes.
 - Node churn adds CAPI/CAPH reconciliation load and cloud API calls that scale
   with burst frequency rather than with fleet count.
-- **Admission rejection is the expected steady state, and this ADR provides no
-  queue** (Amendment 2). Because submission rate follows a fleet's concurrent
-  users while the priority-scoped `ResourceQuota` (§5) and `maxNodes` (§2) are
-  fixed, demand routinely exceeds both. Both bounds reject rather than defer:
-  the quota refuses the pod at admission and `maxNodes` refuses the node. At low
-  volume a rejection is an error a submitter can surface; at the expected volume
-  it is the common case, and a batch API whose common case is rejection is
-  unusable without a queue and a submitter-visible position in it. Whether
-  admission is synchronous or a submission may be accepted-and-deferred is a
-  contract question this ADR does not settle and must be decided before the job
-  path carries production load.
+- ~~**Admission rejection is the expected steady state, and this ADR provides no
+  queue**~~ (Amendment 2) — **RESOLVED by §15 (Amendment 2026-09-06).** The
+  original finding stands as the reason §15 exists and is preserved here
+  rather than deleted: because submission rate follows a fleet's concurrent
+  users while the priority-scoped quota (§5) and `maxNodes` (§2) are fixed,
+  demand routinely exceeds both, and a batch API whose common case is
+  rejection is unusable without a queue and a submitter-visible position in
+  it. §15 settles the contract question this bullet left open — submission is
+  **accepted-and-deferred**: a work item is durably `Accepted`, then `Queued`
+  with a visible position, and capacity pressure produces latency rather than
+  an error. The `ResourceQuota` this bullet names as the rejecting mechanism
+  is itself superseded by Kueue's `ClusterQueue` (§15).
+- **(§14) `local-path` durability still has a real window, even with the S3
+  tier.** A home-lab node's hardware failure loses everything committed after
+  the `workspace-sync` sidecar's last successful flush — narrower than the
+  once-considered PVC-only design's "everything, always," but not zero, and it
+  scales with home-lab node count and MTBF, not a theoretical concern.
+- **(§14) Two persistence mechanisms (PVC, S3) must now stay reconciled by
+  this operator.** A mismatch between what the PVC currently holds (working
+  tree, uncommitted edits, `.git` history — all of it) and what the S3 tier
+  last flushed is a class of drift this operator did not previously have to
+  detect. This section does not fully specify detection or
+  alerting for it.
+- **(§14) `ReadWriteOnce` forecloses true multi-node concurrent access** to one
+  workspace. App-wide sharing across sessions (waypoint ADR-017/036) is
+  achieved by pinning every session's sandbox to the same node, which is a
+  scheduling constraint under load, not just a data-locality optimization — a
+  future workload class needing genuine multi-node access to shared storage is
+  out of scope and would need a different mechanism (e.g. an RWX StorageClass).
+- **(§14) The workspace-PVC reaper is a new component with no operational
+  history.** Its TTL is deliberately conservative (30 days) precisely because
+  getting it wrong in the other direction — reaping too eagerly — is
+  unrecoverable data loss, but that conservatism means an abandoned workspace's
+  storage cost is carried far longer than its `EphemeralJob`'s own TTL/idle
+  timeout.
+- **(§14) The `workspace-sync` image is a new, security-sensitive component**:
+  it is the only place in this system that holds a real S3 credential for
+  workspace data, and a bug in it (the init container in particular, which now
+  runs unconditionally before every persistence-enabled workload starts) has
+  no fallback path — the fleet's workload container has no S3 capability of
+  its own to work around a broken restore.
+- **(§15)** A busy fleet now gets a queue position instead of a rejected pod
+  — the production blocker this ADR's own Negative/Trade-offs section already
+  named is closed, not merely narrowed.
+- **(§15)** Fairness and preemption ordering among competing burst-tenant
+  workloads is a real Kueue mechanism now, not an emergent property of raw
+  quota rejection — a fleet that submits often no longer starves fleets that
+  submit rarely, which the old `ResourceQuota`-only model had no way to
+  prevent or even detect.
+- **(§15)** The richer phase machine (`Accepted`/`Queued`/`Admitted`/
+  `Checkpointing`/`Cancelled`) gives a submitter a durable, named state for
+  every point in the lifecycle instead of inferring "waiting on quota" vs.
+  "waiting on a node" from `ConditionCapacity` reasons alone.
+
+### §15 amendment — additional Negative
+
+- **A new external dependency for every burst submission.** Kueue's own
+  availability and correctness now sit on the path between "fleet submits"
+  and "pod exists" — an outage or bug in Kueue blocks admission platform-wide,
+  not per-fleet, which is a larger blast radius than a `ResourceQuota`
+  misconfiguration ever had (that failed one fleet's requests; this can fail
+  all of them).
+- **Migration is not free for in-flight state.** Existing `ResourceQuota`
+  objects and the raw `Pending`/`Provisioning` phase values need a defined
+  cutover — this amendment does not specify whether that is a hard switch, a
+  dual-write period, or a per-fleet rollout, and getting it wrong risks
+  either double-enforcing quota (both mechanisms rejecting) or briefly
+  enforcing neither.
+- **§15 made §§16–19 more pressing, which is why they are now normative
+  rather than deferred.** A workload sitting `Queued` during a hub partition
+  is exactly the "does queued work survive?" question an earlier draft
+  deferred; §17.1 now answers it (it survives — Kueue is spoke-local) instead
+  of listing it as future work.
+
+### §§16–19 — Consequences of making the contracts normative
+
+**Positive.**
+- The four questions that determine correctness under failure — idempotency,
+  hub-partition behaviour, workspace durability, and the tenant security
+  boundary — are now answerable from this document rather than from code
+  archaeology across three repos.
+- Two of the four turned out to be **mostly already implemented and merely
+  undocumented** (§16's idempotency and exactly-once callback delivery
+  already exist as deterministic naming + `ConditionCallbackDelivered`;
+  §19's controls all exist and are enforced on platform-authored objects).
+  Writing the contract mostly surfaced what was true, which is why this was
+  cheaper than the review's gate table implied.
+- §17's contract is a *derivation*, not an aspiration: because
+  cluster-autoscaler is a hub component and Kueue is spoke-local, "a hub
+  partition stops growth but not admission or execution" is a structural
+  property that can be regression-tested, not an SLO to be defended.
+
+**Negative.**
+- **§19.2 records a real, currently-open confidentiality gap** (effective
+  egress is any host on 443, not the intended allowlist, because Cilium's
+  FQDN cache does not populate here). Writing the isolation contract made
+  this impossible to keep implicit, which is correct but means the platform
+  MUST NOT make a tenant-facing confidentiality claim until it is closed.
+- **§18.5 declines application-layer encryption**, so the object store
+  operator can read workspace contents and per-tenant key separation does not
+  exist. That is a deliberate trade against content-addressed dedup, and it
+  bounds what can be promised about workspace confidentiality today.
+- **§18.1 fixes the product surface as single-writer/serial-session.** Making
+  it normative closes off multi-session concurrency as an incremental tuning
+  change — a future workload class needing it requires a different storage
+  primitive and a conflict model, i.e. a new decision, not a parameter.
+- §18.6's per-`workspaceId` key scoping **gives up cross-workspace dedup** to
+  make deletion and tenant separation tractable. For workspaces sharing a
+  large common dependency tree this is a real storage cost increase.
+
+### §20 — Consequences of the version floor
+
+**Positive.**
+- §16.3's retry classification stops being operator logic and becomes
+  `podFailurePolicy` configuration the API server enforces — less code, and
+  consistent with how every other Job on the cluster behaves.
+- The version-availability clause that §19.3's argument partly rested on is
+  removed, leaving the decision resting only on §4's authorship principle,
+  which does not expire.
+
+**Negative.**
+- **The upgrade invalidates §11's cold-start calibration**, and every
+  readiness deadline in this design derives from it — including §15's
+  `waitForPodsReady.timeout`, where a stale value produces autoscaler thrash
+  silently rather than loudly. Re-measurement is an obligation of the
+  upgrade (§20), not a follow-up.
+- **A Kubernetes upgrade is exactly the class of change that has twice
+  silently broken the sandbox egress selector** (§19.2, §19.4), because it
+  can change which labels the pod-authoring components set. The upgrade
+  therefore carries a security-verification step, not just a functional one.
+- Moving the `clusterctl` pin means moving its known-good checksums; the pin
+  exists to make provider binaries verifiable, so a bump that skips the
+  checksums silently gives up that property.
 
 ---
 
@@ -920,6 +1809,55 @@ declared in Git.
   to submit through this ADR's `EphemeralJob` for both job and sandbox shapes,
   and no longer names a machine type — capacity is stated, the machine is
   derived.
+- **Amendment 2026-09-06 (§14).** **waypoint ADR-031** gains a new resource-
+  class row (Sandbox Workspace Volume) and a cross-reference to
+  `workspacePersistence`. **waypoint ADR-036** §10 records the corresponding
+  reduction on the fleet side: harness-runtime's `core/s3/restore.py`,
+  `sync.py`, `broker_client.py`, `node_modules_cache.py`, and the
+  `s3-presign.ts` broker route are all deleted outright — including
+  `sync.py`'s former per-turn `git commit` trigger, since ordinary
+  checkpointing is no longer a git operation at all (only an explicit user
+  "finalize" still triggers a commit). All S3 upload/download/credential
+  mechanics this section's `workspace-sync` init container/sidecar now
+  performs previously lived in that harness-runtime code; this amendment
+  relocates it, it does not duplicate it.
+- **Amendment 2026-09-06 (§15).** This ADR's own previously-flagged
+  production blocker ("no queue") is closed. **ADR-047**'s Tier-2 quota
+  contract is amended: a fleet's declared burst request now renders as a
+  Kueue `ClusterQueue`/`LocalQueue` pair instead of a `ResourceQuota`
+  `scopeSelector` object — the fleet-facing declaration is unchanged, only
+  what it renders to changes. **waypoint ADR-031** gains the richer phase
+  vocabulary (`Accepted`/`Queued`/`Admitted`/`Checkpointing`/`Cancelled`)
+  on the `EphemeralJob` contract it documents.
+- **Amendment 2026-09-06 (§§16–19), superseding the deferral an earlier draft
+  of this amendment proposed.** The four areas previously listed as future
+  work are now normative sections of this ADR: the durable work contract
+  (§16), the control-plane availability contract (§17), the workspace
+  durability contract (§18), and the tenant isolation contract (§19).
+  Consequences beyond this ADR: **ADR-047** gains an authoritative
+  cross-reference target — §19.1 consolidates the tenant boundary its Tier
+  1/2/3 model implies but never stated in one place. **ADR-041**'s controller
+  matrix gains the operator's cancellation and retry-classification duties
+  (§16.3, §16.4). **The Kyverno mutating placement policy
+  (`manifests/spoke/spoke-catalog/infra/kyverno-burst-placement.yaml`) is
+  deleted and its validating counterpart migrates to native
+  `ValidatingAdmissionPolicy`** (§19.3), removing an external webhook from the
+  admission path. **§19.2 records an open confidentiality gap** (effective
+  sandbox egress is any host on 443) that is now a documented blocker on any
+  tenant-facing confidentiality claim, and whose closure trigger already
+  exists in `sandbox-network-policy.yaml`.
+- **Amendment 2026-09-06 (§20): CAPI and spoke Kubernetes are upgraded as part
+  of this ADR's implementation.** `internal/hub-cli/binaries/clusterctl.go`
+  moves off the `v1.10.0` pin (with its checksums), and
+  `spokepool-hetzner-composition.yaml` / `spokepool-hybrid-composition.yaml`
+  move `Cluster.spec.topology.version` off `v1.31.6`. **ADR-046** is affected
+  in the same change, since it owns the spoke topology these compositions
+  render. Two obligations travel with the upgrade rather than following it:
+  §11's cold-start budget MUST be re-measured (every readiness deadline in
+  §§8, 14, 15 derives from it, and §15's `waitForPodsReady` fails *silently*
+  on a stale value), and §19.4's egress-selector verification MUST pass on the
+  upgraded spoke before it carries tenant workloads (a component upgrade is
+  precisely what silently broke that selector twice before).
 
 ## References
 
@@ -929,3 +1867,6 @@ declared in Git.
 - ADR-047 §Sandbox Workloads — the platform-capability contract this ADR extends to elastic capacity
 - `manifests/spoke/spoke-catalog/infra/agent-sandbox/` — the upstream CRD that must not be forked
 - `manifests/spoke/spoke-catalog/infra/sandbox-network-policy.yaml` — the egress control that keeps working unchanged
+- Kueue (`sigs.k8s.io/kueue`) — the admission/fairness layer adopted in §15; its custom-workload integration pattern (a controller creates a `Workload` object and waits for admission before creating the underlying resource) is the extension point `ephemeral-job-operator` uses, the same one batch/v1 Job, JobSet, and RayJob integrations use
+- `zero-ops/reference-projects/sandbox/agent-sandbox/examples/latebind-storage-gke-sandbox` — the quiescence-via-finalizer pattern §14's teardown flush mirrors
+- `zero-ops/reference-projects/sandbox/sandbox0` — `pkg/rootfsblock/objectstore.go`'s `PutIfAbsentContext`, the content-addressed conditional-write principle §14's snapshot engine applies at file granularity instead of Sandbox0's own block granularity

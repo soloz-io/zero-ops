@@ -16,7 +16,10 @@ func OutputDiagnostics(ctx context.Context, clusterName, kubeContext string) {
 	// Cluster status
 	fmt.Println("\n[Cluster Status]")
 	cmd := exec.CommandContext(ctx, "kubectl", "--context", kubeContext,
-		"get", "cluster", clusterName, "-n", constants.NamespaceCAPI, "-o", "yaml")
+		// Fully qualified: the short name resolves to CNPG's Cluster once
+		// cloudnative-pg is installed, so diagnostics would print an error about a
+		// database operator instead of the cluster being diagnosed.
+		"get", "clusters.cluster.x-k8s.io", clusterName, "-n", constants.NamespaceCAPI, "-o", "yaml")
 	if output, err := cmd.CombinedOutput(); err == nil {
 		fmt.Println(string(output))
 	} else {

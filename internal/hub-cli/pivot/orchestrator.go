@@ -696,7 +696,7 @@ func (o *Orchestrator) waitForProvidersReady(ctx context.Context, kubeconfig str
 func (o *Orchestrator) waitForClusterReady(ctx context.Context, kubeconfig string, timeout time.Duration) error {
 	waiter := &health.HealthWaiter{
 		Checkers: []health.HealthChecker{
-			health.NewCAPIResourceReadyHealth("cluster", o.ClusterName, o.Namespace),
+			health.NewCAPIResourceReadyHealth(health.CAPIClusterKind, o.ClusterName, o.Namespace),
 		},
 		Interval: 30 * time.Second,
 		Timeout:  timeout,

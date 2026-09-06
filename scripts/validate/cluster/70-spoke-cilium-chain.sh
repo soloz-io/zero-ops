@@ -30,8 +30,8 @@ validate_spoke_cilium_chain() {
 
     # ── Link 1: controlPlaneEndpoint — the sole source for the endpoint ──────
     local host port
-    host=$(kc get cluster "$SPOKEPOOL_NAME" -n platform-capi -o jsonpath='{.spec.controlPlaneEndpoint.host}')
-    port=$(kc get cluster "$SPOKEPOOL_NAME" -n platform-capi -o jsonpath='{.spec.controlPlaneEndpoint.port}')
+    host=$(kc get clusters.cluster.x-k8s.io "$SPOKEPOOL_NAME" -n platform-capi -o jsonpath='{.spec.controlPlaneEndpoint.host}')
+    port=$(kc get clusters.cluster.x-k8s.io "$SPOKEPOOL_NAME" -n platform-capi -o jsonpath='{.spec.controlPlaneEndpoint.port}')
     if [[ -n "$host" && -n "$port" && "$port" != "0" ]]; then
         pass "controlPlaneEndpoint populated: ${host}:${port}"
     else

@@ -67,7 +67,11 @@ func (v *IdempotencyValidator) Validate(ctx context.Context) error {
 	}
 	
 	// Delete cluster first (required before ClusterClass can be deleted)
-	cmd := exec.CommandContext(ctx, "kubectl", "delete", "cluster", v.ClusterName,
+	// Fully qualified, and here it matters most: an unqualified "cluster" can
+	// resolve to CNPG's kind, so this would delete nothing and report success
+	// through --ignore-not-found, leaving the CAPI Cluster in place for the
+	// ClusterClass deletion below to fail on.
+	cmd := exec.CommandContext(ctx, "kubectl", "delete", "clusters.cluster.x-k8s.io", v.ClusterName,
 		"--context", kubectlContext, "-n", v.Namespace, "--wait=true", "--timeout=60s", "--ignore-not-found=true")
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("[preflight] Warning: failed to delete cluster: %v\n", err)

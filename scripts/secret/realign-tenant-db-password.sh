@@ -57,7 +57,10 @@ log "    role:    ${ROLE}"
 log "    secret:  ${NS}/${SECRET}"
 log "    cluster: ${DATA_NS}/${CLUSTER}"
 
-PRIMARY=$(kubectl -n "$DATA_NS" get cluster "$CLUSTER" \
+PRIMARY=$(# Fully qualified the other way: this one wants CNPG's Cluster, and CAPI
+# registers the same kind. An unqualified short name is decided by API group
+# priority rather than by which one the caller meant.
+kubectl -n "$DATA_NS" get clusters.postgresql.cnpg.io "$CLUSTER" \
   -o jsonpath='{.status.currentPrimary}' 2>/dev/null || true)
 [[ -z "$PRIMARY" ]] && fail "could not determine the primary for ${CLUSTER}"
 log "    primary: ${PRIMARY}"

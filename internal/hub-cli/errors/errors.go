@@ -111,7 +111,7 @@ func ProvisioningTimeout(clusterName string, cause error) *BootstrapError {
 	return New(
 		ErrProvisioningTimeout,
 		fmt.Sprintf("Cluster '%s' provisioning timed out", clusterName),
-		"Diagnostics:\n  1. Check cluster status: kubectl get cluster "+clusterName+" -n platform-capi -o yaml\n  2. Check machines: kubectl get machines -n platform-capi\n  3. Check Hetzner Console for VM status\n  4. Use --keep-bootstrap to preserve Kind cluster for debugging",
+		"Diagnostics:\n  1. Check cluster status: kubectl get clusters.cluster.x-k8s.io "+clusterName+" -n platform-capi -o yaml\n  2. Check machines: kubectl get machines -n platform-capi\n  3. Check Hetzner Console for VM status\n  4. Use --keep-bootstrap to preserve Kind cluster for debugging",
 		cause,
 	)
 }

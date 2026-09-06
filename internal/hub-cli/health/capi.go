@@ -134,8 +134,27 @@ type CAPIResourceReadyHealth struct {
 	Namespace    string
 }
 
+// CAPIClusterKind is the CAPI Cluster resource, FULLY QUALIFIED.
+//
+// "cluster" alone is ambiguous and resolves to the wrong API group. CNPG also
+// registers a Cluster kind, and once cloudnative-pg is installed kubectl picks
+// clusters.postgresql.cnpg.io — so a wait for the CAPI cluster fails with
+//
+//	Error from server (NotFound): clusters.postgresql.cnpg.io "hub-hybrid-dev" not found
+//
+// which names a database operator that has nothing to do with the phase, and
+// keeps failing for the full timeout because the resource it is asking about
+// will never exist. The ambiguity is silent until CNPG is present, so this
+// worked until boundary 01 started installing it.
+//
+// Use this rather than a literal wherever a CAPI Cluster is addressed.
+const CAPIClusterKind = "clusters.cluster.x-k8s.io"
+
 // NewCAPIResourceReadyHealth returns a checker for a CAPI resource's
 // Ready condition.
+//
+// kind is passed to kubectl verbatim, so a caller naming a kind that more than
+// one API group registers must fully qualify it (see CAPIClusterKind).
 func NewCAPIResourceReadyHealth(kind, name, namespace string) *CAPIResourceReadyHealth {
 	return &CAPIResourceReadyHealth{Kind: kind, ResourceName: name, Namespace: namespace}
 }

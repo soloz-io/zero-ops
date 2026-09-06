@@ -31,7 +31,14 @@ import (
 // of, so it cannot drift from the inventory it describes:
 //
 //	descriptors on disk      manifests/argocd/components/<NN>/*.yaml
-//	inline elements          read back from the live ApplicationSet
+//	inline elements          list-generator elements on the live ApplicationSets
+//
+// Only STATICALLY KNOWABLE inventory is counted. Boundaries 05 and 06 generate
+// from a matrix over the fleet registry, so their Application count is a
+// function of how many tenants exist and is legitimately zero on a hub with
+// none. Requiring a count there would fail every fresh bootstrap. What is still
+// asserted for them is that the boundary rendered at all, and that nothing it
+// produced is unable to read its source.
 //
 // This checker only reads. Day-0 continues to mutate boundary activation and
 // nothing else, so ADR-055's disjoint authorities are unaffected.
@@ -54,10 +61,8 @@ func (b *BoundaryInventoryChecker) Name() string {
 	return fmt.Sprintf("boundary %s inventory", b.Boundary)
 }
 
-// appSetName is the ApplicationSet that composes this boundary. The naming
-// convention is the boundary number followed by the boundary's slug; matching on
-// the prefix avoids duplicating the slug here.
-func (b *BoundaryInventoryChecker) appSetPrefix() string { return b.Boundary + "-" }
+// project is the AppProject that scopes this boundary.
+func (b *BoundaryInventoryChecker) project() string { return "boundary-" + b.Boundary }
 
 // descriptorCount counts the component descriptors declared for this boundary.
 //
@@ -93,67 +98,116 @@ func (b *BoundaryInventoryChecker) descriptorCount() (int, error) {
 	return n, nil
 }
 
-// inlineCount reads the environment-parameterised elements back from the live
-// ApplicationSet. They are enumerated in the boundary template rather than
-// declared as descriptors (ADR-061, ADR-037), so the cluster object is where the
-// two sources can be counted together.
-func (b *BoundaryInventoryChecker) inlineCount(ctx context.Context, kubeconfig, appSet string) (int, error) {
+// appSetSummary is what one ApplicationSet contributes to the inventory.
+type appSetSummary struct {
+	Name string
+	// InlineElements is the number of list-generator elements it declares.
+	InlineElements int
+	// Dynamic reports a generator whose cardinality is not knowable from the
+	// object itself — a matrix over a git repository, or the registered clusters.
+	// Boundaries 05 and 06 are built entirely from these.
+	Dynamic bool
+	// ReadsDescriptors reports a git files generator pointed at this boundary's
+	// component directory.
+	ReadsDescriptors bool
+}
+
+// boundaryAppSets finds the ApplicationSets composing this boundary, by the
+// AppProject they template rather than by their name.
+//
+// Name is NOT a reliable key. Boundaries 01-04 name their ApplicationSet after
+// the boundary number, but 05 renders three (tenant-fleet-xr-provisioning,
+// -spoke-provisioning, -workload-provisioning) and 06 renders tenant-public-tls,
+// none of which carry the number. A prefix match found nothing for those and
+// failed for the full timeout reporting "no ApplicationSet named 05-* exists" —
+// which describes the checker's assumption, not the cluster.
+//
+// The project is what the boundary actually means, it is what the Applications
+// are counted by below, and it makes the two sides of the comparison agree by
+// construction. It also takes in the -multi variants, which target the same
+// project and whose Applications would otherwise be counted against an expected
+// figure that never included them.
+func (b *BoundaryInventoryChecker) boundaryAppSets(ctx context.Context, kubeconfig string) ([]appSetSummary, error) {
 	out, err := runKubectl(ctx, []string{
 		"--kubeconfig", kubeconfig,
-		"get", "applicationset", appSet,
+		"get", "applicationsets.argoproj.io",
 		"-n", "platform-ops",
 		"-o", "json",
 	})
 	if err != nil {
-		return 0, fmt.Errorf("cannot read ApplicationSet %s: %w", appSet, err)
+		return nil, fmt.Errorf("cannot list ApplicationSets: %w", err)
 	}
 
-	var as struct {
-		Spec struct {
-			Generators []struct {
-				List *struct {
-					Elements []json.RawMessage `json:"elements"`
-				} `json:"list"`
-			} `json:"generators"`
-		} `json:"spec"`
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Spec struct {
+				Generators []map[string]json.RawMessage `json:"generators"`
+				Template   struct {
+					Spec struct {
+						Project string `json:"project"`
+					} `json:"spec"`
+				} `json:"template"`
+			} `json:"spec"`
+		} `json:"items"`
 	}
-	if err := json.Unmarshal(out, &as); err != nil {
-		return 0, fmt.Errorf("cannot parse ApplicationSet %s: %w", appSet, err)
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("cannot parse ApplicationSets: %w", err)
 	}
 
-	n := 0
-	for _, g := range as.Spec.Generators {
-		if g.List != nil {
-			n += len(g.List.Elements)
+	descriptorDir := "manifests/argocd/components/" + b.Boundary + "/"
+	var found []appSetSummary
+	for _, item := range list.Items {
+		if item.Spec.Template.Spec.Project != b.project() {
+			continue
 		}
+		sum := appSetSummary{Name: item.Metadata.Name}
+		for _, gen := range item.Spec.Generators {
+			for kind, raw := range gen {
+				switch kind {
+				case "list":
+					var l struct {
+						Elements []json.RawMessage `json:"elements"`
+					}
+					if err := json.Unmarshal(raw, &l); err == nil {
+						sum.InlineElements += len(l.Elements)
+					}
+				case "git":
+					var g struct {
+						Files []struct {
+							Path string `json:"path"`
+						} `json:"files"`
+					}
+					if err := json.Unmarshal(raw, &g); err == nil {
+						for _, file := range g.Files {
+							if strings.HasPrefix(file.Path, descriptorDir) {
+								sum.ReadsDescriptors = true
+							}
+						}
+					}
+				case "matrix", "merge", "clusters", "scmProvider", "pullRequest":
+					sum.Dynamic = true
+				}
+			}
+		}
+		found = append(found, sum)
 	}
-	return n, nil
+	return found, nil
 }
 
-// resolveAppSet finds the ApplicationSet composing this boundary by name prefix.
-func (b *BoundaryInventoryChecker) resolveAppSet(ctx context.Context, kubeconfig string) (string, error) {
-	out, err := runKubectl(ctx, []string{
-		"--kubeconfig", kubeconfig,
-		"get", "applicationsets", "-n", "platform-ops",
-		"-o", "jsonpath={.items[*].metadata.name}",
-	})
-	if err != nil {
-		return "", fmt.Errorf("cannot list ApplicationSets: %w", err)
-	}
-	for _, name := range strings.Fields(string(out)) {
-		if strings.HasPrefix(name, b.appSetPrefix()) {
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("no ApplicationSet named %s* exists", b.appSetPrefix())
-}
-
-// Check performs one poll: it compares the Applications the boundary's project
-// owns against the inventory the boundary declares.
+// Check performs one poll: it asserts the boundary rendered, and that what it
+// rendered is usable.
 func (b *BoundaryInventoryChecker) Check(ctx context.Context, kubeconfig string) error {
-	appSet, err := b.resolveAppSet(ctx, kubeconfig)
+	appSets, err := b.boundaryAppSets(ctx, kubeconfig)
 	if err != nil {
 		return fmt.Errorf("%s: %w", b.Name(), err)
+	}
+	if len(appSets) == 0 {
+		return fmt.Errorf(
+			"%s: no ApplicationSet targets project %s — the boundary was activated but the seed has not rendered it",
+			b.Name(), b.project())
 	}
 
 	descriptors, err := b.descriptorCount()
@@ -161,27 +215,29 @@ func (b *BoundaryInventoryChecker) Check(ctx context.Context, kubeconfig string)
 		return fmt.Errorf("%s: %w", b.Name(), err)
 	}
 
-	inline, err := b.inlineCount(ctx, kubeconfig, appSet)
-	if err != nil {
-		return fmt.Errorf("%s: %w", b.Name(), err)
+	// Only count what the ApplicationSets themselves can be asked. A matrix over
+	// the fleet registry produces one Application per tenant, so its contribution
+	// is unknown here and legitimately zero on a hub with no tenants.
+	inline := 0
+	dynamic := false
+	readsDescriptors := false
+	for _, as := range appSets {
+		inline += as.InlineElements
+		dynamic = dynamic || as.Dynamic
+		readsDescriptors = readsDescriptors || as.ReadsDescriptors
+	}
+	if !readsDescriptors {
+		// No generator reads this boundary's component directory, so descriptors
+		// on disk are not part of what these ApplicationSets were asked to make.
+		descriptors = 0
 	}
 
-	expected := descriptors + inline
-	if expected == 0 {
-		return fmt.Errorf(
-			"%s: declares no components at all (no descriptors under manifests/argocd/components/%s/ and no inline elements) — "+
-				"a boundary that declares nothing cannot be distinguished from one that failed to render",
-			b.Name(), b.Boundary)
-	}
-
-	// The boundary's Applications are those its AppProject scopes. Counting by
-	// project rather than by owner reference keeps this independent of how the
-	// ApplicationSet labels what it generates.
 	apps, err := b.boundaryApps(ctx, kubeconfig)
 	if err != nil {
 		return fmt.Errorf("%s: %w", b.Name(), err)
 	}
 
+	expected := descriptors + inline
 	got := len(apps)
 	if got < expected {
 		return fmt.Errorf(
@@ -189,6 +245,17 @@ func (b *BoundaryInventoryChecker) Check(ctx context.Context, kubeconfig string)
 				"the ApplicationSet reports healthy while generating fewer than the boundary declares; "+
 				"check that the descriptors are reachable at the revision the generator reads",
 			b.Name(), got, expected, descriptors, inline)
+	}
+
+	// A boundary that declares nothing AND generated nothing is only acceptable
+	// when its inventory is genuinely dynamic. Anywhere else it means the
+	// ApplicationSet rendered with an empty generator, which is exactly the
+	// silent case this gate exists for.
+	if expected == 0 && got == 0 && !dynamic {
+		return fmt.Errorf(
+			"%s: rendered %d ApplicationSet(s) but they declare no components and generated none — "+
+				"a boundary that declares nothing cannot be distinguished from one whose generator returned nothing",
+			b.Name(), len(appSets))
 	}
 
 	// Counting is not enough. An Application whose target state cannot be
@@ -201,9 +268,8 @@ func (b *BoundaryInventoryChecker) Check(ctx context.Context, kubeconfig string)
 	// ComparisonError is the condition ArgoCD raises when it cannot render the
 	// source, so it is the boundary's problem by construction: an unreachable
 	// repository, a revision without the descriptors, or a descriptor that does
-	// not produce a usable source. It is reported rather than tolerated. A
-	// genuinely transient one clears on a later poll, because this runs inside
-	// the waiter's retry loop.
+	// not produce a usable source. A genuinely transient one clears on a later
+	// poll, because this runs inside the waiter's retry loop.
 	if broken := comparisonErrors(apps); len(broken) > 0 {
 		return fmt.Errorf(
 			"%s: %d of %d Applications cannot render their source: %s — "+
