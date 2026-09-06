@@ -951,6 +951,14 @@ func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) 
 	if err := o.deployBoundary(ctx, kubeconfig, 3); err != nil {
 		return err
 	}
+	// This boundary both registers new kinds and manages them: the Crossplane
+	// XRDs compose SpokePool, and the Hub Operator registers HubEnvironment.
+	// The controller has been running since boundary 01 and holds an API schema
+	// from before either existed, so its own Applications cannot be diffed until
+	// it re-reads one.
+	if err := o.refreshArgoCDSchemaCache(ctx, kubeconfig); err != nil {
+		return err
+	}
 	// ADR-061: the boundary is activated; this waits until it has actually
 	// generated the Applications it declares. Safe here — the platform repo
 	// credentials were provisioned in Phase 5a, long before this phase.
@@ -977,6 +985,12 @@ func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) 
 
 func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
 	if err := o.deployBoundary(ctx, kubeconfig, 5); err != nil {
+		return err
+	}
+	// Again, and not redundantly. Crossplane establishes a composed kind
+	// asynchronously after its XRD syncs, so AINativeSaaS can appear AFTER the
+	// refresh in boundary 03 — and this is the boundary that first manages one.
+	if err := o.refreshArgoCDSchemaCache(ctx, kubeconfig); err != nil {
 		return err
 	}
 	// ADR-061: the boundary is activated; this waits until it has actually

@@ -452,3 +452,47 @@ func kubectlApplyStdin(ctx context.Context, kubeconfig, manifest string) error {
 	}
 	return nil
 }
+
+// refreshArgoCDSchemaCache restarts the Argo CD application controller so it
+// re-reads the API server's OpenAPI document.
+//
+// The controller loads that document once, when it starts, and uses it to build
+// the structured-merge types every diff needs. A CRD registered afterwards is
+// absent from that copy, and every Application managing the new kind fails to
+// diff with
+//
+//	unable to resolve parseableType for GroupVersionKind: nutgraf.in/v1alpha1, Kind=AINativeSaaS
+//
+// It does NOT self-heal: the cache is refreshed on restart, not on CRD events,
+// and the failure was still present more than an hour after the CRD appeared.
+//
+// This is structural on a hub rather than a race. The controller is installed in
+// boundary 01; Crossplane composes AINativeSaaS and SpokePool from XRDs applied
+// in boundary 03, and the Hub Operator registers HubEnvironment, so the types a
+// later boundary manages are always invented after the controller booted.
+//
+// It is not a diff-strategy problem, which is worth stating because it presents
+// as one: with server-side diff the message names serverSideDiff, and turning
+// that off only changes it to "error calculating structured merge diff" with the
+// same cause. Both strategies read the same cached schema.
+//
+// Idempotent and cheap: a rolling restart of a stateless controller that
+// re-syncs in about half a minute, and a no-op for a cache that is already
+// current.
+func (o *Orchestrator) refreshArgoCDSchemaCache(ctx context.Context, kubeconfig string) error {
+	fmt.Println("[boundary] Refreshing ArgoCD's API schema cache (new CRDs registered since it started)...")
+	restart := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"rollout", "restart", "statefulset/argocd-application-controller",
+		"-n", "platform-ops")
+	if out, err := restart.CombinedOutput(); err != nil {
+		return fmt.Errorf("restart argocd-application-controller: %w\n%s", err, out)
+	}
+	wait := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"rollout", "status", "statefulset/argocd-application-controller",
+		"-n", "platform-ops", "--timeout=300s")
+	if out, err := wait.CombinedOutput(); err != nil {
+		return fmt.Errorf("wait for argocd-application-controller: %w\n%s", err, out)
+	}
+	fmt.Println("[boundary] ✓ ArgoCD schema cache refreshed")
+	return nil
+}

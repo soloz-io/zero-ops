@@ -102,24 +102,26 @@ spec:
     {{"{{-"}} if has .appName (list "platform-redis") {{"}}"}}
     metadata:
       annotations:
-        # Client-side diff for these Applications only (ADR-061 note).
+        # Client-side diff for this Application only.
         #
-        # Server-side diff is on controller-wide, because it is the only thing
-        # that distinguishes CRD defaulting from real drift under
-        # ServerSideApply. Two kinds of resource cannot be diffed that way:
+        # Server-side diff is on controller-wide, because under ServerSideApply
+        # it is the only thing that separates CRD defaulting from real drift.
+        # It cannot be used on a StatefulSet whose spec differs in an immutable
+        # field: the diff is a genuine dry-run apply, so the API server rejects
+        # it outright with
         #
-        #   a type created AT RUNTIME -- a Crossplane XR or an operator CRD --
-        #   has no entry in the controller's cached OpenAPI schema, and the diff
-        #   fails with "unable to resolve parseableType for GroupVersionKind";
+        #   Forbidden: updates to statefulset spec for fields other than
+        #   'replicas', 'ordinals', 'template', 'updateStrategy', ...
         #
-        #   a StatefulSet whose spec has changed in an immutable field fails the
-        #   dry-run apply outright with "Forbidden: updates to statefulset spec
-        #   for fields other than replicas, ordinals, template ...", where a
-        #   client-side diff would simply have shown the difference.
+        # and the Application cannot be compared at all. A client-side diff
+        # simply shows the difference, which is the honest outcome: the change
+        # is still refused at sync, but it is refused as drift that needs a
+        # recreate rather than hidden behind a comparison error.
         #
-        # Both read as a broken Application rather than as a diff strategy that
-        # cannot describe the resource. Neither is a startup race that resolves
-        # itself, so the exception is declared.
+        # NOT related to the parseableType failures on the Crossplane XRs. Those
+        # were a stale API schema in the controller and affected BOTH diff
+        # strategies; they are handled by refreshArgoCDSchemaCache in the
+        # bootstrap, not here.
         argocd.argoproj.io/compare-options: ServerSideDiff=false
     {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
