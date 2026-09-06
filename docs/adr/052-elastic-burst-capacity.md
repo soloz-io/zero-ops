@@ -760,17 +760,20 @@ them.
         ┌────────────────────────────────────────┐
         │    ephemeral-job-operator (platform)    │
         │  buildPodSpec: PVC lookup-or-create     │
-        │   + init container + sidecar wiring     │
+        │   + BOTH workspace containers, as       │
+        │     initContainers (see §14.1)          │
         └────────────────────┬─────────────────────┘
                              │
           ┌──────────────────┼──────────────────────┐
           ▼                  ▼                       ▼
  ┌──────────────────┐ ┌──────────────────┐  ┌────────────────────────┐
- │  PVC /workspace   │ │ init container:  │  │ sidecar: workspace-sync│
- │  local-path (home)│ │ workspace-sync   │  │  on-demand /checkpoint │
- │  hcloud-volumes   │ │ restore          │  │  + periodic backstop   │
- │  (burst)          │ │ (runs once, at   │  │  + finalizer-gated     │
- │                   │ │  pod start)      │  │    teardown flush      │
+ │  PVC /workspace   │ │ init container:  │  │ NATIVE sidecar:        │
+ │  local-path (home)│ │ workspace-sync   │  │ workspace-sync serve   │
+ │  hcloud-volumes   │ │ restore          │  │  (initContainer with   │
+ │  (burst)          │ │ (runs once, at   │  │   restartPolicy:Always)│
+ │                   │ │  pod start)      │  │  on-demand /checkpoint │
+ │                   │ │                  │  │  + periodic backstop   │
+ │                   │ │                  │  │  + SIGTERM teardown    │
  └─────────┬─────────┘ └────────┬─────────┘  └────────────┬────────────┘
            │                    │                          │
            │                    └───────────┬──────────────┘
@@ -831,16 +834,20 @@ materialize verbatim
        idle-timeout fires, or explicit delete
                        │
                        ▼
-       operator adds a finalizer to the pod
+       kubelet SIGTERMs the WORKLOAD containers
                        │
                        ▼
-       signals the sidecar: snapshot now
+       workload containers exit — nothing is
+       writing the tree any more
                        │
                        ▼
-       sidecar uploads, reports done
+       ONLY THEN does the kubelet SIGTERM the
+       native sidecar (this ordering is the
+       whole reason it is a native sidecar)
                        │
                        ▼
-       operator removes the finalizer
+       sidecar: stop backstop → drain in-flight
+       /checkpoint → snapshot → exit
                        │
                        ▼
        pod terminates; PVC retained (no ownerRef
@@ -848,15 +855,18 @@ materialize verbatim
        this workspaceId is used
 ```
 
+Nothing in that sequence involves the operator. It reaps the workload; the
+workload's own sidecar finalizes the state it owns.
+
 **Component diagram (Mermaid, same information, for renderers that support it):**
 
 ```mermaid
 graph TB
     SDK["waypoint-sdk<br/>submits EphemeralJob"]
     subgraph OPERATOR["ephemeral-job-operator (this ADR)"]
-        RECON["buildPodSpec: PVC lookup-or-create<br/>+ init container + sidecar wiring"]
+        RECON["buildPodSpec: PVC lookup-or-create<br/>+ both workspace containers as initContainers"]
         INITC["init container: workspace-sync restore<br/>owned image, holds S3 credential via Secret"]
-        SIDEC["sidecar: workspace-sync<br/>snapshot engine — on-demand + periodic backstop<br/>+ finalizer-gated flush on teardown<br/>owned image, holds S3 credential via Secret"]
+        SIDEC["NATIVE sidecar: workspace-sync serve<br/>initContainer, restartPolicy: Always<br/>snapshot engine — on-demand + periodic backstop<br/>+ teardown snapshot on SIGTERM, in-pod<br/>owned image, holds S3 credential via Secret"]
         REAPER["separate reconcile loop:<br/>workspace-PVC reaper (30-day TTL)"]
     end
     subgraph POD["Sandbox Pod"]
@@ -928,14 +938,36 @@ A checkpoint is one manifest plus whatever content-addressed objects it referenc
 
 **One primitive, two triggers — not two mechanisms:**
 - **On-demand, named.** The agent (harness-runtime) calls a local, credential-free control endpoint on the sidecar — `POST /checkpoint {name?, description?}` — at whatever boundary it considers meaningful (a turn, a tool call). The sidecar runs the snapshot engine above and returns a `checkpoint_id`. This is the common case, and it is why the sidecar needs no periodic timer to be the primary mechanism — the agent decides when a checkpoint is worth taking, exactly as it previously decided when a commit was worth making, just redirected to a different payload.
-- **Periodic, anonymous — a backstop only.** On a low-frequency interval, and at graceful teardown (finalizer-gated, see below), the sidecar runs the same snapshot engine with no name attached, covering the span since the agent's last on-demand checkpoint. This exists for the one case an on-demand checkpoint can't help: the agent crashes or the node dies mid-edit, before it ever called `/checkpoint`.
+- **Periodic, anonymous — a backstop only.** On a low-frequency interval, and again at graceful teardown (see §14.1), the sidecar runs the same snapshot engine with no name attached, covering the span since the agent's last on-demand checkpoint. This exists for the one case an on-demand checkpoint can't help: the agent crashes or the node dies mid-edit, before it ever called `/checkpoint`. **The periodic interval — not the teardown snapshot — is what actually bounds worst-case loss**, because the failure modes that matter most (node loss, hard eviction, SIGKILL) provide no graceful window in which a teardown snapshot could run at all.
 
 Both triggers call the identical underlying function — there is one snapshot engine, not two.
 
 - **Init container (`workspace-sync restore`).** Runs before the workload container starts. Checks whether the PVC is freshly empty — first-ever provisioning for this `WorkspaceID`, or a genuine delete — and only then reads the workspace's latest manifest, downloads every object it references, and materializes the tree verbatim. On an ordinary reattach (idle-timeout recreate, crash restart) the PVC already has the data and this is a no-op, exiting immediately.
 - **Restore-to-a-specific-checkpoint** (not just latest) is the same operation parameterized by `checkpoint_id` instead of "latest" — this is what a user-initiated "undo to checkpoint-002" resolves to (see waypoint ADR-036 §10 for the caller-side flow and the checkpoint-history record this populates).
-- **Teardown flush is finalizer-gated**, not `preStop`-gated: when the operator is about to reap an idle `Service`-mode workload or process an explicit delete for a `WorkspacePersistence`-bearing pod, it adds a finalizer, signals the sidecar to snapshot now, waits for completion, then removes the finalizer to let deletion proceed. This mirrors the quiescence-via-finalizer pattern in the vendored `agent-sandbox` reference (`examples/latebind-storage-gke-sandbox`: *"quiescence is achieved by deleting the SandboxClaim. This initiates the pod deletion process but pauses due to the finalizer, allowing the orchestrator to flush all writes ... before the pod is actually gone"*) — a stronger guarantee than a `preStop` hook, which has a hard grace-period timeout and no retry, and which waypoint ADR-036 had already flagged as a standing gap for exactly this reason.
+- **Teardown snapshot is taken in-pod, on SIGTERM, by the sidecar itself** — see §14.1. It is a graceful-shutdown optimization, not the durability mechanism.
 - **S3 credential.** Provisioned into the init container and sidecar's env from a zero-ops-owned Secret (the platform's existing Infisical/ESO secret-delivery pattern), the same shape `agent-vault` already uses for GitHub/Tavily/RunPod/AI-Gateway credentials (`buildWorkloadContainer`, `agent-vault-entrypoint.sh`). The fleet's own workload container never receives this credential, brokered or otherwise — it only ever calls the sidecar's local, unauthenticated-to-S3 control endpoint.
+#### §14.1 The teardown checkpoint: native sidecar, not operator flush
+
+`workspace-sync serve` is a **native sidecar** — an entry in `.spec.initContainers` carrying `restartPolicy: Always` (Kubernetes ≥1.29, stable in 1.33; this fleet's version floor is §20). Both of the operator's workspace containers live in `initContainers`, `workspace-restore` first and `workspace-sync` last. Three properties follow from that placement, and all three are load-bearing:
+
+1. **A `mode: Job` pod can complete.** A pod reaches `Succeeded` only when every container in `.spec.containers` has exited. A never-exiting snapshot process there would hang every batch workload that asked for a persisted workspace, until a deadline killed it.
+2. **The teardown snapshot is application-consistent.** The kubelet terminates native sidecars only *after* the regular containers exit. The tree is therefore quiescent when it is read — the one checkpoint in this design that is not merely crash-consistent (§18.3).
+3. **Restore completes before sync starts, and both before the workload.** Plain init containers before a native sidecar run to completion first; the sidecar is then up before the workload begins.
+
+The teardown snapshot runs in the sidecar's own SIGTERM handler, in a fixed order: stop the periodic backstop, drain in-flight `/checkpoint` requests via graceful server shutdown, take the snapshot under a bounded context, then exit. The HTTP listener must not be allowed to disappear before the handler finishes.
+
+**`terminationGracePeriodSeconds` has a floor when `workspacePersistence` is set** (`minWorkspaceGraceSeconds`). The kubelet SIGKILLs whatever is still running when the grace period expires, so that value is a hard ceiling on the teardown snapshot, and the 30s default is not a chosen number. It is a floor, not an override — a fleet asking for more keeps it — and it should be re-derived from measured p95 checkpoint latency once there is any. Manifest-written-last ordering means a truncated run leaves *no* checkpoint rather than a corrupt one: it fails safe, but it fails.
+
+**An earlier revision of this ADR specified a finalizer-gated flush**, in which the operator added a finalizer, POSTed to the sidecar to snapshot, and released the finalizer on completion — modelled on the quiescence-via-finalizer pattern in the vendored `agent-sandbox` reference. It was implemented and it could never have worked. Three independent defects, none of which any test caught because the path never executed:
+
+- **It was unreachable.** The operator dialled the pod IP; the sidecar binds `127.0.0.1`. Containers share a network namespace with each other, not with other pods, so the connection could never establish. The code comment justifying the loopback bind (*"this only works from inside the pod network"*) described precisely why the call must fail.
+- **It fired against a pod that was already gone.** The finalizer ran on `EphemeralJob` deletion, but the pod is reaped at idle timeout, long before anything deletes the CR. The two lifetimes it tried to coordinate were never the same lifetime. Observed directly: `Succeeded` CRs holding an unfired finalizer with no pod behind them.
+- **It held deletion open on a call that could not succeed**, and `PhaseCheckpointing` — the phase meant to protect an in-flight flush from cancellation — was never assigned by any code path.
+
+The generalisable error is that **durability of pod-local state was modelled as an operator responsibility.** The operator's authority is over the workload's lifecycle; it has no privileged access to the workload's state and no way to reach into a pod that has already terminated. Moving the checkpoint into the process that already holds the credential, the volume mount, and a kubelet-guaranteed termination signal removes the network call, the authentication question, the finalizer, and the phase — the correct boundary is that **the operator manages the lifecycle of the workload, and the workload manages the durability of its own state.**
+
+The limit is explicit and unavoidable: no signal-based design survives node failure, hard eviction, or SIGKILL. Under those conditions there is no teardown checkpoint. This is why the periodic backstop, not this path, is the stated durability mechanism.
+
 - **Checkpoint retention is an open question, not resolved here.** Deleting a manifest is cheap. Reclaiming the content-addressed objects it referenced is not automatically safe — another checkpoint (this workspace's or, if objects are ever shared cross-workspace, another's) may reference the same hash. This needs either per-workspace-scoped object keys (simpler, no cross-checkpoint reference-counting, some dedup benefit given up) or a real mark-and-sweep/reference-counted GC pass (more dedup, more complexity) — Sandbox0's own snapshot delete is consistent with not solving this eagerly either (*"Delete a snapshot... does not affect forks created from the same rootfs state"*, implying it doesn't naively free shared content on delete). Left as an implementation decision.
 
 **PVC naming and ownership.** The operator derives a PVC name deterministically
@@ -1047,8 +1079,10 @@ const (
     PhaseAdmitted     Phase = "Admitted"     // Kueue granted quota; Job/Pod about to be created
     PhaseProvisioning Phase = "Provisioning" // unchanged (§7): pod pending, capacity being created
     PhaseRunning      Phase = "Running"      // unchanged
-    PhaseCheckpointing Phase = "Checkpointing" // Service mode + workspacePersistence only:
-                                                // the finalizer-gated flush (§14) is in flight
+    // No Checkpointing phase. An earlier revision had one, for a
+    // finalizer-gated flush that no longer exists (§14.1): the teardown
+    // snapshot happens inside the pod on SIGTERM, so there is no operator-side
+    // state to represent.
     PhaseSucceeded    Phase = "Succeeded"
     PhaseFailed       Phase = "Failed"
     PhaseTimedOut     Phase = "TimedOut"
@@ -1231,11 +1265,12 @@ phase, and the resolution MUST be deterministic:
 - Already terminal (`Succeeded`/`Failed`/`TimedOut`) → cancellation is a
   no-op. The terminal phase MUST NOT be overwritten; a result that already
   happened is not undone by a later cancel.
-- `Checkpointing` (§14, §15) → cancellation MUST wait for the in-flight
-  workspace flush to finish before the pod is removed. This is the one phase
-  where cancellation is not immediate, and the reason is §14's invariant: a
-  cancel that interrupts a flush destroys exactly the uncommitted work the
-  persistence layer exists to protect.
+Cancellation is immediate from every phase, with no exception for workspace
+persistence. An earlier revision made `Checkpointing` wait for an in-flight
+flush; that phase and that flush are both gone (§14.1). A cancel now deletes
+the pod, and the uncommitted work is protected by the same mechanism as every
+other teardown — the kubelet SIGTERMs the workload, then the native sidecar,
+which takes its final checkpoint on the way out.
 
 **16.5 Recovery.** Each named failure has a defined convergence path, and none
 of them depend on in-memory state:
@@ -1860,8 +1895,8 @@ Registered against the ADR-039 matrix in its canonical seven-column form:
 | Sandbox Workload Pod | ephemeral-job-operator | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Chat runtime | Day-1+ |
 | Burst Compute Usage | Observability Stack | OpenMeter | Observability Stack | Alloy / OTel Collector | Billing, SRE | Day-1+ |
 | Sandbox Workspace PVC (§14) | ephemeral-job-operator | Kubernetes API (fleet namespace) | ephemeral-job-operator (created, mounted, and separately reaped — no ownerRef to any one `EphemeralJob`) | ephemeral-job-operator | Sandbox pod, mounted at `/workspace` | Day-1+ |
-| Sandbox Workspace S3 Backup (§14) | ephemeral-job-operator, via the `workspace-sync` init container/sidecar | S3-compatible object storage | ephemeral-job-operator | ephemeral-job-operator | Sandbox pod (restore only, at pod start) | Day-1+ |
-| Sandbox Workspace S3 Credential (§14) | ephemeral-job-operator | zero-ops Secret (Infisical/ESO) | ephemeral-job-operator | `workspace-sync` init container/sidecar only — never the fleet's workload container | Day-1+ |
+| Sandbox Workspace S3 Backup (§14) | ephemeral-job-operator, via the `workspace-sync` init container + native sidecar | S3-compatible object storage | ephemeral-job-operator | ephemeral-job-operator | Sandbox pod (restore only, at pod start) | Day-1+ |
+| Sandbox Workspace S3 Credential (§14) | ephemeral-job-operator | zero-ops Secret (Infisical/ESO) | ephemeral-job-operator | `workspace-sync` init container + native sidecar only — never the fleet's workload container | Day-1+ |
 | Kueue ClusterQueue / Quota (§15) | Platform | Git (`zero-ops`) | ArgoCD | Kueue | Fleets (fairness/admission scope) | Day-1+ |
 | Kueue LocalQueue (§15) | Platform | Git (`zero-ops`), one per tenant namespace | ArgoCD | Kueue | Fleet workloads in that namespace | Day-1+ |
 | Kueue Workload (§15) | ephemeral-job-operator | Kubernetes API (fleet namespace) | ephemeral-job-operator | Kueue (admission decision), ephemeral-job-operator (waits on it) | Day-1+ |
@@ -1955,12 +1990,13 @@ declared in Git.
 - **(§14)** Node-pinning across a workspace's PVC lifetime is a consequence of
   standard `WaitForFirstConsumer` PV/PVC binding, not operator-written
   scheduling logic — one less thing to get wrong.
-- **(§14)** The finalizer-gated teardown flush is a materially stronger
-  guarantee than the `preStop` hook waypoint ADR-036 had flagged as a standing
-  gap — a `preStop` hook has a hard grace-period timeout and no retry; a
-  finalizer blocks deletion until the operator explicitly removes it, so a
-  slow or retried flush cannot be cut short by the pod terminating underneath
-  it.
+- **(§14.1)** The teardown checkpoint needs no coordination between components:
+  the sidecar owning it already has the credential, the volume and a
+  kubelet-guaranteed signal, so there is no network call, no authentication
+  boundary, no finalizer and no operator-side phase to keep consistent. It also
+  closes the `preStop`-hook gap waypoint ADR-036 flagged, without the hard,
+  unextendable grace window a hook would have imposed — the grace period here
+  is a value this operator sets deliberately (§14.1) rather than one inherited.
 
 ### Negative / Trade-offs
 
@@ -1991,10 +2027,14 @@ declared in Git.
   an error. The `ResourceQuota` this bullet names as the rejecting mechanism
   is itself superseded by Kueue's `ClusterQueue` (§15).
 - **(§14) `local-path` durability still has a real window, even with the S3
-  tier.** A home-lab node's hardware failure loses everything committed after
-  the `workspace-sync` sidecar's last successful flush — narrower than the
-  once-considered PVC-only design's "everything, always," but not zero, and it
-  scales with home-lab node count and MTBF, not a theoretical concern.
+  tier.** A home-lab node's hardware failure loses everything written after the
+  sidecar's last successful checkpoint — narrower than the once-considered
+  PVC-only design's "everything, always," but not zero, and it scales with
+  home-lab node count and MTBF, not a theoretical concern. Note that this is
+  exactly the case in which the §14.1 teardown checkpoint does **not** run:
+  node loss delivers no SIGTERM, so the window is bounded by the periodic
+  backstop interval and by nothing else. That interval, not the teardown path,
+  is the number to tune if this window is too wide.
 - **(§14) Two persistence mechanisms (PVC, S3) must now stay reconciled by
   this operator.** A mismatch between what the PVC currently holds (working
   tree, uncommitted edits, `.git` history — all of it) and what the S3 tier
@@ -2028,7 +2068,7 @@ declared in Git.
   submit rarely, which the old `ResourceQuota`-only model had no way to
   prevent or even detect.
 - **(§15)** The richer phase machine (`Accepted`/`Queued`/`Admitted`/
-  `Checkpointing`/`Cancelled`) gives a submitter a durable, named state for
+  `Cancelled`) gives a submitter a durable, named state for
   every point in the lifecycle instead of inferring "waiting on quota" vs.
   "waiting on a node" from `ConditionCapacity` reasons alone.
 
@@ -2206,7 +2246,7 @@ declared in Git.
   Kueue `ClusterQueue`/`LocalQueue` pair instead of a `ResourceQuota`
   `scopeSelector` object — the fleet-facing declaration is unchanged, only
   what it renders to changes. **waypoint ADR-031** gains the richer phase
-  vocabulary (`Accepted`/`Queued`/`Admitted`/`Checkpointing`/`Cancelled`)
+  vocabulary (`Accepted`/`Queued`/`Admitted`/`Cancelled`)
   on the `EphemeralJob` contract it documents.
 - **Amendment 2026-09-06 (§§16–19), superseding the deferral an earlier draft
   of this amendment proposed.** The four areas previously listed as future
@@ -2247,5 +2287,5 @@ declared in Git.
 - `manifests/spoke/spoke-catalog/infra/agent-sandbox/` — the upstream CRD that must not be forked
 - `manifests/spoke/spoke-catalog/infra/sandbox-network-policy.yaml` — the egress control that keeps working unchanged
 - Kueue (`sigs.k8s.io/kueue`) — the admission/fairness layer adopted in §15; its custom-workload integration pattern (a controller creates a `Workload` object and waits for admission before creating the underlying resource) is the extension point `ephemeral-job-operator` uses, the same one batch/v1 Job, JobSet, and RayJob integrations use
-- `zero-ops/reference-projects/sandbox/agent-sandbox/examples/latebind-storage-gke-sandbox` — the quiescence-via-finalizer pattern §14's teardown flush mirrors
+- `zero-ops/reference-projects/sandbox/agent-sandbox/examples/latebind-storage-gke-sandbox` — the quiescence-via-finalizer pattern an earlier revision of §14 mirrored, and which §14.1 rejects: it coordinates a flush against a *claim* the orchestrator deletes, whereas this design's pod is reaped on idle timeout independently of its CR, so the two lifetimes never coincide
 - `zero-ops/reference-projects/sandbox/sandbox0` — `pkg/rootfsblock/objectstore.go`'s `PutIfAbsentContext`, the content-addressed conditional-write principle §14's snapshot engine applies at file granularity instead of Sandbox0's own block granularity

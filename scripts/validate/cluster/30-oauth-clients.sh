@@ -117,6 +117,7 @@ for x in d.get('items',[]):
     local out
     out=$(INFISICAL_BASE="http://127.0.0.1:$infisical_port" \
           ZITADEL_BASE="http://127.0.0.1:$zitadel_port" \
+          ZITADEL_HOST="id.${ENV_ZONE}" \
           INFISICAL_CLIENT_ID="$infisical_client_id" \
           INFISICAL_CLIENT_SECRET="$infisical_client_secret" \
           INFISICAL_PROJECT_ID="$secrets_project_id" \
@@ -127,6 +128,13 @@ import json, os, sys, urllib.error, urllib.parse, urllib.request
 
 INF   = os.environ["INFISICAL_BASE"]
 ZIT   = os.environ["ZITADEL_BASE"]
+# Zitadel is MULTI-INSTANCE: it resolves which instance serves a request from
+# the request's origin. Reached through a port-forward the origin is
+# 127.0.0.1:<port>, which matches no instance, and every management call answers
+# 404 -- not "unauthorized", not "not found in this org", just 404, which reads
+# as a wrong endpoint rather than a wrong host. Sending the public issuer as the
+# Host header is what auth-proxy does for the same reason.
+ZIT_HOST = os.environ["ZITADEL_HOST"]
 PROJ  = os.environ["INFISICAL_PROJECT_ID"]
 ENVS  = os.environ["INFISICAL_ENV"]
 
@@ -142,9 +150,9 @@ def http(method, url, body=None, headers=None, timeout=15):
 # 1. Authenticate to Infisical as the platform's own machine identity.
 try:
     tok = http("POST", f"{INF}/api/v1/auth/universal-auth/login", {
-        "clientId": os.environ["INFISICAL_CLIENT_ID"],
-        "clientSecret": os.environ["INFISICAL_CLIENT_SECRET"],
-    })["accessToken"]
+        "clientId": os.environ["INFISICAL_CLIENT_ID"].strip(),
+        "clientSecret": os.environ["INFISICAL_CLIENT_SECRET"].strip(),
+    })["accessToken"].strip()
 except Exception as e:
     print(f"SOFT|Infisical authentication failed ({e}) — the machine identity is not usable yet")
     sys.exit(0)
@@ -152,10 +160,23 @@ except Exception as e:
 ihdr = {"Authorization": f"Bearer {tok}"}
 
 def secret(name, path):
+    """One secret value, WHITESPACE-STRIPPED.
+
+    The strip is not cosmetic. A credential stored through a file or a UI
+    commonly carries a trailing newline, and Python refuses to build a request
+    with one:
+
+      Invalid header value b'Bearer eyJ...\n'
+
+    which names neither the credential nor its source and reads as a malformed
+    token rather than one extra byte. internal/kube-sbt/providers/zitadel/
+    config.go trims for exactly this reason; this is the same guard on the
+    validation path.
+    """
     url = (f"{INF}/api/v3/secrets/raw/{name}"
            f"?workspaceId={PROJ}&environment={ENVS}&secretPath={urllib.parse.quote(path, safe='')}")
     try:
-        return http("GET", url, headers=ihdr)["secret"]["secretValue"]
+        return (http("GET", url, headers=ihdr)["secret"]["secretValue"] or "").strip()
     except Exception:
         return ""
 
@@ -165,7 +186,7 @@ if not svc:
     print("SOFT|Infisical holds no hub-identity-service-token — the identity service has not been provisioned yet")
     sys.exit(0)
 
-zhdr = {"Authorization": f"Bearer {svc}"}
+zhdr = {"Authorization": f"Bearer {svc}", "Host": ZIT_HOST}
 
 for line in os.environ["TENANTS"].strip().splitlines():
     tenant, cell = line.split()
@@ -209,19 +230,27 @@ for line in os.environ["TENANTS"].strip().splitlines():
             by_client[cid] = a.get("name", "?")
 
     # 4. The published client id must be one the issuer actually holds.
+    # On failure, say what the issuer DOES hold. "not an application in org X"
+    # cannot be acted on: it does not distinguish a stale published id from an
+    # app in a project the search missed, from an issuer rebuilt underneath the
+    # published value.
+    seen = ", ".join(f"{n}={c}" for c, n in sorted(by_client.items(), key=lambda kv: kv[1])) or "none"
+
     if pub in by_client:
         print(f"PASS|{tenant}: browser client registered in Zitadel as {by_client[pub]!r} (org {org})")
     else:
-        print(f"HARD|{tenant}: OIDC_CLIENT_ID {pub} is not an application in org {org} — "
-              f"the gateway authenticates with a client the issuer does not know, which fails in the browser only")
+        print(f"HARD|{tenant}: OIDC_CLIENT_ID {pub} is not among the {len(by_client)} application(s) "
+              f"in org {org} [{seen}] — the gateway authenticates with a client the issuer does not "
+              f"know, which fails in the browser only")
 
     if not bff:
         print(f"SOFT|{tenant}: Infisical holds no OAUTH_BFF_CLIENT_ID yet — the server-side client has not been provisioned")
     elif bff in by_client:
         print(f"PASS|{tenant}: server-side client registered in Zitadel as {by_client[bff]!r}")
     else:
-        print(f"HARD|{tenant}: OAUTH_BFF_CLIENT_ID {bff} is not an application in org {org} — "
-              f"the delegated token exchange fails on first API call after a successful login")
+        print(f"HARD|{tenant}: OAUTH_BFF_CLIENT_ID {bff} is not among the {len(by_client)} "
+              f"application(s) in org {org} [{seen}] — the delegated token exchange fails on the "
+              f"first API call after a successful login")
 PY
     ) || true
 

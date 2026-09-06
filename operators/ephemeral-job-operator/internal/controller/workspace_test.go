@@ -284,3 +284,128 @@ func TestJobIgnoresDisruptionFailures(t *testing.T) {
 		t.Error("podFailurePolicy does not Ignore DisruptionTarget; preemption on burst capacity would fail the job")
 	}
 }
+
+// TestWorkspaceSyncIsANativeSidecar pins the three lifecycle properties the
+// teardown checkpoint depends on (ADR-052 §14). Each one was wrong before, and
+// each failed silently rather than loudly.
+//
+// The predecessor of this design put workspace-sync in .spec.containers and had
+// the operator POST /flush at the pod IP. That could never work: the sidecar
+// binds loopback, and the flush fired on CR deletion — long after the pod was
+// reaped. Nothing caught it because the path never ran.
+func TestWorkspaceSyncIsANativeSidecar(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+
+	ej := &computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image:                "example.com/img@sha256:" + strings.Repeat("a", 64),
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+		},
+	}
+	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+
+	// 1. It must NOT be an ordinary container. A never-exiting process in
+	//    .spec.containers means a mode: Job pod can never reach Succeeded,
+	//    because a pod succeeds only when every container has exited.
+	for _, c := range spec.Containers {
+		if c.Name == "workspace-sync" {
+			t.Fatal("workspace-sync is in .spec.containers; a mode: Job pod with a persisted " +
+				"workspace could never complete, because this process never exits")
+		}
+	}
+
+	var sync, restore *corev1.Container
+	syncIdx, restoreIdx := -1, -1
+	for i := range spec.InitContainers {
+		switch spec.InitContainers[i].Name {
+		case "workspace-sync":
+			sync, syncIdx = &spec.InitContainers[i], i
+		case "workspace-restore":
+			restore, restoreIdx = &spec.InitContainers[i], i
+		}
+	}
+	if sync == nil || restore == nil {
+		t.Fatalf("expected both workspace containers in .spec.initContainers, got sync=%v restore=%v",
+			sync != nil, restore != nil)
+	}
+
+	// 2. restartPolicy: Always is the whole difference between a native sidecar
+	//    and a plain init container that would block the pod from ever starting.
+	if sync.RestartPolicy == nil || *sync.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+		t.Errorf("workspace-sync restartPolicy = %v, want Always — without it this is a plain "+
+			"init container and the pod hangs before the workload ever starts", sync.RestartPolicy)
+	}
+	// The restore step is the opposite: it must run to completion.
+	if restore.RestartPolicy != nil {
+		t.Errorf("workspace-restore restartPolicy = %v, want nil — it must terminate before the "+
+			"sidecar starts", *restore.RestartPolicy)
+	}
+
+	// 3. Ordering. Init containers run in sequence, and a native sidecar starts
+	//    only once the plain ones before it have finished — so restore must come
+	//    first, or the sidecar would begin snapshotting a workspace still being
+	//    populated.
+	if restoreIdx > syncIdx {
+		t.Errorf("workspace-restore at index %d comes after workspace-sync at %d; the sidecar "+
+			"would start against an unrestored workspace", restoreIdx, syncIdx)
+	}
+
+	// Probes would be actively harmful here: the kubelet dials the pod IP and
+	// the sidecar binds 127.0.0.1, so an httpGet liveness probe fails forever
+	// and restarts a healthy sidecar; a readiness probe on a native sidecar
+	// gates the workload's start, letting an unreachable bucket deny the user
+	// their workspace.
+	if sync.LivenessProbe != nil || sync.ReadinessProbe != nil || sync.StartupProbe != nil {
+		t.Error("workspace-sync declares a probe; the kubelet probes the pod IP and this " +
+			"process binds loopback, so it can only ever fail")
+	}
+}
+
+// TestPersistedWorkspaceGetsAGracePeriodFloor guards the window the teardown
+// checkpoint runs in. The kubelet SIGKILLs whatever is still running when the
+// grace period expires, so the default 30s is a ceiling on the final snapshot
+// that nobody chose.
+func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
+
+	// Unset: the floor applies.
+	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image:                img,
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+		},
+	}, p, corev1.Container{Name: "workload"})
+	if spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != minWorkspaceGraceSeconds {
+		t.Errorf("grace period = %v, want the %ds floor — the teardown checkpoint would be "+
+			"SIGKILLed at the 30s default", spec.TerminationGracePeriodSeconds, minWorkspaceGraceSeconds)
+	}
+
+	// A fleet asking for MORE keeps it: this is a floor, not an override.
+	longer := int64(minWorkspaceGraceSeconds + 300)
+	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image:                         img,
+			WorkspacePersistence:          &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+			TerminationGracePeriodSeconds: &longer,
+		},
+	}, p, corev1.Container{Name: "workload"})
+	if spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != longer {
+		t.Errorf("grace period = %v, want the fleet's %d preserved", spec.TerminationGracePeriodSeconds, longer)
+	}
+
+	// And a job without persistence is untouched by any of this.
+	shorter := int64(5)
+	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image:                         img,
+			TerminationGracePeriodSeconds: &shorter,
+		},
+	}, p, corev1.Container{Name: "workload"})
+	if spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != shorter {
+		t.Errorf("grace period = %v on a job with no persisted workspace, want the fleet's %d untouched",
+			spec.TerminationGracePeriodSeconds, shorter)
+	}
+}

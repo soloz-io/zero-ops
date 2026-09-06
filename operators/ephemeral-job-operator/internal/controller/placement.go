@@ -80,6 +80,13 @@ const (
 	// addon (manifests/providers/hetzner/base/spoke-addons/csi-addon-template.yaml).
 	StorageClassBurst = "hcloud-volumes"
 
+	// minWorkspaceGraceSeconds is the floor on terminationGracePeriodSeconds
+	// for a pod with a persisted workspace — the time the native sidecar has
+	// to take its final checkpoint after the workload exits and before the
+	// kubelet SIGKILLs it (ADR-052 §14). Replace with measured p95 checkpoint
+	// latency when there is some; until then it is deliberately generous.
+	minWorkspaceGraceSeconds = 120
+
 	// WorkspaceMountPath is where a persisted workspace appears in the
 	// workload. Fixed, not configurable: it is the path the harness and every
 	// skill already assume, and a per-job override would let two sandboxes

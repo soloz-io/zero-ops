@@ -70,11 +70,13 @@ spec:
             # real digest and the workflow fails loudly if it cannot.
             - name: WORKSPACE_SYNC_IMAGE
               value: ghcr.io/soloz-io/workspace-sync@sha256:fc5d962e733a19f2caef2862f7f199ae8d4b05699ad0993bb3af0e99533c8655
-            # The object-store credential, by reference. Marked optional in the
-            # pod spec, so a cluster without it runs with checkpoints no-op'ing
-            # rather than failing every sandbox (§14's one legitimate no-op).
+            # The object-store credential, by reference — the SAME Secret the
+            # SDK already uses, rendered into the tenant namespace by
+            # ExternalSecrets from Infisical (ADR-003, ADR-047 Tier 2). Nothing
+            # creates it by hand, here or in prod, and its keys already match
+            # the env names workspace-sync reads.
             - name: WORKSPACE_SYNC_SECRET
-              value: workspace-sync-s3
+              value: hcloud-token
           ports:
             - containerPort: 8080
               name: metrics

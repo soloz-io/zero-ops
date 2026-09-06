@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -132,20 +133,39 @@ func runServe(root string) error {
 		log.Print("object storage not configured — checkpoints will be accepted and no-op")
 	}
 
-	var last string // parent pointer, for checkpoint lineage
+	// Parent pointer, for checkpoint lineage.
+	//
+	// Guarded because three goroutines reach it — the periodic ticker, the
+	// /checkpoint handler, and the shutdown path — and the mutex also
+	// serialises the snapshots themselves. That serialisation is the point as
+	// much as the field is: two concurrent walks of the same tree would upload
+	// interleaved views of it and race to claim the same parent.
+	var (
+		mu   sync.Mutex
+		last string
+	)
 
-	snapshot := func(name, desc, trigger string) (*store.Manifest, error) {
+	snapshotCtx := func(ctx context.Context, name, desc, trigger string) (*store.Manifest, error) {
 		if s == nil {
 			return nil, store.ErrNotConfigured
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-		defer cancel()
+		mu.Lock()
+		defer mu.Unlock()
 		m, err := s.Snapshot(ctx, root, name, desc, trigger, last)
 		if err != nil {
 			return nil, err
 		}
 		last = m.ID
 		return m, nil
+	}
+
+	// The ordinary path: a generous ceiling, since a first checkpoint of a
+	// large workspace is genuinely slow and nothing is waiting on it. The
+	// shutdown path passes its own, much shorter budget instead.
+	snapshot := func(name, desc, trigger string) (*store.Manifest, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		return snapshotCtx(ctx, name, desc, trigger)
 	}
 
 	mux := http.NewServeMux()
@@ -179,11 +199,14 @@ func runServe(root string) error {
 		writeJSON(w, http.StatusOK, map[string]any{"checkpointId": m.ID, "files": len(m.Entries)})
 	})
 
-	// POST /flush — the operator's finalizer-gated teardown call (§14).
+	// POST /flush — an on-demand snapshot, forced, from inside the pod.
 	//
-	// Synchronous on purpose: the operator holds the pod's deletion open until
-	// this returns, which is the whole reason a finalizer is used instead of a
-	// preStop hook (a hook has a hard grace period and no retry).
+	// This was the operator's finalizer-gated teardown call. It is no longer:
+	// teardown is handled by the SIGTERM path below, which needs no caller.
+	// The endpoint stays because it is the only way to force a checkpoint
+	// without waiting out the backstop interval, which makes it how this layer
+	// gets tested — `kubectl exec` into the workload container and POST to
+	// localhost, since the sidecar's own image is distroless and has no shell.
 	mux.HandleFunc("/flush", func(w http.ResponseWriter, r *http.Request) {
 		m, err := snapshot("", "", "teardown")
 		if errors.Is(err, store.ErrNotConfigured) {
@@ -237,20 +260,84 @@ func runServe(root string) error {
 		}
 	}()
 
+	// Teardown checkpoint, on SIGTERM (ADR-052 §14).
+	//
+	// This process is a NATIVE sidecar, so the kubelet signals it only after
+	// the workload containers have exited. That ordering is what makes the
+	// snapshot below meaningful: nothing is writing the tree any more, so this
+	// is the one checkpoint in the whole design that is application-consistent
+	// rather than merely crash-consistent.
+	//
+	// It replaces an operator-driven HTTP /flush that could never work — it
+	// dialled the pod IP against a listener bound to loopback, and it fired on
+	// CR deletion, by which time the pod was already gone. Doing it here needs
+	// no network call, no authentication and no finalizer.
+	//
+	// It is an OPTIMISATION, not the durability mechanism. A node failure,
+	// hard eviction or SIGKILL gives no graceful window at all, and no
+	// signal-based design can promise one. The periodic backstop above is what
+	// actually bounds loss; this narrows the window in the common case where
+	// the shutdown is orderly.
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 		<-sig
+		log.Print("shutdown signal received")
+
+		// 1. Stop the backstop, so the ticker cannot start an upload that
+		//    races the final one for the same tree.
 		close(stop)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+		// 2. Stop accepting new control requests, but let an in-flight
+		//    /checkpoint finish — Shutdown waits for active handlers rather
+		//    than cutting them off. Doing this BEFORE the final snapshot is
+		//    what makes "no new sync work" true while it runs.
+		shutCtx, cancelShut := context.WithTimeout(context.Background(), 30*time.Second)
+		_ = srv.Shutdown(shutCtx)
+		cancelShut()
+
+		// 3. Take the final checkpoint, and only then exit.
+		//
+		// Bounded, because the kubelet SIGKILLs whatever is left when
+		// terminationGracePeriodSeconds expires: better to give up a little
+		// early and log it than to be killed mid-upload with no record of
+		// having tried. The operator sets a floor on that grace period for
+		// exactly this call (minWorkspaceGraceSeconds), and this budget is
+		// deliberately shorter so the log line survives the deadline.
+		budget := 90 * time.Second
+		if v := os.Getenv("WORKSPACE_SYNC_SHUTDOWN_BUDGET_SECONDS"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				budget = time.Duration(n) * time.Second
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		defer cancel()
-		_ = srv.Shutdown(ctx)
+
+		m, err := snapshotCtx(ctx, "", "", "teardown")
+		switch {
+		case errors.Is(err, store.ErrNotConfigured):
+			log.Print("teardown checkpoint skipped — object storage not configured")
+		case err != nil:
+			// Loud, and still a clean exit. Failing the container here would
+			// mark the pod as failed for a durability miss the backstop
+			// already bounds, and would make an orderly shutdown look like a
+			// crashed workload.
+			log.Printf("TEARDOWN CHECKPOINT FAILED (up to %s of work not in object storage): %v", interval, err)
+		default:
+			log.Printf("teardown checkpoint %s (%d files)", m.ID, len(m.Entries))
+		}
 	}()
 
 	log.Printf("workspace-sync serving on 127.0.0.1:%s (backstop every %s)", port, interval)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	// ListenAndServe returns as soon as Shutdown is called, which is step 2 of
+	// four. Returning here would exit before the checkpoint is written and
+	// silently discard the very work this shutdown path exists to save.
+	<-done
 	return nil
 }
 

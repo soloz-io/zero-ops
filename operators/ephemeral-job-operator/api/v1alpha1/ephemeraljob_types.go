@@ -33,14 +33,16 @@ const (
 	// PhaseProvisioning is the pod existing but unschedulable while capacity is
 	// created (§7).
 	PhaseProvisioning Phase = "Provisioning"
-	PhaseRunning      Phase = "Running"
-	// PhaseCheckpointing is a Service-mode workload whose workspace flush is in
-	// flight during teardown (ADR-052 §15, §16.4). It exists so that a cancel
-	// arriving mid-flush is not mistaken for a workload that can be deleted now.
-	PhaseCheckpointing Phase = "Checkpointing"
-	PhaseSucceeded     Phase = "Succeeded"
-	PhaseFailed        Phase = "Failed"
-	PhaseTimedOut      Phase = "TimedOut"
+	PhaseRunning   Phase = "Running"
+	PhaseSucceeded Phase = "Succeeded"
+	PhaseFailed    Phase = "Failed"
+	PhaseTimedOut  Phase = "TimedOut"
+	// There was a PhaseCheckpointing here, for a Service-mode workload whose
+	// workspace flush was in flight during teardown. Nothing ever assigned it
+	// — the one place that read it could not fire — and the operator-driven
+	// flush it described no longer exists: the teardown checkpoint is taken by
+	// the workspace-sync native sidecar on SIGTERM, inside the pod, where the
+	// operator has no state to represent (ADR-052 §14).
 	// PhaseCancelled is an explicit submitter cancellation (ADR-052 §16.4),
 	// deliberately distinct from Failed and TimedOut: it is not a fault, and a
 	// caller that retries on failure must not retry on this.

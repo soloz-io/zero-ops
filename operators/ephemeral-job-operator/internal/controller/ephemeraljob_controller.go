@@ -102,26 +102,24 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Deletion needs nothing from this operator (ADR-052 §14).
+	//
+	// There was a workspace-flush finalizer here that POSTed to the sidecar to
+	// take a final checkpoint. It was wrong three times over and is gone:
+	//
+	//   - it dialled the pod IP while the sidecar binds 127.0.0.1, so the
+	//     request could never connect from another pod;
+	//   - it ran on CR deletion, but the pod is reaped at idle timeout long
+	//     before anything deletes the CR, so by then there was no sidecar left
+	//     to ask — the lifetimes being coordinated were never the same one;
+	//   - and it held deletion open on a call that could not succeed.
+	//
+	// The final checkpoint now happens where the state actually lives: the
+	// sidecar takes it on SIGTERM, which the kubelet sends only after the
+	// workload containers have exited. The operator owns the workload's
+	// lifecycle; the workload owns the durability of its own state.
 	if !ej.DeletionTimestamp.IsZero() {
-		// Flush the workspace before the pod goes away (ADR-052 §14).
-		//
-		// Finalizer-gated rather than a preStop hook: a hook has a hard grace
-		// period and no retry, so a slow flush is simply cut off — and the work
-		// it was writing is the uncommitted work this whole layer exists to
-		// protect. A finalizer holds deletion open until the operator releases
-		// it, which is the only mechanism that can actually wait.
-		return r.finalizeWorkspace(ctx, &ej)
-	}
-
-	// Take the finalizer BEFORE anything is created. Adding it later leaves a
-	// window in which a delete arriving mid-provision skips the flush entirely,
-	// and that window is exactly when a fast session ends.
-	if ej.Spec.WorkspacePersistence != nil && !hasFinalizer(&ej) {
-		ej.Finalizers = append(ej.Finalizers, workspaceFinalizer)
-		if err := r.Update(ctx, &ej); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	if isTerminal(ej.Status.Phase) {
@@ -134,14 +132,14 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Cancellation, before any provisioning work (ADR-052 §16.4).
 	//
 	// Checked here so it resolves from ANY non-terminal phase with one rule.
-	// The one phase it may not short-circuit is Checkpointing: a cancel that
-	// interrupts an in-flight workspace flush destroys exactly the uncommitted
-	// work §14 exists to protect, so it waits.
+	//
+	// This used to defer cancellation while the phase was Checkpointing, to
+	// avoid interrupting an in-flight workspace flush. Two reasons that is
+	// gone: nothing ever assigned that phase, so the branch was unreachable,
+	// and the flush it protected no longer exists. Cancelling now deletes the
+	// pod, the kubelet SIGTERMs the sidecar after the workload exits, and the
+	// final checkpoint is taken on the way out like any other teardown.
 	if ej.Spec.Cancelled {
-		if ej.Status.Phase == computev1alpha1.PhaseCheckpointing {
-			l.Info("cancellation deferred: workspace flush in flight", "name", ej.Name)
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-		}
 		l.Info("cancelling on request", "name", ej.Name, "phase", ej.Status.Phase)
 		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseCancelled,
 			"Cancelled", "cancelled by the submitter")
@@ -664,8 +662,10 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 
 	// Operator-authored containers, kept separate from the fleet's until the
 	// pod spec is assembled so a fleet's Sidecars list cannot displace them.
+	// Both operator-authored containers are init containers now: the restore
+	// step, and the sync sidecar that is native (restartPolicy: Always) rather
+	// than an entry in .spec.containers.
 	var spec_initContainers []corev1.Container
-	var sidecarsExtra []corev1.Container
 
 	// A persisted workspace REPLACES the workspace volume, whatever supplied it
 	// (ADR-052 §14).
@@ -714,8 +714,19 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		// container could skip the restore entirely.
 		wsID := ej.Spec.WorkspacePersistence.WorkspaceID
 		initC, sideC := workspaceSyncContainers(wsID)
-		spec_initContainers = append(spec_initContainers, initC)
-		sidecarsExtra = append(sidecarsExtra, sideC)
+		// Both go in initContainers, restore first, and the sync sidecar LAST.
+		//
+		// The sidecar is a native sidecar (restartPolicy: Always), so this is
+		// not the ordinary "runs to completion" list: entries before it must
+		// finish before it starts, and it keeps running once it has. That
+		// gives the exact sequence this needs — restore populates the volume,
+		// then sync comes up, then the workload starts against a workspace
+		// that is both restored and already being watched.
+		//
+		// It must stay last for the first half of that to hold: a plain init
+		// container appended after a native sidecar would start only once the
+		// sidecar became ready, not once it exited.
+		spec_initContainers = append(spec_initContainers, initC, sideC)
 	}
 
 	// A writable /tmp, always.
@@ -753,17 +764,15 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	// rejection names the container, but it is the pod that is never created —
 	// and the request that named an envelope for its workload looks, from the
 	// outside, like one that did not.
-	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars)+len(sidecarsExtra))
+	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars))
 	for _, c := range ej.Spec.Sidecars {
 		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
 		sidecars = append(sidecars, c)
 	}
-	// Operator-authored sidecars go last, so a fleet cannot shadow one by
-	// declaring a container of the same name earlier in its own list.
-	for _, c := range sidecarsExtra {
-		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
-		sidecars = append(sidecars, c)
-	}
+	// Covers the operator's own containers too, both of which are now init
+	// containers. A native sidecar is quota-accounted like any other init
+	// container, so workspace-sync omitting requests would fail the pod the
+	// same way agent-vault did.
 	for i := range spec_initContainers {
 		withRequests(&spec_initContainers[i], defaultSidecarRequestCPU, defaultSidecarRequestMemory)
 	}
@@ -799,6 +808,28 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	// workload does not.
 	automount := false
 
+	// The window the final checkpoint gets to run in (ADR-052 §14).
+	//
+	// The kubelet SIGTERMs the native sidecar after the workload exits, then
+	// SIGKILLs whatever is still running when the grace period expires — so
+	// this value is the hard ceiling on a teardown snapshot, and the default
+	// of 30s is not a considered number, it is just the default. A snapshot
+	// that is cut off mid-upload leaves no checkpoint at all (the manifest is
+	// written last, so a partial run is absent rather than corrupt): it fails
+	// safe, but it fails.
+	//
+	// A floor, not an override — a fleet asking for MORE time keeps it. The
+	// value is a starting point to be replaced by measured p95 checkpoint
+	// latency once there is any; it is deliberately generous rather than
+	// tuned, because being wrong long costs a slower teardown and being wrong
+	// short costs the user's uncommitted work.
+	grace := ej.Spec.TerminationGracePeriodSeconds
+	if ej.Spec.WorkspacePersistence != nil {
+		if grace == nil || *grace < minWorkspaceGraceSeconds {
+			grace = ptr(int64(minWorkspaceGraceSeconds))
+		}
+	}
+
 	spec := corev1.PodSpec{
 		RestartPolicy:                restart,
 		AutomountServiceAccountToken: &automount,
@@ -827,7 +858,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		Containers:                    append([]corev1.Container{container}, sidecars...),
 		Volumes:                       volumes,
 		ImagePullSecrets:              ej.Spec.ImagePullSecrets,
-		TerminationGracePeriodSeconds: ej.Spec.TerminationGracePeriodSeconds,
+		TerminationGracePeriodSeconds: grace,
 	}
 	return spec
 }
