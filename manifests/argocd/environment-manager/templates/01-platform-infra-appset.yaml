@@ -76,6 +76,148 @@ spec:
             helmValues: ''
             helmReleaseName: ''
           {{- end }}
+          # Kyverno's ADMISSION controller is placement-sensitive on a hybrid
+          # hub, which a descriptor cannot express (ADR-061): it states one
+          # fixed form, and this one differs per provider.
+          - appName: 'platform-kyverno'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'false'
+            syncWave: '-1'
+            repoURL: 'https://kyverno.github.io/kyverno'
+            targetRevision: '3.2.6'
+            path: ''
+            chart: 'kyverno'
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              # Kyverno configuration for hub cluster
+              replicaCount: 3
+
+              # Resource limits
+              resources:
+                limits:
+                  memory: 512Mi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+
+              # Enable background controller for generate policies
+              backgroundController:
+                enabled: true
+                replicas: 1
+                resources:
+                  limits:
+                    memory: 512Mi
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+
+              # Enable cleanup controller
+              cleanupController:
+                enabled: true
+                resources:
+                  limits:
+                    memory: 256Mi
+                  requests:
+                    cpu: 50m
+                    memory: 128Mi
+
+              # Override cleanup job images: bitnami/kubectl:1.28.5 no longer exists on Docker Hub
+              cleanupJobs:
+                admissionReports:
+                  image:
+                    repository: bitnamilegacy/kubectl
+                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+                clusterAdmissionReports:
+                  image:
+                    repository: bitnamilegacy/kubectl
+                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+                ephemeralReports:
+                  image:
+                    repository: bitnamilegacy/kubectl
+                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+                clusterEphemeralReports:
+                  image:
+                    repository: bitnamilegacy/kubectl
+                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+                updateRequests:
+                  image:
+                    repository: bitnamilegacy/kubectl
+                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+              policyReportsCleanup:
+                image:
+                  repository: bitnamilegacy/kubectl
+                  tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
+
+              # Enable reports controller
+              reportsController:
+                enabled: true
+                resources:
+                  limits:
+                    memory: 512Mi
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+
+              # Admission controller configuration
+              admissionController:
+                replicas: 2
+                resources:
+                  limits:
+                    memory: 512Mi
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+{{- if eq .Values.provider "hybrid" }}
+                # HYBRID ONLY: the admission webhook runs beside the API server.
+                #
+                # Same reasoning as platform-external-secrets below, and the same
+                # failure. validate.kyverno.svc-fail is failurePolicy=Fail with a
+                # 10s timeout, so the API server calls it SYNCHRONOUSLY on every
+                # write. Unpinned it lands on the only schedulable node — a
+                # home-lab machine across the Tailscale tunnel — putting a
+                # cross-site round trip in the admission path of every write.
+                #
+                # Observed: every ArgoCD server-side dry-run failed with
+                #
+                #   failed calling webhook "validate.kyverno.svc-fail":
+                #   context deadline exceeded
+                #
+                # which stalled the zitadel sync mid-hook and presented as a
+                # broken identity provider. The external-secrets comment
+                # predicted exactly this — it "surfaces as ArgoCD
+                # ComparisonErrors on unrelated Applications", and diagnosing it
+                # from there leads away from the cause every time.
+                #
+                # Merged into this block rather than appended as a second
+                # admissionController key: YAML takes the last one, so a separate
+                # block silently discarded replicas and resources above.
+                #
+                # Deliberately NOT applied on a single-provider hub, where the
+                # workers share a network with the control plane.
+                nodeSelector:
+                  node-role.kubernetes.io/control-plane: ""
+                tolerations:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+                    effect: NoSchedule
+{{- end }}
+
+              # Enable metrics
+              metricsService:
+                create: true
+                type: ClusterIP
+                port: 8000
+
+              # Webhook configuration
+              webhooksCleanup:
+                enabled: true
+
+              # CRDs
+              crds:
+                install: true
+
+            helmReleaseName: 'kyverno'
           - appName: 'platform-external-secrets'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'false'

@@ -83,6 +83,7 @@ report back the current status update on changes made nd findings so that i can 
 keep the feedback loop open.
 
 -------
+i want only proper idiomatic enterprise grade fixes. No temporary workaround shall be considred as a fix.
 make sure all adhoc changes are codified in respective manifest files following gitops principles. so that fixes dont get lost in commands.
 Better approach is to make changes to manifest files and apply the files to cluster to verify its working.
 it is important that any adhoc changes you make to cluster must be updated in codebase so that it is not lost and we end up again same issues in future. 
