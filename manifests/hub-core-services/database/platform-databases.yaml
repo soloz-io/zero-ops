@@ -1,4 +1,5 @@
-# The six databases platform-db creates in postInitSQL, declared instead.
+# The databases platform-db creates in postInitSQL, declared as CNPG Database
+# CRs for idempotent coverage across bootstrap paths.
 #
 # WHY THIS EXISTS
 #
@@ -6,7 +7,7 @@
 # never executes it. That is fine today because every platform-db has been an
 # initdb cluster, and it becomes a correctness problem the moment one is
 # bootstrapped from a backup (bootstrap.recovery), where postInitSQL is skipped
-# entirely and these six databases would simply not be created.
+# entirely and these databases would simply not be created.
 #
 # Declaring them makes the two bootstrap paths equivalent:
 #   - initdb   : postInitSQL creates them, these CRs then reconcile as no-ops
@@ -21,12 +22,12 @@
 # OWNERSHIP IS PRESERVED, NOT IMPROVED
 #
 # owner: postgres matches what is actually on the live cluster — postInitSQL
-# issues bare `CREATE DATABASE x;` as the superuser, so all six are owned by
-# postgres (verified 2026-09-02 via pg_database.datdba). Assigning them to their
-# application roles would be tidier and is NOT done here: ownership confers full
-# privileges, the applications connect as separate roles (kratos connects as
-# hub_kratos, for instance), and changing it silently alters the privilege model
-# of a running platform. That belongs in its own reviewed change.
+# issues bare `CREATE DATABASE x;` as the superuser, so these databases are
+# owned by postgres (verified 2026-09-02 via pg_database.datdba). Assigning
+# them to their application roles would be tidier and is NOT done here:
+# ownership confers full privileges, the applications connect as separate roles,
+# and changing it silently alters the privilege model of a running platform.
+# That belongs in its own reviewed change.
 #
 # infisical and stalwart are not listed: they already have their own CRs, with
 # their own owning roles declared in platform-db.yaml spec.managed.roles.
@@ -67,49 +68,12 @@ spec:
   owner: postgres
   ensure: present
 ---
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: hydra
-  namespace: platform-data
-spec:
-  cluster:
-    name: platform-db
-  name: hydra
-  owner: postgres
-  ensure: present
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: kratos
-  namespace: platform-data
-spec:
-  cluster:
-    name: platform-db
-  name: kratos
-  owner: postgres
-  ensure: present
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: keto
-  namespace: platform-data
-spec:
-  cluster:
-    name: platform-db
-  name: keto
-  owner: postgres
-  ensure: present
----
 # Zitadel's database (spike — ADR pending).
 #
 # owner: hub_zitadel, NOT postgres, and that is the one thing that differs from
 # every database above. Zitadel runs its own schema migrations at startup and
-# needs DDL on this database; the Ory services do not, because their schemas are
-# applied for them. Ownership is the narrowest way to grant that — the role gets
-# full rights on this database and none on any other.
+# needs DDL on this database. Ownership is the narrowest way to grant that — the
+# role gets full rights on this database and none on any other.
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

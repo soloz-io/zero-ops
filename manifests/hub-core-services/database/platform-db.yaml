@@ -188,6 +188,4 @@ spec:
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
         - CREATE DATABASE openmeter;
-        - CREATE DATABASE hydra;
-        - CREATE DATABASE kratos;
-        - CREATE DATABASE keto;
+        - CREATE DATABASE zitadel;
