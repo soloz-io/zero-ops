@@ -69,7 +69,7 @@ spec:
             # never published this image; the first CI run replaces it with a
             # real digest and the workflow fails loudly if it cannot.
             - name: WORKSPACE_SYNC_IMAGE
-              value: ghcr.io/soloz-io/workspace-sync@sha256:38f2eefc39dc49bd956f4634cf51b361d8fa5a827a91f18667767f4af8f24e4b
+              value: ghcr.io/soloz-io/workspace-sync@sha256:e4f19090174617c5bb167c3456b616ded98ffceb4f67e1818ee03c7b867e14ca
             # The object-store credential, by reference — the SAME Secret the
             # SDK already uses, rendered into the tenant namespace by
             # ExternalSecrets from Infisical (ADR-003, ADR-047 Tier 2). Nothing
