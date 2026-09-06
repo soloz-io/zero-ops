@@ -3,10 +3,16 @@
 **Date:** 2026-08-23
 **Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06). §§16–19 are
 normative contracts — durable work, control-plane availability, workspace
-durability, tenant isolation — not aspirational sections. §19.2 records one
-open confidentiality gap that blocks any tenant-facing confidentiality claim.
-§20 records the CAPI/Kubernetes version floor these contracts assume, and the
-two re-measurement obligations the upgrade carries.
+durability, tenant isolation — not aspirational sections. **§19 is
+conditionally satisfied, and this is the one open approval gate:** §19.2
+records a live confidentiality gap (effective sandbox egress is any host on
+443) and §19.3 fully specifies the replacement control — including its
+normative TLS-inspection decision — but that control is **designed and not
+yet built**. No tenant-facing confidentiality claim may be made until §19.3
+ships and its continuous verification passes. §20 records the CAPI/Kubernetes
+version floor these contracts assume, the requirement that deployed artifacts
+pin exact versions rather than prose, and the two re-measurement obligations
+the upgrade carries.
 **Relates to:** ADR-005 (unified abstraction layers in Crossplane), ADR-011 (declarative over imperative), ADR-012 (billing/metering), ADR-014 (platform-owned stateful infrastructure), ADR-033 (fleet scale targets), ADR-034 (control-plane failure domains), ADR-036 (pluggable provider architecture), ADR-039 (ownership model), ADR-041 (controller responsibility matrix), ADR-043 (control plane authority), ADR-046 (placement classes, burst worker pool), ADR-047 (fleet tenant deployment contract), `crossplane-capi-ownership-pattern`
 
 ---
@@ -1067,7 +1073,7 @@ several of its options load-bearing rather than cosmetic:
 | `waitForPodsReady` | **Enabled, with a placement-class-derived timeout** | see the warning below — the default is actively dangerous here |
 | Requeue on readiness timeout | **Enabled, with capped exponential backoff** | prevents an unschedulable workload monopolising an admission slot |
 | Preemption within `burst-tenant` | **Enabled** | fairness needs it; the pod-level floor against platform infrastructure remains the `PriorityClass` (§5), which Kueue does not touch |
-| `ProvisioningRequest` admission check | **Adopt if the CAPI autoscaler build supports it; otherwise deferred** | it reserves capacity *before* admitting, which fits burst exactly — but support depends on the hub's autoscaler build and MUST be verified rather than assumed |
+| `ProvisioningRequest` admission check | **Optional optimisation. MUST NOT be load-bearing** | see below — the normative mechanism is unschedulable-pod-driven scale-up (§3), which works on every autoscaler build |
 | All-or-nothing / gang admission | **Not applicable today, not disabled** | every workload here is a single pod; this becomes required the moment a multi-pod shape (JobSet, indexed Job) is introduced |
 | Topology-aware scheduling | **Rejected for now** | no gang or locality requirement exists for single-pod workloads; revisit with multi-pod |
 
@@ -1083,13 +1089,32 @@ several of its options load-bearing rather than cosmetic:
 > pod-start-shaped default would therefore reintroduce exactly the failure
 > §11 exists to prevent, at a new layer.
 >
-> Therefore: `waitForPodsReady.timeout` MUST be no shorter than the placement
-> class's declared p95 cold-start budget (§11), the same quantity
-> `SANDBOX_READY_TIMEOUT_SECONDS` is already calibrated against, and eviction
-> MUST NOT fire while the workload's pod reports the provisioning-in-progress
-> signals §12 defines (`TriggeredScaleUp`, `PodScheduled=false` with a
-> scale-up in flight). Eviction is for workloads that are stuck, never for
-> workloads that are waiting.
+> Therefore: `waitForPodsReady.timeout` MUST be set from the placement class's
+> *provisioning timeout* — §17.2's terminal threshold, not its p95 SLO target,
+> for exactly the reason §17.2 gives — and eviction MUST NOT fire while the
+> workload's pod reports the provisioning-in-progress signals §12 defines
+> (`TriggeredScaleUp`, `PodScheduled=false` with a scale-up in flight).
+> Eviction is for workloads that are stuck, never for workloads that are
+> waiting.
+
+**Why unschedulable-pod-driven scale-up stays the normative mechanism, and
+`ProvisioningRequest` is an optimisation on top of it.** §3 already decided
+that scaling is driven by unschedulable demand rather than by a control loop
+the platform writes, and that mechanism works on every cluster-autoscaler
+build. `ProvisioningRequest` inverts the order — it reserves capacity *before*
+Kueue admits, so a workload does not become `Admitted` only to sit pending —
+which is a genuine improvement to the admitted-but-not-ready window
+`waitForPodsReady` exists to police. But making it normative would make a
+load-bearing scheduling property depend on a feature of whichever autoscaler
+build the hub happens to run, and this platform's autoscaler is a hub
+component on the CAPI provider path (§17.1), not something a spoke controls.
+
+The decision is therefore deterministic rather than conditional: **the
+platform's correctness MUST NOT depend on `ProvisioningRequest`.** Where it is
+available it MAY be enabled, and its only permitted effect is to shorten the
+provisioning wait; where it is absent, behaviour is unchanged and no contract
+in §§16–19 is weakened. Any future change that makes admission *depend* on it
+is a change to §3 and must be argued there.
 
 **This is additive to §7 and §8, not a rewrite of either.** The controller
 still authors the Job/Pod, still owns exactly the state machine (now richer),
@@ -1119,16 +1144,48 @@ than an implementation detail of one path). Consequences, all MUST:
 - Idempotency is enforced at the CR, which is the durable record. A caller
   that never observes its own response still has exactly one work item.
 
-**16.2 Execution semantics: at-least-once, with exactly-once side effects at
-the callback.** The platform does not promise exactly-once *execution* — a
-node can die mid-run and the work is retried, which is the correct behaviour
-for a job. It promises exactly-once *terminal notification*:
-`ConditionCallbackDelivered` (§7, already implemented) is the marker that makes
-callback delivery idempotent across reconciles, restarts and resyncs. Fleets
-MUST treat the workload body itself as retryable and MUST NOT assume a single
-execution. Any operation that cannot tolerate re-execution belongs behind the
-fleet's own idempotency key, not behind an assumption this platform does not
-make.
+**16.2 Execution semantics: at-least-once throughout, with a stable
+idempotency key at every boundary.** The platform does not promise
+exactly-once *execution* — a node can die mid-run and the work is retried,
+which is the correct behaviour for a job. Fleets MUST treat the workload body
+as retryable and MUST NOT assume a single execution.
+
+**Terminal notification is at-least-once delivery with a stable terminal-event
+key — not exactly-once side effects.** An earlier draft of this section
+claimed the latter on the strength of `ConditionCallbackDelivered` (§7), and
+that claim was wrong. The marker makes *reconciliation* idempotent — a resync,
+a status write or an operator restart does not re-POST — but it cannot make
+*delivery* exactly-once, because there is an unavoidable window between the
+receiver committing its side effect and the operator persisting the condition:
+
+```
+POST callback ──► receiver commits side effect
+                          │
+                  operator crashes here
+                          │
+        ConditionCallbackDelivered never persisted
+                          │
+                  operator restarts, re-POSTs
+                          ▼
+                  duplicate delivery
+```
+
+No durable marker on the sender closes that window; only the receiver can.
+The platform therefore promises, and a fleet MUST design against:
+
+- Every terminal callback carries a stable `terminalEventId`, derived from
+  the work item's `requestId` and its terminal phase. It is identical across
+  every redelivery of the same outcome and different for any other outcome.
+- Delivery is **at-least-once**. `ConditionCallbackDelivered` suppresses the
+  common duplicate (the reconcile-driven one), which is a real and worthwhile
+  reduction, but it is an optimisation of delivery count, not a guarantee of
+  delivery cardinality.
+- The receiver MUST deduplicate on `terminalEventId`. A receiver that does
+  not is not protected by anything on this side of the boundary.
+
+This is deliberately the same posture as the execution contract above: the
+platform gives a stable key and honest at-least-once semantics; exactly-once
+*effects* are achievable only at the endpoint that owns the effect.
 
 **16.3 Retry classification and budget.** Failures MUST be classified before
 they are retried, because the classes have opposite correct responses:
@@ -1233,10 +1290,23 @@ configuration, not constants of the architecture:
 - **RTO, new-work admission: unaffected by hub availability.** Not a target —
   a structural property of 17.1. Admission depends on no hub component, and a
   regression here is a design break, not a missed SLO.
-- **RTO, capacity recovery after a hub partition heals:** bounded by
-  autoscaler resync + node join, i.e. the same p95 cold-start budget §11
-  already requires each placement class to declare. No new number is invented
-  here; §11's budget is reused as the recovery target.
+- **Capacity recovery after a hub partition heals — an SLO and a threshold,
+  which are different things.** An earlier draft of this section called the
+  p95 cold-start budget a "bound," which is a category error: a p95 is a
+  percentile, and roughly one attempt in twenty exceeds it by definition. A
+  percentile cannot bound anything. The contract is therefore two quantities,
+  not one:
+  - **Capacity-recovery SLO (a target):** `p95(autoscaler resync + node join)
+    ≤ the placement class's declared cold-start budget` (§11). This is the
+    number to alert on and to hold the platform to.
+  - **Provisioning timeout (a threshold):** a separate, strictly larger value
+    at which an individual workload's wait is declared terminal
+    (`CapacityUnavailable`, §12) rather than continuing. It exists to stop
+    one workload waiting forever; it is not a promise about the distribution.
+  - The two MUST NOT be set to the same value. Setting the terminal threshold
+    at the p95 target guarantees that ~5% of provisioning attempts are failed
+    while they are behaving exactly as designed — which is §11's thrash
+    failure re-created by arithmetic rather than by configuration.
 - **RPO for work items: zero.** Work items are API objects; nothing about a
   hub partition can lose one.
 - **Queued work survives a hub partition, a Kueue restart and an operator
@@ -1373,7 +1443,125 @@ allowlist it replaced already contained `github.com`, itself an exfiltration
 path. This MUST be closed before a confidentiality claim is made to any
 tenant, and its revisit trigger is already recorded in the policy file.
 
-**19.3 Policy-engine decision, made rather than inherited.** Kyverno's
+**This is a blocking precondition on §19 as a whole, not a caveat inside it.**
+The threat model this contract names is tenant-authored agent code with a
+shell (§19 preamble); unrestricted outbound HTTPS is not a partial failure of
+that boundary but the absence of one of its load-bearing controls. §19's other
+rows are enforced and verifiable today; this one is not, and the contract is
+therefore **conditionally satisfied, with the condition named in §19.3**.
+
+**19.3 The replacement egress control — specified here, not yet built.** The
+`toFQDNs` approach MUST be abandoned rather than retried further. The evidence
+is that the path is exhausted, not misconfigured: `enable-l7-proxy: true` and
+`dnsproxy-enable-transparent-mode: true` are both already set
+(`cilium-config-base.yaml`), four candidate fixes were attempted, and the FQDN
+cache stayed empty (verified 2026-09-01, recorded in the policy file). A
+control whose enforcement depends on a cache that does not populate is not a
+control, and a fifth attempt is not a plan.
+
+The replacement MUST NOT depend on the DNS-proxy path at all:
+
+```
+        BEFORE (broken)                    AFTER (specified)
+
+  sandbox pod                        sandbox pod
+      │                                  │  toEndpoints: egress-proxy only
+      │ toFQDNs: allowlist               │  (ordinary L3/L4 identity rule —
+      │ (cache empty → matches           │   this class of rule works today)
+      │  nothing → deny-all)             ▼
+      │                            egress-proxy (platform Deployment)
+      │ ⇒ stopgap toEntities:world       │  host allowlist enforced at
+      ▼                                  │  HTTP CONNECT / TLS SNI
+   any host :443                         ▼
+                                    allowed hosts only
+```
+
+Normative requirements:
+
+- Sandbox pods MUST NOT hold `toEntities: world`. Their only permitted
+  non-cluster egress is to a platform-owned egress proxy, expressed as an
+  endpoint-to-endpoint rule — the rule class that demonstrably works on this
+  platform, since only `toFQDNs` depends on the empty cache.
+- The proxy is a **separate Deployment, not a sidecar.** `agent-vault` cannot
+  serve this role despite already proxying sandbox traffic: it runs inside the
+  sandbox pod (§8 `sidecars`), and a pod cannot be network-isolated from its
+  own container. An in-pod proxy is a credential-injection mechanism, not an
+  egress boundary, and conflating the two is how this control would be
+  reintroduced in a form that does not enforce anything.
+- The allowlist moves to the proxy, which sees the CONNECT target or TLS SNI
+  directly and therefore needs no DNS cache to make its decision.
+- §19.5's verification obligation applies: the policy MUST be asserted to
+  select a non-zero endpoint set, and the proxy MUST be asserted to be
+  *refusing* non-allowlisted hosts, continuously. "Egress works" is not
+  evidence that egress is *restricted*.
+
+**TLS inspection: the proxy MUST NOT terminate TLS.** An earlier draft left
+this open; review was right that an approval-grade security architecture
+cannot leave its own inspection boundary undecided, because the confidentiality
+guarantee is a function of that choice. The decision, and the reasoning, in
+full:
+
+The control's job is **destination restriction**, and destination restriction
+is fully achievable without decryption. For an `HTTP CONNECT` proxy the
+requested host is plaintext in the CONNECT line, and the proxy — not the
+sandbox — performs the DNS resolution and opens the upstream connection. The
+sandbox therefore cannot reach a destination the proxy did not itself resolve
+and approve, which is exactly the property §19.2 is missing today. Terminating
+TLS adds no destination-restriction strength; it adds *content* inspection,
+which is a different capability answering a question this threat model does
+not ask.
+
+Terminating TLS would also actively worsen the thing this section exists to
+protect. The sandbox legitimately handles the tenant's own secrets — the
+GitHub token and model-provider credentials `agent-vault` injects (§8), the
+tenant's source code, the prompts and model responses. A terminating proxy
+sees all of it in plaintext, so a control introduced to stop tenant data
+leaving would itself become the single place where every tenant's plaintext
+is concentrated. That is a strictly larger confidentiality exposure than the
+exfiltration risk it mitigates, and it is the same reasoning §18.5 already
+applied when declining application-layer encryption: do not create a
+platform-side plaintext chokepoint in the name of confidentiality. Termination
+additionally requires distributing a MITM CA into the sandbox trust store,
+breaks any upstream that pins certificates, and is fragile against Encrypted
+Client Hello.
+
+**The guarantee that follows, stated precisely so it is not over-read:**
+
+- **Guaranteed:** a sandbox can open connections only to hosts on the
+  allowlist, resolved by the proxy. Connections to non-allowlisted
+  destinations are refused, and the refusal is observable (§19.5).
+- **Not guaranteed:** anything about *what* is sent to an allowlisted host.
+  The proxy does not and will not inspect payloads.
+- **Therefore the allowlist is the entire security boundary**, and its design
+  is a security decision rather than a convenience one. Every allowlisted host
+  that accepts writes is an exfiltration channel by construction — `github.com`
+  and any package registry are read-write and cannot be made otherwise. Each
+  such host MUST be explicitly enumerated and accepted as residual risk rather
+  than assumed benign because it is well-known. Content inspection would not
+  close this either: a terminating proxy cannot distinguish a legitimate
+  `git push` from an exfiltrating one.
+- The allowlist MUST be minimal and platform-owned. A fleet MUST NOT be able
+  to extend it, since that would let a tenant authorise its own exfiltration
+  destination.
+
+**Remaining costs, which are real and are the reason this is a trade:** the
+proxy becomes an availability chokepoint for all sandbox egress and must be
+scaled and monitored as one, and it adds a hop to every outbound request.
+
+**Status: specified, not implemented.** No part of §19.3 exists yet. This
+section closes the *design* gap — there is now a control that can work with
+the FQDN path broken, and its inspection boundary is decided rather than
+open — and explicitly does not close the *security* gap. Until §19.3 is built
+and its verification passes, §19.2 stands and no tenant-facing confidentiality
+claim may be made.
+
+**Status: specified, not implemented.** No part of §19.3 exists yet. This
+section closes the *design* gap — there is now a control that can work with
+the FQDN path broken — and explicitly does not close the *security* gap.
+Until §19.3 is built and its verification passes, §19.2 stands and no
+tenant-facing confidentiality claim may be made.
+
+**19.4 Policy-engine decision, made rather than inherited.** Kyverno's
 mutating placement policy is deleted, not migrated: §4/§8 made the operator
 the author of placement, so the mutation is redundant, and a redundant
 mutating webhook is a liability rather than defence in depth. The *validating*
@@ -1395,7 +1583,7 @@ reintroduce placement mutation — doing so would restore the weaker guarantee
 §4 and §8 deliberately traded away, and would reintroduce the silent failure
 mode that put every sandbox on home-lab capacity on the dev spoke.
 
-**19.4 Verification is part of the control, not an afterthought.** The egress
+**19.5 Verification is part of the control, not an afterthought.** The egress
 policy's selector has silently matched zero endpoints **twice**, and a Cilium
 policy selecting nothing reports `Healthy` while enforcing nothing — the two
 states are indistinguishable from status. Therefore: any policy in 19.1 whose
@@ -1419,19 +1607,30 @@ an architectural assumption, not an operational detail.
 | `clusterctl` / CAPI providers | `v1.10.0` | latest supported | `internal/hub-cli/binaries/clusterctl.go` (pinned with known-good checksums — the pin and its checksums move together) |
 | Spoke Kubernetes | `v1.31.6` | current supported release | `spokepool-hetzner-composition.yaml`, `spokepool-hybrid-composition.yaml` (`Cluster.spec.topology.version`) |
 
+**"Latest supported" is a floor, never a deployed value.** The two rows above
+say what the upgrade moves *toward*; they are not themselves a configuration.
+Prose like "current supported release" MUST NOT reach a deployment artifact:
+the compositions' `Cluster.spec.topology.version` and
+`clusterctl.go`'s pin MUST each carry a **concrete, exact version**, that
+version MUST be the one CI's test matrix exercises, and the `clusterctl` pin
+MUST move together with its known-good checksums — a bump that leaves the
+checksums stale silently discards the only reason the pin exists. This ADR
+fixes the capability floor; release engineering fixes the number, and the
+number is the thing that ships.
+
 **The floor this ADR requires, stated as capabilities rather than as a point
 release**, because a point release is stale on write and a capability floor is
 testable:
 
 | Capability | Required by | Available from |
 |---|---|---|
-| `ValidatingAdmissionPolicy` (GA) | §19.3 — the native replacement for Kyverno's validating policy | v1.30 (already met before this upgrade) |
+| `ValidatingAdmissionPolicy` (GA) | §19.4 — the native replacement for Kyverno's validating policy | v1.30 (already met before this upgrade) |
 | `podFailurePolicy` (GA) | §16.3 — retry classification expressed natively rather than re-derived | v1.31 (already met) |
 | Job `successPolicy`, `backoffLimitPerIndex` | §16.3, for any future multi-pod/indexed shape | v1.33 |
 | Kueue's current `Workload`/fair-sharing API surface | §15 | tracks recent Kubernetes; the upgrade removes it as a constraint |
 
 Nothing in §§14–19 requires `MutatingAdmissionPolicy`, at any version — see
-§19.3 for why that remains true *after* the upgrade makes it available, which
+§19.4 for why that remains true *after* the upgrade makes it available, which
 is the one place this version change could otherwise be misread as licence to
 change a decision.
 
@@ -1444,7 +1643,7 @@ hygiene:**
   `waitForPodsReady.timeout` — is calibrated against a p95 node-join time
   that a new Kubernetes and a new CAPI can move in either direction. A stale
   budget under the new floor produces exactly §15's thrash failure, silently.
-- **§19.4's selector-verification obligation applies with force during the
+- **§19.5's selector-verification obligation applies with force during the
   upgrade.** The sandbox egress policy's selector has already broken twice on
   changes of exactly this kind — a component upgrade changing which labels
   the pod-authoring component sets. The check that the policy selects a
@@ -1741,6 +1940,24 @@ declared in Git.
   FQDN cache does not populate here). Writing the isolation contract made
   this impossible to keep implicit, which is correct but means the platform
   MUST NOT make a tenant-facing confidentiality claim until it is closed.
+  §19.3 now specifies a control that can work with the FQDN path broken — an
+  out-of-pod egress proxy enforcing the allowlist at CONNECT/SNI — but
+  **specifying a control is not deploying one**, and §19 is explicitly
+  conditionally satisfied until it ships.
+- **§19.3 introduces a new availability chokepoint by construction.** Routing
+  all sandbox egress through a platform proxy means that proxy's outage is a
+  total egress outage for every sandbox, where today's (insecure) posture has
+  no such single point. Trading an availability risk for a confidentiality
+  control is the right trade here, but it is a trade, and the proxy inherits
+  a scaling and monitoring obligation the platform does not have today.
+- **§19.3 buys destination restriction and explicitly not content
+  inspection.** Deciding against TLS termination means the proxy cannot see
+  *what* leaves for an allowlisted host, so the allowlist alone carries the
+  boundary — and every write-capable entry on it (`github.com`, package
+  registries) is an exfiltration channel that must be enumerated and accepted
+  rather than assumed benign. Termination would not have closed this either
+  (it cannot distinguish a legitimate `git push` from an exfiltrating one),
+  but the limitation is now a stated property rather than an unexamined one.
 - **§18.5 declines application-layer encryption**, so the object store
   operator can read workspace contents and per-tenant key separation does not
   exist. That is a deliberate trade against content-addressed dedup, and it
@@ -1759,7 +1976,7 @@ declared in Git.
 - §16.3's retry classification stops being operator logic and becomes
   `podFailurePolicy` configuration the API server enforces — less code, and
   consistent with how every other Job on the cluster behaves.
-- The version-availability clause that §19.3's argument partly rested on is
+- The version-availability clause that §19.4's argument partly rested on is
   removed, leaving the decision resting only on §4's authorship principle,
   which does not expire.
 
@@ -1770,7 +1987,7 @@ declared in Git.
   silently rather than loudly. Re-measurement is an obligation of the
   upgrade (§20), not a follow-up.
 - **A Kubernetes upgrade is exactly the class of change that has twice
-  silently broken the sandbox egress selector** (§19.2, §19.4), because it
+  silently broken the sandbox egress selector** (§19.2, §19.5), because it
   can change which labels the pod-authoring components set. The upgrade
   therefore carries a security-verification step, not just a functional one.
 - Moving the `clusterctl` pin means moving its known-good checksums; the pin
@@ -1841,7 +2058,7 @@ declared in Git.
   (§16.3, §16.4). **The Kyverno mutating placement policy
   (`manifests/spoke/spoke-catalog/infra/kyverno-burst-placement.yaml`) is
   deleted and its validating counterpart migrates to native
-  `ValidatingAdmissionPolicy`** (§19.3), removing an external webhook from the
+  `ValidatingAdmissionPolicy`** (§19.4), removing an external webhook from the
   admission path. **§19.2 records an open confidentiality gap** (effective
   sandbox egress is any host on 443) that is now a documented blocker on any
   tenant-facing confidentiality claim, and whose closure trigger already
@@ -1855,7 +2072,7 @@ declared in Git.
   render. Two obligations travel with the upgrade rather than following it:
   §11's cold-start budget MUST be re-measured (every readiness deadline in
   §§8, 14, 15 derives from it, and §15's `waitForPodsReady` fails *silently*
-  on a stale value), and §19.4's egress-selector verification MUST pass on the
+  on a stale value), and §19.5's egress-selector verification MUST pass on the
   upgraded spoke before it carries tenant workloads (a component upgrade is
   precisely what silently broke that selector twice before).
 
