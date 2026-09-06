@@ -82,8 +82,7 @@ validate_hostname_zoning() {
 
     local unzoned
     unzoned=$(cd "$VALIDATE_ROOT" && grep -rnoE "https?://[a-z0-9-]+\.nutgraf\.in" \
-        manifests/spoke/spoke-catalog/infra/agentgateway-config.yaml \
-        manifests/hub-core-services/identity/hydra-maester/oauth2clients.yaml 2>/dev/null || true)
+        manifests/spoke/spoke-catalog/infra/agentgateway-config.yaml 2>/dev/null || true)
     if [[ -z "$unzoned" ]]; then
         pass "identity + gateway hostnames are all environment-zoned"
     else

@@ -352,14 +352,14 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		dataNamespace := hubEnv.Spec.Database.Namespace
 
-		// Map of application secrets to their namespaces
-		// Ory secrets are in platform-identity, others in platform-data
+		// Map of application secrets to their namespaces.
+		//
+		// The Ory databases are gone with the stack that used them (ADR-060);
+		// Zitadel's credentials are delivered by its own ExternalSecret and are
+		// not waited on here.
 		requiredSecrets := map[string]string{
 			"control-plane-db-credentials": dataNamespace, // platform-data
 			"hub-db-credentials":           dataNamespace, // platform-data
-			"hydra-db-credentials":         infisical.NamespaceIdentity,
-			"kratos-db-credentials":        infisical.NamespaceIdentity,
-			"keto-db-credentials":          infisical.NamespaceIdentity,
 		}
 
 		var missingSecrets []string
@@ -567,69 +567,27 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Requirement 9.11: Check if Hydra is ready as a continuous health signal
-	hydraReady, err := r.isHydraReady(ctx, hubEnv)
-	if err != nil {
-		logger.Error(err, "Failed to check Hydra readiness")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
-	}
-
-	if !hydraReady {
-		logger.Info("Waiting for Hydra to be ready")
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "IdentityReady",
-			Status:             metav1.ConditionFalse,
-			Reason:             "WaitingForHydra",
-			Message:            "Waiting for Hydra deployment to be ready",
-			ObservedGeneration: hubEnv.Generation,
-		})
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
-	// Set IdentityReady to true now that Hydra is ready
+	// Identity readiness is no longer gated on a Deployment this operator watches,
+	// and OAuth clients are no longer registered here (ADR-060).
+	//
+	// Both existed for Hydra. Readiness waited on the `ory-hydra` Deployment in
+	// the identity namespace, and registration pushed platform-minted client
+	// secrets into Hydra's admin API. Zitadel generates client secrets itself and
+	// discloses them once, so there is nothing for this operator to push, and the
+	// Tenant Identity Service owns provisioning (ADR-041).
+	//
+	// Leaving the readiness gate in place would be worse than leaving it out: the
+	// Deployment it waits for cannot exist, so the reconcile would stall on
+	// "Waiting for Hydra" for ever while reporting a healthy operator.
 	meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
 		Type:               "IdentityReady",
 		Status:             metav1.ConditionTrue,
-		Reason:             "HydraReady",
-		Message:            "Identity provider (Hydra) is ready",
+		Reason:             "IdentityProviderExternal",
+		Message:            "Identity provider lifecycle is owned by the Tenant Identity Service (ADR-060)",
 		ObservedGeneration: hubEnv.Generation,
 	})
 	if err := r.Status().Update(ctx, hubEnv); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	// Requirement 9.9: Phase 3 - Register OAuth Clients
-	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "OAuthClientsRegistered", hubEnv.Generation) {
-		logger.Info("Phase 3: Registering OAuth clients")
-
-		hydraClient, err := infisicalclient.NewHydraClient("")
-		if err != nil {
-			logger.Error(err, "Failed to create Hydra client")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-
-		if err := hydraClient.RegisterOAuthClients(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to register OAuth clients")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "OAuthClientsRegistered",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Registered",
-			Message:            "OAuth clients registered successfully",
-			ObservedGeneration: hubEnv.Generation,
-		})
-
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		logger.Info("Phase 3b complete: OAuth clients registered")
-		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Requirement 9.10: Phase 3 - Create NATS Streams
@@ -747,22 +705,6 @@ func (r *HubEnvironmentReconciler) isInfisicalReady(ctx context.Context, hubEnv 
 	return deployment.Status.ReadyReplicas > 0, nil
 }
 
-// isHydraReady checks if Hydra Deployment is ready
-// Requirement 9.11: Implement dependency readiness checks
-func (r *HubEnvironmentReconciler) isHydraReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	deployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Name:      "ory-hydra",
-		Namespace: infisical.NamespaceIdentity,
-	}, deployment); err != nil {
-		if errors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return deployment.Status.ReadyReplicas > 0, nil
-}
-
 // isNATSReady checks if NATS StatefulSet is ready
 // Requirement 9.11: Implement dependency readiness checks
 func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
@@ -868,9 +810,7 @@ func (r *HubEnvironmentReconciler) handlePasswordRotation(ctx context.Context, h
 		}{
 			"infisical":  {"Deployment", infisical.InfisicalServiceName, infisical.InfisicalServiceNamespace},
 			"redis":      {"StatefulSet", "redis", namespace},
-			"hydra":      {"Deployment", "hydra", infisical.NamespaceIdentity},
-			"kratos":     {"Deployment", "kratos", infisical.NamespaceIdentity},
-			"keto":       {"Deployment", "keto", infisical.NamespaceIdentity},
+			"zitadel":    {"Deployment", "zitadel", infisical.NamespaceIdentity},
 			"mcp_server": {"Deployment", "mcp-server", infisical.NamespaceOps},
 		}
 
@@ -993,17 +933,6 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 				return false
 			})),
-		).
-		// Requirement 12.7: Watch Hydra Deployment
-		Watches(
-			&appsv1.Deployment{},
-			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForDeployment),
-			builder.WithPredicates(
-				predicate.ResourceVersionChangedPredicate{},
-				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "hydra" && obj.GetNamespace() == infisical.NamespaceIdentity
-				}),
-			),
 		).
 		// Requirement 12.8: Watch Infisical Deployment
 		Watches(

@@ -9,35 +9,33 @@ import (
 )
 
 type Config struct {
-	ListenAddr             string
-	HydraPublicURL         string
-	HydraAdminURL          string
-	HydraInternalJWKSURL   string
-	KratosPublicURL        string
-	KratosAdminURL         string
+	ListenAddr string
+	// ZitadelIssuerURL is the PUBLIC issuer, e.g. https://id.dev.nutgraf.in.
+	//
+	// It is what a token's `iss` claim equals and what a relying party compares
+	// byte-for-byte, so it is NOT the in-cluster address and the two cannot be
+	// collapsed. Environment-zoned (ADR-051).
+	ZitadelIssuerURL string
+	// ZitadelInternalURL is the in-cluster Service address documents are fetched
+	// from, e.g. http://zitadel.platform-identity.svc.cluster.local:8080.
+	//
+	// Fetching over the public name would leave this service depending on its own
+	// gateway, DNS and certificate to answer a readiness probe. Not
+	// environment-zoned: it resolves only inside this cluster, and each
+	// environment is a physically separate one (ADR-037).
+	ZitadelInternalURL     string
 	JWKSCacheTTL           time.Duration
 	JWKSFetchTimeout       time.Duration
 	JWKSRefreshMinInterval time.Duration
 	ExpectedJWTAudience    string
-	TrustedClientIDs       string
-	// AuthPublicBaseURL is the public-facing base URL for authorization-server
-	// metadata. Public hostnames are environment-zoned (ADR-051): they carry the
-	// env label (auth.dev.nutgraf.in) because a single DNS namespace is shared
-	// across environments.
+	// AuthPublicBaseURL is the public hostname this service is served on
+	// (auth.<zone>). Used only to describe itself; it is NOT advertised as the
+	// issuer, because the tokens are Zitadel's and say so.
 	AuthPublicBaseURL string
-	// MCPGatewayBaseURL is the public base URL of the MCP gateway, used as the
-	// issuer in gateway-served metadata. Environment-zoned, as above.
+	// MCPGatewayBaseURL is the public base URL of the MCP gateway, used to derive
+	// the resource audience in gateway-served metadata. Environment-zoned.
 	MCPGatewayBaseURL string
-	// ConsoleBaseURL is the public base URL of the console SPA, which serves the
-	// login and registration pages. Environment-zoned, as above.
-	ConsoleBaseURL string
 }
-
-// Note on the in-cluster URLs above (Hydra, Kratos): these are Kubernetes Service
-// DNS names (*.svc.cluster.local). They are NOT environment-zoned and must not be —
-// each environment is a physically separate cluster (ADR-037), so the name is already
-// env-scoped by virtue of resolving only inside that cluster. Only PUBLIC hostnames
-// carry the env label.
 
 // missingEnv accumulates every unset variable so a misconfigured deployment reports
 // all of them at once rather than one restart at a time.
@@ -75,19 +73,14 @@ func LoadConfig() (*Config, error) {
 
 	cfg := &Config{
 		ListenAddr:             m.get("LISTEN_ADDR"),
-		HydraPublicURL:         m.get("HYDRA_PUBLIC_URL"),
-		HydraAdminURL:          m.get("HYDRA_ADMIN_URL"),
-		HydraInternalJWKSURL:   m.get("HYDRA_INTERNAL_JWKS_URL"),
-		KratosPublicURL:        m.get("KRATOS_PUBLIC_URL"),
-		KratosAdminURL:         m.get("KRATOS_ADMIN_URL"),
+		ZitadelIssuerURL:       strings.TrimSuffix(m.get("ZITADEL_ISSUER_URL"), "/"),
+		ZitadelInternalURL:     strings.TrimSuffix(m.get("ZITADEL_INTERNAL_URL"), "/"),
 		JWKSCacheTTL:           m.duration("JWKS_CACHE_TTL"),
 		JWKSFetchTimeout:       m.duration("JWKS_FETCH_TIMEOUT"),
 		JWKSRefreshMinInterval: m.duration("JWKS_REFRESH_MIN_INTERVAL"),
 		ExpectedJWTAudience:    m.get("EXPECTED_JWT_AUDIENCE"),
-		TrustedClientIDs:       m.get("TRUSTED_CLIENT_IDS"),
-		AuthPublicBaseURL:      m.get("AUTH_PUBLIC_BASE_URL"),
-		MCPGatewayBaseURL:      m.get("MCP_GATEWAY_BASE_URL"),
-		ConsoleBaseURL:         m.get("CONSOLE_BASE_URL"),
+		AuthPublicBaseURL:      strings.TrimSuffix(m.get("AUTH_PUBLIC_BASE_URL"), "/"),
+		MCPGatewayBaseURL:      strings.TrimSuffix(m.get("MCP_GATEWAY_BASE_URL"), "/"),
 	}
 
 	if len(m.names) > 0 {

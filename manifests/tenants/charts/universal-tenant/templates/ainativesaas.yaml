@@ -82,21 +82,4 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   {{- end }}
-
-  {{- /*
-    ADR-053: the declared OAuth clients, reduced to what the credential producer
-    needs. The operator generates one credential per confidential client into the
-    tenant's Infisical path; it never learns a client's grants or redirect URIs,
-    because those belong to the registration controller and are rendered into the
-    client resource instead. A fleet declaring no clients passes nothing and
-    receives no credential.
-  */}}
-  {{- with (.Values.oauth | default dict).clients }}
-  oauth:
-    clients:
-    {{- range . }}
-      - name: {{ .name }}
-        type: {{ .type | default "confidential" }}
-    {{- end }}
-  {{- end }}
 {{- end }}

@@ -33,4 +33,19 @@ type ITenantIdentityProvisioner interface {
 	// boundary, and one that lives only in a provider console can be re-opened
 	// by an upgrade or a support session with nothing to notice.
 	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string) (*models.TenantIdentity, error)
+
+	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
+	//
+	// Separate from the call above because it is not part of a tenant's identity:
+	// it is a credential for one of the tenant's WORKLOADS, and its lifecycle is
+	// the workload's. Folding it in would mean every reconcile of a tenant's
+	// identity also touched a secret a running process is holding.
+	//
+	// clientSecret is returned ONLY when this call created or regenerated it. An
+	// issuer discloses a generated secret once, so an empty value means "the
+	// client exists and its secret is whatever you already stored", not "there is
+	// no secret" — and the caller that cannot find a stored one is the only party
+	// able to decide that invalidating the live credential is acceptable, which
+	// is what regenerateIfExists expresses.
+	EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists bool) (clientID, clientSecret string, err error)
 }

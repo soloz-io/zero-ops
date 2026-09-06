@@ -475,14 +475,10 @@ check_openmeter() {
 # ─── 9. ORY IDENTITY STACK ────────────────────────────────────────────────────
 check_ory() {
     log_section "9. ORY IDENTITY STACK"
-    check_argocd_app "ory-kratos" "FAIL"
-    check_argocd_app "ory-hydra" "FAIL"
-    check_argocd_app "ory-keto" "FAIL"
+    check_argocd_app "zitadel" "FAIL"
 
     local ory_deployments=(
-        "platform-identity:ory-kratos"
-        "platform-identity:ory-hydra"
-        "platform-identity:ory-keto"
+        "platform-identity:zitadel"
     )
     for entry in "${ory_deployments[@]}"; do
         local ns="${entry%%:*}"
@@ -941,9 +937,7 @@ check_platform_argocd_apps() {
         "platform-clickhouse"
         "clickhouse-operator"
         "openmeter"
-        "ory-kratos"
-        "ory-hydra"
-        "ory-keto"
+        "zitadel"
         "platform-infisical"
     )
     for app in "${warn_apps[@]}"; do

@@ -49,11 +49,29 @@ func (h *Handler) ValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract claims and set headers
+	// The tenant is read through the claim contract rather than from a literal
+	// "tenant_id". Zitadel expresses tenancy as the user's resource owner, so a
+	// direct read returned "" for every real token and the header was silently
+	// omitted — which downstream reads as an untenanted request, not as an error.
+	tenantID := tenantFromClaims(claims)
+	if tenantID == "" {
+		// An untenanted token is not something the provider can mint (ADR-060):
+		// an Organization owns every user. Reaching here means the token was not
+		// issued by the configured issuer, or was requested without the scope
+		// that mints the claim. Either way it cannot be authorised against a
+		// tenant, and admitting it would mean admitting it to all of them.
+		log.Printf("JWT carries no tenant claim; rejecting")
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
 	sub, _ := claims["sub"].(string)
 	email, _ := claims["email"].(string)
-	role, _ := claims["role"].(string)
-	tenantID, _ := claims["tenant_id"].(string)
+
+	// Roles are those granted WITHIN this tenant, never the whole claim: the same
+	// role can be granted in several tenants and taking all of them would leak a
+	// grant made elsewhere into this request.
+	roles := rolesGrantedInTenant(claims, tenantID)
 
 	// Set headers (omit missing claims)
 	if sub != "" {
@@ -62,12 +80,10 @@ func (h *Handler) ValidateHandler(w http.ResponseWriter, r *http.Request) {
 	if email != "" {
 		w.Header().Set("X-Auth-Email", email)
 	}
-	if role != "" {
-		w.Header().Set("X-Auth-Role", role)
+	if len(roles) > 0 {
+		w.Header().Set("X-Auth-Roles", strings.Join(roles, ","))
 	}
-	if tenantID != "" {
-		w.Header().Set("X-Auth-Tenant-Id", tenantID)
-	}
+	w.Header().Set("X-Auth-Tenant-Id", tenantID)
 
 	w.WriteHeader(http.StatusOK)
 }

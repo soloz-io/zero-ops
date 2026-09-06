@@ -892,6 +892,19 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	// Those operators may need the worker to be Ready, which is why this runs
 	// after home-worker-join.
 
+	// ADR-061: boundary 01 was ACTIVATED in Phase 5a, but nothing has yet
+	// confirmed it produced anything. This is the first point where that can be
+	// asserted — Phase 5a provisions the platform repo credentials only after
+	// activating the boundary, so the seed Application cannot render its
+	// ApplicationSets until after that phase completes.
+	//
+	// It runs before the operator waits below on purpose: if the boundary
+	// generated nothing, those waits would time out on operators whose
+	// Applications were never created, and blame the operators.
+	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 1); err != nil {
+		return err
+	}
+
 	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
 	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
 		return fmt.Errorf("operators not ready: %w", err)
@@ -920,6 +933,12 @@ func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) 
 	if err := o.deployBoundary(ctx, kubeconfig, 2); err != nil {
 		return err
 	}
+	// ADR-061: the boundary is activated; this waits until it has actually
+	// generated the Applications it declares. Safe here — the platform repo
+	// credentials were provisioned in Phase 5a, long before this phase.
+	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 2); err != nil {
+		return err
+	}
 	fmt.Println("[boundary02] ✓ 02-platform-data boundary activated")
 	return nil
 }
@@ -932,12 +951,24 @@ func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) 
 	if err := o.deployBoundary(ctx, kubeconfig, 3); err != nil {
 		return err
 	}
+	// ADR-061: the boundary is activated; this waits until it has actually
+	// generated the Applications it declares. Safe here — the platform repo
+	// credentials were provisioned in Phase 5a, long before this phase.
+	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 3); err != nil {
+		return err
+	}
 	fmt.Println("[boundary03] ✓ 03-platform-services boundary activated")
 	return nil
 }
 
 func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
 	if err := o.deployBoundary(ctx, kubeconfig, 4); err != nil {
+		return err
+	}
+	// ADR-061: the boundary is activated; this waits until it has actually
+	// generated the Applications it declares. Safe here — the platform repo
+	// credentials were provisioned in Phase 5a, long before this phase.
+	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 4); err != nil {
 		return err
 	}
 	fmt.Println("[boundary04] ✓ 04-tenant-services boundary activated")
@@ -948,12 +979,24 @@ func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) 
 	if err := o.deployBoundary(ctx, kubeconfig, 5); err != nil {
 		return err
 	}
+	// ADR-061: the boundary is activated; this waits until it has actually
+	// generated the Applications it declares. Safe here — the platform repo
+	// credentials were provisioned in Phase 5a, long before this phase.
+	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 5); err != nil {
+		return err
+	}
 	fmt.Println("[boundary05] ✓ 05-tenant-fleet boundary activated")
 	return nil
 }
 
 func (o *Orchestrator) deployBoundary06(ctx context.Context, kubeconfig string) error {
 	if err := o.deployBoundary(ctx, kubeconfig, 6); err != nil {
+		return err
+	}
+	// ADR-061: the boundary is activated; this waits until it has actually
+	// generated the Applications it declares. Safe here — the platform repo
+	// credentials were provisioned in Phase 5a, long before this phase.
+	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 6); err != nil {
 		return err
 	}
 	fmt.Println("[boundary06] ✓ 06-tenant-public-tls boundary activated")

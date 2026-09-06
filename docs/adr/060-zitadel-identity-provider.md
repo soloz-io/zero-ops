@@ -75,6 +75,104 @@ organisation, so the claim cannot be consumed by the API server directly. Until
 that mapping exists, Kubernetes RBAC binds to the username and the group claim
 is left unset rather than pointed at a claim that yields nothing.
 
+### OAuth client provisioning inverts
+
+A tenant needs two OAuth clients, and they differ in a way that decides who
+creates them. The gateway authenticates a PERSON with a public client, where PKCE
+carries the proof and no secret exists. The BFF then exchanges that session for a
+token of its own to call the platform API with — a server-side flow, which by
+definition authenticates the CLIENT and therefore needs a secret.
+
+Under Hydra the platform was the producer of that secret: it generated one into
+the tenant's Infisical path and hydra-maester reconciled an `OAuth2Client` CR to
+push it into the issuer. That is why clients could be declared per fleet as a
+list — each entry cost only a generated value and a CR.
+
+Zitadel will not accept a supplied client secret. It generates one and discloses
+it exactly once, at creation. The direction of the credential therefore inverts:
+the issuer is the producer, and the platform's job is to capture the value and
+publish it. There is no configuration that restores the old direction, so this is
+a structural consequence of the provider rather than a preference.
+
+Three things follow.
+
+**The Tenant Identity Service provisions both clients**, because it is already the
+component that talks to the issuer and already publishes an allocated value
+(ADR-041 assigns it both identity lifecycle and credential upload). The Hub
+Operator stops generating OAuth credentials entirely. Two producers writing the
+same key would take turns overwriting each other, and the workload would hold
+whichever wrote last while the issuer knew the other — a mismatch that surfaces
+only at token exchange, naming neither writer.
+
+**The client set is fixed rather than declared.** The platform creates
+`<tenant>-public-client` and `<tenant>-bff`, which are the two the architecture
+uses. A fleet-declared list no longer buys anything, since a fleet cannot supply
+the credential, and it cost something: a list a fleet could extend was a list a
+fleet could use to register redirect URIs the platform never reviewed. A third
+client is a change to the service.
+
+**Reads precede writes.** Because a generated secret cannot be read back, the only
+way to recover one is to regenerate it — which invalidates the credential the
+running workload holds. Provisioning therefore asks the secret store first and
+regenerates only when nothing is stored, so a reconcile of an already-provisioned
+tenant touches nothing.
+
+### How a tenant request is authenticated
+
+```
+                      ┌──────────────────────────────────────────┐
+   browser ──(1)────► │  agentgateway (tenant namespace, spoke)  │
+                      └────┬────────────────────────────┬────────┘
+                           │ (2) OIDC authorization     │ (5) forwards id_token
+                           ▼                            ▼
+                  ┌─────────────────┐            ┌─────────────┐
+                  │     Zitadel     │            │     BFF     │
+                  │  id.<zone>      │◄──(6)──────┤             │
+                  │                 │  code      └──────┬──────┘
+                  │  org  = tenant  │  exchange         │ (7) delegated token
+                  │  proj = roles   │  (confidential)   ▼
+                  └────────┬────────┘            ┌─────────────────┐
+                           │ (3) iss / JWKS      │  api.<zone>     │
+                           │                     │  MCP gateway    │
+                           ▼                     └─────────────────┘
+                  /oauth/v2/keys ──(4)──► validated by gateway AND BFF
+
+  Provisioning (out of band, on tenant reconcile):
+
+    AINativeSaaS XR ──► Hub Operator ──► Tenant Identity Service
+                                                  │
+                            creates in Zitadel:   │
+                              <tenant>-public-client   (auth method NONE)
+                              <tenant>-bff             (auth method BASIC)
+                                                  │
+                            publishes to Infisical:
+                              /spoke-pool/<cell>/tenants/<tenant>/
+                                  OIDC_CLIENT_ID
+                                  OAUTH_BFF_CLIENT_ID
+                                  OAUTH_BFF_CLIENT_SECRET
+                                                  │
+                                                  ▼
+                            ExternalSecret ──► tenant namespace Secret
+                                                  │
+                                                  ▼
+                            agentgateway reads OIDC_CLIENT_ID
+                            BFF reads WAYPOINT_BFF_CLIENT_ID / _SECRET
+```
+
+Steps (1)–(4) are the browser login: the gateway sends the user to Zitadel, and
+both the gateway and the BFF validate the returned token against the issuer's
+signing keys at `/oauth/v2/keys`. Zitadel returns 404 for the conventional
+`/.well-known/jwks.json`, which is why the JWKS URL is published beside the issuer
+rather than assembled from it. Steps (5)–(7) are the delegated exchange, and are
+the reason the confidential client exists at all.
+
+The `auth.<zone>` hostname is split rather than retired. Its `/.well-known/` and
+`/internal/` prefixes are served by auth-proxy, which passes Zitadel's discovery
+document through unmodified — the document must keep naming `id.<zone>` as the
+issuer, because that is what tokens carry and what a relying party compares
+byte-for-byte. Everything else on that hostname redirects to Zitadel, which hosts
+its own login.
+
 ### Configuration abstraction
 
 Identity configuration is split by who may decide it, extending the boundary
@@ -182,9 +280,13 @@ rollout already serves.
 - **Amends ADR-057.** Tenant users are owned by an organisation rather than
   carrying a tenant attribute, and the platform no longer maintains that
   attribute.
-- **Amends ADR-053.** A tenant's OAuth client identifier is looked up from the
-  provider when the provider allocates it, rather than derived from the tenant
-  id. Authority over the value is unchanged.
+- **Supersedes ADR-053's mechanism.** A tenant's OAuth client identifier is
+  allocated by the provider rather than derived from the tenant id, and the
+  confidential client's secret is GENERATED BY THE PROVIDER rather than minted by
+  the platform and pushed. The hydra-maester `OAuth2Client` pipeline and the
+  per-fleet client list are removed with it; the requirement ADR-053 served — that
+  a tenant's server-side client has a credential nothing else can read — is kept.
+  Authority over the value is unchanged.
 - **Amends ADR-050.** The environment supplies a JWKS URL and additional scopes
   alongside the issuer, all fleet-forbidden.
 - **Depends on ADR-059** for the contract that makes the provider replaceable,
@@ -193,6 +295,22 @@ rollout already serves.
 - **Depends on ADR-041** for the assignment of tenant identity lifecycle, which
   places provisioning in the Tenant Identity Service rather than in the Hub
   Operator or Crossplane.
+
+## Open
+
+**The MCP gateway does not validate an audience.** Hydra minted whatever audience
+the consent step granted, so `https://api.<zone>/mcp` could simply be required.
+Zitadel mints the client id and, with the project-audience scope, the project id —
+both allocated, so neither can be written into a manifest at render time. Keeping
+the old value would reject every token; omitting it means the gateway validates
+the issuer and the signature but not the intended recipient, so a token minted for
+another relying party of the same issuer is accepted. The issuer is the platform's
+own, which bounds the exposure, but it is a real reduction and it is recorded here
+rather than absorbed silently.
+
+Closing it needs the platform project id published the way `OIDC_CLIENT_ID`
+already is, and the authorization request carrying
+`urn:zitadel:iam:org:project:id:<projectID>:aud` so the claim is present to check.
 
 ## References
 

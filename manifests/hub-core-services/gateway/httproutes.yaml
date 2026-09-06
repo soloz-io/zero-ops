@@ -114,30 +114,32 @@ spec:
       sectionName: console
   hostnames: ["console.dev.nutgraf.in"]
   rules:
-    # Kratos owns two path families on this host, not one. /self-service carries the
-    # flows; /sessions carries the session read that toSession() performs on page
-    # load. Routing only the first is silently wrong rather than broken: /sessions
-    # falls through to the catch-all below and the SPA answers its own session probe
-    # with 200 text/html, so the client sees a successful response that is not a
-    # session and renders "Not authenticated" for a browser holding a perfectly valid
-    # cookie. Nothing in the login flow looks like it failed, because nothing did.
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /self-service
-        - path:
-            type: PathPrefix
-            value: /sessions
-      backendRefs:
-        - name: ory-kratos-public
-          port: 80
+    # This host served the Kratos self-service SPA and Kratos's own /self-service
+    # and /sessions endpoints behind it. Both are gone with the Ory stack
+    # (ADR-060), and Zitadel hosts its own login and account pages, so there is
+    # nothing left here to serve — only somewhere to send people.
+    #
+    # Redirected rather than deleted. Removing the route entirely would leave the
+    # listener answering with a gateway-level 404 for a hostname users have
+    # bookmarked, which reads as an outage; a redirect says where the thing went.
     - matches:
         - path:
             type: PathPrefix
             value: /
-      backendRefs:
-        - name: kratos-selfservice-ui
-          port: 3000
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            hostname: id.dev.nutgraf.in
+            # ReplaceFullPath for the same reason as the auth host above: the
+            # paths here were the SPA's own routes and Zitadel serves none of
+            # them, so preserving one would 404 on a host the user did not ask
+            # for. Zitadel's root forwards to its console.
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /
+            # 302, so a rollback of this file is not defeated by browser caches.
+            statusCode: 302
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

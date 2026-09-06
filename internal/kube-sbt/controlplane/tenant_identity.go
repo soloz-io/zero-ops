@@ -52,8 +52,77 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, owne
 		return nil, fmt.Errorf("controlplane: publish client id for tenant %q: %w", tenantID, err)
 	}
 
+	if err := cp.ensureBFFClient(ctx, provisioner, tenantID); err != nil {
+		return nil, err
+	}
+
 	return identity, nil
 }
+
+// ensureBFFClient provisions and publishes the tenant's server-side OAuth
+// credential.
+//
+// Read-before-write, and the read is the whole design. The issuer discloses a
+// generated secret exactly once, so the only way to recover an existing one is
+// to regenerate it — which invalidates the credential the running workload is
+// holding. Asking the store first means a reconcile of a tenant that is already
+// provisioned touches nothing, and a regeneration happens only when there is
+// genuinely nothing to break.
+//
+// Failing here fails the call. A tenant whose gateway can authenticate a person
+// but whose BFF cannot obtain a token is a tenant that logs in and then 401s on
+// its first API call, which reads as a broken application rather than as
+// incomplete provisioning.
+func (cp *ControlPlane) ensureBFFClient(ctx context.Context, provisioner interfaces.ITenantIdentityProvisioner, tenantID string) error {
+	appName := bffClientName(tenantID)
+
+	stored, err := cp.cfg.SecretManager.GetTenantSecret(ctx, tenantID, bffClientSecretKey)
+	if err == nil && stored != nil {
+		if v, ok := stored[bffClientSecretKey].(string); ok && v != "" {
+			// Already provisioned. Confirm the client still exists without
+			// disturbing its secret, so a client deleted in the issuer is still
+			// recreated rather than silently missing.
+			if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, false); cerr != nil {
+				return fmt.Errorf("controlplane: verify server-side client for tenant %q: %w", tenantID, cerr)
+			}
+			return nil
+		}
+	}
+
+	clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, true)
+	if err != nil {
+		return fmt.Errorf("controlplane: provision server-side client for tenant %q: %w", tenantID, err)
+	}
+	if clientSecret == "" {
+		return fmt.Errorf("controlplane: server-side client for tenant %q returned no secret to publish", tenantID)
+	}
+
+	if err := cp.cfg.SecretManager.StoreTenantSecret(ctx, tenantID, bffClientIDKey,
+		map[string]interface{}{bffClientIDKey: clientID}); err != nil {
+		return fmt.Errorf("controlplane: publish server-side client id for tenant %q: %w", tenantID, err)
+	}
+	if err := cp.cfg.SecretManager.StoreTenantSecret(ctx, tenantID, bffClientSecretKey,
+		map[string]interface{}{bffClientSecretKey: clientSecret}); err != nil {
+		return fmt.Errorf("controlplane: publish server-side client secret for tenant %q: %w", tenantID, err)
+	}
+	return nil
+}
+
+// bffClientName is the application name the issuer holds for a tenant's
+// server-side client. Derived, never configured: a name a fleet could choose
+// would be a name a fleet could point at another tenant's client.
+func bffClientName(tenantID string) string { return tenantID + "-bff" }
+
+// The keys the tenant's ExternalSecret projects from.
+//
+// Shared with the fleet's values by convention, the same coupling
+// tenantOIDCClientSecretName carries and with the same failure: renaming one
+// side leaves an ExternalSecret waiting for a key that never appears, and the
+// symptom is a pod that never starts rather than an error naming either side.
+const (
+	bffClientIDKey     = "OAUTH_BFF_CLIENT_ID"
+	bffClientSecretKey = "OAUTH_BFF_CLIENT_SECRET"
+)
 
 // tenantOIDCClientSecretName is the name the tenant's ExternalSecret reads.
 //

@@ -141,16 +141,6 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# [CUSTOM] Append Hydra base URL
-- patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: HYDRA_BASE_URL
-        value: "http://ory-hydra-admin.platform-identity.svc.cluster.local:4445"
-  target:
-    kind: Deployment
-    name: hub-operator
 # [CUSTOM] Append the Tenant Identity Service address
 #
 # Unset means this environment does not provision tenant identity, and the

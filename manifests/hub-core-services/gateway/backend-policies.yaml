@@ -17,40 +17,6 @@
 # Cilium evaluates these together with the Kubernetes NetworkPolicies in each
 # service's own directory and admits the union, so those keep expressing the
 # in-cluster callers and this expresses only the Gateway.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: hub-gateway-to-kratos-ui
-  namespace: platform-identity
-spec:
-  endpointSelector:
-    matchLabels:
-      app: kratos-selfservice-ui
-  ingress:
-    - fromEntities:
-        - ingress
-      toPorts:
-        - ports:
-            - port: "3000"
-              protocol: TCP
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: hub-gateway-to-kratos
-  namespace: platform-identity
-spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: kratos
-  ingress:
-    - fromEntities:
-        - ingress
-      toPorts:
-        - ports:
-            - port: "4433"
-              protocol: TCP
----
 # argocd-server runs with server.insecure (see 01-platform-infra-appset.yaml):
 # TLS terminates at the hub Gateway and the backend speaks plain HTTP. Selecting
 # it here makes it default-deny in Cilium, so every legitimate caller must be
@@ -67,7 +33,7 @@ spec:
   ingress:
     # The Gateway. cilium-envoy is hostNetwork, so this traffic carries no pod
     # identity and a podSelector would match nothing — it arrives as
-    # reserved:ingress, the same way the kratos entries above rely on.
+    # reserved:ingress, the same identity every Gateway-proxied backend sees.
     - fromEntities:
         - ingress
       toPorts:

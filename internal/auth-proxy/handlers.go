@@ -1,163 +1,110 @@
 package authproxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 )
 
+// Handler serves the machine surfaces that remain on auth.<zone>.
+//
+// The Gateway splits that hostname (manifests/hub-core-services/gateway/
+// httproutes.yaml): /.well-known/ and /internal/ are SERVED here, everything else
+// is redirected to Zitadel for browser login. So this type deliberately has no
+// login, consent, token or userinfo handler — those were Hydra's challenge flow,
+// Zitadel hosts its own login, and anything still routed to them would be
+// answered by a redirect rather than by this process.
 type Handler struct {
-	hydraPublicURL    string
-	hydraAdminURL     string
-	kratosClient      *KratosClient
-	hydraClient       *HydraClient
+	// issuerURL is the PUBLIC Zitadel issuer. Everything advertised to a client
+	// is built from this, never from authPublicBaseURL: a token minted by Zitadel
+	// carries iss=https://id.<zone>, and a client that discovered a different
+	// issuer rejects it as a spoofed provider.
+	issuerURL string
+	// internalURL is the in-cluster address documents are fetched from.
+	internalURL       string
 	client            *http.Client
 	jwksURL           string
 	expectedAudience  string
 	authPublicBaseURL string
 	mcpGatewayBaseURL string
-	consoleBaseURL    string
 	ready             bool
 }
 
-func NewHandler(hydraPublicURL, hydraAdminURL, kratosPublicURL, kratosAdminURL string, timeout time.Duration, trustedClientIDs, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL, consoleBaseURL string) *Handler {
+func NewHandler(issuerURL, internalURL string, timeout time.Duration, expectedAudience, authPublicBaseURL, mcpGatewayBaseURL string) *Handler {
 	return &Handler{
-		hydraPublicURL: hydraPublicURL,
-		hydraAdminURL:  hydraAdminURL,
-		kratosClient:   NewKratosClient(kratosPublicURL, kratosAdminURL),
-		hydraClient:    NewHydraClient(hydraAdminURL),
+		issuerURL:   issuerURL,
+		internalURL: internalURL,
 		client: &http.Client{
 			Timeout: timeout,
 		},
-		jwksURL:           hydraPublicURL + "/.well-known/jwks.json",
+		// Zitadel publishes signing keys at /oauth/v2/keys and returns 404 for the
+		// conventional /.well-known/jwks.json. Validation against the wrong path
+		// fails as "Expected 200 OK from the JSON Web Key Set HTTP response",
+		// which names neither the path nor the provider.
+		jwksURL:           internalURL + zitadelJWKSPath,
 		expectedAudience:  expectedAudience,
 		authPublicBaseURL: authPublicBaseURL,
 		mcpGatewayBaseURL: mcpGatewayBaseURL,
-		consoleBaseURL:    consoleBaseURL,
 	}
 }
 
+// ServeAuthServerMetadata answers RFC 8414 for MCP clients discovering the API
+// gateway's authorization server.
+//
+// Every endpoint names Zitadel directly rather than a path on this host. The
+// previous version advertised auth.<zone>/oauth2/* because Hydra sat behind those
+// paths here; the Gateway now redirects them, and a 302 on a token endpoint is
+// not something an OAuth client recovers from.
+//
+// registration_endpoint is deliberately ABSENT. Zitadel does not implement
+// dynamic client registration (RFC 7591), which Hydra did, so a client that
+// self-registered must now be given a pre-provisioned client id. Advertising an
+// endpoint that 404s would turn that into a confusing runtime failure instead of
+// a clean absence the client can detect.
 func (h *Handler) ServeAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
-	auth := h.authPublicBaseURL
+	iss := h.issuerURL
 	meta := map[string]interface{}{
-		"issuer":                                auth,
-		"authorization_endpoint":                auth + "/oauth2/auth",
-		"token_endpoint":                        auth + "/oauth2/token",
-		"registration_endpoint":                 auth + "/oauth2/register",
-		"revocation_endpoint":                   auth + "/oauth2/revoke",
-		"jwks_uri":                              auth + "/.well-known/jwks.json",
+		"issuer":                                iss,
+		"authorization_endpoint":                iss + zitadelAuthorizePath,
+		"token_endpoint":                        iss + zitadelTokenPath,
+		"userinfo_endpoint":                     iss + zitadelUserinfoPath,
+		"revocation_endpoint":                   iss + zitadelRevocationPath,
+		"introspection_endpoint":                iss + zitadelIntrospectionPath,
+		"end_session_endpoint":                  iss + zitadelEndSessionPath,
+		"jwks_uri":                              iss + zitadelJWKSPath,
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		"code_challenge_methods_supported":      []string{"S256"},
-		"scopes_supported":                      []string{"openid", "offline_access", "tenant:read", "tenant:write", "cluster:read", "cluster:write"},
+		"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
+		// The resource this authorization server mints tokens for.
+		"resource": h.mcpGatewayBaseURL + "/mcp",
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, MCP-Protocol-Version")
-	json.NewEncoder(w).Encode(meta)
+	if err := json.NewEncoder(w).Encode(meta); err != nil {
+		log.Printf("Failed to encode authorization server metadata: %v", err)
+	}
 }
 
-func (h *Handler) ProxyMetadata(w http.ResponseWriter, r *http.Request) {
-	h.proxy(w, r, "/.well-known/oauth-authorization-server")
-}
-
+// ProxyOpenIDConfiguration serves Zitadel's discovery document.
+//
+// Served, not redirected, and passed through UNMODIFIED. The document states
+// "issuer": "https://id.<zone>" and must keep saying so even though it is being
+// read from auth.<zone> — rewriting it to name this host would produce a document
+// no Zitadel-issued token can be validated against.
 func (h *Handler) ProxyOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
-	h.proxy(w, r, "/.well-known/openid-configuration")
+	h.proxy(w, r, zitadelDiscoveryPath)
 }
 
+// ProxyJWKS serves Zitadel's signing keys, translating the conventional path to
+// the one Zitadel actually publishes on.
 func (h *Handler) ProxyJWKS(w http.ResponseWriter, r *http.Request) {
-	h.proxy(w, r, "/.well-known/jwks.json")
-}
-
-func (h *Handler) ProxyUserinfo(w http.ResponseWriter, r *http.Request) {
-	h.proxy(w, r, "/userinfo")
-}
-
-func (h *Handler) ProxyOAuth2(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/oauth2/register" && r.Method == http.MethodPost {
-		h.proxyDCR(w, r)
-		return
-	}
-	h.proxy(w, r, r.URL.Path)
-}
-
-func (h *Handler) proxyDCR(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	// Inject audience into DCR request body
-	var reqBody map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	reqBody["audience"] = []string{h.mcpGatewayBaseURL + "/mcp"}
-	injected, _ := json.Marshal(reqBody)
-
-	req, err := http.NewRequestWithContext(ctx, r.Method, h.hydraPublicURL+r.URL.Path, bytes.NewReader(injected))
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	req.Header = r.Header.Clone()
-	req.Header.Set("Content-Length", strconv.Itoa(len(injected)))
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		http.Error(w, "Bad gateway", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		for k, v := range resp.Header {
-			w.Header()[k] = v
-		}
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
-		return
-	}
-
-	var body map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		http.Error(w, "Bad gateway", http.StatusBadGateway)
-		return
-	}
-
-	// Remove null and empty fields that Cursor's Zod schema rejects
-	for k, v := range body {
-		if v == nil {
-			delete(body, k)
-			continue
-		}
-		if s, ok := v.(string); ok && s == "" {
-			delete(body, k)
-			continue
-		}
-		if m, ok := v.(map[string]interface{}); ok && len(m) == 0 {
-			delete(body, k)
-		}
-	}
-	if v, ok := body["contacts"]; !ok || v == nil {
-		body["contacts"] = []string{}
-	}
-
-	out, _ := json.Marshal(body)
-	for k, v := range resp.Header {
-		w.Header()[k] = v
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
-	w.WriteHeader(http.StatusCreated)
-	w.Write(out)
+	h.proxy(w, r, zitadelJWKSPath)
 }
 
 func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {
@@ -173,206 +120,25 @@ func (h *Handler) SetReady() {
 	h.ready = true
 }
 
-func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	challenge := r.URL.Query().Get("login_challenge")
-	if challenge == "" {
-		http.Error(w, "Missing login_challenge", http.StatusBadRequest)
-		return
-	}
-
-	// Check for existing Kratos session
-	cookie := r.Header.Get("Cookie")
-	if cookie != "" {
-		session, err := h.kratosClient.GetSession(cookie)
-		if err == nil {
-			// Accept login with existing session
-			acceptReq := map[string]interface{}{
-				"subject": session.Identity.ID,
-			}
-			h.acceptLogin(w, r, challenge, acceptReq)
-			return
-		}
-	}
-
-	// No session exists: hand the challenge to the console's login route.
-	//
-	// The path is /auth/login, which is where the console SPA declares its pages.
-	// Sending it to /login instead reached the SPA's catch-all, which redirects to
-	// /auth/login WITHOUT the query string — so the login_challenge was dropped and
-	// the flow could not continue. The page still rendered, which made it look like
-	// a broken UI rather than a lost parameter.
-	//
-	// The host comes from configuration rather than a literal. It was compiled in
-	// here, which made this binary environment-specific and put a hub hostname in a
-	// place no manifest could correct (ADR-051 calls out compiled-in literals
-	// alongside the ones in manifests).
-	loginURL := fmt.Sprintf("%s/auth/login?login_challenge=%s", h.consoleBaseURL, challenge)
-	http.Redirect(w, r, loginURL, http.StatusFound)
-}
-
-func (h *Handler) ConsentHandler(w http.ResponseWriter, r *http.Request) {
-	challenge := r.URL.Query().Get("consent_challenge")
-	if challenge == "" {
-		http.Error(w, "Missing consent_challenge", http.StatusBadRequest)
-		return
-	}
-
-	// Fetch consent request from Hydra
-	consentReq, err := h.getConsentRequest(challenge)
-	if err != nil {
-		log.Printf("Failed to fetch consent request: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Validate requested scopes
-	requestedScopes, _ := consentReq["requested_scope"].([]interface{})
-	if len(requestedScopes) == 0 {
-		h.rejectConsent(w, r, challenge, "invalid_scope", "No scopes requested")
-		return
-	}
-
-	// Get identity traits from Kratos
-	subject, _ := consentReq["subject"].(string)
-	traits, err := h.kratosClient.GetIdentityTraits(subject)
-	if err != nil {
-		log.Printf("Failed to fetch identity traits: %v", err)
-		h.rejectConsent(w, r, challenge, "access_denied", "Failed to fetch identity")
-		return
-	}
-
-	// Build session with custom claims
-	session := map[string]interface{}{
-		"id_token": map[string]interface{}{
-			"email":     traits["email"],
-			"role":      traits["role"],
-			"tenant_id": traits["tenant_id"],
-			"groups":    traits["groups"],
-		},
-		"access_token": map[string]interface{}{
-			"email":     traits["email"],
-			"role":      traits["role"],
-			"tenant_id": traits["tenant_id"],
-			"groups":    traits["groups"],
-		},
-	}
-
-	// Grant the audience requested by the client, defaulting to the MCP audience.
-	// The Waypoint browser client does not request an audience (OIDC flow);
-	// MCP clients request the MCP resource audience.
-	requestedAudience, _ := consentReq["requested_access_token_audience"].([]interface{})
-	grantedAudience := []string{h.mcpGatewayBaseURL + "/mcp"}
-	if len(requestedAudience) > 0 {
-		grantedAudience = make([]string, 0, len(requestedAudience))
-		for _, aud := range requestedAudience {
-			if s, ok := aud.(string); ok {
-				grantedAudience = append(grantedAudience, s)
-			}
-		}
-	}
-
-	// Accept consent
-	acceptReq := map[string]interface{}{
-		"grant_scope":                 requestedScopes,
-		"grant_access_token_audience": grantedAudience,
-		"session":                     session,
-	}
-
-	h.acceptConsent(w, r, challenge, acceptReq)
-}
-
-func (h *Handler) getConsentRequest(challenge string) (map[string]interface{}, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/admin/oauth2/auth/requests/consent?consent_challenge=%s", h.hydraAdminURL, challenge), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to fetch consent request: %d", resp.StatusCode)
-	}
-
-	var consentReq map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&consentReq); err != nil {
-		return nil, err
-	}
-
-	return consentReq, nil
-}
-
-func (h *Handler) acceptLogin(w http.ResponseWriter, r *http.Request, challenge string, body map[string]interface{}) {
-	h.acceptOrReject(w, r, challenge, body, "login", "accept")
-}
-
-func (h *Handler) acceptConsent(w http.ResponseWriter, r *http.Request, challenge string, body map[string]interface{}) {
-	h.acceptOrReject(w, r, challenge, body, "consent", "accept")
-}
-
-func (h *Handler) rejectConsent(w http.ResponseWriter, r *http.Request, challenge, error, errorDescription string) {
-	body := map[string]interface{}{
-		"error":             error,
-		"error_description": errorDescription,
-	}
-	h.acceptOrReject(w, r, challenge, body, "consent", "reject")
-}
-
-func (h *Handler) acceptOrReject(w http.ResponseWriter, r *http.Request, challenge string, body map[string]interface{}, flow, action string) {
-	jsonBody, _ := json.Marshal(body)
-	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/admin/oauth2/auth/requests/%s/%s?%s_challenge=%s", h.hydraAdminURL, flow, action, flow, challenge), strings.NewReader(string(jsonBody)))
-	if err != nil {
-		log.Printf("Failed to create %s request: %v", action, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		log.Printf("Failed to %s %s: %v", action, flow, err)
-		http.Error(w, "Bad gateway", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Failed to %s %s: %d - %s", action, flow, resp.StatusCode, string(body))
-		http.Error(w, "Bad gateway", http.StatusBadGateway)
-		return
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("Failed to decode %s response: %v", action, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	redirectTo, _ := result["redirect_to"].(string)
-	if redirectTo == "" {
-		http.Error(w, "Missing redirect_to", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, redirectTo, http.StatusFound)
-}
+// JWKSURL is the in-cluster URL signing keys are fetched from.
+func (h *Handler) JWKSURL() string { return h.jwksURL }
 
 func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, r.Method, h.hydraPublicURL+path, r.Body)
+	req, err := http.NewRequestWithContext(ctx, r.Method, h.internalURL+path, r.Body)
 	if err != nil {
 		log.Printf("Failed to create proxy request: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	req.Header = r.Header.Clone()
+	// The in-cluster Service address is not the issuer. Zitadel builds URLs from
+	// its configured ExternalDomain rather than from this header, but the header
+	// is corrected anyway so a request never carries a host the origin does not
+	// serve.
+	req.Host = ""
 	req.URL.RawQuery = r.URL.RawQuery
 
 	noRedirectClient := &http.Client{
@@ -384,7 +150,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, path string) {
 
 	resp, err := noRedirectClient.Do(req)
 	if err != nil {
-		log.Printf("Failed to proxy request to Hydra: %v", err)
+		log.Printf("Failed to proxy request to Zitadel: %v", err)
 		http.Error(w, "Bad gateway", http.StatusBadGateway)
 		return
 	}

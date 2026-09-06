@@ -19,28 +19,26 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	hydraClient := authproxy.NewHydraClient(cfg.HydraAdminURL)
-	if err := hydraClient.RegisterClient(); err != nil {
-		log.Fatalf("failed to register OAuth client: %v", err)
-	}
-
+	// No client registration on start.
+	//
+	// This used to register an OAuth client with Hydra's admin API before serving
+	// anything, and exit if that failed. Zitadel has no dynamic client
+	// registration (RFC 7591): clients are provisioned by the Tenant Identity
+	// Service (ADR-041), so there is nothing for this process to register and
+	// nothing whose absence should stop it starting.
 	handler := authproxy.NewHandler(
-		cfg.HydraPublicURL,
-		cfg.HydraAdminURL,
-		cfg.KratosPublicURL,
-		cfg.KratosAdminURL,
+		cfg.ZitadelIssuerURL,
+		cfg.ZitadelInternalURL,
 		cfg.JWKSFetchTimeout,
-		cfg.TrustedClientIDs,
 		cfg.ExpectedJWTAudience,
 		cfg.AuthPublicBaseURL,
 		cfg.MCPGatewayBaseURL,
-		cfg.ConsoleBaseURL,
 	)
 
-	// Perform initial JWKS fetch to verify connectivity
+	// Verify JWKS connectivity before reporting ready.
 	log.Println("Performing initial JWKS fetch...")
 	validator := authproxy.NewJWTValidator(
-		cfg.HydraPublicURL+"/.well-known/jwks.json",
+		handler.JWKSURL(),
 		cfg.ExpectedJWTAudience,
 		cfg.JWKSCacheTTL,
 		cfg.JWKSFetchTimeout,
@@ -55,17 +53,20 @@ func main() {
 		log.Fatalf("Initial JWKS fetch failed: %v", err)
 	}
 
+	// Only the machine surfaces the Gateway routes here are served.
+	//
+	// /login, /consent, /userinfo and /oauth2/* are gone: they implemented
+	// Hydra's login/consent challenge flow, and auth.<zone> now redirects
+	// everything outside /.well-known/ and /internal/ to Zitadel, which hosts its
+	// own login. Keeping them would have left endpoints that no request reaches
+	// and that no longer have a backend.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", handler.ProxyOpenIDConfiguration)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", handler.ServeAuthServerMetadata)
 	mux.HandleFunc("/.well-known/jwks.json", handler.ProxyJWKS)
-	mux.HandleFunc("/userinfo", handler.ProxyUserinfo)
 	mux.HandleFunc("/health/ready", handler.HealthReady)
-	mux.HandleFunc("/login", handler.LoginHandler)
-	mux.HandleFunc("/consent", handler.ConsentHandler)
 	mux.HandleFunc("/internal/validate", handler.ValidateHandler)
-	mux.HandleFunc("/oauth2/", handler.ProxyOAuth2)
 
 	srv := &http.Server{
 		Addr:    cfg.ListenAddr,

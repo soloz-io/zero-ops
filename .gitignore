@@ -22,7 +22,16 @@ scripts/hybrid/home-lab.env.bak-*
 reference-projects
 .zero-ops/*.log
 .zero-ops/*.out
-
+# Node build output, ignored repo-wide rather than per package.
+#
+# This was one line naming packages/kratos-ui, added after that package's
+# node_modules and dist showed up in a diff. Naming a package only holds until
+# the next one is added without its own .gitignore, and the symptom then is tens
+# of thousands of files appearing in a status the author has to notice and undo
+# by hand. Only packages/auth carries its own today.
+node_modules/
+dist/
+*.tsbuildinfo
 # Bootstrap runtime state — machine-local, never source of truth.
 #
 # infisical-bootstrap.json holds a LIVE machine-identity clientSecret. It is not a

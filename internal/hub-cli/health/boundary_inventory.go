@@ -177,16 +177,12 @@ func (b *BoundaryInventoryChecker) Check(ctx context.Context, kubeconfig string)
 	// The boundary's Applications are those its AppProject scopes. Counting by
 	// project rather than by owner reference keeps this independent of how the
 	// ApplicationSet labels what it generates.
-	projOut, err := runKubectl(ctx, []string{
-		"--kubeconfig", kubeconfig,
-		"get", "applications", "-n", "platform-ops",
-		"-o", fmt.Sprintf(`jsonpath={range .items[?(@.spec.project=="boundary-%s")]}{.metadata.name}{" "}{end}`, b.Boundary),
-	})
+	apps, err := b.boundaryApps(ctx, kubeconfig)
 	if err != nil {
-		return fmt.Errorf("%s: cannot list Applications for boundary-%s: %w", b.Name(), b.Boundary, err)
+		return fmt.Errorf("%s: %w", b.Name(), err)
 	}
 
-	got := len(strings.Fields(string(projOut)))
+	got := len(apps)
 	if got < expected {
 		return fmt.Errorf(
 			"%s: %d of %d Applications generated (%d descriptor(s) + %d inline) — "+
@@ -195,5 +191,94 @@ func (b *BoundaryInventoryChecker) Check(ctx context.Context, kubeconfig string)
 			b.Name(), got, expected, descriptors, inline)
 	}
 
+	// Counting is not enough. An Application whose target state cannot be
+	// generated at all still exists and still reports Healthy, because health is
+	// computed over resources it manages and it manages none. Counting alone
+	// passed a boundary in which every path-based Application carried
+	// "app path does not exist", and the failure surfaced two phases later as a
+	// missing operator webhook.
+	//
+	// ComparisonError is the condition ArgoCD raises when it cannot render the
+	// source, so it is the boundary's problem by construction: an unreachable
+	// repository, a revision without the descriptors, or a descriptor that does
+	// not produce a usable source. It is reported rather than tolerated. A
+	// genuinely transient one clears on a later poll, because this runs inside
+	// the waiter's retry loop.
+	if broken := comparisonErrors(apps); len(broken) > 0 {
+		return fmt.Errorf(
+			"%s: %d of %d Applications cannot render their source: %s — "+
+				"they exist and report Healthy because they manage nothing, so a count alone would pass",
+			b.Name(), len(broken), got, strings.Join(broken, "; "))
+	}
+
 	return nil
+}
+
+// application is the subset of an Argo CD Application this checker reads.
+type application struct {
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Spec struct {
+		Project string `json:"project"`
+	} `json:"spec"`
+	Status struct {
+		Conditions []struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"conditions"`
+	} `json:"status"`
+}
+
+// boundaryApps returns the Applications scoped to this boundary's AppProject.
+func (b *BoundaryInventoryChecker) boundaryApps(ctx context.Context, kubeconfig string) ([]application, error) {
+	out, err := runKubectl(ctx, []string{
+		"--kubeconfig", kubeconfig,
+		"get", "applications", "-n", "platform-ops",
+		"-o", "json",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot list Applications for boundary-%s: %w", b.Boundary, err)
+	}
+
+	var list struct {
+		Items []application `json:"items"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("cannot parse Applications: %w", err)
+	}
+
+	project := "boundary-" + b.Boundary
+	var apps []application
+	for _, a := range list.Items {
+		if a.Spec.Project == project {
+			apps = append(apps, a)
+		}
+	}
+	return apps, nil
+}
+
+// comparisonErrors returns "<name>: <message>" for each Application that cannot
+// render its source, truncated so one broken boundary does not emit a wall of
+// identical messages.
+func comparisonErrors(apps []application) []string {
+	var out []string
+	for _, a := range apps {
+		for _, c := range a.Status.Conditions {
+			if c.Type != "ComparisonError" {
+				continue
+			}
+			msg := strings.TrimSpace(c.Message)
+			if len(msg) > 160 {
+				msg = msg[:160] + "…"
+			}
+			out = append(out, a.Metadata.Name+": "+msg)
+			break
+		}
+	}
+	const max = 3
+	if len(out) > max {
+		out = append(out[:max], fmt.Sprintf("and %d more", len(out)-max))
+	}
+	return out
 }

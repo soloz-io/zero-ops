@@ -12,35 +12,9 @@ spec:
   generators:
     - list:
         elements:
-{{- if .Values.oryStackEnabled }}
-          - appName: 'ory-hydra'
-            destinationNamespace: 'platform-identity'
-            syncWave: ''
-            repoURL: 'https://k8s.ory.sh/helm/charts'
-            targetRevision: '0.60.1'
-            chart: 'hydra'
-            valueFilesPath: 'manifests/hub-core-services/identity/ory-hydra/values.yaml'
-            helmReleaseName: ''
-            extraManifestsPath: 'manifests/hub-core-services/identity/ory-hydra'
-            ignoreDifferencesExtSecrets: 'true'
-{{- end }}
-{{- if .Values.oryStackEnabled }}
-          - appName: 'ory-keto'
-            destinationNamespace: 'platform-identity'
-            syncWave: ''
-            repoURL: 'https://k8s.ory.sh/helm/charts'
-            targetRevision: '0.60.1'
-            chart: 'keto'
-            valueFilesPath: 'manifests/hub-core-services/identity/ory-keto/values.yaml'
-            helmReleaseName: ''
-            extraManifestsPath: 'manifests/hub-core-services/identity/ory-keto'
-            ignoreDifferencesExtSecrets: 'true'
-{{- end }}
-          # Zitadel evaluation spike (ADR pending), ALONGSIDE Ory.
-          #
-          # Its own database, its own hostname, its own Application — so the
-          # spike is removed by deleting this element, with no shared state to
-          # untangle. Ory keeps serving auth.dev.nutgraf.in throughout.
+          # The platform's identity provider. The Ory stack this was evaluated
+          # alongside has been removed, so Zitadel is no longer one of two
+          # issuers -- it is the issuer.
           - appName: 'zitadel'
             destinationNamespace: 'platform-identity'
             syncWave: ''
@@ -51,18 +25,6 @@ spec:
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/zitadel'
             ignoreDifferencesExtSecrets: 'true'
-{{- if .Values.oryStackEnabled }}
-          - appName: 'ory-kratos'
-            destinationNamespace: 'platform-identity'
-            syncWave: ''
-            repoURL: 'https://k8s.ory.sh/helm/charts'
-            targetRevision: '0.60.1'
-            chart: 'kratos'
-            valueFilesPath: 'manifests/hub-core-services/identity/ory-kratos/values.yaml'
-            helmReleaseName: ''
-            extraManifestsPath: 'manifests/hub-core-services/identity/ory-kratos'
-            ignoreDifferencesExtSecrets: 'true'
-{{- end }}
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'

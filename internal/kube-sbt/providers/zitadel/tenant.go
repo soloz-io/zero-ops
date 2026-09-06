@@ -356,9 +356,31 @@ func (a *Auth) ensureRoles(ctx context.Context, orgID, projectID string) error {
 }
 
 func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string) (string, error) {
+	id, _, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone)
+	return id, err
+}
+
+// OIDC client authentication methods, in the issuer's own vocabulary.
+const (
+	// authMethodNone is a PUBLIC client: no secret, PKCE carries the proof.
+	authMethodNone = "OIDC_AUTH_METHOD_TYPE_NONE"
+	// authMethodBasic is a CONFIDENTIAL client: it authenticates with a secret
+	// the issuer generates and returns exactly once.
+	authMethodBasic = "OIDC_AUTH_METHOD_TYPE_BASIC"
+)
+
+// ensureApp is find-or-create for one OIDC application.
+//
+// It returns the app's id, its client id, and — for a confidential client that
+// this call CREATED — the generated secret. The secret is empty when the app
+// already existed, because the issuer returns it once at creation and will not
+// disclose it again; recovering it means regenerating, which is a separate and
+// deliberately explicit act (see RegenerateClientSecret).
+func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string, authMethod string) (appID, clientID, clientSecret string, err error) {
 
 	var existing struct {
 		Result []struct {
+			ID         string `json:"id"`
 			Name       string `json:"name"`
 			OIDCConfig struct {
 				ClientID string `json:"clientId"`
@@ -368,11 +390,11 @@ func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName stri
 	if err := a.api.do(ctx, http.MethodPost,
 		"/management/v1/projects/"+projectID+"/apps/_search", orgID,
 		map[string]any{"query": map[string]any{"limit": 100}}, &existing); err != nil {
-		return "", err
+		return "", "", "", err
 	}
 	for _, app := range existing.Result {
 		if app.Name == appName && app.OIDCConfig.ClientID != "" {
-			return app.OIDCConfig.ClientID, nil
+			return app.ID, app.OIDCConfig.ClientID, "", nil
 		}
 	}
 
@@ -389,7 +411,7 @@ func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName stri
 		"responseTypes":            []string{"OIDC_RESPONSE_TYPE_CODE"},
 		"grantTypes":               []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"},
 		"appType":                  "OIDC_APP_TYPE_WEB",
-		"authMethodType":           "OIDC_AUTH_METHOD_TYPE_NONE",
+		"authMethodType":           authMethod,
 		"accessTokenType":          "OIDC_TOKEN_TYPE_JWT",
 		"accessTokenRoleAssertion": true,
 		"idTokenRoleAssertion":     true,
@@ -397,16 +419,21 @@ func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName stri
 		"devMode":                  false,
 	}
 	var created struct {
-		ClientID string `json:"clientId"`
+		AppID        string `json:"appId"`
+		ClientID     string `json:"clientId"`
+		ClientSecret string `json:"clientSecret"`
 	}
 	if err := a.api.do(ctx, http.MethodPost,
 		"/management/v1/projects/"+projectID+"/apps/oidc", orgID, body, &created); err != nil {
-		return "", err
+		return "", "", "", err
 	}
 	if created.ClientID == "" {
-		return "", fmt.Errorf("zitadel: application %q created without a client id", appName)
+		return "", "", "", fmt.Errorf("zitadel: application %q created without a client id", appName)
 	}
-	return created.ClientID, nil
+	if authMethod == authMethodBasic && created.ClientSecret == "" {
+		return "", "", "", fmt.Errorf("zitadel: confidential application %q created without a client secret", appName)
+	}
+	return created.AppID, created.ClientID, created.ClientSecret, nil
 }
 
 // GrantRole gives a user a role within a tenant's project.
@@ -575,4 +602,80 @@ func (a *Auth) grantUngrantedMembers(ctx context.Context, orgID, projectID strin
 		_ = a.GrantRole(ctx, orgID, projectID, u.UserID, []string{defaultUserRole})
 	}
 	return nil
+}
+
+// EnsureConfidentialClient provisions the tenant's server-side OAuth client and
+// returns a credential that can be used immediately.
+//
+// This exists because a browser client is not sufficient. The tenant's gateway
+// authenticates a PERSON with a public PKCE client, but the BFF then exchanges
+// that session for a token of its own to call the platform API with — a
+// server-side flow, which by definition authenticates the CLIENT and therefore
+// needs a secret. Hydra supplied this through hydra-maester reconciling an
+// OAuth2Client CR from a platform-generated secret; Zitadel has no such
+// controller and generates the secret itself, so the direction of the credential
+// is inverted and it must be captured here.
+//
+// The secret is returned ONLY when this call created or regenerated it. The
+// issuer discloses it once, so an existing app cannot be read back — which is
+// why regenerate is gated on the caller, not decided here. Regenerating on every
+// reconcile would invalidate the credential the running workload is holding, and
+// the failure lands on the next token exchange rather than on the reconcile that
+// caused it.
+func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists bool) (clientID, clientSecret string, err error) {
+	if tenantID == "" {
+		return "", "", fmt.Errorf("zitadel: tenantID is required")
+	}
+	if appName == "" {
+		return "", "", fmt.Errorf("zitadel: appName is required")
+	}
+
+	orgID, err := a.ensureOrg(ctx, tenantID)
+	if err != nil {
+		return "", "", fmt.Errorf("ensure organisation for %q: %w", tenantID, err)
+	}
+	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
+	if err != nil {
+		return "", "", fmt.Errorf("ensure project for %q: %w", tenantID, err)
+	}
+
+	// A confidential client has no redirect of its own in the browser sense; the
+	// authorization code is delivered to the BFF's callback, which the caller
+	// supplies through the tenant's public host. Passing none here would make the
+	// app unusable for the code flow, so the caller's redirects are reused: both
+	// clients serve the same tenant at the same host.
+	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic)
+	if err != nil {
+		return "", "", fmt.Errorf("ensure confidential application for %q: %w", tenantID, err)
+	}
+	if secret != "" {
+		return clientID, secret, nil
+	}
+
+	// The app already existed, so the issuer will not disclose its secret.
+	if !regenerateIfExists {
+		return clientID, "", nil
+	}
+	secret, err = a.regenerateClientSecret(ctx, orgID, projectID, appID)
+	if err != nil {
+		return "", "", fmt.Errorf("regenerate client secret for %q: %w", tenantID, err)
+	}
+	return clientID, secret, nil
+}
+
+// regenerateClientSecret issues a new secret for an existing application,
+// invalidating the previous one.
+func (a *Auth) regenerateClientSecret(ctx context.Context, orgID, projectID, appID string) (string, error) {
+	var out struct {
+		ClientSecret string `json:"clientSecret"`
+	}
+	if err := a.api.do(ctx, http.MethodPost,
+		"/management/v1/projects/"+projectID+"/apps/"+appID+"/oidc_config/_generate_client_secret",
+		orgID, map[string]any{}, &out); err != nil {
+		return "", err
+	}
+	if out.ClientSecret == "" {
+		return "", fmt.Errorf("zitadel: client secret regenerated empty for application %q", appID)
+	}
+	return out.ClientSecret, nil
 }

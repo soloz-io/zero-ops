@@ -17,43 +17,19 @@ spec:
     - git:
         repoURL: {{ .Values.platformRepoURL | quote }}
         revision: {{ .Values.environmentRevision | quote }}
+        # ADR-061: the git files generator injects a `path` parameter of its
+        # own -- an object of basename/filename/segments -- and with goTemplate
+        # it writes that key AFTER merging the file's contents, so it silently
+        # overwrites the `path` every descriptor declares. The Application then
+        # renders spec.source.path as that object and dies with "app path does
+        # not exist", while chart-based components survive by accident because
+        # chart takes precedence over path. This prefix moves the generator's
+        # parameters under .descriptorPath and leaves .path meaning what the
+        # descriptor says it means.
+        pathParamPrefix: descriptorPath
         files:
           - path: 'manifests/argocd/components/04/*.yaml'
 
-    # These two are NOT descriptors: they exist only while the Ory stack is
-    # deployed. A descriptor is always present once written, so expressing a
-    # feature toggle as one would deploy an Ory login beside the Zitadel issuer
-    # in an environment that has deliberately turned it off.
-    - list:
-        elements:
-{{- if .Values.oryStackEnabled }}
-          - appName: 'kratos-selfservice-ui'
-            destinationNamespace: 'platform-identity'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/identity/kratos-ui'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-{{- end }}
-{{- if .Values.oryStackEnabled }}
-          - appName: 'auth-proxy'
-            destinationNamespace: 'platform-identity'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            path: 'manifests/hub-core-services/identity/auth-proxy'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: ''
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: 'true'
-{{- end }}
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'

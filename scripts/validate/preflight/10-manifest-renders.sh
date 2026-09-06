@@ -13,7 +13,6 @@ validate_manifest_renders() {
         "manifests/providers/hetzner"
         "manifests/providers/hetzner/base"
         "manifests/spoke/spoke-catalog/infra"
-        "manifests/hub-core-services/identity/hydra-maester"
         "manifests/hub-core-services/cluster-secret-store"
     )
     local t err

@@ -107,10 +107,6 @@ spec:
             secretKeyRef:
               name: identity-service-credentials
               key: service-token
-        # Retained so a rollback to the previous provider needs no manifest
-        # change: AUTH_PROVIDER alone selects which of these is read.
-        - name: ORY_KRATOS_URL
-          value: "http://kratos-public.platform-identity.svc.cluster.local"
         - name: NATS_URL
           value: "nats://nats.platform-messaging.svc.cluster.local:4222"
         - name: REDIS_URL

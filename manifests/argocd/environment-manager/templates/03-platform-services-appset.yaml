@@ -39,6 +39,16 @@ spec:
     - git:
         repoURL: {{ .Values.platformRepoURL | quote }}
         revision: {{ .Values.environmentRevision | quote }}
+        # ADR-061: the git files generator injects a `path` parameter of its
+        # own -- an object of basename/filename/segments -- and with goTemplate
+        # it writes that key AFTER merging the file's contents, so it silently
+        # overwrites the `path` every descriptor declares. The Application then
+        # renders spec.source.path as that object and dies with "app path does
+        # not exist", while chart-based components survive by accident because
+        # chart takes precedence over path. This prefix moves the generator's
+        # parameters under .descriptorPath and leaves .path meaning what the
+        # descriptor says it means.
+        pathParamPrefix: descriptorPath
         files:
           - path: 'manifests/argocd/components/03/*.yaml'
 

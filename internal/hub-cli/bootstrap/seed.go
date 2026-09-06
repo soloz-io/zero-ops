@@ -172,18 +172,6 @@ spec:
           value: %q
         - name: oidcJwksUrl
           value: %q
-        # The legacy identity stack is not deployed alongside the issuer above.
-        #
-        # Tied to the same decision rather than configured separately: an
-        # environment authenticating against one issuer has no use for a second
-        # provider's login surface, and leaving it running means a browser can
-        # reach a live login page that mints tokens nothing trusts.
-        #
-        # This also withdraws the component serving auth.<zone>/.well-known/*,
-        # which the API server reads for OIDC logins — see ADR-059 on why that
-        # consumer cannot follow a configuration change.
-        - name: oryStackEnabled
-          value: "false"
       valuesObject:
         oidcScopes:%s
   destination:
@@ -410,14 +398,20 @@ func (o *Orchestrator) deployBoundary(ctx context.Context, kubeconfig string, n 
 	if err := o.applySeed(ctx, kubeconfig); err != nil {
 		return err
 	}
-	if err := o.activateBoundary(ctx, kubeconfig, n); err != nil {
-		return err
-	}
-	return o.awaitBoundaryInventory(ctx, kubeconfig, n)
+	return o.activateBoundary(ctx, kubeconfig, n)
 }
 
-// awaitBoundaryInventory holds the phase until the boundary has generated the
-// Applications it declares (ADR-061).
+// awaitBoundaryInventory holds a boundary PHASE until the boundary has generated
+// the Applications it declares (ADR-061).
+//
+// Deliberately NOT called from deployBoundary. That function also runs inside
+// Phase 5a, where it plants the seed and opens boundary 01 — and at that point
+// the ApplicationSets cannot exist yet, because the seed Application can only
+// render them once ArgoCD holds credentials for the platform repository, which
+// Phase 5a provisions AFTER activating the boundary. Waiting there deadlocks:
+// the gate waits for a generation that is waiting for the credentials the gate
+// is blocking. Each boundary phase calls this itself, at a point where
+// generation is actually possible.
 //
 // This gate exists because boundary inventory is no longer carried inside the
 // applied ApplicationSet. When the elements were literal, applying the seed made
