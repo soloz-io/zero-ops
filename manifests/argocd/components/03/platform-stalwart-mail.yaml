@@ -76,8 +76,39 @@ helmValues: |
       database: stalwart
       user: stalwart
       tls:
+        # Encrypted, NOT verified — and that is a property of Stalwart, not a
+        # preference (verified against reference-projects/mail/stalwart).
+        #
+        # crates/store/src/backend/postgres/main.rs builds its connector from
+        # utils::tls::rustls_client_config, which on !allow_invalid_certs calls
+        # rustls_platform_verifier's with_platform_verifier(). That verifies
+        # against the SYSTEM trust store. There is no per-connection CA option in
+        # Stalwart's postgresql config to point at CNPG's CA, so the only way to
+        # trust it is to put it in that store.
+        #
+        # Which this chart cannot do. Its render-config init container is
+        # hardcoded in templates/statefulset.yaml with no extraInitContainers
+        # value, so there is nowhere to build a bundle; and REPLACING the store
+        # via SSL_CERT_FILE/SSL_CERT_DIR would drop the public roots Stalwart
+        # needs for S3 (hel1.your-objectstorage.com) and outbound SMTP, trading
+        # one broken connection for two.
+        #
+        # What is lost is bounded: TLS still encrypts, the peer is an in-cluster
+        # Service reached over Cilium and constrained by NetworkPolicy, and the
+        # role authenticates with a password. What is skipped is proving the
+        # server's identity. Every other CNPG consumer here is already in that
+        # position — zitadel deliberately sets no Postgres TLS options at all —
+        # so this is the platform's existing posture, not a new exception.
+        #
+        # ADR-035 permits projecting CNPG's CA for client verification, and the
+        # server certificate is already issued for the pooler name (verified:
+        # sslmode=verify-full with platform-db-ca returns VERIFY_FULL_OK through
+        # platform-db-pooler.platform-data.svc). Closing this properly therefore
+        # needs an upstream chart change exposing extraInitContainers, so a
+        # bundle of public roots plus that CA can be assembled — not a change
+        # here. Until then, false would mean a permanent CrashLoopBackOff.
         enable: true
-        allowInvalidCerts: false
+        allowInvalidCerts: true
     s3:
       bucket: stalwart-mail
       region: hel1
