@@ -27,7 +27,7 @@ A control plane is part of what a tenant receives. It runs in the tenant's cloud
 
 The single authority per domain that ADR-043 requires is unchanged; what changes is that the authority for a tenant's domain resides in that tenant's box.
 
-This is a statement about custody rather than about capability. What a tenant runs is the same bundle the platform tests and publishes, and it is not a reduced edition.
+This is a statement about custody rather than about capability. What a tenant runs is the same control plane the platform tests and publishes, defined by ADR-066, and it is not a reduced edition.
 
 ### Cloud credentials never leave the box
 
@@ -90,7 +90,7 @@ Day-0's existing sequence becomes a product surface rather than internal bootstr
 
 Every tenant carries the cost of a full control plane, so the floor price of a box is the cost of running one. Reducing that floor becomes a standing engineering constraint rather than an optimisation.
 
-The platform cannot observe a tenant's cluster directly, so support, incident response and defect reproduction all depend on what a tenant reports or chooses to share. A proposal can be correct against the declarations and still fail against a cluster the platform cannot see.
+The platform cannot observe a tenant's cluster directly, so support, incident response and defect reproduction depend on what the box exports. A proposal can be correct against the declarations and still fail against a cluster the platform cannot see. ADR-067 records the egress-only telemetry this requires and bounds a maintenance claim by it.
 
 A defect in a published bundle cannot be corrected in place. Withdrawal is a publication and a proposal, bounded by each tenant's approval, and a tenant that has revoked access receives neither.
 
@@ -103,6 +103,7 @@ Control planes will run different bundle versions, and the platform supports the
 - **Confirms ADR-063.** The bundle is what the platform delivers. Publishing a tag begins a release; proposing it to each tenant completes one.
 - **Confirms ADR-040.** Day-0 already produces a self-contained control plane; this ADR names that property as load-bearing rather than incidental.
 - **Confirms ADR-031.** Secret isolation is bounded by a box, and no secret store serves more than one tenant.
+- **Constrains ADR-067.** Evidence for support crosses outward under a tenant's grant; no platform component initiates a connection into a box.
 - A platform-operated control plane shared by several tenants is out of scope here and is left to a separate ADR.
 
 ## References
@@ -114,3 +115,5 @@ Control planes will run different bundle versions, and the platform supports the
 - ADR-062: Repository Separation of Types, Instances and Workloads
 - ADR-063: The Platform Bundle and its Version
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
+- ADR-066: The Control Plane Boundary
+- ADR-067: Support Telemetry and the Basis of Maintenance

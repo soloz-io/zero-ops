@@ -61,6 +61,7 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 - A declared bundle version exists as a tag of `zero-ops`.
 - A cluster advances only to a version that has reconciled and passed validation in the preceding environment.
 - A cluster instance names exactly one owning tenant.
+- A proposal carries a pre-flight verdict from the cluster it targets, or is raised as unverified (ADR-067).
 
 ### Alternatives considered
 
@@ -139,3 +140,4 @@ A cluster matching several cells receives a union of policy, so conflicting poli
 - ADR-062: Repository Separation of Types, Instances and Workloads
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box
+- ADR-067: Support Telemetry and the Basis of Maintenance
