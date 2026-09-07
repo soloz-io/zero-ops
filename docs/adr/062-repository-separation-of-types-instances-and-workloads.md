@@ -25,21 +25,29 @@ Repositories are separated by what their content **is** — a type, an instance,
 
 **`zero-ops` holds types.** XRDs, Compositions, ClusterClasses, boundary charts and platform manifests. It defines what a spoke pool is, what a tenant is, and what a boundary is. It holds no instance of any of them.
 
-**`fleet-registry` holds cluster instances.** The SpokePool declarations for each environment, provider and topology. The name is reclaimed for its ADR-033 meaning and is not used for a tenant boundary anywhere.
+**`fleet-registry` holds cluster instances.** The SpokePool declaration for each cell, carrying everything that distinguishes it: its environment, provider, region, topology, the bundle version it runs, and who may approve a change to it. The name is reclaimed for its ADR-033 meaning and is not used for a tenant boundary anywhere.
 
-**`tenant-registry` holds tenant instances.** The record that a tenant exists: its identity, its assigned cell, its environments, its tier, and the location of its workload repository. It is the System of Record for tenant existence and placement.
+**`tenant-registry` holds tenant instances.** The record that a tenant exists: its identity, its environments, its tier, the region and compliance class it declares, its assigned cell, and the location of its workload repository. It is the System of Record for tenant existence and placement.
 
 **A per-tenant repository holds each tenant's workloads.** One per tenant, in the tenant's own organisation, holding overlays and image pins, and owned by that tenant.
 
 ### Vocabulary
 
-One word per concept. **Fleet** is the cluster estate, as ADR-033 already uses it. **Tenant** is the deployment boundary ADR-047 calls a fleet. `fleetId` in ADR-047 is `tenantId`, which is what the implementation has used throughout.
+One word per concept, used unchanged by ADR-063 and ADR-064.
+
+**Fleet** is the cluster estate, as ADR-033 already uses it. **Tenant** is the deployment boundary ADR-047 calls a fleet; `fleetId` in ADR-047 is `tenantId`, which is what the implementation has used throughout. **Cell** is one spoke cluster, named by `cellId`, whose **topology** is `pool` when it carries many tenants and `silo` when it carries one. **Cluster instance** is the declaration of a cell in this registry. **Bundle** is the complete set of platform content at one revision of `zero-ops`, and a **bundle version** is the tag naming it. **Placement** is the assignment of a tenant to a cell. **Promotion** is advancing a cluster instance from one bundle version to the next.
 
 ### The workload repository location is registration, not configuration
 
 ADR-047 rejected fleets authoring external workload repositories because a value a tenant writes could redirect which code runs in that tenant's namespace. That reasoning is untouched by this ADR and the rejection stands.
 
 The location of a tenant's workload repository is held in the tenant registry, established when the tenant is onboarded and derived from the App installation. It is platform-owned state that a tenant cannot alter through anything it controls. A repository named by tenant-authored values remains prohibited.
+
+### Placement is derivation, not configuration
+
+A tenant declares the region it requires and the compliance class it falls under. Both are facts about the tenant, and both are held here. The cell it is assigned to is derived from them by the platform, which is why this ADR calls the cell **assigned** rather than chosen.
+
+The reasoning is the one applied to the workload repository above. `cellId` is not a label: it is a segment of the Infisical path ADR-031 scopes each cell's Machine Identity to, so a tenant-authored cell is a tenant-authored secret path. Under a regional cell model it would also make data residency a tenant-editable field. ADR-064 records the derivation and the validators that enforce it.
 
 ### Tenant discovery is explicit
 
@@ -63,6 +71,7 @@ Every repository the platform reads is named in exactly one place in the environ
 |---|---|---|---|---|---|
 | Platform type definitions | `zero-ops` | Platform | ArgoCD | Platform | Day-1+ |
 | Cluster instance declarations | `fleet-registry` | Platform | Crossplane / CAPI | Platform | Day-1+ |
+| Bundle version per cell | `fleet-registry` | Platform | ArgoCD | Boundary ApplicationSets | Day-1+ |
 | Tenant records and placement | `tenant-registry` | Platform | Crossplane | Platform | Day-1+ |
 | Tenant workload state | per-tenant repository | Tenant | ArgoCD | Tenant | Day-1+ |
 
@@ -102,6 +111,8 @@ Amends ADR-007. The spoke flow is unchanged in mechanism, but the repository it 
 
 Confirms ADR-033. Its use of "fleet" for the cluster estate is adopted as the platform's definition.
 
+Constrains ADR-063 and ADR-064. A fifth repository holding the platform's component versions — a `gitops-template` equivalent — was considered in ADR-063 and rejected on this ADR's test: it would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. The per-cluster independence such a repository would have provided is obtained instead from the cluster instances held here, which ADR-064 extends to carry the bundle version each cell runs.
+
 No change to ADR-021, ADR-031, ADR-037, ADR-039, ADR-043 or ADR-055. No change to ADR-061: a component declares its own source, so a cluster-instance component naming a different repository is already expressible.
 
 ## References
@@ -109,8 +120,14 @@ No change to ADR-021, ADR-031, ADR-037, ADR-039, ADR-043 or ADR-055. No change t
 - ADR-004: Dual Repository GitOps Pattern (superseded by this ADR)
 - ADR-007: Fleet Registry Spoke Flow
 - ADR-021: Boundary-Driven GitOps and Day-0 Choreography
-- ADR-033: Fleet Scale Targets and SLOs
+- ADR-027: GitOps Workload Separation via Remote Bases
+- ADR-031: Tenant Secret Isolation and Identity Topology
+- ADR-033: Fleet Scale Targets & SLOs
 - ADR-037: Directory-Based Environment Promotion and Gating
 - ADR-039: Platform Ownership Model
+- ADR-043: Control Plane Authority Model
 - ADR-047: Fleet Tenant Deployment Contract
+- ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
+- ADR-063: The Platform Bundle and its Version
+- ADR-064: Bundle Promotion and Tenant Placement
