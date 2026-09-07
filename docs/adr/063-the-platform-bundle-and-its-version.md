@@ -39,9 +39,9 @@ A bundle is the complete set of platform content at one revision of `zero-ops`: 
 
 A bundle version is a tag of `zero-ops` rather than a branch. A tag names a set that was tested together; a branch names whatever was merged most recently, which is a different thing and cannot be reproduced.
 
-Day-0 accepts an override, and development continues to use it — a working branch is a legitimate bundle for a cluster that is being built rather than run. What changes is the default: a cell that does not say otherwise runs a tag.
+Day-0 accepts an override, and development continues to use it — a working branch is a legitimate bundle for a cluster that is being built rather than run. What changes is the default: a cluster that does not say otherwise runs a tag.
 
-Where that tag is recorded, and how a cell moves from one to the next, is ADR-064. This ADR settles what a version names; that one settles how it travels.
+Where that tag is recorded, and how a cluster moves from one to the next, is ADR-064. This ADR settles what a version names; that one settles how it travels.
 
 ### Component versions are declared once
 
@@ -53,37 +53,31 @@ A coupling that cannot be expressed as equal version strings — `provider-kuber
 
 ### Upgrades move the bundle, not a component
 
-A component is not upgraded on its own. The bundle is advanced to a new set, that set is exercised, and the result is tagged. What reaches a cell is a version that existed as a whole before it was deployed.
+A component is not upgraded on its own. The bundle is advanced to a new set, that set is exercised, and the result is tagged. What reaches a cluster is a version that existed as a whole before it was deployed.
 
-This is a statement about what is *released*, not about how work is done. Bumping one component while integrating it is ordinary; shipping that bump alone, to a cell, as a change in its own right, is what this forbids.
+Under ADR-065 the tag is the whole of delivery: the platform publishes it and holds no access to the clusters that consume it.
+
+This is a statement about what is *released*, not about how work is done. Bumping one component while integrating it is ordinary; shipping that bump alone, to a cluster, as a change in its own right, is what this forbids.
 
 ### The bundle includes the tenant template
 
 A bundle version selects more than the platform's own components. The tenant
-ApplicationSets source `manifests/tenants/charts/universal-tenant` at that same
-revision, supplying per-tenant values from the tenant registry:
+ApplicationSets source the universal tenant chart at that same revision,
+supplying per-tenant values from the tenant registry, so the chart that renders
+a tenant's namespace, RBAC, secret bindings, gateway and TLS moves with the
+bundle.
 
-```yaml
-- repoURL: {{ .Values.platformRepoURL }}
-  targetRevision: '{{ .Values.environmentRevision }}'   # the bundle version
-  path: manifests/tenants/charts/universal-tenant       # the template
-  helm:
-    valueFiles:
-      - $values/tenants/<tenant>/<env>/values.yaml      # the instance
-```
-
-That chart is the platform's equivalent of a gitops-template — namespace,
-Tier-2 RBAC, ExternalSecrets, gateway, TLS — separated from per-tenant values
-exactly as kubefirst separates template from substituted tokens, but rendered
-continuously rather than copied once.
+That chart is the platform's equivalent of a gitops-template, separated from
+per-tenant values exactly as kubefirst separates template from substituted
+tokens, but rendered continuously rather than copied once.
 
 One consequence follows, and it is the reason the arrangement is worth keeping:
-advancing a cell's bundle advances the Tier-2 infrastructure of every tenant on
-that cell, on the next reconcile, without touching any tenant's repository. A
-bundle version is therefore also a statement about what those tenants are
-running, and tagging it makes tenant infrastructure reproducible on the same
-terms as the platform's. Because the version is pinned per cell under ADR-064,
-that statement is made one cell at a time.
+advancing a cluster's bundle advances the platform-rendered infrastructure of
+every workload on that cluster, on the next reconcile, without touching any
+tenant's repository. A bundle version is therefore also a statement about what
+those workloads are running, and tagging it makes tenant infrastructure
+reproducible on the same terms as the platform's. Because the version is pinned
+per cluster under ADR-064, that statement is made one cluster at a time.
 
 ### Latest is not a target
 
@@ -97,7 +91,7 @@ The worked example is this repository on 2026-09-07: nine components moved to th
 
 **Pinning nothing and tracking latest.** Rejected. It makes every reconcile a potential upgrade and removes the ability to reproduce a cluster, which ADR-042's bootstrap state machine and ADR-045's generated artifacts both assume.
 
-**A fifth repository holding the component versions.** Rejected on ADR-062's test. Such a repository would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. The per-cluster independence that motivates a separate repository elsewhere is obtained instead from the cluster instances that ADR-062 already places in `fleet-registry`.
+**A fifth repository holding the component versions.** Rejected on ADR-062's test. Such a repository would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. The per-cluster independence that motivates a separate repository elsewhere is obtained instead from the cluster instances that ADR-062 places in `fleet-registry`.
 
 ## Ownership
 
@@ -107,7 +101,7 @@ The worked example is this repository on 2026-09-07: nine components moved to th
 | Component version matrix | `zero-ops` | Platform | pre-commit validators | Boundary ApplicationSets | Day-1+ |
 | Cross-component constraints | `zero-ops` | Platform | pre-commit validators | Platform | Day-1+ |
 
-The version each cell runs is a separate resource class, owned by the cluster instance and recorded in ADR-064. See ADR-039 for the complete ownership matrix.
+The version each cluster runs is a separate resource class, owned by the cluster instance and recorded in ADR-064. See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 
@@ -117,7 +111,7 @@ A cluster can be rebuilt at the version it was built at, because that version na
 
 A version coupling is stated once and asserted mechanically. The two that have been found so far were both discovered by a cluster failing; further ones are refused at commit.
 
-The set that reaches a cell is one that existed as a whole beforehand. A combination that nobody has run is visible as such before it is deployed rather than after.
+The set that reaches a cluster is one that existed as a whole beforehand. A combination that nobody has run is visible as such before it is deployed rather than after.
 
 Upgrading becomes a bounded, reviewable act with one artefact — a tag — rather than a diff spread across five kinds of file.
 
@@ -129,7 +123,7 @@ Declaring versions once means a second place to change when adding a component, 
 
 Tagging is a release step the platform does not have today, and a bundle that is never tagged is a branch with extra ceremony.
 
-Because the tenant template moves with the bundle, a defective bundle reaches the Tier-2 infrastructure of every tenant on a cell at once. The blast radius of a bundle is therefore a whole cell, which is what makes per-cell promotion under ADR-064 the mechanism that bounds it, and what argues for exercising a bundle before tagging it rather than for decoupling the template.
+Because the tenant template moves with the bundle, a defective bundle reaches the platform-rendered infrastructure of every workload on a cluster at once. The blast radius of a bundle is therefore a whole cluster, which is what makes per-cluster promotion under ADR-064 the mechanism that bounds it, and what argues for exercising a bundle before tagging it rather than for decoupling the template.
 
 ## Impact
 
@@ -150,4 +144,5 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
 - ADR-062: Repository Separation of Types, Instances and Workloads
+- ADR-065: The Control Plane Ships Into the Box
 - ADR-064: Bundle Promotion and Tenant Placement
