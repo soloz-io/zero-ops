@@ -218,16 +218,29 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: http
-  hostnames:
-    - api.dev.nutgraf.in
-    - auth.dev.nutgraf.in
-    - id.dev.nutgraf.in
-    - console.dev.nutgraf.in
-    - argocd.dev.nutgraf.in
-    - infisical.dev.nutgraf.in
-    - dashboard.dev.nutgraf.in
-    - mail.nutgraf.in
-    - smtp.nutgraf.in
+  # NO hostnames, deliberately, and this is load-bearing.
+  #
+  # Listing them made this route match NOTHING. Gateway API isolates hostnames:
+  # a listener that does not name a hostname must not claim one that a more
+  # specific listener already claims. Cilium implements that in ComputeHosts --
+  # for a wildcard listener it requires hostnameMatchesWildcardHostname AND
+  # !checkHostNameIsolation -- and every hostname listed here is also a dedicated
+  # HTTPS listener on this Gateway. So all of them were isolated away, the
+  # intersection came back empty, and ingestion dropped the route for the :80
+  # listener with "no matching host, skip this route".
+  #
+  # Nothing reported it. The Gateway stayed Programmed=True, this route stayed
+  # Accepted=True with attachedRoutes=1, and no event was emitted -- the API
+  # considers isolation correct behaviour, because it is. The only symptom was
+  # Envoy answering 404 on :80: Cilium had emitted the raw_buffer filter chain
+  # pointing at RDS "listener-insecure" while emitting no such RouteConfiguration,
+  # because the route that would have populated it was gone.
+  #
+  # Empty means "every host on this listener". The listener carries no hostname,
+  # which Cilium's toHostname() models as "*", so an empty route hostname list
+  # resolves to that and renders as domains: ['*'] -- a genuine catch-all, and
+  # exactly what the chart's own basic_http_listener fixture produces. It also
+  # stops this list drifting from the TLS listeners every time one is added.
   rules:
     - filters:
         - type: RequestRedirect
