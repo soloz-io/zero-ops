@@ -1,0 +1,17 @@
+# Configuration for the spoke cluster <CLUSTER_NAME>.
+#
+# Copy this directory to clusters/<name>/, replace the tokens, and commit. Your
+# control plane provisions the cluster and reconciles what runs on it.
+environmentSlug: <ENVIRONMENT>
+provider: <CLOUD_PROVIDER>
+region: <CLOUD_REGION>
+environmentRevision: <BUNDLE_VERSION>
+
+platformRepoURL: <PLATFORM_REPO_URL>
+
+# Cells group this tenant's clusters for policy (ADR-064). A cell is a label:
+# it holds no compute, pins no version, and owns nothing. A cluster may belong to
+# several and receives the union of their policy.
+cells: []
+
+workloads: {}
