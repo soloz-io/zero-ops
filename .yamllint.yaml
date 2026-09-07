@@ -48,3 +48,22 @@ ignore: |
   internal/assets/manifests/addons/crs.yaml
   internal/assets/manifests/secrets/hetzner-credentials.yaml
   internal/assets/manifests/classes/archived-talos/hetzner-mgmt-talos-v1.yaml
+  # Vendored upstream CRDs and install manifests. These are third-party content
+  # reproduced verbatim so the platform can pin and mirror them; they are not
+  # ours to reformat, and re-wrapping a line would make the next vendor bump a
+  # conflict instead of a copy. They accounted for ~20k of the ~20.4k findings
+  # this config produced before being listed here, which made the remaining four
+  # real ones unreadable.
+  manifests/spoke/spoke-catalog/infra/kyverno/crd.yaml
+  manifests/spoke/spoke-catalog/infra/crds/
+  manifests/spoke/spoke-catalog/infra/crossplane/crd.yaml
+  manifests/spoke/spoke-catalog/infra/external-secrets/crd.yaml
+  manifests/spoke/spoke-catalog/infra/cloudnative-pg/crd.yaml
+  manifests/spoke/spoke-catalog/infra/atlas-operator/crd.yaml
+  manifests/spoke/spoke-bootstrap/cnpg-crds-template.yaml
+  manifests/hub-core-services/eso/crds/
+  internal/assets/manifests/core/
+  # Documentation, including snapshots taken during incident investigations.
+  # These are records of what a file looked like at a moment, not manifests the
+  # platform applies, and some are Go templates that never parse as plain YAML.
+  docs/

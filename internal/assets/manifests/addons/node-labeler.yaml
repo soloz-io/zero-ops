@@ -56,13 +56,13 @@ spec:
         - |
           set -e
           echo "Node labeler starting on $(hostname)"
-          
+
           # Wait for node to be registered
           until kubectl get node $(hostname) &>/dev/null; do
             echo "Waiting for node $(hostname) to be registered..."
             sleep 2
           done
-          
+
           # Check if this is a worker node (no control-plane label)
           if ! kubectl get node $(hostname) -o jsonpath='{.metadata.labels}' | grep -q "node-role.kubernetes.io/control-plane"; then
             echo "Labeling worker node $(hostname)"
@@ -71,7 +71,7 @@ spec:
           else
             echo "Node $(hostname) is control-plane, skipping worker label"
           fi
-          
+
           # Keep container running
           echo "Label applied, sleeping..."
           sleep infinity

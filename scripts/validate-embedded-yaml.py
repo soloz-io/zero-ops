@@ -10,15 +10,33 @@ manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml.
 Usage: validate-embedded-yaml.py FILE...
 Exit 1 on any parse error with file/key/line context.
 """
+import re
 import sys
 import yaml
+
+# A Go text/template action anywhere at the start of a value, e.g.
+#   name: {{.ClusterName}}-addons
+# makes the file invalid plain YAML: the parser reaches `{` where it expects a
+# scalar and reports a syntax error at that column. These assets are rendered by
+# the CLI before they are ever applied, so parsing them here tests a form that
+# never reaches a cluster and fails on every one of them.
+#
+# .yamllint.yaml already skips the same files by name. Detecting the templating
+# instead keeps the two from drifting apart, which is what happened here:
+# crs.yaml was listed there and not here, so one hook passed and the other
+# failed on the identical file.
+GO_TEMPLATE = re.compile(r"{{[-\s]*[.$a-zA-Z]")
 
 
 def validate_file(path: str) -> bool:
     ok = True
+    with open(path) as f:
+        text = f.read()
+
+    if GO_TEMPLATE.search(text):
+        return True
+
     try:
-        with open(path) as f:
-            text = f.read()
         docs = list(yaml.safe_load_all(text))
     except yaml.YAMLError as e:
         print(f"ERROR {path}: outer document parse failed: {e}")

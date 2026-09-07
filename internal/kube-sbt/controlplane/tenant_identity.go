@@ -126,6 +126,17 @@ func (cp *ControlPlane) ensureDeclaredClients(ctx context.Context, provisioner i
 //
 // Derived from the fleet's chosen name, never from a name this package knows.
 // The tenant is not part of the key; the folder path scopes it.
+// tenantOIDCClientSecretName is the key under which a tenant's own OIDC client
+// id is published, as distinct from the per-client keys oauthKeys builds for the
+// clients a tenant declares.
+//
+// The distinction is why this is a constant and not a call to oauthKeys: this
+// identity belongs to the tenant itself and exists before any client is
+// declared, so it has no client name to derive a key from. The reference existed
+// without the definition after the identity provider changed, which did not
+// surface as a missing key at runtime -- the package simply stopped compiling.
+const tenantOIDCClientSecretName = "OIDC_CLIENT_ID"
+
 func oauthKeys(name string) (idKey, secretKey string) {
 	seg := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 	return "OAUTH_" + seg + "_CLIENT_ID", "OAUTH_" + seg + "_CLIENT_SECRET"

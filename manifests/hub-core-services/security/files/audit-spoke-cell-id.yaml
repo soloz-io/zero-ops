@@ -1,0 +1,84 @@
+---
+# Audit the runtime half of the cell-id contract (ADR-047 tenant placement).
+#
+# A spoke's identity travels: SpokePool composition patches cell-id onto the CAPI
+# Cluster -> the take-along-label marker tells capi2argo to copy it -> capi2argo
+# writes it onto the ArgoCD cluster Secret -> the fleet ApplicationSets select on
+# it with a clusters generator.
+#
+# scripts/validate-cell-id-contract.sh covers the links that live in Git. This
+# policy covers the one that does not: capi2argo actually having written the
+# label onto the Secret. The label can be correct in every manifest and still be
+# absent here -- a capi2argo version that changes its take-along handling, a
+# Secret reconciled before the Cluster labels were applied, or a cluster
+# registered by hand.
+#
+# The failure it catches is silent by construction. A clusters generator that
+# matches nothing does not error: the ApplicationSet generates zero Applications
+# and reports Healthy, which is indistinguishable from "no tenants are assigned
+# to this spoke yet". Every tenant on the affected spoke simply stops being
+# reconciled, and nothing says so.
+#
+# ─── Audit, deliberately, not Enforce ────────────────────────────────────────
+# Enforce would reject the Secret, which means capi2argo could not register the
+# spoke with ArgoCD at all. That converts a degradation affecting tenant
+# placement into a total loss of GitOps delivery for the whole spoke -- the
+# platform components in the spoke catalog target it by spoke-type and would go
+# with it. A missing label is worth reporting loudly; it is not worth refusing
+# the cluster over. See PolicyReports in platform-ops for violations.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: audit-spoke-cell-id
+  labels:
+    app.kubernetes.io/component: platform-governance
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    # Kyverno itself syncs at wave -1 in boundary 01 and this Application at
+    # wave 1, so the CRDs are established before this is applied. The wave here
+    # orders it within this Application's own sync only.
+    argocd.argoproj.io/sync-wave: "5"
+    policies.kyverno.io/title: Audit spoke cluster Secrets for cell-id
+    policies.kyverno.io/category: Platform Governance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Secret
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    # Scoped to spoke registrations only. capi2argo names the ArgoCD cluster
+    # Secret after the CAPI Cluster, which is the SpokePool claim name, so
+    # spoke-pool-* is the set of Secrets that must carry a cell. Any other
+    # cluster registration (a manually added cluster, a non-spoke target) is out
+    # of scope and must not be reported as a violation.
+    - name: spoke-cluster-secret-has-cell-id
+      match:
+        any:
+          - resources:
+              kinds:
+                - Secret
+              namespaces:
+                - platform-ops
+              names:
+                - "spoke-pool-*"
+              selector:
+                matchLabels:
+                  argocd.argoproj.io/secret-type: cluster
+      validate:
+        message: >-
+          Spoke cluster Secret {{ request.object.metadata.name }} has no non-empty
+          cell-id label. The fleet ApplicationSets
+          (tenant-fleet-xr/spoke/workload-provisioning, tenant-public-tls) select
+          spokes with a clusters generator on this label, so every tenant
+          targeting this spoke will generate zero Applications while the
+          ApplicationSet reports Healthy. Check that the CAPI Cluster carries both
+          cell-id and take-along-label.capi-to-argocd.cell-id, and that capi2argo
+          is running.
+        pattern:
+          metadata:
+            labels:
+              # "?*" requires the key to exist AND be a non-empty string. An
+              # empty value is the more dangerous case: the label is present, so
+              # a presence check would pass, but matchLabels still matches
+              # nothing.
+              cell-id: "?*"
