@@ -24,23 +24,45 @@ var (
 	workspaceSyncImage = envOr("WORKSPACE_SYNC_IMAGE", "workspace-sync:dev")
 	// The object-store credential, by reference (§19.6).
 	//
-	// `hetzner-credentials` is not a new object invented for this: it is the
-	// Secret the SDK already consumes for its own S3 access, rendered into the
-	// tenant namespace by the platform through ExternalSecrets/Infisical
-	// (ADR-003, ADR-047 Tier 2). Nothing hand-creates it, in any environment.
+	// A TEMPLATE, not a name. `{namespace}` expands to the EphemeralJob's own
+	// namespace at reconcile time.
 	//
-	// Reusing it rather than defining a parallel Secret means a credential
-	// rotation has one place to land, not two — and that the sidecar and the
-	// SDK can never disagree about which bucket a workspace lives in.
+	// This operator serves every fleet on the spoke, and each one keeps its S3
+	// credential in its own Secret in its own namespace. A literal name here
+	// would be a tenant identifier in platform code — which ADR-047's addendum
+	// forbids, and which the preflight check rejects — and it would also be
+	// simply wrong for the second fleet onboarded.
 	//
-	// Optional, so a cluster without it still runs: workspace-sync reports
-	// "not configured" and checkpoints no-op, which §14 names as the one
-	// legitimate no-op. A local Kind cluster has no Infisical and therefore no
-	// such Secret — the SDK's own reference to it is optional for the same
-	// reason — so hard-failing here would make every sandbox unstartable on a
-	// dev cluster to enforce a backup nobody asked for.
-	workspaceSyncSecret = envOr("WORKSPACE_SYNC_SECRET", "hetzner-credentials")
+	// The tenant namespace IS the fleet id (the registry renders workloads into
+	// `namespace: {TENANT_ID}`), so `{namespace}-app-secrets` resolves to
+	// exactly the Secret each fleet's registry already declares — for waypoint,
+	// the one its own SDK binds S3_* from
+	// (workloads/base/sdk/rollout-patch.yaml, rendered by the ExternalSecret in
+	// values.yaml). Reusing the fleet's own Secret rather than rendering a
+	// parallel platform-owned one means a credential rotation lands in one
+	// place, and the sidecar and the SDK cannot disagree about which bucket a
+	// workspace lives in.
+	//
+	// Two earlier values were wrong, and both failed SILENTLY, because every
+	// reference the operator injects is optional (a cluster without Infisical
+	// must still start a sandbox): the sidecar simply reported "object storage
+	// not configured" and no-opped every checkpoint.
+	//   - `hcloud-token` — a KEY, not a Secret name.
+	//   - `hetzner-credentials` — a real Secret, but platform INFRASTRUCTURE
+	//     (hub-operator's constant: "For CAPI/CCM/CSI"). It carries S3 keys only
+	//     in waypoint's local Kind manifest; no registry binds it for an SDK, so
+	//     it worked locally and in no deployed environment.
+	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{namespace}-app-secrets")
 )
+
+// resolveWorkspaceSyncSecret expands the template for one job's namespace.
+//
+// A deployment that sets WORKSPACE_SYNC_SECRET to a literal name still works —
+// the expansion is a no-op on a string with no placeholder — which is what a
+// spoke with a single fleet and a non-conventional Secret name needs.
+func resolveWorkspaceSyncSecret(namespace string) string {
+	return strings.ReplaceAll(workspaceSyncSecretTemplate, "{namespace}", namespace)
+}
 
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
@@ -79,7 +101,7 @@ func envOr(k, def string) string {
 // §14.2 changes: both containers mount a staging emptyDir (`ws-staging`) for
 // squashfs archive and FUSE working directories. The sidecar additionally
 // requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
-func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32) corev1.Container {
+func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32, namespace string) corev1.Container {
 	var sideC corev1.Container
 	workspaceID := ws.WorkspaceID
 	uid := int64(1000)
@@ -127,20 +149,21 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	_ = uid
 	// Mapped key by key, not `envFrom`.
 	//
-	// The Secret's keys are kebab-case (`s3-endpoint-url`), because that is how
-	// the platform's ExternalSecret renders them and how the SDK already
-	// consumes them. `envFrom` would inject those names verbatim — which are
-	// not valid environment variable names and are not what this process reads
-	// — and would do it silently, leaving the sidecar reporting "not
-	// configured" beside a Secret that was mounted correctly.
+	// The key names happen to equal the env names here, so `envFrom` would
+	// technically work — but it would also inject every OTHER key the fleet
+	// keeps in this Secret (LLM keys, database URLs, provider tokens) into a
+	// container that has no business holding them. §19.6 is about what a
+	// process can reach, and an explicit map is the only form that bounds it.
 	//
 	// Every reference is optional for the same reason the SDK's are: a cluster
-	// without Infisical (any local Kind cluster) has no such Secret, and a
-	// sandbox must still start there.
+	// without Infisical (any local Kind cluster) may have no such Secret, and a
+	// sandbox must still start there — checkpoints then no-op, which §14 names
+	// as the one legitimate no-op.
+	secretName := resolveWorkspaceSyncSecret(namespace)
 	secretEnv := func(name, key string) corev1.EnvVar {
 		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: workspaceSyncSecret},
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
 				Key:                  key,
 				Optional:             ptr(true),
 			},
@@ -152,11 +175,21 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 		// under <appId>/<workspaceId>/code/, so getting this wrong does not
 		// error — it silently addresses a workspace nobody else can see.
 		{Name: "APP_ID", Value: ws.AppID},
-		secretEnv("S3_ENDPOINT_URL", "s3-endpoint-url"),
-		secretEnv("S3_BUCKET_NAME", "s3-bucket-name"),
-		secretEnv("S3_ACCESS_KEY_ID", "s3-access-key"),
-		secretEnv("S3_SECRET_ACCESS_KEY", "s3-secret-key"),
-		secretEnv("S3_REGION", "s3-region"),
+		// Key names as the registry's ExternalSecret renders them
+		// (fleet-registry/tenants/waypoint/dev/values.yaml): SCREAMING_SNAKE,
+		// matching the env names the SDK binds them to.
+		secretEnv("S3_ENDPOINT_URL", "S3_ENDPOINT_URL"),
+		secretEnv("S3_BUCKET_NAME", "S3_BUCKET_NAME"),
+		secretEnv("S3_ACCESS_KEY_ID", "S3_ACCESS_KEY_ID"),
+		secretEnv("S3_SECRET_ACCESS_KEY", "S3_SECRET_ACCESS_KEY"),
+		// Optional in a stronger sense than the rest: the registry declares no
+		// S3_REGION at all, so this is absent in every deployed environment and
+		// the store falls back to us-east-1. That is correct for an
+		// S3-compatible endpoint that ignores region, and wrong for one that
+		// signs against it — Hetzner does. Local setup derives it from the
+		// endpoint host; deployed environments need the key added to the
+		// ExternalSecret before a region-checking provider will authenticate.
+		secretEnv("S3_REGION", "S3_REGION"),
 	}
 	// Bidirectional on the workspace mount is what makes the restore visible.
 	//

@@ -597,10 +597,31 @@ func runServe(root string) error {
 	}
 	srv := &http.Server{Addr: "127.0.0.1:" + port, Handler: mux}
 
-	// Periodic backstop. Deliberately infrequent: it exists for the crash the
-	// agent could not report, not as the main mechanism, and a short interval
-	// would upload the same tree repeatedly for no benefit.
-	interval := 5 * time.Minute
+	// Periodic backstop — OFF by default (ADR-052 §14.6).
+	//
+	// A checkpoint is taken when something meaningful happens: the user asks
+	// for one, or the pod is shutting down. Not on a clock.
+	//
+	// This matched the Cloudflare sandbox-sdk reference
+	// (reference-projects/sandbox/sandbox-sdk) only after being turned off:
+	// that design has NO periodic snapshot anywhere — its container saves on
+	// suspend, and the platform deliberately refrains from destroying the
+	// container so that save can finish (devin/src/index.ts's `stop`).
+	//
+	// The ticker ran unconditionally every 5 minutes, and the cost was not
+	// theoretical. Each run writes a full compressed squashfs image twice (the
+	// per-checkpoint archive and the workspace `archive.sqsh`) whether or not a
+	// byte changed, so an idle sandbox shipped a whole workspace to object
+	// storage twelve times an hour. Worse, at 12 checkpoints/hour against a
+	// retention bound of 5, the checkpoints a user actually cared about were
+	// evicted by identical idle ones within about twenty-five minutes.
+	//
+	// Set WORKSPACE_SYNC_INTERVAL_SECONDS to re-enable it where an unattended
+	// workload has no one to press Save — a long batch job, say. The teardown
+	// checkpoint still covers orderly shutdown either way; what no design can
+	// cover is SIGKILL or node loss, and that is the exposure a fleet accepts
+	// by leaving this off.
+	interval := time.Duration(0)
 	if v := os.Getenv("WORKSPACE_SYNC_INTERVAL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			interval = time.Duration(n) * time.Second
@@ -608,7 +629,7 @@ func runServe(root string) error {
 	}
 	stop := make(chan struct{})
 	go func() {
-		if readOnly {
+		if readOnly || interval <= 0 {
 			return
 		}
 		t := time.NewTicker(interval)
@@ -702,13 +723,24 @@ func runServe(root string) error {
 			// mark the pod as failed for a durability miss the backstop
 			// already bounds, and would make an orderly shutdown look like a
 			// crashed workload.
-			log.Printf("TEARDOWN CHECKPOINT FAILED (up to %s of work not in object storage): %v", interval, err)
+			// Says what was actually lost. With the backstop off, everything
+			// since the last user-requested checkpoint is gone — quoting an
+			// interval that is not running would understate it.
+			lost := "all work since the last saved checkpoint"
+			if interval > 0 {
+				lost = fmt.Sprintf("up to %s of work", interval)
+			}
+			log.Printf("TEARDOWN CHECKPOINT FAILED (%s not in object storage): %v", lost, err)
 		default:
 			log.Printf("teardown checkpoint %s (%d files)", m.ID, len(m.Entries))
 		}
 	}()
 
-	log.Printf("workspace-sync serving on 127.0.0.1:%s (backstop every %s)", port, interval)
+	backstop := "off (checkpoints on request and at shutdown)"
+	if interval > 0 {
+		backstop = fmt.Sprintf("every %s", interval)
+	}
+	log.Printf("workspace-sync serving on 127.0.0.1:%s (periodic backstop: %s)", port, backstop)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

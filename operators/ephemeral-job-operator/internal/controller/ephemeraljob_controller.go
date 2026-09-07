@@ -726,7 +726,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		// workload back until that restore is finished.
 		keep := resolveKeepCheckpoints(ej.Spec.WorkspacePersistence)
 		spec_initContainers = append(spec_initContainers,
-			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep))
+			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep, ej.Namespace))
 	}
 
 	// A writable /tmp, always.

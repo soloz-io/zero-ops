@@ -70,13 +70,25 @@ spec:
             # real digest and the workflow fails loudly if it cannot.
             - name: WORKSPACE_SYNC_IMAGE
               value: ghcr.io/soloz-io/workspace-sync@sha256:412031d595b6994b2e01680771cd643f6354046f408797c58b53cd7f4b92893c
-            # The object-store credential, by reference — the SAME Secret the
-            # SDK already uses, rendered into the tenant namespace by
-            # ExternalSecrets from Infisical (ADR-003, ADR-047 Tier 2). Nothing
-            # creates it by hand, here or in prod, and its keys already match
-            # the env names workspace-sync reads.
+            # The object-store credential, by reference — the SAME Secret each
+            # fleet's own SDK binds S3 from, rendered into that fleet's
+            # namespace by an ExternalSecret from Infisical (ADR-003, ADR-047
+            # Tier 2). Each fleet's registry declares its own; this operator
+            # serves them all.
+            #
+            # A TEMPLATE, not a name. `{namespace}` expands to the
+            # EphemeralJob's own namespace at reconcile time, and the tenant
+            # namespace IS the fleet id (registries render workloads into
+            # `namespace: {TENANT_ID}`), so this resolves to each fleet's own
+            # Secret without the platform ever naming one. A literal name here
+            # would be a tenant identifier in platform code — forbidden by
+            # ADR-047's addendum, caught by preflight, and wrong for the second
+            # fleet onboarded.
+            #
+            # A literal is still accepted, for a spoke whose single fleet uses a
+            # non-conventional name: expansion is a no-op without a placeholder.
             - name: WORKSPACE_SYNC_SECRET
-              value: hcloud-token
+              value: "{namespace}-app-secrets"
           ports:
             - containerPort: 8080
               name: metrics
