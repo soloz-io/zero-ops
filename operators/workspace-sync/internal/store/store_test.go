@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,7 @@ func TestNewIDSortsChronologically(t *testing.T) {
 // network layer instead of no-opping cleanly.
 func TestFromEnvRequiresAllFourS3Values(t *testing.T) {
 	t.Setenv("WORKSPACE_ID", "ws-1")
+	t.Setenv("APP_ID", "app-1")
 	t.Setenv("S3_ENDPOINT_URL", "https://hel1.example.com")
 	t.Setenv("S3_BUCKET_NAME", "bucket")
 	t.Setenv("S3_ACCESS_KEY_ID", "key")
@@ -104,5 +106,70 @@ func TestFromEnvRequiresAllFourS3Values(t *testing.T) {
 	// filesystem is read-only, so an archive written to /tmp silently fails.
 	if cfg.Staging != "/ws-staging" {
 		t.Errorf("Staging = %q, want /ws-staging", cfg.Staging)
+	}
+}
+
+// TestKeyLayoutIsAppRooted pins the object layout (§14.4).
+//
+// It is a test rather than a comment because the prefix is unverifiable at
+// runtime: writing to the wrong one does not error, it silently addresses a
+// workspace nobody else can see. The symptom is an empty restore much later,
+// with nothing in any log pointing at the cause.
+func TestKeyLayoutIsAppRooted(t *testing.T) {
+	s := &Store{prefix: "app-123" + "/" + "ws-42" + "/code"}
+
+	cases := map[string]string{
+		s.objectKey("abc"):            "app-123/ws-42/code/objects/abc",
+		s.manifestKey("cp1"):          "app-123/ws-42/code/checkpoints/cp1.json",
+		s.checkpointArchiveKey("cp1"): "app-123/ws-42/code/checkpoints/cp1.sqsh",
+		s.archiveKey():                "app-123/ws-42/code/archive.sqsh",
+		s.prefix + latestPointer:      "app-123/ws-42/code/checkpoints/LATEST",
+	}
+	for got, want := range cases {
+		if got != want {
+			t.Errorf("key = %q, want %q", got, want)
+		}
+	}
+
+	// The `code/` segment is what makes an app-rooted layout safe to share.
+	// Retention deletes everything under <prefix>/objects/ that no surviving
+	// manifest references; without this segment that sweep would sit directly
+	// above the app's chat attachments and build artifacts.
+	for k := range cases {
+		if !strings.HasPrefix(k, "app-123/ws-42/code/") {
+			t.Errorf("key %q escapes the code/ subtree — retention could reach sibling data", k)
+		}
+	}
+}
+
+// TestAppIDIsRequired guards the half of the key that has no default.
+//
+// Missing WORKSPACE_ID already failed. APP_ID must fail the same way and for
+// the same reason: there is no app-less location in this layout, so continuing
+// would write a workspace to a prefix nothing else addresses.
+func TestAppIDIsRequired(t *testing.T) {
+	t.Setenv("WORKSPACE_ID", "ws-42")
+	t.Setenv("S3_ENDPOINT_URL", "https://hel1.example.com")
+	t.Setenv("S3_BUCKET_NAME", "bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "key")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("APP_ID", "")
+
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("FromEnv with no APP_ID succeeded; keys would be rooted at an empty segment")
+	}
+	if errors.Is(err, ErrNotConfigured) {
+		t.Errorf("FromEnv reported ErrNotConfigured for a missing APP_ID (%v); a misconfigured "+
+			"deployment must not look like one that has no object storage", err)
+	}
+
+	t.Setenv("APP_ID", "app-123")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv with APP_ID set = %v, want nil", err)
+	}
+	if cfg.AppID != "app-123" {
+		t.Errorf("AppID = %q, want app-123", cfg.AppID)
 	}
 }

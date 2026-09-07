@@ -78,8 +78,9 @@ func envOr(k, def string) string {
 // §14.2 changes: both containers mount a staging emptyDir (`ws-staging`) for
 // squashfs archive and FUSE working directories. The sidecar additionally
 // requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
-func workspaceSyncContainer(workspaceID string, keepCheckpoints int32) corev1.Container {
+func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32) corev1.Container {
 	var sideC corev1.Container
+	workspaceID := ws.WorkspaceID
 	uid := int64(1000)
 	// Both run as uid 1000, matching the workload rather than the image's own
 	// nonroot uid. The two processes write the same volume, and a uid mismatch
@@ -146,6 +147,10 @@ func workspaceSyncContainer(workspaceID string, keepCheckpoints int32) corev1.Co
 	}
 	env := []corev1.EnvVar{
 		{Name: "WORKSPACE_ID", Value: workspaceID},
+		// The key root (§14.4). Every object this sidecar reads or writes lives
+		// under <appId>/<workspaceId>/code/, so getting this wrong does not
+		// error — it silently addresses a workspace nobody else can see.
+		{Name: "APP_ID", Value: ws.AppID},
 		secretEnv("S3_ENDPOINT_URL", "s3-endpoint-url"),
 		secretEnv("S3_BUCKET_NAME", "s3-bucket-name"),
 		secretEnv("S3_ACCESS_KEY_ID", "s3-access-key"),
@@ -250,6 +255,15 @@ func workspaceSyncContainer(workspaceID string, keepCheckpoints int32) corev1.Co
 			Name: "KEEP_CHECKPOINTS", Value: strconv.Itoa(int(keepCheckpoints)),
 		},
 	)
+
+	// §14.3. Both are set only when asked for, so `kubectl describe` on an
+	// ordinary sandbox stays free of fields that describe the default.
+	if ws.CheckpointID != "" {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "CHECKPOINT_ID", Value: ws.CheckpointID})
+	}
+	if ws.ReadOnly {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
+	}
 	return sideC
 }
 

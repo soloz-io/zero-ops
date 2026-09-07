@@ -1059,7 +1059,7 @@ sidecar restores into it, and the PVC is node-pinned via RWO +
 **A. Squashfs archive as the fast-restore primitive.** Every `Snapshot()` now
 creates a squashfs archive (`mksquashfs <root> <archive> -comp zstd`) alongside
 the existing content-addressed objects and uploads it to S3 at
-`workspaces/<workspaceId>/archive.sqsh`. The archive is a monolithic,
+`<appId>/<workspaceId>/code/archive.sqsh` (§14.4). The archive is a monolithic,
 compressed, read-only image of the entire workspace tree — tracked, untracked,
 and uncommitted alike, `.git` included as ordinary files. Content-addressed
 objects and manifests remain the ongoing checkpoint mechanism; the squashfs
@@ -1383,6 +1383,150 @@ The row "Sandbox Workspace PVC" is removed. The row "Sandbox Workspace S3
 Backup" is amended: the `workspace-sync` sidecar now creates both
 content-addressed objects AND squashfs archives during snapshot, and mounts the
 archive during restore. No PVC is created, managed, or reaped by the operator.
+
+#### §14.3 Pinned, read-only workspaces: builds and undo (Amendment 2026-09-07)
+
+**The gap.** §14.2 gives every workspace-bearing pod the same treatment: restore
+the *latest* checkpoint, mount it read-write, snapshot it periodically, snapshot
+it again at teardown, and prune. That is right for an interactive sandbox and
+wrong for everything else that wants to read a workspace.
+
+Two callers now want to, and both are damaged by the sandbox behaviour:
+
+- A **build** must compile the checkpoint it was asked for. Restoring *latest*
+  means it races the session that triggered it and ships whatever the agent
+  happened to have written by the time the pod scheduled.
+- An **undo** ("take me back to checkpoint 3") has no in-place mechanism left.
+  The workspace is an `emptyDir` and S3 is the source of truth, so there is
+  nothing local to roll back.
+
+The build case is not merely wrong, it is destructive. A build's tree fills with
+`node_modules`, `dist` and caches. With read-write persistence the periodic
+backstop uploads that as a legitimate checkpoint, the teardown snapshot uploads
+it again, and **retention then counts those toward the bound — evicting the
+user's real checkpoints to make room for build droppings.** With source history
+living only in S3 (§14.2) and git removed, that loss is permanent and has no
+second copy.
+
+**Decision.** Two optional fields on `workspacePersistence`:
+
+```yaml
+workspacePersistence:
+  workspaceId: "42"
+  checkpointId: abc123     # unset = latest (sandbox behaviour, unchanged)
+  readOnly: true           # unset = read-write (sandbox behaviour, unchanged)
+```
+
+`checkpointId` pins restore to one exact checkpoint. **A pin that does not
+resolve is a hard failure**, never a silent fall back to latest: a build
+shipping a different revision than the one requested, or an undo landing
+somewhere other than where the user asked, is indistinguishable from success and
+so is the worst available outcome. The pinned path also fetches
+`checkpoints/<id>.sqsh` rather than the workspace-level `archive.sqsh`, because
+the latter is whatever was checkpointed *last*.
+
+`readOnly` disables every write to object storage: no periodic backstop, no
+teardown snapshot, no retention pass, no `/checkpoint`, no `/flush`, no
+`/restore`. The workload still gets a writable `/workspace` — the overlay's
+upper layer is local scratch that dies with the pod, which is exactly what a
+build wants.
+
+**Enforced twice, deliberately.** The sidecar does not start the backstop or the
+shutdown snapshot in read-only mode, *and* `Snapshot()` and `Prune()` refuse
+outright with `ErrReadOnly`. The first is so a build does not generate a refused
+checkpoint attempt every five minutes and bury a real failure in log noise; the
+second is because the consequence of one path being missed is permanent data
+loss, and a guard at the write closes every path at once, including endpoints
+added later. The HTTP endpoints answer `409`, not `500` — the request is
+well-formed and the workspace simply cannot do it, which a caller should be able
+to tell apart from object storage being broken.
+
+**Undo becomes a pod, not an operation.** With `checkpointId` available, undo is
+a sandbox recreated with an older checkpoint pinned. No files are rewritten
+under a running agent — which is what the previous `restore_git_sha` path did,
+invalidating every file descriptor the agent held open — and the harness needs
+no knowledge of checkpoints at all (waypoint ADR-036 §10). One field serves both
+callers because they want the same thing: *this exact workspace state, and
+nothing written back.*
+
+**§19.6 improves as a side effect.** The build path previously received
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` directly in the environment of a
+tenant-supplied image, which was a second credential channel into a workload and
+a standing violation. Its source now arrives as a mounted filesystem, so the
+build holds no object-store credential at all. A build that additionally
+*uploads* artifacts still needs one for that, and it should be a scoped,
+write-only credential for its own `builds/<deployment>/` prefix rather than the
+workspace key it has stopped needing.
+
+**Retention interacts with builds, and this is unfinished.** A deployment
+referenced by `current_deployment` may outlive the checkpoint it was built from,
+because retention only knows "newest N" and cannot see the database. The
+invariant that needs to hold is that **a checkpoint referenced by a retained
+deployment is not evictable**, which requires either passing the pinned set into
+the prune or copying a build's source out from under the retention window.
+Recorded here as a known gap rather than solved.
+
+#### §14.4 App-rooted object layout (Amendment 2026-09-07)
+
+**The gap.** Object keys had grown three unrelated shapes, one per component
+that touched storage: `workspaces/<workspaceId>/...` for checkpoints,
+`<workspaceId>/chat-attachments/...` for chat assets, `sessions/<sessionId>/...`
+for agent output. Nothing tied an app's data together, so "delete this app",
+"export this app" and "scope a credential to this app" were each a list of
+places to remember rather than one prefix.
+
+**Decision.** Every key an app owns is rooted at the app, then the workspace,
+then a kind:
+
+```
+<appId>/<workspaceId>/code/objects/<sha256>
+<appId>/<workspaceId>/code/checkpoints/<id>.json
+<appId>/<workspaceId>/code/checkpoints/<id>.sqsh
+<appId>/<workspaceId>/code/checkpoints/LATEST
+<appId>/<workspaceId>/code/archive.sqsh
+<appId>/<workspaceId>/chat-attachments/<uuid>.<ext>
+<appId>/<workspaceId>/builds/<deploymentId>/...
+<appId>/<workspaceId>/artifacts/<path>
+```
+
+**`appId` is required on `workspacePersistence`.** There is no app-less location
+in this layout, so a defaulted or guessed root does not fail — it writes a
+workspace to a prefix nothing else addresses, and surfaces much later as an
+empty restore with nothing in any log pointing at the cause. A caller with no
+app id must not request workspace persistence; the SDK sets
+`workspacePersistence` only when both ids are present.
+
+**What `workspaceId` contains is the caller's business.** For code-builders it
+is the app id, so every session of an app shares one workspace; elsewhere it is
+session-scoped. The platform does not interpret it — it is the second path
+segment, and callers needing the values to agree already share
+`resolveHarnessWorkspaceId()`.
+
+**`code/` is what makes an app-rooted layout safe to share.** Retention (§14.2)
+deletes every object under `<prefix>/objects/` that no surviving manifest
+references. Without a kind segment that sweep would sit directly above the same
+app's chat attachments and build artifacts. With it, the workspace agent reads
+and writes code and only code — every list, stat, get, put and delete in the
+store is scoped to `<appId>/<workspaceId>/code`, which is asserted by test
+rather than left to review.
+
+**Paths are constructed by the platform, never passed in.** The CR carries
+identity (`appId`, `workspaceId`, `checkpointId`) and nothing that can express a
+prefix, bucket or segment — the same rule as §4 placement and §14 storage, and
+it matters more here: the bucket is shared, so a caller that could name its own
+prefix could read or write another app's data, and could aim retention's
+prefix-scoped delete at it. On the SDK side the equivalent is a single key
+module; the layout used to live in template strings in every file that touched
+S3, which is how it came to have three shapes.
+
+The sidecar builds the `code/` prefix independently, in Go, from the same two
+ids — the two implementations cannot import one another and must agree.
+
+**This is a breaking key change with no migration.** Nothing reads
+`workspaces/<workspaceId>/...` after this. Existing checkpoints become
+invisible rather than corrupt, so a workspace with history restores as new.
+Either the old objects are copied to the new layout before rollout, or existing
+workspaces start empty — a decision, not an oversight.
 
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 

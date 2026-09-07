@@ -4287,6 +4287,48 @@ spec:
                   storage it was not granted, and the fleet-facing type is the only place
                   that can be made incapable of saying so.
                 properties:
+                  appId:
+                    description: |-
+                      AppID is the ROOT of every object key for this workspace (§14.4):
+
+                        <appId>/<workspaceId>/code/...
+
+                      Required. The layout is app-rooted so an app's other data — chat session
+                      assets at <appId>/<sessionId>/..., build artifacts — sits beside its code,
+                      and an app can be deleted with one prefix operation. There is no app-less
+                      location, so a caller with no app id should not ask for workspace
+                      persistence at all.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                  checkpointId:
+                    description: |-
+                      CheckpointID pins the workspace to one exact checkpoint (ADR-052 §14.3).
+                      Unset means the latest, which is what an interactive sandbox wants.
+
+                      A BUILD must compile the checkpoint it was asked for, not whatever the
+                      agent has written since. An UNDO is a sandbox recreated with an older
+                      checkpoint pinned — with an emptyDir workspace and S3 as the source of
+                      truth, a new pod pinned to an older checkpoint IS the undo.
+
+                      A pinned checkpoint that does not exist is a hard failure, never a
+                      silent fall back to latest.
+                    maxLength: 128
+                    type: string
+                  readOnly:
+                    description: |-
+                      ReadOnly restores the workspace but never writes it back
+                      (ADR-052 §14.3). Unset means read-write.
+
+                      A build reusing read-write persistence is destructive, not merely
+                      wasteful: its node_modules/dist/caches get uploaded as a checkpoint by
+                      the backstop and the teardown snapshot, and retention then evicts the
+                      user's real checkpoints to make room for them.
+
+                      Set, the sidecar mounts the checkpoint and stops: no backstop, no
+                      teardown snapshot, no retention pass, no writes to object storage. The
+                      workload still gets a writable /workspace backed by local scratch.
+                    type: boolean
                   keepCheckpoints:
                     description: |-
                       KeepCheckpoints is how many checkpoints this workspace retains
@@ -4322,6 +4364,7 @@ spec:
                     minLength: 1
                     type: string
                 required:
+                - appId
                 - workspaceId
                 type: object
             required:

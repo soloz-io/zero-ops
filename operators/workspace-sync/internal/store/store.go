@@ -2,18 +2,30 @@
 // checkpoint (ADR-052 §14, §18), with squashfs archive support for O(1)
 // restore (§14.2).
 //
-// Three kinds of object live under one workspace's prefix:
+// KEY LAYOUT (§14.4). Everything belonging to an app lives under one root, and
+// this package owns exactly one subtree of it:
 //
-//	<prefix>/objects/<sha256>          immutable file content, shared between
-//	                                   checkpoints of THIS workspace
-//	<prefix>/checkpoints/<id>.json     a manifest naming the tree
-//	<prefix>/archive.sqsh              squashfs image for fast FUSE restore
+//	<appId>/<workspaceId>/code/objects/<sha256>       immutable file content
+//	<appId>/<workspaceId>/code/checkpoints/<id>.json  a manifest naming the tree
+//	<appId>/<workspaceId>/code/checkpoints/<id>.sqsh  that checkpoint's image
+//	<appId>/<workspaceId>/code/checkpoints/LATEST     newest checkpoint pointer
+//	<appId>/<workspaceId>/code/archive.sqsh           newest image, for fast restore
 //
-// Keys are scoped per workspace deliberately (§18.6). Dedup applies within a
-// workspace, not across them, which gives up cross-workspace sharing and buys
-// three things worth more: deleting a workspace is a prefix operation, a
-// tenant's data is separable on request, and one workspace's checkpoint can
-// never become a load-bearing dependency of another tenant's.
+// The app id is the ROOT, not the workspace id, so an app's other data — chat
+// session assets at <appId>/<sessionId>/..., build artifacts — sits beside its
+// code rather than in an unrelated part of the bucket. Deleting an app becomes
+// one prefix operation.
+//
+// `code/` is what keeps that neighbourliness safe. Every list, sweep and delete
+// in this package is scoped to the prefix below, so retention can never reach a
+// chat attachment or a build artifact even though they share the app's root.
+// The workspace agent reads and writes code, and only code.
+//
+// Dedup applies within one workspace, not across them (§18.6). That gives up
+// cross-workspace sharing and buys three things worth more: deleting a
+// workspace is a prefix operation, a tenant's data is separable on request, and
+// one workspace's checkpoint can never become a load-bearing dependency of
+// another tenant's.
 package store
 
 import (
@@ -52,6 +64,12 @@ var ErrNotConfigured = errors.New("object storage is not configured")
 // that could not start.
 var ErrNoArchive = errors.New("no squashfs archive for this workspace")
 
+// ErrReadOnly is returned by every write path on a read-only store (§14.3).
+//
+// A read-only workspace is how a build reads the exact checkpoint it was asked
+// to build without being able to overwrite or evict the history it is reading.
+var ErrReadOnly = errors.New("workspace is read-only: refusing to write to object storage")
+
 // Entry is one file in a manifest.
 type Entry struct {
 	Path string `json:"path"`
@@ -78,12 +96,25 @@ type Manifest struct {
 }
 
 type Store struct {
-	c       *minio.Client
-	bucket  string
-	prefix  string
-	staging string
-	keep    int
+	c        *minio.Client
+	bucket   string
+	prefix   string
+	staging  string
+	keep     int
+	pinned   string
+	readOnly bool
+
+	// Carried rather than parsed back out of prefix. The manifest records it,
+	// and re-deriving it by trimming a prefix string breaks silently the moment
+	// the layout changes — which is exactly what just happened (§14.4).
+	workspaceID string
 }
+
+// Pinned is the checkpoint restore must use, or "" for latest (§14.3).
+func (s *Store) Pinned() string { return s.pinned }
+
+// ReadOnly reports whether this store refuses every write (§14.3).
+func (s *Store) ReadOnly() bool { return s.readOnly }
 
 // Config is read from the environment the operator injects into this
 // container. The workload container never receives these values (§19.6).
@@ -94,6 +125,11 @@ type Config struct {
 	SecretKey   string
 	Region      string
 	WorkspaceID string
+
+	// AppID is the root of every key this store touches (§14.4). Required:
+	// there is no app-less location in this layout, and defaulting it would
+	// write a workspace where nothing will look for it.
+	AppID string
 
 	// Staging is a writable scratch directory — the `ws-staging` emptyDir the
 	// operator mounts. Everything this package writes locally goes here.
@@ -109,6 +145,16 @@ type Config struct {
 	// prune. Each one owns a full compressed archive, so this is what makes
 	// storage O(bounded) rather than O(number of checkpoints ever taken).
 	KeepCheckpoints int
+
+	// CheckpointID pins restore to one exact checkpoint (§14.3). Empty means
+	// latest. A pin that cannot be resolved is a hard failure — never a silent
+	// fall back to latest, which would build or restore the wrong revision.
+	CheckpointID string
+
+	// ReadOnly forbids every write to object storage (§14.3): no checkpoints,
+	// no archives, no retention. Set for builds, which must not be able to
+	// overwrite or evict the history of the workspace they are reading.
+	ReadOnly bool
 }
 
 // DefaultKeepCheckpoints bounds per-workspace storage (§14.2 retention).
@@ -127,8 +173,11 @@ func FromEnv() (Config, error) {
 		SecretKey:       os.Getenv("S3_SECRET_ACCESS_KEY"),
 		Region:          os.Getenv("S3_REGION"),
 		WorkspaceID:     os.Getenv("WORKSPACE_ID"),
+		AppID:           os.Getenv("APP_ID"),
 		Staging:         os.Getenv("STAGING_ROOT"),
 		KeepCheckpoints: DefaultKeepCheckpoints,
+		CheckpointID:    os.Getenv("CHECKPOINT_ID"),
+		ReadOnly:        os.Getenv("WORKSPACE_READ_ONLY") == "true",
 	}
 	if c.Region == "" {
 		c.Region = "us-east-1"
@@ -143,6 +192,11 @@ func FromEnv() (Config, error) {
 	}
 	if c.WorkspaceID == "" {
 		return c, fmt.Errorf("WORKSPACE_ID is required")
+	}
+	// Checked before ErrNotConfigured, so a misconfigured deployment says which
+	// value is missing instead of reporting itself as having no object storage.
+	if c.AppID == "" {
+		return c, fmt.Errorf("APP_ID is required: keys are rooted at the app (§14.4)")
 	}
 	if c.Endpoint == "" || c.Bucket == "" || c.AccessKey == "" || c.SecretKey == "" {
 		return c, ErrNotConfigured
@@ -170,18 +224,23 @@ func New(cfg Config) (*Store, error) {
 		keep = DefaultKeepCheckpoints
 	}
 	return &Store{
-		c:       c,
-		bucket:  cfg.Bucket,
-		prefix:  "workspaces/" + cfg.WorkspaceID,
-		staging: staging,
-		keep:    keep,
+		c:           c,
+		bucket:      cfg.Bucket,
+		prefix:      cfg.AppID + "/" + cfg.WorkspaceID + "/code",
+		staging:     staging,
+		keep:        keep,
+		pinned:      cfg.CheckpointID,
+		readOnly:    cfg.ReadOnly,
+		workspaceID: cfg.WorkspaceID,
 	}, nil
 }
 
-func (s *Store) objectKey(hash string) string  { return s.prefix + "/objects/" + hash }
-func (s *Store) manifestKey(id string) string  { return s.prefix + "/checkpoints/" + id + ".json" }
-func (s *Store) archiveKey() string            { return s.prefix + "/archive.sqsh" }
-func (s *Store) checkpointArchiveKey(id string) string { return s.prefix + "/checkpoints/" + id + ".sqsh" }
+func (s *Store) objectKey(hash string) string { return s.prefix + "/objects/" + hash }
+func (s *Store) manifestKey(id string) string { return s.prefix + "/checkpoints/" + id + ".json" }
+func (s *Store) archiveKey() string           { return s.prefix + "/archive.sqsh" }
+func (s *Store) checkpointArchiveKey(id string) string {
+	return s.prefix + "/checkpoints/" + id + ".sqsh"
+}
 
 // hashFile returns the content address of a file. This is the whole basis of
 // dedup: two checkpoints differing in 3 of 10,000 files upload 3 objects,
@@ -211,9 +270,20 @@ func hashFile(path string) (string, int64, error) {
 // been uploaded, so a partial run leaves an absent checkpoint rather than a
 // corrupt one (§18.3).
 func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent string) (*Manifest, error) {
+	// Enforced HERE, not only where snapshots are triggered (§14.3).
+	//
+	// The caller already skips the backstop and the teardown snapshot in
+	// read-only mode, so reaching this is a bug — but it is the kind of bug
+	// whose consequence is permanent: a build uploading its node_modules as a
+	// checkpoint, and retention then evicting the user's real history to make
+	// room. The guard costs nothing and closes every path at once, including
+	// the HTTP endpoints and anything added later.
+	if s.readOnly {
+		return nil, ErrReadOnly
+	}
 	m := &Manifest{
 		ID:          newID(),
-		WorkspaceID: strings.TrimPrefix(s.prefix, "workspaces/"),
+		WorkspaceID: s.workspaceID,
 		Parent:      parent,
 		Name:        name,
 		Description: desc,
@@ -373,6 +443,12 @@ func planRetention(newestFirst []string, keep int) (survivors, doomed []string) 
 }
 
 func (s *Store) Prune(ctx context.Context) error {
+	// Never from a read-only store (§14.3). Retention DELETES, so a build
+	// running a prune against the workspace it is only supposed to read is the
+	// single most destructive thing this mode exists to prevent.
+	if s.readOnly {
+		return ErrReadOnly
+	}
 	all, err := s.ListCheckpoints(ctx)
 	if err != nil {
 		return fmt.Errorf("list checkpoints: %w", err)
@@ -458,6 +534,24 @@ func (s *Store) setLatest(ctx context.Context, id string) error {
 	_, err := s.c.PutObject(ctx, s.bucket, s.prefix+latestPointer,
 		strings.NewReader(id), int64(len(id)), minio.PutObjectOptions{ContentType: "text/plain"})
 	return err
+}
+
+// Resolve returns the checkpoint restore should use: the pin if one was given,
+// otherwise the latest (§14.3).
+//
+// A pin that does not resolve is an ERROR, never a fall back to latest. Falling
+// back would mean a build silently shipping a different revision than the one
+// requested, or an undo silently landing somewhere other than where the user
+// asked — both indistinguishable from success.
+func (s *Store) Resolve(ctx context.Context) (string, error) {
+	if s.pinned == "" {
+		return s.Latest(ctx)
+	}
+	if _, err := s.c.StatObject(ctx, s.bucket, s.manifestKey(s.pinned),
+		minio.StatObjectOptions{}); err != nil {
+		return "", fmt.Errorf("pinned checkpoint %q does not exist in this workspace: %w", s.pinned, err)
+	}
+	return s.pinned, nil
 }
 
 func (s *Store) Latest(ctx context.Context) (string, error) {

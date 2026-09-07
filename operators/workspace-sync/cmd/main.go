@@ -112,6 +112,33 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 	staging := s.StagingDir()
 	archivePath := filepath.Join(staging, "archive.sqsh")
 
+	// A pinned checkpoint takes a different route entirely (§14.3): the
+	// workspace-level archive.sqsh is whatever was checkpointed LAST, so using
+	// it for a pin would restore the wrong revision while reporting success.
+	if pin := s.Pinned(); pin != "" {
+		id, rErr := s.Resolve(ctx)
+		if rErr != nil {
+			return false, rErr
+		}
+		aErr := s.DownloadCheckpointArchive(ctx, id, archivePath)
+		switch {
+		case aErr == nil:
+			if mErr := mountFuse(ctx, root, staging, archivePath); mErr != nil {
+				log.Printf("pinned archive present but could not be mounted, falling back: %v", mErr)
+				return false, restoreFromCheckpoint(ctx, root, s, id)
+			}
+			log.Printf("restored pinned checkpoint %s via squashfs overlay", id)
+			return true, nil
+		case errors.Is(aErr, store.ErrNoArchive):
+			// The checkpoint exists — Resolve proved it — but predates
+			// archives or had archive creation fail. Its content-addressed
+			// objects still describe it exactly.
+			return false, restoreFromCheckpoint(ctx, root, s, id)
+		default:
+			return false, fmt.Errorf("cannot fetch pinned checkpoint %s: %w", id, aErr)
+		}
+	}
+
 	err := s.DownloadArchive(ctx, archivePath)
 	switch {
 	case err == nil:
@@ -222,6 +249,15 @@ func restoreFromManifest(ctx context.Context, root string, s *store.Store) error
 		log.Print("no checkpoint for this workspace yet — starting with an empty workspace")
 		return nil
 	}
+	return restoreFromCheckpoint(ctx, root, s, id)
+}
+
+// restoreFromCheckpoint materialises one named checkpoint file-by-file.
+//
+// Unlike restoreFromManifest there is no "nothing to restore" case: the caller
+// named a checkpoint, so failing to produce it is an error rather than an empty
+// workspace.
+func restoreFromCheckpoint(ctx context.Context, root string, s *store.Store, id string) error {
 	m, err := s.GetManifest(ctx, id)
 	if err != nil {
 		return fmt.Errorf("reading checkpoint %s: %w", id, err)
@@ -278,6 +314,19 @@ func runServe(root string) error {
 		stagingRoot = s.StagingDir()
 	} else if v := os.Getenv("STAGING_ROOT"); v != "" {
 		stagingRoot = v
+	}
+
+	// Read-only: mounted, serving, and incapable of writing (§14.3).
+	//
+	// Declared here because every path below consults it — the restore, the
+	// HTTP handlers, the backstop and the shutdown snapshot. In this mode the
+	// backstop and teardown snapshot are never STARTED, rather than started and
+	// then refused by the store's own guard: a build has no business generating
+	// a checkpoint attempt every five minutes, and the log noise of refusing
+	// them would bury a real failure.
+	readOnly := s != nil && s.ReadOnly()
+	if readOnly {
+		log.Print("workspace is READ-ONLY — no periodic backstop, no teardown checkpoint, no retention")
 	}
 
 	// Phase 1: restore, once, before anything else (§14.2).
@@ -372,6 +421,16 @@ func runServe(root string) error {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
+		if readOnly {
+			// 409, not 500: the request is well-formed and the caller is simply
+			// asking something this workspace cannot do. A build image that
+			// checkpoints out of habit should see a clear refusal, not a
+			// failure that looks like object storage being broken.
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "workspace is read-only; checkpoints are disabled for this job",
+			})
+			return
+		}
 		m, err := snapshot(req.Name, req.Description, "on-demand")
 		if errors.Is(err, store.ErrNotConfigured) {
 			// 200 with no id: the caller asked correctly and this deployment
@@ -398,6 +457,12 @@ func runServe(root string) error {
 	// gets tested — `kubectl exec` into the workload container and POST to
 	// localhost, since the sidecar's own image is distroless and has no shell.
 	mux.HandleFunc("/flush", func(w http.ResponseWriter, r *http.Request) {
+		if readOnly {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "workspace is read-only; checkpoints are disabled for this job",
+			})
+			return
+		}
 		m, err := snapshot("", "", "teardown")
 		if errors.Is(err, store.ErrNotConfigured) {
 			writeJSON(w, http.StatusOK, map[string]any{"skipped": "not-configured"})
@@ -438,6 +503,15 @@ func runServe(root string) error {
 		}
 		if notConfigured {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "object storage not configured"})
+			return
+		}
+		if readOnly {
+			// A read-only job was given one exact checkpoint to work from
+			// (§14.3). Letting it swap to another mid-run would mean a build
+			// producing an artifact labelled with a revision it did not build.
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "workspace is pinned and read-only; restore is disabled for this job",
+			})
 			return
 		}
 
@@ -534,6 +608,9 @@ func runServe(root string) error {
 	}
 	stop := make(chan struct{})
 	go func() {
+		if readOnly {
+			return
+		}
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -610,6 +687,11 @@ func runServe(root string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		defer cancel()
+
+		if readOnly {
+			log.Print("read-only workspace — no teardown checkpoint")
+			return
+		}
 
 		m, err := snapshotCtx(ctx, "", "", "teardown")
 		switch {

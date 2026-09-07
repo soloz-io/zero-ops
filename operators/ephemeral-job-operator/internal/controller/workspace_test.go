@@ -47,7 +47,7 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 	ej := &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                "example.com/img@sha256:" + strings.Repeat("a", 64),
-			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
 		},
 	}
 
@@ -328,7 +328,7 @@ func TestWorkspaceSyncIsANativeSidecar(t *testing.T) {
 	ej := &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                "example.com/img@sha256:" + strings.Repeat("a", 64),
-			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
 		},
 	}
 	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
@@ -412,7 +412,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                img,
-			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
 		},
 	}, p, corev1.Container{Name: "workload"})
 	if spec.TerminationGracePeriodSeconds == nil || *spec.TerminationGracePeriodSeconds != minWorkspaceGraceSeconds {
@@ -425,7 +425,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                         img,
-			WorkspacePersistence:          &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"},
+			WorkspacePersistence:          &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
 			TerminationGracePeriodSeconds: &longer,
 		},
 	}, p, corev1.Container{Name: "workload"})
@@ -475,7 +475,7 @@ func TestKeepCheckpointsIsFleetSelectableAndBounded(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := resolveKeepCheckpoints(&computev1alpha1.WorkspacePersistenceSpec{
-				WorkspaceID: "app-1", KeepCheckpoints: tc.in,
+				WorkspaceID: "app-1", AppID: "app-1", KeepCheckpoints: tc.in,
 			})
 			if got != tc.want {
 				t.Errorf("resolveKeepCheckpoints = %d, want %d", got, tc.want)
@@ -520,12 +520,12 @@ func TestKeepCheckpointsReachesTheSidecar(t *testing.T) {
 		return ""
 	}
 
-	if got := env(&computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1"}); got != "5" {
+	if got := env(&computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"}); got != "5" {
 		t.Errorf("KEEP_CHECKPOINTS with no fleet value = %q, want \"5\"", got)
 	}
 	n := int32(12)
 	if got := env(&computev1alpha1.WorkspacePersistenceSpec{
-		WorkspaceID: "app-1", KeepCheckpoints: &n,
+		WorkspaceID: "app-1", AppID: "app-1", KeepCheckpoints: &n,
 	}); got != "12" {
 		t.Errorf("KEEP_CHECKPOINTS with a fleet value of 12 = %q, want \"12\"", got)
 	}
@@ -545,5 +545,125 @@ func TestDefaultKeepCheckpointsMatchesTheSidecar(t *testing.T) {
 	if computev1alpha1.DefaultKeepCheckpoints != sidecarDefault {
 		t.Errorf("api DefaultKeepCheckpoints = %d but workspace-sync uses %d; update both",
 			computev1alpha1.DefaultKeepCheckpoints, sidecarDefault)
+	}
+}
+
+// TestPinnedReadOnlyWorkspaceReachesTheSidecar covers §14.3, where getting it
+// wrong is destructive rather than merely incorrect.
+//
+// A build that inherits read-write persistence uploads its node_modules and
+// dist as checkpoints via the backstop and the teardown snapshot, and retention
+// then evicts the user's real checkpoints to make room. With source history
+// living only in S3 (§14.2), that loss has no second copy.
+func TestPinnedReadOnlyWorkspaceReachesTheSidecar(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
+
+	envOf := func(ws *computev1alpha1.WorkspacePersistenceSpec) map[string]string {
+		spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+			Spec: computev1alpha1.EphemeralJobSpec{Image: img, WorkspacePersistence: ws},
+		}, p, corev1.Container{Name: "workload"})
+		for _, c := range spec.InitContainers {
+			if c.Name != "workspace-sync" {
+				continue
+			}
+			out := map[string]string{}
+			for _, e := range c.Env {
+				out[e.Name] = e.Value
+			}
+			return out
+		}
+		t.Fatal("no workspace-sync container")
+		return nil
+	}
+
+	// A build: pinned and read-only.
+	build := envOf(&computev1alpha1.WorkspacePersistenceSpec{
+		WorkspaceID: "app-1", CheckpointID: "abc123", ReadOnly: true,
+	})
+	if build["CHECKPOINT_ID"] != "abc123" {
+		t.Errorf("CHECKPOINT_ID = %q, want abc123 — unpinned, a build races the session that "+
+			"triggered it and ships unreviewed code", build["CHECKPOINT_ID"])
+	}
+	if build["WORKSPACE_READ_ONLY"] != "true" {
+		t.Errorf("WORKSPACE_READ_ONLY = %q, want \"true\" — without it this job's build output is "+
+			"checkpointed over the user's workspace history", build["WORKSPACE_READ_ONLY"])
+	}
+
+	// An ordinary sandbox: neither field set, so its describe output stays free
+	// of variables that only restate the default.
+	sandbox := envOf(&computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"})
+	if _, ok := sandbox["CHECKPOINT_ID"]; ok {
+		t.Error("CHECKPOINT_ID is set on an unpinned sandbox; it must restore latest")
+	}
+	if _, ok := sandbox["WORKSPACE_READ_ONLY"]; ok {
+		t.Error("WORKSPACE_READ_ONLY is set on an ordinary sandbox; it must be read-write")
+	}
+
+	// Undo: pinned but writable — the user keeps working from that point.
+	undo := envOf(&computev1alpha1.WorkspacePersistenceSpec{
+		WorkspaceID: "app-1", AppID: "app-1", CheckpointID: "abc123",
+	})
+	if undo["CHECKPOINT_ID"] != "abc123" {
+		t.Errorf("CHECKPOINT_ID = %q, want abc123", undo["CHECKPOINT_ID"])
+	}
+	if _, ok := undo["WORKSPACE_READ_ONLY"]; ok {
+		t.Error("WORKSPACE_READ_ONLY set on an undo; a restored workspace must remain writable")
+	}
+}
+
+// TestAppIDReachesTheSidecar closes the loop on the key root (§14.4).
+//
+// APP_ID is half the prefix every object lives under. A missing or wrong value
+// does not error anywhere — it addresses a workspace nobody else can see, and
+// surfaces much later as an empty restore.
+func TestAppIDReachesTheSidecar(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+
+	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image: "example.com/img@sha256:" + strings.Repeat("a", 64),
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{
+				WorkspaceID: "ws-42", AppID: "app-123",
+			},
+		},
+	}, p, corev1.Container{Name: "workload"})
+
+	for _, c := range spec.InitContainers {
+		if c.Name != "workspace-sync" {
+			continue
+		}
+		got := map[string]string{}
+		for _, e := range c.Env {
+			got[e.Name] = e.Value
+		}
+		if got["APP_ID"] != "app-123" {
+			t.Errorf("APP_ID = %q, want app-123 — without it the sidecar cannot build "+
+				"<appId>/<workspaceId>/code and refuses to start", got["APP_ID"])
+		}
+		if got["WORKSPACE_ID"] != "ws-42" {
+			t.Errorf("WORKSPACE_ID = %q, want ws-42", got["WORKSPACE_ID"])
+		}
+		return
+	}
+	t.Fatal("no workspace-sync container")
+}
+
+// TestWorkspaceSpecRequiresBothIds guards the CRD contract in Go, so a struct
+// change cannot quietly make the app root optional again.
+func TestWorkspaceSpecRequiresBothIds(t *testing.T) {
+	st := reflect.TypeOf(computev1alpha1.WorkspacePersistenceSpec{})
+	for _, name := range []string{"WorkspaceID", "AppID"} {
+		f, ok := st.FieldByName(name)
+		if !ok {
+			t.Fatalf("WorkspacePersistenceSpec has no %s", name)
+		}
+		// Required means no `omitempty`: with it, an empty value marshals away
+		// and the API server's required check never sees a missing field.
+		if strings.Contains(f.Tag.Get("json"), "omitempty") {
+			t.Errorf("%s is tagged omitempty; both ids are required to address a workspace (§14.4)", name)
+		}
 	}
 }

@@ -724,9 +724,9 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		// an overlay destroyed before the workload starts. Restore has one
 		// owner now, and the startup probe on this container is what holds the
 		// workload back until that restore is finished.
-		wsID := ej.Spec.WorkspacePersistence.WorkspaceID
 		keep := resolveKeepCheckpoints(ej.Spec.WorkspacePersistence)
-		spec_initContainers = append(spec_initContainers, workspaceSyncContainer(wsID, keep))
+		spec_initContainers = append(spec_initContainers,
+			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep))
 	}
 
 	// A writable /tmp, always.

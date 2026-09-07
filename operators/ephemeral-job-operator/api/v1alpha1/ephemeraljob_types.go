@@ -364,6 +364,23 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:MaxLength=253
 	WorkspaceID string `json:"workspaceId"`
 
+	// AppID is the ROOT of every object key for this workspace (§14.4):
+	//
+	//	<appId>/<workspaceId>/code/...
+	//
+	// Required, not optional. The layout is app-rooted so that an app's other
+	// data — chat session assets at <appId>/<sessionId>/..., build artifacts —
+	// sits beside its code and an app can be deleted with one prefix
+	// operation. There is no app-less location, so defaulting this would write
+	// a workspace where nothing will look for it, and the failure would surface
+	// much later as an empty restore rather than as a missing field.
+	//
+	// A caller with no app id should not ask for workspace persistence at all.
+	//
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	AppID string `json:"appId"`
+
 	// KeepCheckpoints is how many checkpoints this workspace retains
 	// (ADR-052 §14.2). Unset means 5.
 	//
@@ -392,6 +409,46 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=50
 	KeepCheckpoints *int32 `json:"keepCheckpoints,omitempty"`
+
+	// CheckpointID pins the workspace to one exact checkpoint (ADR-052 §14.3).
+	// Unset means the latest, which is what an interactive sandbox wants.
+	//
+	// Two things need a pin, and they need the same one:
+	//
+	//   - a BUILD must compile the checkpoint it was asked for, not whatever
+	//     the agent has written since. Without this, a build races the session
+	//     that triggered it and ships code nobody asked to ship.
+	//   - an UNDO ("take me back to checkpoint 3") is a sandbox recreated with
+	//     that checkpoint pinned. The workspace is an emptyDir with S3 as the
+	//     source of truth (§14.2), so there is nothing to roll back in place —
+	//     a new pod pinned to an older checkpoint IS the undo.
+	//
+	// A pinned checkpoint that does not exist is a hard failure, not a silent
+	// fall back to latest: building or restoring the wrong revision quietly is
+	// worse than not doing it at all.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	CheckpointID string `json:"checkpointId,omitempty"`
+
+	// ReadOnly restores the workspace but never writes it back
+	// (ADR-052 §14.3). Unset means read-write, which is what a sandbox wants.
+	//
+	// This exists because a build reusing the sandbox's persistence would be
+	// actively destructive, not merely wasteful. A build's tree fills with
+	// node_modules, dist and caches; with read-write persistence the periodic
+	// backstop uploads that as a legitimate checkpoint, the teardown snapshot
+	// uploads it again, and retention then counts those toward the bound —
+	// EVICTING the user's real checkpoints to make room for build droppings.
+	// With source history living only in S3 (§14.2), that loss is permanent.
+	//
+	// Set, the sidecar mounts the checkpoint and stops there: no periodic
+	// backstop, no teardown snapshot, no retention pass, no writes of any kind
+	// to object storage. The workload still gets a writable /workspace — the
+	// overlay's upper layer is local scratch that dies with the pod.
+	//
+	// +optional
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 // DefaultKeepCheckpoints is the retention used when a fleet asks for none.
