@@ -19,7 +19,7 @@ Three facts bear on the choice.
 
 ## Decision
 
-**Each tenant's control plane runs inside that tenant's own box, and the platform operates nothing.**
+**Each tenant's control plane runs inside that tenant's own box, and the platform operates no tenant infrastructure.**
 
 ### The control plane is delivered, not hosted
 
@@ -35,11 +35,15 @@ The credentials that provision a tenant's clusters are held by that tenant's con
 
 This makes the property ADR-062 asserts about clusters true of the material that creates them, and it removes the class of failure in which one compromised credential reaches more than one tenant's cloud account.
 
-### The platform publishes; it does not reach in
+### The platform's authority ends at a pull request
 
-The platform's output is a bundle at a tagged revision, as ADR-063 defines it. Delivery is publication. A tenant's control plane consumes what the platform publishes, and nothing the platform runs holds authority over a tenant's cluster.
+Maintaining the stack across a tenant's estate is the service the platform provides, so the platform does not stop at publishing. It proposes changes to a tenant's declarations, in the manner of a dependency-update bot: it reads the tenant's infrastructure repository, opens branches and pull requests against it, and does nothing else.
 
-Propagation therefore cannot be a push. ADR-064 records the mechanism by which a published bundle reaches a tenant's clusters without the platform holding access to them.
+That access is delegated by the tenant through the App installation ADR-062 already establishes, is scoped to repositories, and is revocable by the tenant at any time. Revoking it stops proposals arriving; it does not stop anything running.
+
+The boundary is between proposing a change to a declaration and applying a change to infrastructure. The platform does the first and never the second. It holds no cloud credential, no cluster credential, and no secret material belonging to a tenant, and it cannot merge its own proposal. Every change reaches running infrastructure by the tenant's own control plane reconciling the tenant's own repository after the tenant has accepted it.
+
+A tenant may configure its repository to accept qualifying proposals automatically. That is the tenant's automation acting under the tenant's rules, and the platform's authority is unchanged by it.
 
 ### A hosted interface, if offered, is a relay
 
@@ -53,6 +57,8 @@ An interface that accumulated state, or held credentials for the control planes 
 
 **Shipping the control plane and abandoning propagation, as kubefirst does.** Rejected. Maintaining the stack across a tenant's estate is the service the platform provides, and an arrangement in which a published fix never reaches a running cluster removes it.
 
+**Having each tenant's control plane watch for published versions and propose its own upgrades.** Rejected. It would place the maintenance mechanism in every box, where a defect in it is present across the field and correctable only by the upgrade path it is itself responsible for. Proposing from outside keeps that mechanism in one place under the platform's control, while leaving acceptance with the tenant.
+
 ## Ownership
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
@@ -61,6 +67,8 @@ An interface that accumulated state, or held credentials for the control planes 
 | Cloud provider credentials | tenant's control plane | Tenant | ESO | Crossplane / CAPI | Day-1+ |
 | Published bundle | `zero-ops` | Platform | Release workflow | Tenant control planes | Day-1+ |
 | Hosted interface state | none | Platform | — | Tenant | Day-1+ |
+| Maintenance proposals | tenant infrastructure repository | Platform | Platform automation | Tenant | Day-1+ |
+| Repository access grant | App installation | Tenant | — | Platform | Day-1+ |
 
 See ADR-039 for the complete ownership matrix.
 
@@ -68,13 +76,13 @@ See ADR-039 for the complete ownership matrix.
 
 ### Positive
 
-The platform holds no tenant credential and no standing access to tenant infrastructure, so a compromise of the platform does not reach a tenant's cloud account.
+The platform holds no cloud, cluster or secret credential belonging to a tenant, so a compromise of the platform reaches proposals in a repository and no running infrastructure anywhere.
 
 Cross-tenant isolation ceases to be a property the platform must implement, because no component serves more than one tenant. The isolation model becomes an assertion about topology rather than a set of controls.
 
 A tenant's box continues to reconcile when the platform is unreachable, which makes the independence the platform claims verifiable rather than contractual.
 
-Exit is not a migration. A tenant that stops buying maintenance keeps a running control plane and a bundle at a known tag.
+Exit is not a migration. A tenant that stops buying maintenance revokes an App installation and keeps a running control plane and a bundle at a known tag. Nothing is withdrawn from it, because nothing was ever held on its behalf.
 
 Day-0's existing sequence becomes a product surface rather than internal bootstrap tooling, and its quality bounds what a tenant can do unaided.
 
@@ -82,17 +90,17 @@ Day-0's existing sequence becomes a product surface rather than internal bootstr
 
 Every tenant carries the cost of a full control plane, so the floor price of a box is the cost of running one. Reducing that floor becomes a standing engineering constraint rather than an optimisation.
 
-The platform cannot observe a tenant's cluster directly, so support, incident response and defect reproduction all depend on what a tenant reports or chooses to share.
+The platform cannot observe a tenant's cluster directly, so support, incident response and defect reproduction all depend on what a tenant reports or chooses to share. A proposal can be correct against the declarations and still fail against a cluster the platform cannot see.
 
-A defect in a published bundle cannot be corrected in place. Withdrawal is a publication and a promotion, bounded by each tenant's approval.
+A defect in a published bundle cannot be corrected in place. Withdrawal is a publication and a proposal, bounded by each tenant's approval, and a tenant that has revoked access receives neither.
 
 Control planes will run different bundle versions, and the platform supports the set of versions in the field rather than one.
 
 ## Impact
 
 - **Amends ADR-062.** A tenant's control plane is part of its box and runs in its own cloud account. The repository model is unchanged in principle and changes in ownership, which that ADR records.
-- **Constrains ADR-064.** Promotion cannot be a push from the platform, because the platform holds no access to the clusters being promoted.
-- **Confirms ADR-063.** The bundle is what the platform delivers, and publication is the whole of delivery.
+- **Constrains ADR-064.** A promotion is a proposal the platform raises against a tenant's repository, never an action against a tenant's cluster.
+- **Confirms ADR-063.** The bundle is what the platform delivers. Publishing a tag begins a release; proposing it to each tenant completes one.
 - **Confirms ADR-040.** Day-0 already produces a self-contained control plane; this ADR names that property as load-bearing rather than incidental.
 - **Confirms ADR-031.** Secret isolation is bounded by a box, and no secret store serves more than one tenant.
 - A platform-operated control plane shared by several tenants is out of scope here and is left to a separate ADR.

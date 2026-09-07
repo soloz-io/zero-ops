@@ -39,13 +39,13 @@ A cell holds no compute, pins no version, and owns no cluster. It is a selector 
 
 Residency follows from this without a special case. Region is a property of a cluster. A cell may carry a residency policy, and a validator asserts that every cluster matching the cell satisfies it.
 
-### Promotion is a pull request the tenant's own control plane opens
+### Promotion is a pull request the platform raises against the tenant's repository
 
 ADR-037 governs promotion and is adopted without modification. A bundle version advances through the environments in order; a promotion workflow verifies that the version reconciled and passed validation in the preceding environment before it may be proposed for the next; production carries protection rules and code ownership; and rollback is a revert of the field rather than a cluster mutation.
 
-Under ADR-065 the platform holds no access to the clusters being promoted, so a promotion cannot be a push. The platform publishes a bundle at a tag and does nothing further. Each tenant's control plane observes what has been published and raises the promotion against that tenant's own repository, where the tenant's approval rules apply.
+Under ADR-065 the platform proposes and does not apply. When a bundle is published, the platform opens a pull request against each subscribing tenant's infrastructure repository changing the bundle version on the clusters that are due it. The change reaches infrastructure only when that pull request is accepted and the tenant's own control plane reconciles the result.
 
-Propagation is therefore a subscription rather than a delivery. A published fix reaches every tenant that is subscribed, without the platform holding a credential for any of them, and a tenant that has stopped subscribing simply stops being offered new versions. This is the property kubefirst's arrangement lacks: it obtains custody by having no propagation mechanism, where this obtains both.
+This is the shape of a dependency-update bot, and the properties that make that arrangement work carry over: the proposal is legible before it is accepted, it is declined by closing it, the access that produces it is granted by the tenant and revocable, and a tenant may configure its repository to accept qualifying proposals automatically. The platform maintains the estate without holding a credential that can change anything running in it.
 
 ### Approval is a property of the cluster instance
 
@@ -66,7 +66,9 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 
 **Retain one control-plane-wide `environmentRevision`.** Rejected. Staged rollout becomes inexpressible and the first cluster to run a bundle is also the last. It is also the arrangement that has no promotion path at all.
 
-**Have the platform push promotions into tenant repositories.** Rejected under ADR-065. It would require the platform to hold a write credential for every tenant's repository, which is the standing access that ADR exists to remove, and it would make propagation fail whenever a tenant revoked it rather than when a tenant chose to stop.
+**Have the platform apply promotions directly to tenant clusters.** Rejected under ADR-065. It would require the platform to hold a credential that changes running infrastructure, where opening a pull request requires only repository access the tenant grants and can revoke, and it would remove the tenant's opportunity to decline a change before it takes effect.
+
+**Have each tenant's control plane propose its own promotions.** Rejected. It places the maintenance mechanism inside every box, so a defect in it is present across the field and correctable only through the path it is itself responsible for.
 
 **Pin the bundle version on the cell rather than the cluster.** Rejected. A cell is a dynamic grouping and a cluster may match several, so a version pinned there is either ambiguous or forces cells to be disjoint, which would make them a partition rather than a selector and remove the property that motivates them.
 
@@ -81,6 +83,7 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 | Cluster identity and approval mode | tenant infrastructure repository | Tenant | Crossplane / CAPI | Tenant control plane | Day-1+ |
 | Cell definitions and policy binding | tenant infrastructure repository | Tenant | ArgoCD | Spoke clusters | Day-1+ |
 | Published bundle tags | `zero-ops` | Platform | Release workflow | Tenant control planes | Day-1+ |
+| Promotion proposals | tenant infrastructure repository | Platform | Platform automation | Tenant | Day-1+ |
 
 See ADR-039 for the complete ownership matrix.
 
@@ -90,7 +93,7 @@ See ADR-039 for the complete ownership matrix.
 
 A bundle reaches one cluster before the rest, so a defect is observed where it was chosen to be observed rather than everywhere at once. Because clusters belong to one tenant each, a defective promotion is bounded to that tenant.
 
-The platform maintains a tenant's estate without holding a credential for it. Propagation and custody stop being in tension.
+The platform maintains a tenant's estate while holding no credential that can change anything running in it. Propagation and custody stop being in tension: a proposal is the whole of the platform's reach.
 
 The bundle version acquires the properties ADR-037 already provides to every environment-differentiated value: review, a verification gate, an audit trail, and rollback by revert.
 
@@ -106,7 +109,7 @@ Clusters will run different bundle versions simultaneously, and the set in produ
 
 Propagation of a security fix is bounded by the slowest approver. Clusters on automatic approval are unaffected; a tenant that holds the gate holds the exposure with it.
 
-One pull request per cluster means promotion volume scales with the estate, and the mechanism that opens them runs in every tenant's control plane, so a defect in it is present across the field and cannot be corrected centrally.
+One pull request per cluster means promotion volume scales with the estate, and the automation that opens them becomes platform infrastructure with its own failure modes. A tenant that accepts proposals automatically has delegated review to a validator set, so a defect that validators do not catch reaches its clusters without a human seeing it.
 
 A cluster matching several cells receives a union of policy, so conflicting policy across two cells is a state a tenant can express and a validator must reject.
 
@@ -117,7 +120,7 @@ A cluster matching several cells receives a union of policy, so conflicting poli
 - **Amends ADR-031.** Policy and secret scope follow cluster identity, and a cluster serves one tenant, so isolation between tenants is not a property of a cluster's interior.
 - **Confirms ADR-037.** Its promotion path, verification gate, protection rules and revert-based rollback are adopted for the bundle version without modification.
 - **Confirms ADR-062.** The cluster instance and the cell are the records this ADR extends and binds policy to.
-- **Confirms ADR-065.** Promotion is a subscription a tenant's control plane acts on, not a push, because the platform holds no access to tenant clusters or repositories.
+- **Confirms ADR-065.** A promotion is a proposal raised against a tenant's repository under access the tenant grants, and never an action against a tenant's cluster.
 - **Confirms ADR-040.** Day-0 still selects the first bundle version and acts exactly once. Removing the CLI from the upgrade path narrows Day-1+ CLI execution to nothing.
 - No change to ADR-021, ADR-042, ADR-047, ADR-052 or ADR-061.
 

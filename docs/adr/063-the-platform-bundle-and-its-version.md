@@ -55,7 +55,7 @@ A coupling that cannot be expressed as equal version strings — `provider-kuber
 
 A component is not upgraded on its own. The bundle is advanced to a new set, that set is exercised, and the result is tagged. What reaches a cluster is a version that existed as a whole before it was deployed.
 
-Under ADR-065 the tag is the whole of delivery: the platform publishes it and holds no access to the clusters that consume it.
+Publishing a tag is where a release begins rather than where it ends. Under ADR-065 the platform then proposes the new version to each tenant, and under ADR-064 that proposal is a pull request against the tenant's own repository.
 
 This is a statement about what is *released*, not about how work is done. Bumping one component while integrating it is ordinary; shipping that bump alone, to a cluster, as a change in its own right, is what this forbids.
 
