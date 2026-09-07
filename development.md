@@ -98,3 +98,7 @@ your task is not to implement. you have to report back with a implementation pla
 Hub - zero-ops/k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig
 Spoke -  KUBECONFIG=/tmp/spoke-fresh.kubeconfig ......... find why http://waypoint.nutgrafin is not accessble from browser. read zero-ops/docs/adr/046-hybrid-provider-home-worker.mdfirst. waypoint workloads run on flatcar node 1 worker node which is created by script -zero-ops/scripts/hybrid/provision-flatcar-worker.sh 
 -----------------------------------------
+
+i told you to never run any scripts. you just debug and fix tehissue. Report back when u need ur changes to be retested or image to be buildand deployed
+
+---------
