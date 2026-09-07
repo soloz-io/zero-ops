@@ -33,7 +33,7 @@ type Config struct {
 	SystemAdminEmail string
 	SystemAdminName  string
 
-	// User groups ConfigMap (synced to Kratos on bootstrap)
+	// User groups ConfigMap (synced to the identity provider on bootstrap)
 	UserGroupsCM  string // default "identity-user-groups"
 	UserGroupsKey string // default "groups.yaml"
 

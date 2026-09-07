@@ -252,7 +252,7 @@ type userGroupsConfig struct {
 }
 
 // syncUserGroups reads the identity-user-groups ConfigMap and sets groups on
-// each user's metadata_public in Kratos. This runs on every bootstrap to
+// each user's public metadata at the identity provider. This runs on every bootstrap to
 // ensure group assignments stay in sync with the Git source of truth.
 // Users not in the ConfigMap have their groups removed (deletion semantics).
 func (cp *ControlPlane) syncUserGroups(ctx context.Context) error {

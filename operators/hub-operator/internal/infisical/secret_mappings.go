@@ -537,12 +537,6 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		Description: "Stalwart mail server admin password",
 	},
-	{
-		UsernameKey: "hub-stalwart-kratos-smtp-user",
-		PasswordKey: "hub-stalwart-kratos-smtp-password",
-		Username:    "kratos",
-		Description: "Stalwart mail server Kratos SMTP credentials",
-	},
 
 	// ========================================================================
 	// STALWART DKIM KEY PAIR

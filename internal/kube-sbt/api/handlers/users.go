@@ -43,7 +43,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Step 1: Create user in Ory Kratos
+	// Step 1: Create the user at the identity provider
 	//
 	// TenantID is set on the FIELD, not smuggled through Traits. createIdentity
 	// reads u.TenantID and writes it to metadata_public (ADR-010); it never looks
@@ -53,7 +53,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	//
 	// The cost was invisible: this endpoint returned 201 and produced a user with
 	// no tenant binding at all. On 2026-09-02 such a user could authenticate
-	// against Kratos and was then rejected by every service with
+	// against the identity provider and was then rejected by every service with
 	// "Token missing required tenant_id claim", because the claim the auth-proxy
 	// derives from metadata_public was never there to derive.
 	user := models.User{
@@ -65,7 +65,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		},
 	}
 
-	kratosUser, err := h.auth.CreateUser(c.Request.Context(), user)
+	idpUser, err := h.auth.CreateUser(c.Request.Context(), user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"type":   "https://kube-sbt.io/problems/internal-error",
@@ -77,7 +77,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 
 	// Step 2: Register subject in OpenMeter
-	subjectID := models.GenerateSubjectID(tenantID, kratosUser.ID)
+	subjectID := models.GenerateSubjectID(tenantID, idpUser.ID)
 	metadata := map[string]string{
 		"email":     req.Email,
 		"tenant_id": tenantID,
@@ -90,8 +90,8 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 
 	err = h.metering.RegisterSubject(c.Request.Context(), namespace.(string), subjectID, metadata)
 	if err != nil {
-		// Saga Rollback: Delete Kratos user
-		_ = h.auth.DeleteUser(c.Request.Context(), kratosUser.ID)
+		// Saga Rollback: delete the user at the identity provider
+		_ = h.auth.DeleteUser(c.Request.Context(), idpUser.ID)
 
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"type":   "https://kube-sbt.io/problems/internal-error",
@@ -103,10 +103,10 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":         kratosUser.ID,
-		"email":      kratosUser.Email,
+		"id":         idpUser.ID,
+		"email":      idpUser.Email,
 		"subject_id": subjectID,
-		"created_at": kratosUser.CreatedAt,
+		"created_at": idpUser.CreatedAt,
 	})
 }
 

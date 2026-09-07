@@ -16,7 +16,6 @@ import (
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/openmeter"
-	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/ory"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/zitadel"
 )
 
@@ -297,15 +296,14 @@ func retryWithBackoff(fn func() (interface{}, error)) (interface{}, error) {
 // and rebuilding. An abstraction that only a recompile can re-point is not one
 // (ADR-059), so the choice is a setting.
 //
-// Defaulting is deliberate rather than lazy: an unset variable keeps an existing
-// deployment on the provider it already runs, so this change cannot silently
-// re-point a live environment at a different issuer.
+// The Ory provider this selected between was removed with the Ory stack it
+// spoke to. It remained the DEFAULT after that removal, so an unset variable
+// started this service against Kratos at an address nothing serves, and the
+// failure appeared as authentication errors rather than as a missing component.
+// Zitadel is the default and the only accepted value; an unrecognised one is
+// named rather than fallen back from.
 func newAuthProvider() (interfaces.IAuth, error) {
-	switch provider := getEnv("AUTH_PROVIDER", "ory"); provider {
-	case "ory":
-		return ory.NewAuthProvider(getEnv("ORY_KRATOS_URL",
-			"http://kratos-public.platform-identity.svc.cluster.local"))
-
+	switch provider := getEnv("AUTH_PROVIDER", "zitadel"); provider {
 	case "zitadel":
 		// The issuer is the public URL, not an in-cluster Service address. It is
 		// what relying parties are configured with and what the token's iss claim
@@ -323,6 +321,6 @@ func newAuthProvider() (interfaces.IAuth, error) {
 		// selected a default would start the service against the wrong issuer,
 		// and every token would then fail validation for reasons that point
 		// anywhere but here.
-		return nil, fmt.Errorf("unknown AUTH_PROVIDER %q: expected \"ory\" or \"zitadel\"", provider)
+		return nil, fmt.Errorf("unknown AUTH_PROVIDER %q: expected \"zitadel\"", provider)
 	}
 }

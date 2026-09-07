@@ -9,10 +9,11 @@
 # Organization — a first-class object a user belongs to — so "a user with no
 # tenant" stops being representable rather than being guarded against.
 #
-# Nothing here replaces Ory. Kratos, Hydra and Keto keep running and keep
-# serving auth.dev.nutgraf.in; this stands up a second issuer on its own
-# hostname and its own database so the spike can be deleted by removing one
-# Application.
+# Zitadel is the issuer. This text described it as a spike alongside a running
+# Ory stack -- "Kratos, Hydra and Keto keep running" -- which stopped being true
+# when that stack was removed, leaving the file asserting a topology the platform
+# no longer had. auth.dev.nutgraf.in is served by auth-proxy in front of this
+# issuer (ADR-060), not by Hydra.
 zitadel:
   # The masterkey encrypts everything Zitadel stores at rest. Supplied by the
   # ExternalSecret beside this file rather than inline: a literal here would sit

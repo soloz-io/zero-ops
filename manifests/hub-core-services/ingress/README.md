@@ -10,7 +10,7 @@ This directory contains Ingress configurations for Demo 1 OAuth2 PKCE flow.
 
 - **api.nutgraf.in** → AgentGateway (api-gateway namespace)
 - **auth.nutgraf.in** → auth-proxy (identity-services namespace)
-- **console.nutgraf.in** → Kratos Self-Service UI (ory-system namespace)
+- **console.nutgraf.in** → Zitadel console (platform-identity namespace)
 
 ### TLS Configuration
 
