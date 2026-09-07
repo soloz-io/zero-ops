@@ -11,10 +11,15 @@ cluster's values file and nowhere else.
 {{- $a := .Values.infisical.auth -}}
 {{- $signing := .Values.infisical.signing | default dict -}}
 {{- $f := .Values.infisical.fleet | default dict -}}
-{{- $have := and .Values.infisical.url $f.projectId $f.clientId -}}
-{{- $any := or .Values.infisical.url $f.projectId $f.clientId -}}
+{{- $have := and $f.projectId $f.clientId -}}
+{{- $any := or $f.projectId $f.clientId -}}
 {{- /*
-The issuers render only once all three coordinates are supplied.
+The issuers render only once the cluster's Infisical identity is supplied.
+
+The URL is not part of that test. It is the in-cluster Service address, the same
+on every cluster, and it carries a default; including it here made the check
+always see one value present, so an empty project and client id read as a partial
+set rather than as nothing yet known.
 
 This component is reconciled from boundary 01, five phases before the Infisical
 project and machine identity exist, so there is a window in which the values are
@@ -30,7 +35,7 @@ cannot work, and an issuer built from it would authenticate as nobody against a
 project that does not exist.
 */ -}}
 {{- if and $any (not $have) }}
-{{- fail "infisical: url, fleet.projectId and fleet.clientId must be supplied together; got a partial set" }}
+{{- fail "infisical: fleet.projectId and fleet.clientId must be supplied together; got one without the other" }}
 {{- end }}
 {{- if $have }}---
 apiVersion: infisical-issuer.infisical.com/v1alpha1

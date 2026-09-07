@@ -102,7 +102,6 @@ spec:
             directoryInclude: ''
             helmValues: |
               infisical:
-                url: {{ .Values.infisical.url | quote }}
                 fleet:
                   projectId: {{ .Values.infisical.fleet.projectId | quote }}
                   clientId: {{ .Values.infisical.fleet.clientId | quote }}

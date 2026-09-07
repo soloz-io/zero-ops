@@ -172,12 +172,7 @@ func (o *Orchestrator) infisicalCoordinates(ctx context.Context, kubeconfig stri
 	return read("projectId"), read("client-id")
 }
 
-// infisicalServiceURL is the in-cluster address of the Infisical API. The
-// infisical-issuer controller dials it from inside the cluster, so the service
-// address is correct on every provider where the public hostname is not.
-const infisicalServiceURL = "http://infisical-standalone-infisical.platform-security.svc:8080"
-
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalURL, infisicalProjectID, infisicalClientID string, oidcScopes []string) string {
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID string, oidcScopes []string) string {
 	scopes := ""
 	for _, sc := range oidcScopes {
 		scopes += fmt.Sprintf("\n        - %q", sc)
@@ -211,8 +206,6 @@ spec:
           value: %q
         - name: oidcJwksUrl
           value: %q
-        - name: infisical.url
-          value: %q
         - name: infisical.fleet.projectId
           value: %q
         - name: infisical.fleet.clientId
@@ -229,7 +222,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
 `, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
-		infisicalURL, infisicalProjectID, infisicalClientID, scopes)
+		infisicalProjectID, infisicalClientID, scopes)
 }
 
 // applySeed establishes the Day-0 seed: the six boundary AppProjects and the
@@ -341,7 +334,7 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
 		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
-		infisicalServiceURL, infisicalProjectID, infisicalClientID, oidcScopes)
+		infisicalProjectID, infisicalClientID, oidcScopes)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}

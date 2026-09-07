@@ -11,7 +11,15 @@
 # impossible to publish.
 infisical:
   # Reachable URL of the Infisical API from inside this cluster.
-  url: ""
+  #
+  # A default rather than a supplied value: the infisical-issuer controller dials
+  # this from inside the cluster, so the Service address is correct on every
+  # provider and does not vary per cluster. It was passed in with the coordinates
+  # below, which broke the completeness check -- a constant is always "supplied",
+  # so an empty project and client id read as a partial set rather than as
+  # nothing yet known, and boundary 01 refused to render before Infisical
+  # existed. Override it here if the issuer must reach a different endpoint.
+  url: "http://infisical-standalone-infisical.platform-security.svc:8080"
 
   # Identity used for the fleet intermediate CA (ADR-035).
   fleet:

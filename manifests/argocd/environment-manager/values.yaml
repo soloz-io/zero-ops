@@ -147,7 +147,6 @@ oidcScopes: []
 # does not supply them fails to render, rather than rendering an issuer pointed
 # at nothing.
 infisical:
-  url: ""
   fleet:
     projectId: ""
     clientId: ""
