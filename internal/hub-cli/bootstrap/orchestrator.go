@@ -400,6 +400,27 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
+	// The seed carries the Infisical PKI coordinates as chart values, and they
+	// are only knowable once the phase above has created the project and the
+	// machine identity. The seed was applied before boundary 01, five phases
+	// earlier, so at that point they were empty and the security component
+	// rendered without its ClusterIssuers.
+	//
+	// Re-applying the seed here supplies them. The renderer reads them back from
+	// the infisical-auth Secret, so this needs no new state threaded through the
+	// pipeline, and applying the same manifest twice is what ReapplySeed exists
+	// for.
+	//
+	// This replaces a Kustomize patch the previous phase wrote into the
+	// repository and committed. That arrangement appeared to work only because
+	// the committed file survived between runs: a fresh cluster reconciled the
+	// PREVIOUS cluster's project id until the phase above overwrote it, so the
+	// issuers existed early and were wrong rather than absent.
+	if err := o.ReapplySeed(ctx, mgmtKubeconfig); err != nil {
+		return fmt.Errorf("re-apply seed with Infisical coordinates: %w", err)
+	}
+	fmt.Println("[bootstrap-infisical-api] ✓ seed re-applied with PKI coordinates")
+
 	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
 		"Deploying tenant services (boundary 04)...",

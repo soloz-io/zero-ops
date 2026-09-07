@@ -1,0 +1,40 @@
+# Coordinates of the Infisical instance this cluster's PKI issuers authenticate
+# against. These are per-cluster facts, not platform defaults, and the chart
+# therefore ships no usable value for them: a published chart carrying one
+# cluster's projectId would hand every other cluster the wrong project, and the
+# failure would be a certificate issued from someone else's PKI rather than an
+# error. values.schema.json requires them, so a missing value fails at render.
+#
+# They were supplied until now by a Kustomize patch written into the repository
+# by Day-0 (ADR-045). That arrangement kept per-cluster instance data inside the
+# types repository, which ADR-062 forbids and which makes the component
+# impossible to publish.
+infisical:
+  # Reachable URL of the Infisical API from inside this cluster.
+  url: ""
+
+  # Identity used for the fleet intermediate CA (ADR-035).
+  fleet:
+    projectId: ""
+    clientId: ""
+
+  # Identity used for long-lived signing keys.
+  #
+  # Left empty, these inherit the fleet values. That inheritance was previously
+  # expressed as Kustomize `replacements` copying three fields between the two
+  # ClusterIssuers, which stated the dependency in a place neither issuer could
+  # be read from. Setting them separately is now possible without editing the
+  # component, which the replacements did not allow.
+  signing:
+    projectId: ""
+    clientId: ""
+
+  # Secret holding the machine identity's client secret. Delivered by ESO or
+  # Day-0 into the issuer namespace; never rendered by this chart.
+  auth:
+    secretName: infisical-auth
+    secretKey: client-secret
+
+certificateTemplate:
+  fleet: infrastructure-services
+  signing: signing-keys

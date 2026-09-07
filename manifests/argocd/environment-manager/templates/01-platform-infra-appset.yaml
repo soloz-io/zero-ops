@@ -79,6 +79,38 @@ spec:
           # Kyverno's ADMISSION controller is placement-sensitive on a hybrid
           # hub, which a descriptor cannot express (ADR-061): it states one
           # fixed form, and this one differs per provider.
+          # ADR-035's Hub PKI issuers, plus the cert-manager approval RBAC and the
+          # spoke cell-id audit policy that accompany them.
+          #
+          # Declared here rather than as a descriptor because its values are
+          # environment-parameterised, which ADR-061 makes the test for where a
+          # component is declared: a descriptor states a fixed source, and a
+          # component whose configuration is a function of the environment
+          # belongs in the boundary template where those dimensions are in
+          # scope. It was a descriptor while the environment-specific half
+          # arrived as a Day-0-written Kustomize patch committed under
+          # generated/; removing that is what moves it here.
+          - appName: 'platform-security-infra'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '1'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/security'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              infisical:
+                url: {{ .Values.infisical.url | quote }}
+                fleet:
+                  projectId: {{ .Values.infisical.fleet.projectId | quote }}
+                  clientId: {{ .Values.infisical.fleet.clientId | quote }}
+                signing:
+                  projectId: {{ .Values.infisical.signing.projectId | quote }}
+                  clientId: {{ .Values.infisical.signing.clientId | quote }}
+            helmReleaseName: ''
+
           - appName: 'platform-kyverno'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'false'

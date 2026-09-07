@@ -132,3 +132,28 @@ oidcJwksUrl: ""
 # surfaces later as a missing tenant or an empty role list.
 oidcScopes: []
 
+# Coordinates of this cluster's Infisical instance, consumed by the Hub's PKI
+# ClusterIssuers (ADR-035).
+#
+# These are per-cluster facts. They reached the cluster until now as a Kustomize
+# patch that Day-0 wrote into manifests/hub-core-services/security/generated/ and
+# committed -- per-cluster instance data inside the types repository, which
+# ADR-062 forbids and which made the component impossible to publish as a chart
+# without handing every cluster one cluster's PKI project.
+#
+# They are supplied at render time instead, by the same Day-0 parameter path that
+# already carries hubIngressAddress and oidcIssuer. Empty here because the chart
+# that consumes them requires them through values.schema.json: a cluster that
+# does not supply them fails to render, rather than rendering an issuer pointed
+# at nothing.
+infisical:
+  url: ""
+  fleet:
+    projectId: ""
+    clientId: ""
+  # Empty signing values inherit the fleet identity, which is what the Kustomize
+  # replacements this replaces did.
+  signing:
+    projectId: ""
+    clientId: ""
+

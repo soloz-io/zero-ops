@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -138,7 +139,45 @@ spec:
 // than passed to a one-shot render. They are the cluster's identity, fixed at
 // creation, and being part of a reconciled object they survive rather than
 // having to be re-supplied by whoever last ran a render.
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL string, oidcScopes []string) string {
+// infisicalCoordinates returns the PKI project and machine-identity client id
+// that this hub's ClusterIssuers authenticate to Infisical with.
+//
+// They are read back from the infisical-auth Secret the secrets phase writes
+// into platform-security, rather than carried forward in memory, so a resumed
+// bootstrap that skips that phase still renders a complete seed.
+//
+// This replaces a Kustomize patch that the secrets phase wrote into
+// manifests/hub-core-services/security/generated/ and committed. That placed one
+// cluster's PKI project inside the types repository, which ADR-062 forbids and
+// which made the component impossible to publish: every cluster pulling the
+// chart would have received this cluster's project.
+//
+// Empty strings are returned when the Secret cannot be read. The consuming chart
+// requires both through values.schema.json, so the boundary refuses to render
+// rather than installing an issuer pointed at nothing.
+func (o *Orchestrator) infisicalCoordinates(ctx context.Context, kubeconfig string) (projectID, clientID string) {
+	read := func(key string) string {
+		out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "secret", "infisical-auth", "-n", "platform-security",
+			"-o", "jsonpath={.data."+key+"}").Output()
+		if err != nil {
+			return ""
+		}
+		dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(dec))
+	}
+	return read("projectId"), read("client-id")
+}
+
+// infisicalServiceURL is the in-cluster address of the Infisical API. The
+// infisical-issuer controller dials it from inside the cluster, so the service
+// address is correct on every provider where the public hostname is not.
+const infisicalServiceURL = "http://infisical-standalone-infisical.platform-security.svc:8080"
+
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalURL, infisicalProjectID, infisicalClientID string, oidcScopes []string) string {
 	scopes := ""
 	for _, sc := range oidcScopes {
 		scopes += fmt.Sprintf("\n        - %q", sc)
@@ -172,6 +211,12 @@ spec:
           value: %q
         - name: oidcJwksUrl
           value: %q
+        - name: infisical.url
+          value: %q
+        - name: infisical.fleet.projectId
+          value: %q
+        - name: infisical.fleet.clientId
+          value: %q
       valuesObject:
         oidcScopes:%s
   destination:
@@ -183,7 +228,8 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, scopes)
+`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+		infisicalURL, infisicalProjectID, infisicalClientID, scopes)
 }
 
 // applySeed establishes the Day-0 seed: the six boundary AppProjects and the
@@ -288,8 +334,14 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		envRevision = b
 	}
 
+	infisicalProjectID, infisicalClientID := o.infisicalCoordinates(ctx, kubeconfig)
+	if infisicalProjectID == "" || infisicalClientID == "" {
+		fmt.Println("[seed] warning: infisical-auth unreadable; the security boundary will refuse to render until it is")
+	}
+
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
-		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, oidcScopes)
+		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+		infisicalServiceURL, infisicalProjectID, infisicalClientID, oidcScopes)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}

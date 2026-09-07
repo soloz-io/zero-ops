@@ -9,11 +9,11 @@ artifacts:
   # during BootstrapInfisicalAPI phase. Kustomize patches: paths
   # are relative to the kustomization directory (resolved via the
   # generated/ subdirectory inside each consumer).
-  - file: manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml
-    requiredFields:
-      - spec.url
-      - spec.projectId
-      - spec.authentication.universalAuth.clientId
+  # The Infisical PKI coordinates were generated here as a Kustomize patch. They
+  # are per-cluster instance data, and ADR-062 keeps that out of the types
+  # repository; they now reach the security component as chart values read from
+  # the infisical-auth Secret at seed time. Nothing is written to the tree, so
+  # there is no artifact to register or validate.
   - file: manifests/environments/base/generated/hub-bootstrap-config-patch.yaml
     requiredFields:
       - data.INFISICAL_ORGANIZATION_ID
