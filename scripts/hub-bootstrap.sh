@@ -1848,12 +1848,6 @@ main() {
     # nothing unhealthy in the cluster — it fails in the browser only.
     run_gate "oauth-clients" "OAuth client registration"
 
-    # The public APIs answer over the hostnames a real client uses. Object-level
-    # checks cannot see this: every pod, Service, Route and Certificate can be
-    # Healthy while DNS, the listener, the certificate or the hostname match is
-    # wrong and the endpoint answers nothing.
-    run_gate "public-api-endpoints" "public API endpoints"
-
     if [[ -z "$SPOKEPOOL_NAME" ]]; then
         error_exit "SPOKEPOOL_NAME must be set via --spoke flag or SPOKEPOOL_NAME env var for provider '$PROVIDER'"
     fi
@@ -1876,6 +1870,17 @@ main() {
     # is the path that actually serves tenant traffic.
     run_gate "tenant-ingress" "spoke tenant ingress"
 
+    # LAST, and deliberately so. These checks resolve public hostnames, complete a
+    # TLS handshake against a publicly-trusted chain, and speak the protocol —
+    # which depends on external DNS having propagated, ACME having issued, and the
+    # Gateway serving. None of that is settled earlier in this sequence.
+    #
+    # It sat before step10_wait_spokepool until 2026-09-07 and blocked it: the
+    # module carries no soft failures by design, so a hostname that is legitimately
+    # not up yet ended the run before the spoke was ever provisioned. A final-state
+    # assertion placed mid-sequence does not gate the platform, it truncates it.
+    run_gate "public-api-endpoints" "public API endpoints"
+
     # Assert, do not announce. The previous banner claimed "SpokePool: Provisioned
     # and ready for tenant workloads", "Certificate distribution: Complete" and
     # "Spoke cluster: Ready for tenant database provisioning" unconditionally — and
@@ -1883,7 +1888,7 @@ main() {
     # pods. The run is only allowed to say what the gates above actually observed.
     log "Zero-Ops Hub Bootstrap Process completed"
     log "  Gates passed: secret resolution, OAuth clients, spoke readiness,"
-    log "                spoke home worker, tenant ingress"
+    log "                spoke home worker, tenant ingress, public API endpoints"
     log "  Post-bootstrap validation runs next and is fatal — the platform is not"
     log "  proven until it passes."
     log "You can now access your hub cluster using: kubectl --kubeconfig=$KUBECONFIG_PATH"
