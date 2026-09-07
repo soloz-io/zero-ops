@@ -121,6 +121,9 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePreFlight, "preflight",
 		"Running infra preflight validation (docker/kind/token)...",
 		func() error {
+			if err := o.checkPlacementCapacityRequested(); err != nil {
+				return err
+			}
 			r := preflight.NewRunner()
 			for _, v := range o.Provider.PreflightValidators() {
 				r.Add(v)
@@ -654,6 +657,36 @@ const hubWorkerSelector = "hub-role=worker"
 
 // joinHomeWorkers brings up the home-lab worker(s) this hub needs before any
 // platform workload is deployed. No-op unless the provider asked for home workers.
+// checkPlacementCapacityRequested refuses a hybrid bootstrap that has not asked
+// for the home workers its own manifests require.
+//
+// The hybrid environment pins platform-data to nodes labelled
+// workload-location=home and node-role.kubernetes.io/worker (ADR-046 §11: both
+// selectors are mandatory), and only a home worker carries them. Home workers
+// are opt-in, and joinHomeWorkers returns success when they were not asked for,
+// so the two settings can disagree and nothing says so.
+//
+// What that costs is the reason this is a preflight check rather than a comment.
+// The bootstrap proceeds for roughly ninety minutes -- provisioning a cluster,
+// pivoting, and reconciling two boundaries -- and then stalls at inject-ca-cert
+// waiting for a CNPG cluster that reports "Setting up primary" forever, because
+// its pod is Pending against a single control-plane node. The message names
+// CNPG, the failure is scheduling, and the cause is a flag that was not passed.
+func (o *Orchestrator) checkPlacementCapacityRequested() error {
+	if o.providerName() != "hybrid" {
+		return nil
+	}
+	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
+	if ok && hw.HomeWorkersRequested() {
+		return nil
+	}
+	return fmt.Errorf(
+		"provider is hybrid but home workers were not requested, and this cell's\n" +
+			"platform-data pins workload-location=home; nothing would ever schedule it.\n" +
+			"Re-run with --home-worker-enabled --tailnet-name=<tailnet>, or bootstrap\n" +
+			"with --provider=hetzner, whose manifests pin workload-location=hetzner")
+}
+
 func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) error {
 	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
 	if !ok || !hw.HomeWorkersRequested() {

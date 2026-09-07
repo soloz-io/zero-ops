@@ -949,9 +949,21 @@ Both triggers call the identical underlying function — there is one snapshot e
 Secret — the same one its SDK binds S3 from, named by the fleet registry
 (`tenants/<fleet>/workloads/base/sdk/rollout-patch.yaml`) and rendered into the
 tenant namespace by an ExternalSecret from Infisical (ADR-003, ADR-047 Tier 2).
-The operator carries the name as configuration (`WORKSPACE_SYNC_SECRET`), so a
-fleet whose registry renders a different name sets it rather than patching the
-operator.
+
+The operator holds a **template**, not a name: `WORKSPACE_SYNC_SECRET` defaults
+to `{namespace}-app-secrets`, expanded with the EphemeralJob's own namespace at
+reconcile. The tenant namespace is the fleet id (registries render workloads
+into `namespace: {TENANT_ID}`), so this resolves to each fleet's own Secret
+while the platform names none.
+
+That is required, not stylistic. ADR-047's addendum forbids a tenant identifier
+in platform code and preflight enforces it — and a literal name would resolve to
+one fleet's Secret for *every* fleet on the spoke. Because each injected
+reference is `optional`, the second fleet onboarded would not error: its sidecar
+would find nothing, report "object storage not configured", and no-op every
+checkpoint silently. A literal value is still accepted where a spoke's single
+fleet uses a non-conventional name; expansion is a no-op without the
+placeholder.
 
 Reusing the fleet's Secret rather than rendering a parallel platform-owned one
 means a credential rotation lands in one place, and the sidecar and the SDK
@@ -1828,13 +1840,38 @@ The periodic backstop is **off unless configured**. It remains available for an
 unattended workload with nobody to press Save — a long batch job — where the
 teardown checkpoint alone is too coarse.
 
-**The user save path crosses three processes, and it has to.** The sidecar binds
-`127.0.0.1` (§14.1), so nothing outside the pod can reach it. The request goes
-frontend → BFF → SDK → the sandbox's **harness**, which shares the pod's network
-namespace and forwards to the sidecar on localhost — the same reason the harness
-already proxies Metro. The harness is a pass-through here: it does not decide
-when to checkpoint, does not know what one contains, and holds no object-store
-credential (waypoint ADR-037 §1).
+**The user save path crosses four processes, and it has to.** The sidecar binds
+`127.0.0.1` (§14.1), so nothing outside the pod can reach it:
+
+```
+frontend → BFF → SDK  ──starts──▶ save-workspace-workflow
+                                        │  system/save-workspace
+                                        ▼
+                     sandbox harness (shares the pod's netns)
+                                        │  POST 127.0.0.1:7070/checkpoint
+                                        ▼
+                          workspace-sync sidecar ──▶ object storage
+```
+
+The harness is a pass-through: it does not decide when to checkpoint, does not
+know what one contains, and holds no object-store credential (waypoint ADR-037
+§1) — the same reason it already proxies Metro on localhost.
+
+**The workflow owns the trigger; the sidecar owns the data.** A save is a
+platform operation a person asked for, so it runs through the workflow engine
+like every other one, gaining an execution record, retry semantics and the same
+observability — the division `submit-app-build` already uses.
+
+It is worth being explicit about why the workflow does not move the data itself,
+since its sibling `s3-sync-artifacts` does. That step can upload content because
+the content is already in Postgres. A workspace snapshot's bytes are on
+pod-local disk, and four things follow: routing them through the SDK means
+pod → HTTP → SDK → object storage for every byte; no endpoint exposes the right
+bytes (the editor's file listing deliberately skips `.git`, `node_modules` and
+build output, while a snapshot is defined as *tracked, untracked and uncommitted
+alike, `.git` included*); the squashfs image is built by `mksquashfs` against a
+real local filesystem; and the teardown checkpoint fires after the workload
+exits, a moment no caller outside the pod can act in.
 
 Status codes are forwarded rather than flattened, because a person pressing Save
 needs to know which of these happened: `503` no workspace persistence on this

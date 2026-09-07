@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -229,6 +230,15 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	default:
 		r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
+		// A container that cannot start looks identical to capacity that has not
+		// arrived: both sit in Provisioning. Reported first, because it is the
+		// one of the two that will never resolve on its own.
+		if pod, err := r.podForJob(ctx, job); err == nil && pod != nil {
+			if blocker := podStartupBlocker(pod); blocker != "" {
+				ej.Status.Message = blocker
+				break
+			}
+		}
 		if waited := time.Since(ej.CreationTimestamp.Time); waited > r.ProvisioningBudget {
 			// Over budget is reported, never acted on by deletion. See §11.
 			ej.Status.Message = fmt.Sprintf(
@@ -1021,7 +1031,14 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 			return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseFailed, nil)
 		}
 		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
-		ej.Status.Message = "workload container is not ready"
+		// Say WHICH container is stuck and why, when that is knowable. The
+		// generic message below is true of every unhealthy pod and diagnoses
+		// none of them.
+		if blocker := podStartupBlocker(pod); blocker != "" {
+			ej.Status.Message = blocker
+		} else {
+			ej.Status.Message = "workload container is not ready"
+		}
 		ej.Status.PodName = pod.Name
 		if err := r.Status().Update(ctx, ej); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -1106,6 +1123,90 @@ func (r *EphemeralJobReconciler) ensureService(
 		return err
 	}
 	return nil
+}
+
+// podStartupBlocker names the container that is stopping this pod from
+// starting, and why — or "" when nothing is obviously wrong.
+//
+// This exists because "workload container is not ready" is true of every
+// unhealthy pod and useful for none of them. A crash-looping init container is
+// invisible in the CR: the phase reads Provisioning, the capacity condition
+// reads Scheduled, and the actual cause lives in a container status nobody
+// looks at until they already suspect it.
+//
+// Observed: the workspace-sync sidecar could not verify a TLS certificate, so
+// it exited, its startup probe never passed, and the workload never started.
+// What a user saw was a chat request timing out with a 504, several layers
+// away, with nothing connecting the two.
+//
+// INIT CONTAINERS FIRST, deliberately. Under §14.1 the workspace sidecar is a
+// native init container that must be ready before the workload starts, so when
+// both are unhappy the init container is the cause and the workload is the
+// symptom.
+// podForJob returns the one pod a Job created, or nil.
+//
+// Job mode has no direct handle on its pod — the Job controller owns it — so it
+// is found by the same label the Job sets on its template. Best-effort by
+// design: the caller uses it only to improve a status message, so a lookup
+// failure must degrade to the generic message rather than fail a reconcile.
+func (r *EphemeralJobReconciler) podForJob(ctx context.Context, job *batchv1.Job) (*corev1.Pod, error) {
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods,
+		client.InNamespace(job.Namespace),
+		client.MatchingLabels{"job-name": job.Name},
+	); err != nil {
+		return nil, err
+	}
+	if len(pods.Items) == 0 {
+		return nil, nil
+	}
+	return &pods.Items[0], nil
+}
+
+func podStartupBlocker(p *corev1.Pod) string {
+	// Reasons that mean "this will not fix itself". ContainerCreating and
+	// PodInitializing are ordinary transient states and must NOT be reported —
+	// every pod passes through them, and naming them would turn a normal start
+	// into an alarming message.
+	blocking := map[string]bool{
+		"CrashLoopBackOff":           true,
+		"ImagePullBackOff":           true,
+		"ErrImagePull":               true,
+		"CreateContainerConfigError": true,
+		"CreateContainerError":       true,
+		"RunContainerError":          true,
+		"InvalidImageName":           true,
+	}
+
+	describe := func(kind string, cs []corev1.ContainerStatus) string {
+		for i := range cs {
+			w := cs[i].State.Waiting
+			if w == nil || !blocking[w.Reason] {
+				continue
+			}
+			msg := fmt.Sprintf("%s %q is %s", kind, cs[i].Name, w.Reason)
+			if w.Message != "" {
+				msg += ": " + w.Message
+			}
+			// The last termination message is where the process's own reason
+			// lives — for a crash loop the Waiting state says only
+			// "CrashLoopBackOff", which names the symptom and not the fault.
+			if t := cs[i].LastTerminationState.Terminated; t != nil {
+				if t.Message != "" {
+					msg += " (last exit: " + strings.TrimSpace(t.Message) + ")"
+				} else if t.ExitCode != 0 {
+					msg += fmt.Sprintf(" (last exit code %d)", t.ExitCode)
+				}
+			}
+			return msg
+		}
+		return ""
+	}
+
+	if m := describe("init container", p.Status.InitContainerStatuses); m != "" {
+		return m
+	}
+	return describe("container", p.Status.ContainerStatuses)
 }
 
 func podExitCode(p *corev1.Pod) *int32 {
