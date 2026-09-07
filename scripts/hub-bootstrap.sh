@@ -1163,11 +1163,11 @@ step9_wait_database() {
         return
     fi
 
-    log "Step 9: Waiting for database deployment (timeout: 600s)..."
+    log "Step 9: Waiting for database deployment (timeout: 1800s)..."
 
-    log "Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=600s"
+    log "Running: kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db --timeout=1800s"
     kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
-        -n platform-data --timeout=600s \
+        -n platform-data --timeout=1800s \
         --kubeconfig="$KUBECONFIG_PATH"
 
     mark_step_completed "wait_database"
