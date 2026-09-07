@@ -25,7 +25,7 @@ ADR-062 establishes that a spoke cluster belongs to exactly one tenant, that a c
 
 ### The bundle version is pinned per cluster
 
-Each cluster instance declares the bundle version its spoke cluster runs, and that declaration is the System of Record for what the cluster is running, in place of the render-time parameter.
+Each cluster instance declares the published bundle version it runs, and that declaration is the System of Record for what the cluster is running, in place of the render-time parameter. A cluster consumes the bundle by naming a version and supplying values, so the declaration is a version and the values beside it, and never the bundle's content.
 
 Day-0 seeds a cluster's initial version from the default carried in `zero-ops`, which preserves ADR-040: Day-0 still selects the first bundle and thereafter never acts. What changes is that the value is written into Git as part of declaring the cluster, rather than surviving only as a field of a cluster object nothing declares.
 
@@ -43,9 +43,19 @@ Residency follows from this without a special case. Region is a property of a cl
 
 ADR-037 governs promotion and is adopted without modification. A bundle version advances through the environments in order; a promotion workflow verifies that the version reconciled and passed validation in the preceding environment before it may be proposed for the next; production carries protection rules and code ownership; and rollback is a revert of the field rather than a cluster mutation.
 
-Under ADR-065 the platform proposes and does not apply. When a bundle is published, the platform opens a pull request against each subscribing tenant's infrastructure repository changing the bundle version on the clusters that are due it. The change reaches infrastructure only when that pull request is accepted and the tenant's own control plane reconciles the result.
+Under ADR-065 the platform proposes and does not apply. When a bundle version is published, the platform opens a pull request against each subscribing tenant's `<tenant>-gitops` repository changing the pinned version on the clusters that are due it. Because ADR-063 publishes the bundle as a chart, that change is one field per cluster and carries none of the bundle's content. The change reaches infrastructure only when the pull request is accepted and the tenant's own control plane reconciles the result.
+
+A promotion never writes a values file. Values are the tenant's, defaults belong to the chart, and a version that required a values change to be usable would be a version that could not be proposed without arbitration.
 
 This is the shape of a dependency-update bot, and the properties that make that arrangement work carry over: the proposal is legible before it is accepted, it is declined by closing it, the access that produces it is granted by the tenant and revocable, and a tenant may configure its repository to accept qualifying proposals automatically. The platform maintains the estate without holding a credential that can change anything running in it.
+
+### A proposal resolves the versions it carries
+
+A promotion pull request records the component versions the bundle version resolves to, alongside the version itself. The version remains the unit of change and the thing that is promoted; the resolved set is written beside it so that a proposal states what moves.
+
+Two properties follow. A promotion becomes reviewable on its own terms: the reviewer sees which components move and by how much, rather than one version advancing to another with no visible content. And a tenant's repository becomes legible without resolving a chart, which is the property kubefirst obtains by copying content into each instance — obtained here without the copy, so the platform and the tenant still write to disjoint fields.
+
+The resolved set is an output of the promotion, not an input to reconciliation. What a cluster runs is determined by the version; a recorded set that disagrees with the version it accompanies is a defect a validator rejects, not an override.
 
 ### Approval is a property of the cluster instance
 
@@ -58,10 +68,12 @@ Automatic approval waives review. It does not waive validation.
 Each rule is asserted mechanically, in the style ADR-063 establishes for version couplings, and a promotion or grouping that violates one fails its pull request rather than reaching a cluster:
 
 - Every cluster matching a cell satisfies that cell's policy, including residency.
-- A declared bundle version exists as a tag of `zero-ops`.
+- A declared bundle version exists as a published chart.
 - A cluster advances only to a version that has reconciled and passed validation in the preceding environment.
 - A cluster instance names exactly one owning tenant.
 - A proposal carries a pre-flight verdict from the cluster it targets, or is raised as unverified (ADR-067).
+- The component versions a proposal records resolve from the bundle version it proposes.
+- A proposed bundle version exists as a published chart before the proposal is opened.
 
 ### Alternatives considered
 
@@ -79,12 +91,14 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
 |---|---|---|---|---|---|
-| Bundle version per cluster | tenant infrastructure repository | Tenant | ArgoCD | Boundary ApplicationSets | Day-1+ |
+| Bundle version per cluster | `<tenant>-gitops` | Platform | ArgoCD | Tenant control plane | Day-1+ |
 | Initial bundle version | `zero-ops` default | Platform | Day-0 CLI | Cluster instance | Day-0 |
-| Cluster identity and approval mode | tenant infrastructure repository | Tenant | Crossplane / CAPI | Tenant control plane | Day-1+ |
-| Cell definitions and policy binding | tenant infrastructure repository | Tenant | ArgoCD | Spoke clusters | Day-1+ |
+| Cluster values | `<tenant>-gitops` | Tenant | ArgoCD | Bundle chart | Day-1+ |
+| Cluster identity and approval mode | `<tenant>-gitops` | Tenant | Crossplane / CAPI | Tenant control plane | Day-1+ |
+| Cell definitions and policy binding | `<tenant>-gitops` | Tenant | ArgoCD | Spoke clusters | Day-1+ |
 | Published bundle tags | `zero-ops` | Platform | Release workflow | Tenant control planes | Day-1+ |
-| Promotion proposals | tenant infrastructure repository | Platform | Platform automation | Tenant | Day-1+ |
+| Promotion proposals | `<tenant>-gitops` | Platform | Platform automation | Tenant | Day-1+ |
+| Resolved component versions | `<tenant>-gitops` | Platform | Platform automation | Tenant | Day-1+ |
 
 See ADR-039 for the complete ownership matrix.
 
@@ -102,6 +116,8 @@ Advancing a cluster no longer requires the CLI, which removes the last operation
 
 A tenant expresses a policy boundary once and applies it to any subset of its clusters, including subsets that change, without the platform holding a list.
 
+A promotion is legible as a set of component moves rather than as one opaque tag, and a tenant's repository states what its estate runs without reference to anything the platform hosts.
+
 Residency stops being a special case. It is a cell policy asserted against a cluster property.
 
 ### Negative
@@ -113,6 +129,8 @@ Propagation of a security fix is bounded by the slowest approver. Clusters on au
 One pull request per cluster means promotion volume scales with the estate, and the automation that opens them becomes platform infrastructure with its own failure modes. A tenant that accepts proposals automatically has delegated review to a validator set, so a defect that validators do not catch reaches its clusters without a human seeing it.
 
 A cluster matching several cells receives a union of policy, so conflicting policy across two cells is a state a tenant can express and a validator must reject.
+
+Recording resolved versions duplicates into every tenant's repository what the tag already determines, and a stale or hand-edited record is a new way for a repository to disagree with itself.
 
 ## Impact
 
@@ -137,7 +155,7 @@ A cluster matching several cells receives a union of policy, so conflicting poli
 - ADR-052: Elastic Burst Capacity for Tenant Workloads
 - ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
-- ADR-062: Repository Separation of Types, Instances and Workloads
+- ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-067: Support Telemetry and the Basis of Maintenance

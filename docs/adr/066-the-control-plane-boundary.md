@@ -29,13 +29,13 @@ By that test the control plane is the GitOps engine, the composition and cluster
 
 ### Workloads are optional; the control plane is not
 
-Every box runs a control plane, and it is the same one. Workloads are selected in the tenant's infrastructure repository ADR-062 establishes: a tenant runs the database it needs and does not carry the ones it does not.
+Every box runs a control plane, and it is the same one. Workloads are selected in the values a cluster supplies to the bundle chart under ADR-063: a tenant runs the database it needs and does not carry the ones it does not. Selection is a value and never a version, so choosing a workload and upgrading a bundle are independent acts and neither blocks the other.
 
 This is what bounds the floor price. A box costs a control plane plus what the tenant chose, rather than a fixed thirty-one components regardless of use.
 
 ### The boundary is also the support boundary
 
-Maintenance of the control plane is the product, and it is uniform across tenants because the control plane is uniform. Maintenance of a workload is a separate undertaking, because a workload's version, configuration and data are the tenant's.
+Maintenance of the control plane is the product, and it is uniform across tenants because the control plane is uniform. It is the part of a box the platform proposes versions for in the `<tenant>-gitops` repository ADR-062 establishes. Maintenance of a workload is a separate undertaking, because a workload's version, configuration and data are the tenant's.
 
 Drawing the line once means a maintenance obligation is derivable rather than negotiated per component.
 
@@ -55,8 +55,8 @@ This bounds the maintenance a tenant's own hardware imposes: replacing a node is
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
 |---|---|---|---|---|---|
-| Control plane composition | `zero-ops` | Platform | ArgoCD | Tenant control plane | Day-1+ |
-| Workload selection | tenant infrastructure repository | Tenant | ArgoCD | Tenant | Day-1+ |
+| Control plane composition | `zero-ops`, published as a chart | Platform | ArgoCD | Tenant control plane | Day-1+ |
+| Workload selection | `<tenant>-gitops` values | Tenant | ArgoCD | Bundle chart | Day-1+ |
 | Workload configuration and data | tenant | Tenant | ArgoCD | Tenant | Day-1+ |
 
 See ADR-039 for the complete ownership matrix.
@@ -96,6 +96,6 @@ The classification will be argued for individual components, and the argument wi
 - ADR-039: Platform Ownership Model
 - ADR-046: Hybrid Provider Home Worker
 - ADR-052: Elastic Burst Capacity for Tenant Workloads
-- ADR-062: Repository Separation of Types, Instances and Workloads
+- ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box

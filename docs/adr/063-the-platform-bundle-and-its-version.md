@@ -35,13 +35,27 @@ The codebase contains no upgrade machinery of any kind. The only occurrence of "
 
 A bundle is the complete set of platform content at one revision of `zero-ops`: every boundary, every component descriptor, every chart version, and the Day-0 constants that must agree with them. It is delivered as a unit because it is only ever tested as a unit.
 
-### The version is a tag
+### The bundle is published as a versioned chart
 
-A bundle version is a tag of `zero-ops` rather than a branch. A tag names a set that was tested together; a branch names whatever was merged most recently, which is a different thing and cannot be reproduced.
+A bundle is built from `zero-ops` at a tag and published as a Helm chart in an OCI registry, versioned with the same string. One semantic version therefore names three things that must not diverge: the revision the bundle was built from, the chart published from it, and what a cluster runs.
 
-Day-0 accepts an override, and development continues to use it — a working branch is a legitimate bundle for a cluster that is being built rather than run. What changes is the default: a cluster that does not say otherwise runs a tag.
+The version is a tag rather than a branch because a tag names a set that was tested together, where a branch names whatever was merged most recently and cannot be reproduced. It is a published chart rather than a repository reference because what a cluster reconciles should not depend on the availability of the platform's source control, and because a registry is the mechanism built for one artefact to be resolved by many consumers.
 
-Where that tag is recorded, and how a cluster moves from one to the next, is ADR-064. This ADR settles what a version names; that one settles how it travels.
+A cluster consumes the bundle by naming a chart version and supplying values, both held in the `<tenant>-gitops` repository ADR-062 establishes. Nothing of the bundle's content is copied there: the version and the values are the tenant's to hold, and the content behind the version is the platform's to publish.
+
+Default values belong to the chart and are published with it. What a cluster supplies is only what deviates from them. A default can therefore be corrected in a new version without a proposal into any tenant's values file, and a tenant that has overridden a field keeps its override across the change.
+
+Day-0 accepts an override, and development continues to use it — a working branch is a legitimate bundle for a cluster being built rather than run. What changes is the default: a cluster that does not say otherwise runs a published version.
+
+Where that version is recorded, and how a cluster moves from one to the next, is ADR-064. This ADR settles what a version names; that one settles how it travels.
+
+### A published version remains resolvable
+
+A version names a bundle a tenant is running, so it is withdrawn from neither the tenant nor the record. Published versions are immutable: a version is never re-published, re-pointed or deleted, and a defective bundle is superseded by a new version rather than corrected in place.
+
+Immutability alone is insufficient. A tenant's repository holds a version and its values, not the content behind them, so what its clusters run is reachable only while that chart resolves. A tenant must be able to hold the bundle itself, by mirroring the published charts it runs into a registry of its own, without asking permission and without the platform's participation. Mirroring is a first-class operation of the distribution mechanism rather than something the platform must build, which is a further reason to publish rather than to be referenced.
+
+This is what makes the independence ADR-065 claims survive the platform. Revoking an App installation stops proposals arriving and stops nothing running, but only if the content those clusters reconcile is still fetchable. A tenant whose running estate is reachable solely through a service it no longer buys has custody of its clusters and not of its platform.
 
 ### Component versions are declared once
 
@@ -59,25 +73,23 @@ Publishing a tag is where a release begins rather than where it ends. Under ADR-
 
 This is a statement about what is *released*, not about how work is done. Bumping one component while integrating it is ordinary; shipping that bump alone, to a cluster, as a change in its own right, is what this forbids.
 
-### The bundle includes the tenant template
+### The bundle includes what a tenant's workloads rest on
 
-A bundle version selects more than the platform's own components. The tenant
-ApplicationSets source the universal tenant chart at that same revision,
-supplying per-tenant values from the tenant registry, so the chart that renders
-a tenant's namespace, RBAC, secret bindings, gateway and TLS moves with the
-bundle.
+A bundle version selects more than the platform's own components. The chart
+renders the platform-owned infrastructure a tenant's workloads depend on —
+namespaces, RBAC, secret bindings, gateways and TLS — from the same version, so
+advancing a cluster's bundle advances that infrastructure with it on the next
+reconcile, without touching any tenant's repository.
 
-That chart is the platform's equivalent of a gitops-template, separated from
-per-tenant values exactly as kubefirst separates template from substituted
-tokens, but rendered continuously rather than copied once.
+Which of those a given cluster runs is a value, not a version. ADR-066 draws the
+line between the control plane every cluster runs and the workloads a tenant
+selects; selection is expressed in the tenant's values file and never in the
+version, so choosing a workload and upgrading a bundle remain independent acts.
 
-One consequence follows, and it is the reason the arrangement is worth keeping:
-advancing a cluster's bundle advances the platform-rendered infrastructure of
-every workload on that cluster, on the next reconcile, without touching any
-tenant's repository. A bundle version is therefore also a statement about what
-those workloads are running, and tagging it makes tenant infrastructure
-reproducible on the same terms as the platform's. Because the version is pinned
-per cluster under ADR-064, that statement is made one cluster at a time.
+A bundle version is therefore also a statement about what a tenant's workloads
+rest on, and publishing it makes that reproducible on the same terms as the
+platform's own components. Because the version is pinned per cluster under
+ADR-064, the statement is made one cluster at a time.
 
 ### Latest is not a target
 
@@ -91,7 +103,9 @@ The worked example is this repository on 2026-09-07: nine components moved to th
 
 **Pinning nothing and tracking latest.** Rejected. It makes every reconcile a potential upgrade and removes the ability to reproduce a cluster, which ADR-042's bootstrap state machine and ADR-045's generated artifacts both assume.
 
-**A fifth repository holding the component versions.** Rejected on ADR-062's test. Such a repository would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. The per-cluster independence that motivates a separate repository elsewhere is obtained instead from the cluster instances that ADR-062 places in `fleet-registry`.
+**A separate repository holding the component versions.** Rejected on ADR-062's test. Such a repository would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. Per-cluster independence is obtained instead from the version each cluster pins in the tenant's own repository.
+
+**Copying the bundle's content into each tenant's repository.** Rejected. It would make a tenant's repository self-describing, which is a real benefit, at the cost of the property that makes a fleet maintainable: the platform and the tenant would write to the same files, so every upgrade would carry a merge for the platform to arbitrate, and the cost of an upgrade would grow with the number of tenants rather than staying constant. Publishing the content and pinning a version keeps the two writers on disjoint fields.
 
 ## Ownership
 
@@ -107,7 +121,11 @@ The version each cluster runs is a separate resource class, owned by the cluster
 
 ### Positive
 
-A cluster can be rebuilt at the version it was built at, because that version names a fixed set rather than a moving branch.
+A cluster can be rebuilt at the version it was built at, because that version names a fixed set rather than a moving branch, and because that version cannot be moved or withdrawn afterwards.
+
+A tenant can mirror every bundle its estate runs, so the independence the platform claims does not depend on the platform continuing to exist.
+
+A tenant's repository holds a version and values and nothing else of the platform's, so an upgrade is a change to one field. The platform and the tenant write to disjoint parts of that repository, which is what allows a fleet of them to be maintained without arbitration.
 
 A version coupling is stated once and asserted mechanically. The two that have been found so far were both discovered by a cluster failing; further ones are refused at commit.
 
@@ -121,7 +139,11 @@ Component versions will lag their upstreams, sometimes considerably, and that la
 
 Declaring versions once means a second place to change when adding a component, and a validator that will refuse the addition until both agree. That cost is the point, but it is a cost.
 
-Tagging is a release step the platform does not have today, and a bundle that is never tagged is a branch with extra ceremony.
+Publishing is a release step the platform does not have today: `manifests/` is applied directly and would have to be packaged as a chart, with a pipeline and a registry behind it.
+
+A published values schema is a public interface, though a narrower one than it first appears: only fields a tenant has actually overridden are load-bearing for compatibility, and the rest can be restructured freely. Renaming an overridden field is still a breaking change requiring migration across every tenant that set it, so the schema needs validation and a compatibility policy from the first release rather than the twentieth.
+
+Immutable tags accumulate, and every tag any tenant still runs is one the platform continues to answer for. A version cannot be retired by deleting it, only by promoting every tenant off it.
 
 Because the tenant template moves with the bundle, a defective bundle reaches the platform-rendered infrastructure of every workload on a cluster at once. The blast radius of a bundle is therefore a whole cluster, which is what makes per-cluster promotion under ADR-064 the mechanism that bounds it, and what argues for exercising a bundle before tagging it rather than for decoupling the template.
 
@@ -143,6 +165,7 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-045: Bootstrap-Generated GitOps Artifacts
 - ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
-- ADR-062: Repository Separation of Types, Instances and Workloads
+- ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-065: The Control Plane Ships Into the Box
+- ADR-066: The Control Plane Boundary
 - ADR-064: Bundle Promotion and Tenant Placement

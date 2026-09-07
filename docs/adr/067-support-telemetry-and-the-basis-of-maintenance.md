@@ -27,7 +27,7 @@ The tenant holds the destination and the credential. Withdrawing them stops the 
 
 ### The scope is the control plane, not the tenant's business
 
-What is exported is what a maintenance obligation requires: the health and reconciliation state of the control plane, the ADR-063 bundle version and component versions in effect, drift and policy violations, and the outcome of upgrades. That is the evidence a proposal is reasoned from and the evidence that it worked.
+What is exported is what a maintenance obligation requires: the health and reconciliation state of the control plane, the ADR-063 bundle version and the component versions it resolved to, drift and policy violations, and the outcome of upgrades. It is bounded and its volume is knowable in advance, because a tenant pays the egress that carries it. That is the evidence a proposal is reasoned from and the evidence that it worked.
 
 Workload data, application logs, database contents, secret material and end-user identifiers are not exported for support. A tenant's business is not observable to the platform, and a support obligation is not a reason to make it so. Where a tenant wants workload observability, that is a workload under ADR-066 and is the tenant's to run.
 

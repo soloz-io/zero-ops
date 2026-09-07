@@ -37,7 +37,7 @@ This makes the property ADR-062 asserts about clusters true of the material that
 
 ### The platform's authority ends at a pull request
 
-Maintaining the stack across a tenant's estate is the service the platform provides, so the platform does not stop at publishing. It proposes changes to a tenant's declarations, in the manner of a dependency-update bot: it reads the tenant's infrastructure repository, opens branches and pull requests against it, and does nothing else.
+Maintaining the stack across a tenant's estate is the service the platform provides, so the platform does not stop at publishing. It proposes changes to a tenant's declarations, in the manner of a dependency-update bot: it reads the tenant's `<tenant>-gitops` repository, opens branches and pull requests against it, and does nothing else. Under ADR-063 what it proposes is a version, so a proposal carries no content of the platform's and touches no field the tenant writes.
 
 That access is delegated by the tenant through the App installation ADR-062 already establishes, is scoped to repositories, and is revocable by the tenant at any time. Revoking it stops proposals arriving; it does not stop anything running.
 
@@ -65,9 +65,9 @@ An interface that accumulated state, or held credentials for the control planes 
 |---|---|---|---|---|---|
 | Tenant control plane | tenant's cloud account | Tenant | Day-0 CLI, then itself | Tenant | Day-0 |
 | Cloud provider credentials | tenant's control plane | Tenant | ESO | Crossplane / CAPI | Day-1+ |
-| Published bundle | `zero-ops` | Platform | Release workflow | Tenant control planes | Day-1+ |
+| Published bundle | OCI registry | Platform | Release pipeline | Tenant control planes | Day-1+ |
 | Hosted interface state | none | Platform | — | Tenant | Day-1+ |
-| Maintenance proposals | tenant infrastructure repository | Platform | Platform automation | Tenant | Day-1+ |
+| Maintenance proposals | `<tenant>-gitops` | Platform | Platform automation | Tenant | Day-1+ |
 | Repository access grant | App installation | Tenant | — | Platform | Day-1+ |
 
 See ADR-039 for the complete ownership matrix.
@@ -82,7 +82,7 @@ Cross-tenant isolation ceases to be a property the platform must implement, beca
 
 A tenant's box continues to reconcile when the platform is unreachable, which makes the independence the platform claims verifiable rather than contractual.
 
-Exit is not a migration. A tenant that stops buying maintenance revokes an App installation and keeps a running control plane and a bundle at a known tag. Nothing is withdrawn from it, because nothing was ever held on its behalf.
+Exit is not a migration. A tenant that stops buying maintenance revokes an App installation and keeps a running control plane and a bundle at a known version, which ADR-063 requires it to be able to mirror. Nothing is withdrawn from it, because nothing was ever held on its behalf.
 
 Day-0's existing sequence becomes a product surface rather than internal bootstrap tooling, and its quality bounds what a tenant can do unaided.
 
@@ -112,7 +112,7 @@ Control planes will run different bundle versions, and the platform supports the
 - ADR-039: Platform Ownership Model
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-043: Control Plane Authority Model
-- ADR-062: Repository Separation of Types, Instances and Workloads
+- ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-063: The Platform Bundle and its Version
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
 - ADR-066: The Control Plane Boundary
