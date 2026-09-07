@@ -1305,6 +1305,57 @@ This is a genuine widening of the platform's trust surface and should be
 weighed against the O(1) restore it buys. If that trade proves unattractive,
 the fallback is the §14 content-addressed path, which needs none of it.
 
+**Pod filesystem layout.** Two `emptyDir` volumes, three FUSE layers, and one
+of them is visible to the workload:
+
+```
+                    SANDBOX POD
+
+  ┌─ workspace-sync (native sidecar, privileged) ──────────────┐
+  │                                                             │
+  │  /ws-staging/                    ← emptyDir "ws-staging"    │
+  │  │                                 NOT mounted in workload  │
+  │  ├── archive.sqsh                downloaded from S3         │
+  │  ├── .ready                      startup-probe marker       │
+  │  ├── lower/   ←─ squashfuse ──┘  read-only, the checkpoint  │
+  │  ├── upper/                      writes made this session   │
+  │  └── work/                       fuse-overlayfs scratch     │
+  │           │                                                 │
+  │           └─ fuse-overlayfs(lower,upper,work) ─┐            │
+  │                                                 ▼           │
+  │  /workspace/  ═══ merged view ═══════════════════           │
+  └──────────────────│──────────────────────────────────────────┘
+                     │  mountPropagation: Bidirectional
+                     ▼         (requires privileged)
+                  ── host mount namespace ──
+                     │  mountPropagation: HostToContainer
+                     ▼
+  ┌─ workload (harness-runtime, unprivileged, uid 1000) ───────┐
+  │                                                             │
+  │  /workspace/                     ← emptyDir "workspace",    │
+  │  ├── .git/                         overlaid by the mount    │
+  │  ├── app/                          above. Ordinary files    │
+  │  └── package.json                  to this container.       │
+  │                                                             │
+  │  /tmp/                           ← emptyDir "tmp"           │
+  └─────────────────────────────────────────────────────────────┘
+```
+
+Three things about that picture are load-bearing:
+
+- **The propagation pair.** Containers share a network namespace but *not* a
+  mount namespace. Without `Bidirectional` on the sidecar and
+  `HostToContainer` on the workload, the overlay exists only in the sidecar and
+  the agent sees the bare `emptyDir` — restore reports success and the workspace
+  is empty.
+- **`/ws-staging` is not mounted in the workload.** It holds the overlay's
+  `upper/` layer; a tenant able to write there could edit its own workspace out
+  from under the filesystem presenting it.
+- **Everything written locally goes to `/ws-staging`, never `/tmp`.** Both
+  containers run `readOnlyRootFilesystem`, and the writable `/tmp` is mounted
+  into the workload only — an archive built in the sidecar's `/tmp` fails on
+  every snapshot, silently, because archive creation is best-effort.
+
 **Staging volume.** An `emptyDir` volume (`ws-staging`) is mounted at
 `/ws-staging` in the sidecar. It holds the downloaded archive, the FUSE working
 directories, the archive being built during a snapshot, and the readiness
@@ -1484,17 +1535,94 @@ for agent output. Nothing tied an app's data together, so "delete this app",
 places to remember rather than one prefix.
 
 **Decision.** Every key an app owns is rooted at the app, then the workspace,
-then a kind:
+then a kind. Object storage has no directories — these are key prefixes — but
+they behave as a tree for listing, deletion and credential scoping, which is the
+whole point of the layout.
 
 ```
-<appId>/<workspaceId>/code/objects/<sha256>
-<appId>/<workspaceId>/code/checkpoints/<id>.json
-<appId>/<workspaceId>/code/checkpoints/<id>.sqsh
-<appId>/<workspaceId>/code/checkpoints/LATEST
-<appId>/<workspaceId>/code/archive.sqsh
-<appId>/<workspaceId>/chat-attachments/<uuid>.<ext>
-<appId>/<workspaceId>/builds/<deploymentId>/...
-<appId>/<workspaceId>/artifacts/<path>
+<bucket>/
+└── <appId>/                                  ← ONE app = ONE prefix
+    └── <workspaceId>/                        ← WHAT this is depends on the surface:
+        │                                       Builder App tab (app-scoped)  → the APP id
+        │                                       Playground     (session-scoped) → the SESSION id
+        │                                       resolveHarnessWorkspaceId() decides; the
+        │                                       platform never interprets it (see below)
+        │
+        ├── code/                             ═══ workspace-sync OWNS this subtree ═══
+        │   ├── archive.sqsh                      newest snapshot, squashfs image
+        │   │                                     · the O(1) restore fast path (§14.2)
+        │   ├── objects/
+        │   │   └── <sha256>                      immutable file content, content-addressed
+        │   │                                     · deduped within this workspace only (§18.6)
+        │   │                                     · swept by retention (§14.2)
+        │   └── checkpoints/
+        │       ├── LATEST                        pointer → newest checkpoint id
+        │       ├── <checkpointId>.json           manifest: path → hash, mode, size
+        │       │                                 · written LAST, so a partial run
+        │       │                                   leaves an absent checkpoint,
+        │       │                                   never a corrupt one (§18.3)
+        │       └── <checkpointId>.sqsh           that checkpoint's own image
+        │                                         · what a PINNED restore reads (§14.3)
+        │
+        ├── chat-attachments/                 ═══ waypoint SDK writes ═══
+        │   └── <uuid>.<ext>                      images/files a user attached to a message
+        │
+        ├── builds/                           ═══ the build job writes ═══
+        │   └── <deploymentId>/                   one directory per deployment
+        │       └── ...                           · see §14.5 — <deploymentId> is
+        │                                           currently the build JOB id, which
+        │                                           is per-attempt, not per-deployment
+        │
+        └── artifacts/                        ═══ waypoint SDK writes ═══
+            └── <path>                            renders, audio, exports (ADR-021)
+```
+
+**The two segments are not always different values**, and a reader looking at a
+bucket listing needs to know that before it looks like a bug.
+
+*App-scoped* — Builder App tab (`code-builders-workflow`), app `123`. Every
+session of the app shares one workspace, which is the entire point: the coder
+specialist's disk must survive a session ending. `workspaceId` **is** the app
+id, so the first two segments repeat:
+
+```
+123/123/code/checkpoints/LATEST                 → "01J8F2..."
+123/123/code/checkpoints/01J8F2....json         the manifest deploy 987 was built from
+123/123/code/objects/9f86d0818...               a file inside it
+123/123/builds/987/index.html
+```
+
+*Session-scoped* — Playground, app `123`, session `42`. Each session gets its
+own isolated workspace (ADR-014), so the segments differ:
+
+```
+123/42/code/checkpoints/LATEST
+123/42/chat-attachments/6b1e...png
+123/42/artifacts/renders/scene001.mp4
+```
+
+The repetition in the app-scoped case is accepted rather than collapsed.
+Special-casing it — emitting `<appId>/code/` when the two match — would make the
+layout conditional on a value the platform is not supposed to interpret, and a
+prefix would then mean different things at different depths depending on which
+surface wrote it. One rule, applied always, is worth a duplicated path segment.
+
+**Only `code/` is platform-owned.** The sidecar reads and writes that subtree
+and nothing else; every list, stat, get, put and delete it performs is scoped to
+`<appId>/<workspaceId>/code`, asserted by test rather than left to review. The
+three sibling prefixes are written by the SDK and the build job, and the sidecar
+never enumerates them.
+
+That containment is what makes an app-rooted layout safe. Retention (§14.2)
+deletes every object under `code/objects/` that no surviving manifest
+references. Without a kind segment, that sweep would sit directly above the same
+app's chat attachments and build artifacts:
+
+```
+        <appId>/<workspaceId>/          ← a sweep rooted here would reach
+        ├── objects/                       everything below, including data
+        ├── chat-attachments/   ⚠           retention knows nothing about
+        └── builds/             ⚠
 ```
 
 **`appId` is required on `workspacePersistence`.** There is no app-less location
@@ -1535,6 +1663,104 @@ ids — the two implementations cannot import one another and must agree.
 invisible rather than corrupt, so a workspace with history restores as new.
 Either the old objects are copied to the new layout before rollout, or existing
 workspaces start empty — a decision, not an oversight.
+
+#### §14.5 The deployment entity is missing, and §14.3's pin has no supplier (Gap, 2026-09-07)
+
+**Recorded as an open gap, not a decision.** §14.3 added
+`workspacePersistence.pinnedCheckpoints` so retention cannot evict a checkpoint
+a live deployment was built from. The mechanism is built and tested. **Nothing
+can populate it**, because no deployment entity exists to be asked.
+
+The tenant's intended model, and what of it exists:
+
+```
+  ┌─ DATABASE ─────────────────────────────────────────────────────┐
+  │                                                                 │
+  │   apps                          chat_sessions                   │
+  │   ├── id            = 123 ✓     ├── id                     ✓    │
+  │   │   (App tab is app-scoped, so this app's                     │
+  │   │    workspaceId is also 123 — §14.4)                         │
+  │   ├── tenant_id           ✓     └── pending_restore_       ✓    │
+  │   ├── workspace_          ✓         checkpoint_id  (§14.3)      │
+  │   │   generation                                                │
+  │   │   (a CAS counter: records THAT something                    │
+  │   │    was published, never WHAT)                               │
+  │   │                                                             │
+  │   └── current_deployment = 987   ✗ DOES NOT EXIST               │
+  │       └── checkpoint_id          ✗ ── the pin's only source     │
+  │                                     │                           │
+  └─────────────────────────────────────┼───────────────────────────┘
+                                        │
+                    pinnedCheckpoints ◀──┘  always empty ⇒ §14.3 inert
+                            │
+  ┌─ OBJECT STORAGE ────────▼──────────────────────────────────────┐
+  │                                                                 │
+  │   123/123/code/checkpoints/<id>.json     ✓  retention-managed   │
+  │   123/123/code/objects/<sha256>          ✓  swept (§14.2)       │
+  │        │     ▲                                                  │
+  │        │     └─ app-scoped: workspaceId IS the app id here,     │
+  │        │        because a deployed app is built from the        │
+  │        │        Builder App tab (§14.4)                         │
+  │        │                                                        │
+  │        └── ⚠ evictable even when deployment 987 was built       │
+  │              from it — nothing marks it load-bearing            │
+  │                                                                 │
+  │   123/123/builds/987/...                 ✓  key reserved,       │
+  │               ▲                             but 987 is today    │
+  │               └── the build JOB id, per-attempt, not a          │
+  │                   deployment id                                 │
+  └─────────────────────────────┬───────────────────────────────────┘
+                                │
+  ┌─ RUNTIME ────────────────────▼──────────────────────────────────┐
+  │                                                                 │
+  │   deployment-987                         ✗ no per-deployment    │
+  │   (today: static files at latest/web-build/, promoted by a      │
+  │    counter — one live version, no addressable deployments)      │
+  └─────────────────────────────────────────────────────────────────┘
+```
+
+The break is a single missing edge — deployment → checkpoint — and everything
+downstream of it degrades quietly rather than failing.
+
+Three of those four are real. `current_deployment` is not, and its absence
+propagates:
+
+| Missing | Consequence |
+|---|---|
+| No `deployments` row | Nothing knows which checkpoint a running deployment was built from, so `pinnedCheckpoints` is always empty and §14.3's guarantee is inert |
+| No deployment id | `builds/<deploymentId>/` is currently keyed by the build **job** id, which is per-attempt — two builds of one revision produce two prefixes and neither is authoritative |
+| No deployment lifecycle | "Roll back to the previous deployment" has nothing to name, and promotion is a CAS counter (`apps.workspace_generation`) that records *that* something was published, never *what* |
+
+The failure this leaves open is silent and permanent: an app keeps serving while
+the checkpoint it was built from ages past the retention window and is deleted.
+Nothing about serving the build depends on that checkpoint still existing, so
+the loss surfaces only when someone tries to reproduce, diff, or roll back the
+deployment — and with git removed (waypoint ADR-037) and object storage the sole
+source of truth (§14.2), there is no second copy.
+
+**What the platform already provides**, and therefore what the gap actually is:
+the operator accepts pinned ids, the sidecar honours them, retention exempts
+them without consuming a retention slot, and an id naming a checkpoint that no
+longer exists is inert rather than an error. The platform side is complete. What
+is absent is a tenant-side record of which checkpoints are load-bearing, and the
+step that passes them on each provision.
+
+This ADR does not specify that record — a deployment's identity, lifecycle and
+promotion semantics are tenant concerns (waypoint), not platform mechanism. It
+states the contract the platform needs from it:
+
+- a deployment MUST record the `checkpointId` it was built from, durably, before
+  it can serve;
+- every `EphemeralJob` for a workspace SHOULD carry the checkpoint ids of that
+  workspace's retained deployments in `pinnedCheckpoints`;
+- a deployment that is retired MAY drop its pin, at which point its checkpoint
+  becomes ordinarily evictable.
+
+**Interim mitigation.** Until that exists, `keepCheckpoints` is the only thing
+standing between a deployed checkpoint and deletion. A fleet that deploys rarely
+relative to its checkpoint rate should raise it (§14.2 bounds it at 50) and
+accept the storage cost, which is linear and predictable — one compressed copy
+of the workspace per retained checkpoint.
 
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 
