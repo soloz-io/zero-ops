@@ -241,6 +241,16 @@ spec:
   # resolves to that and renders as domains: ['*'] -- a genuine catch-all, and
   # exactly what the chart's own basic_http_listener fixture produces. It also
   # stops this list drifting from the TLS listeners every time one is added.
+  #
+  # Written as an EXPLICIT empty list rather than by omitting the field. Both are
+  # identical to Gateway API (len(hostnames)==0 means "every host on this
+  # listener") and to Cilium's ComputeHosts, which branches on that same length.
+  # They are NOT identical to ArgoCD: server-side diff strips fields absent from
+  # the desired manifest before comparing -- it cannot tell "removed" from "not
+  # managed by me" -- so deleting the field left the Application reporting Synced
+  # while nine hostnames stayed on the live object and :80 kept 404ing. An empty
+  # list is a value, so it diffs and applies.
+  hostnames: []
   rules:
     - filters:
         - type: RequestRedirect
