@@ -3,6 +3,7 @@ package controller
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -263,6 +264,13 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	}
 	if ws.ReadOnly {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
+	}
+	if len(ws.PinnedCheckpoints) > 0 {
+		// Comma-separated: a short list of ids, where JSON encoding would add a
+		// parsing failure mode for no benefit.
+		sideC.Env = append(sideC.Env, corev1.EnvVar{
+			Name: "PINNED_CHECKPOINTS", Value: strings.Join(ws.PinnedCheckpoints, ","),
+		})
 	}
 	return sideC
 }

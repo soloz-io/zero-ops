@@ -4315,6 +4315,22 @@ spec:
                       silent fall back to latest.
                     maxLength: 128
                     type: string
+                  pinnedCheckpoints:
+                    description: |-
+                      PinnedCheckpoints are exempt from retention however old they become
+                      (ADR-052 §14.3): a live deployment was built from them.
+
+                      Retention alone knows only "newest N" and cannot see which checkpoint a
+                      deployment came from. Without this a long-lived deployment outlives its
+                      own source — the app still serves, but cannot be reproduced, diffed, or
+                      rolled back into an editable workspace.
+
+                      A pin does not consume a retention slot, and naming a checkpoint that no
+                      longer exists is inert rather than an error.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
                   readOnly:
                     description: |-
                       ReadOnly restores the workspace but never writes it back

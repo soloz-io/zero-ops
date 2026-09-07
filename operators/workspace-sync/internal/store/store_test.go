@@ -38,7 +38,7 @@ func TestPlanRetentionNeverOverDeletes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			survivors, doomed := planRetention(tc.ids, tc.keep)
+			survivors, doomed := planRetention(tc.ids, tc.keep, nil)
 			if strings.Join(survivors, ",") != strings.Join(tc.survivors, ",") {
 				t.Errorf("survivors = %v, want %v", survivors, tc.survivors)
 			}
@@ -171,5 +171,58 @@ func TestAppIDIsRequired(t *testing.T) {
 	}
 	if cfg.AppID != "app-123" {
 		t.Errorf("AppID = %q, want app-123", cfg.AppID)
+	}
+}
+
+// TestPinnedCheckpointsSurviveRetention covers §14.3's deployment pin.
+//
+// A checkpoint some live deployment was built from must outlive the retention
+// window. Without this the app keeps serving while its source is gone —
+// unreproducible, undiffable, un-rollback-able — and nothing about serving the
+// build reveals the loss.
+func TestPinnedCheckpointsSurviveRetention(t *testing.T) {
+	ids := []string{"e", "d", "c", "b", "a"} // newest first
+
+	// "a" is the oldest and well outside a keep-of-2, but it is deployed.
+	survivors, doomed := planRetention(ids, 2, map[string]struct{}{"a": {}})
+
+	if strings.Join(survivors, ",") != "e,d,a" {
+		t.Errorf("survivors = %v, want [e d a] — the deployed checkpoint must not be evicted", survivors)
+	}
+	if strings.Join(doomed, ",") != "c,b" {
+		t.Errorf("doomed = %v, want [c b]", doomed)
+	}
+
+	// A pin must not CONSUME a retention slot: keeping N recent checkpoints and
+	// keeping the deployed one are separate promises, and letting them compete
+	// would let one old deployment quietly shrink usable history.
+	if len(survivors) != 3 {
+		t.Errorf("pin consumed a retention slot: %d survivors, want 3 (2 recent + 1 pinned)", len(survivors))
+	}
+
+	// A pin already inside the window changes nothing.
+	survivors, doomed = planRetention(ids, 2, map[string]struct{}{"e": {}})
+	if strings.Join(survivors, ",") != "e,d" || strings.Join(doomed, ",") != "c,b,a" {
+		t.Errorf("pin inside the window altered the split: survivors=%v doomed=%v", survivors, doomed)
+	}
+
+	// A pin naming a checkpoint that no longer exists is inert, not an error.
+	survivors, _ = planRetention(ids, 2, map[string]struct{}{"gone": {}})
+	if strings.Join(survivors, ",") != "e,d" {
+		t.Errorf("unknown pin altered the split: %v", survivors)
+	}
+}
+
+func TestSplitListIgnoresBlanks(t *testing.T) {
+	// A trailing comma or an unset variable must yield no ids rather than one
+	// empty id — an empty pin would match nothing and merely look like a bug.
+	for _, in := range []string{"", "   ", ",", " , , "} {
+		if got := splitList(in); len(got) != 0 {
+			t.Errorf("splitList(%q) = %v, want empty", in, got)
+		}
+	}
+	got := splitList(" a , b ,, c ")
+	if strings.Join(got, ",") != "a,b,c" {
+		t.Errorf("splitList = %v, want [a b c]", got)
 	}
 }

@@ -104,6 +104,12 @@ type Store struct {
 	pinned   string
 	readOnly bool
 
+	// Checkpoints retention must never evict, because a live deployment was
+	// built from them (§14.3). Supplied by the platform, since only it knows
+	// what is deployed; empty means "nothing is pinned", which is correct for a
+	// workspace that has never been deployed.
+	pinnedCheckpoints map[string]struct{}
+
 	// Carried rather than parsed back out of prefix. The manifest records it,
 	// and re-deriving it by trimming a prefix string breaks silently the moment
 	// the layout changes — which is exactly what just happened (§14.4).
@@ -155,6 +161,11 @@ type Config struct {
 	// no archives, no retention. Set for builds, which must not be able to
 	// overwrite or evict the history of the workspace they are reading.
 	ReadOnly bool
+
+	// PinnedCheckpoints are exempt from retention however old they get: a live
+	// deployment was built from them, so evicting one would leave a running app
+	// whose source no longer exists (§14.3).
+	PinnedCheckpoints []string
 }
 
 // DefaultKeepCheckpoints bounds per-workspace storage (§14.2 retention).
@@ -177,7 +188,10 @@ func FromEnv() (Config, error) {
 		Staging:         os.Getenv("STAGING_ROOT"),
 		KeepCheckpoints: DefaultKeepCheckpoints,
 		CheckpointID:    os.Getenv("CHECKPOINT_ID"),
-		ReadOnly:        os.Getenv("WORKSPACE_READ_ONLY") == "true",
+		// Comma-separated, because this is a short list of ids and a
+		// JSON-encoded env var would be one more thing to get wrong for no gain.
+		PinnedCheckpoints: splitList(os.Getenv("PINNED_CHECKPOINTS")),
+		ReadOnly:          os.Getenv("WORKSPACE_READ_ONLY") == "true",
 	}
 	if c.Region == "" {
 		c.Region = "us-east-1"
@@ -224,14 +238,15 @@ func New(cfg Config) (*Store, error) {
 		keep = DefaultKeepCheckpoints
 	}
 	return &Store{
-		c:           c,
-		bucket:      cfg.Bucket,
-		prefix:      cfg.AppID + "/" + cfg.WorkspaceID + "/code",
-		staging:     staging,
-		keep:        keep,
-		pinned:      cfg.CheckpointID,
-		readOnly:    cfg.ReadOnly,
-		workspaceID: cfg.WorkspaceID,
+		c:                 c,
+		bucket:            cfg.Bucket,
+		prefix:            cfg.AppID + "/" + cfg.WorkspaceID + "/code",
+		staging:           staging,
+		keep:              keep,
+		pinned:            cfg.CheckpointID,
+		readOnly:          cfg.ReadOnly,
+		workspaceID:       cfg.WorkspaceID,
+		pinnedCheckpoints: toSet(cfg.PinnedCheckpoints),
 	}, nil
 }
 
@@ -432,14 +447,33 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 //
 // keep <= 0 deletes NOTHING. A misconfigured KEEP_CHECKPOINTS must degrade to
 // unbounded storage, never to an empty bucket.
-func planRetention(newestFirst []string, keep int) (survivors, doomed []string) {
+//
+// `pinned` names checkpoints that must survive regardless of age (§14.3): a
+// checkpoint some live deployment was built from. Without this, a long-lived
+// deployment outlives the source it came from — the app still serves, but it
+// cannot be reproduced, diffed, or rolled back into an editable workspace, and
+// the loss is silent because nothing about serving the build depends on the
+// checkpoint still existing.
+//
+// A pin does NOT consume a retention slot. Keeping five recent checkpoints and
+// keeping the deployed one are separate promises, and making them compete would
+// mean a single old deployment quietly shrinking a workspace's usable history.
+func planRetention(newestFirst []string, keep int, pinned map[string]struct{}) (survivors, doomed []string) {
 	if keep <= 0 {
 		return newestFirst, nil
 	}
-	if len(newestFirst) <= keep {
-		return newestFirst, nil
+	for i, id := range newestFirst {
+		if i < keep {
+			survivors = append(survivors, id)
+			continue
+		}
+		if _, isPinned := pinned[id]; isPinned {
+			survivors = append(survivors, id)
+			continue
+		}
+		doomed = append(doomed, id)
 	}
-	return newestFirst[:keep], newestFirst[keep:]
+	return survivors, doomed
 }
 
 func (s *Store) Prune(ctx context.Context) error {
@@ -453,7 +487,7 @@ func (s *Store) Prune(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list checkpoints: %w", err)
 	}
-	ids, doomed := planRetention(all, s.keep)
+	ids, doomed := planRetention(all, s.keep, s.pinnedCheckpoints)
 	if len(doomed) > 0 {
 		for _, id := range doomed {
 			if err := s.c.RemoveObject(ctx, s.bucket, s.manifestKey(id),
@@ -795,4 +829,30 @@ func (s *Store) ListCheckpoints(ctx context.Context) ([]string, error) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(ids)))
 	return ids, nil
+}
+
+// splitList parses a comma-separated env value, ignoring blanks so a trailing
+// comma or an empty variable yields no entries rather than one empty id.
+func splitList(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func toSet(items []string) map[string]struct{} {
+	if len(items) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(items))
+	for _, i := range items {
+		set[i] = struct{}{}
+	}
+	return set
 }

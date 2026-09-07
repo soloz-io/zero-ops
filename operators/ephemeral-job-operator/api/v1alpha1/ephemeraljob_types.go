@@ -33,10 +33,10 @@ const (
 	// PhaseProvisioning is the pod existing but unschedulable while capacity is
 	// created (§7).
 	PhaseProvisioning Phase = "Provisioning"
-	PhaseRunning   Phase = "Running"
-	PhaseSucceeded Phase = "Succeeded"
-	PhaseFailed    Phase = "Failed"
-	PhaseTimedOut  Phase = "TimedOut"
+	PhaseRunning      Phase = "Running"
+	PhaseSucceeded    Phase = "Succeeded"
+	PhaseFailed       Phase = "Failed"
+	PhaseTimedOut     Phase = "TimedOut"
 	// There was a PhaseCheckpointing here, for a Service-mode workload whose
 	// workspace flush was in flight during teardown. Nothing ever assigned it
 	// — the one place that read it could not fire — and the operator-driven
@@ -449,6 +449,25 @@ type WorkspacePersistenceSpec struct {
 	//
 	// +optional
 	ReadOnly bool `json:"readOnly,omitempty"`
+
+	// PinnedCheckpoints are exempt from retention however old they become
+	// (ADR-052 §14.3): a live deployment was built from them.
+	//
+	// Retention alone knows only "newest N" and cannot see which checkpoint any
+	// deployment came from — that lives in the fleet's database. Without this,
+	// a long-lived deployment outlives its own source: the app keeps serving,
+	// but it can no longer be reproduced, diffed, or rolled back into an
+	// editable workspace, and nothing about serving the build reveals the loss.
+	//
+	// A pin does NOT consume a retention slot. Keeping N recent checkpoints and
+	// keeping the deployed one are separate promises, and making them compete
+	// would let one old deployment quietly shrink a workspace's usable history.
+	//
+	// Naming a checkpoint that no longer exists is inert, not an error.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	PinnedCheckpoints []string `json:"pinnedCheckpoints,omitempty"`
 }
 
 // DefaultKeepCheckpoints is the retention used when a fleet asks for none.

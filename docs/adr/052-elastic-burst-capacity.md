@@ -1458,13 +1458,21 @@ build holds no object-store credential at all. A build that additionally
 write-only credential for its own `builds/<deployment>/` prefix rather than the
 workspace key it has stopped needing.
 
-**Retention interacts with builds, and this is unfinished.** A deployment
-referenced by `current_deployment` may outlive the checkpoint it was built from,
-because retention only knows "newest N" and cannot see the database. The
-invariant that needs to hold is that **a checkpoint referenced by a retained
-deployment is not evictable**, which requires either passing the pinned set into
-the prune or copying a build's source out from under the retention window.
-Recorded here as a known gap rather than solved.
+**Retention must not evict a deployed checkpoint**, and
+`workspacePersistence.pinnedCheckpoints` is how that holds. Retention alone
+knows only "newest N" and cannot see which checkpoint any deployment was built
+from — that lives in the fleet's database — so the fleet passes the pinned set
+in and those ids survive regardless of age.
+
+Without it a long-lived deployment outlives its own source: the app keeps
+serving, but it can no longer be reproduced, diffed, or rolled back into an
+editable workspace, and nothing about serving the build reveals the loss.
+
+A pin does **not** consume a retention slot. Keeping N recent checkpoints and
+keeping the deployed one are separate promises, and making them compete would
+let one old deployment quietly shrink a workspace's usable history. Naming a
+checkpoint that no longer exists is inert rather than an error, so a stale
+deployment record cannot fail a prune.
 
 #### §14.4 App-rooted object layout (Amendment 2026-09-07)
 
