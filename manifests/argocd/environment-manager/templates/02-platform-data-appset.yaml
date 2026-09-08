@@ -75,7 +75,7 @@ spec:
       project: boundary-02
       source:
         repoURL: '{{"{{"}} .repoURL {{"}}"}}'
-        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        targetRevision: '{{"{{"}} if hasPrefix "oci://" .repoURL {{"}}"}}{{ .Values.bundleVersion }}{{"{{"}} else if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
         helm:

@@ -121,7 +121,7 @@ spec:
         # is flagged platform-owned but sourced from an OCI chart registry;
         # keying on the flag would silently retarget it at the platform repo.
         repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
-        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        targetRevision: '{{"{{"}} if hasPrefix "oci://" .repoURL {{"}}"}}{{ .Values.bundleVersion }}{{"{{"}} else if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
         helm:

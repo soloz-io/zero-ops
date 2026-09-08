@@ -4,10 +4,13 @@ appName: platform-capi-resources
 destinationNamespace: platform-capi
 isPlatformOwned: 'true'
 syncWave: '2'
-repoURL: ''
+repoURL: oci://ghcr.io/soloz-io/charts
 targetRevision: ''
-path: manifests/platform-capi
-chart: ''
+path: ''
+# Source of the published chart, read by scripts/package/component-chart.sh.
+# `path` names the chart now, so the content it is built from is declared here.
+sourcePath: manifests/platform-capi
+chart: platform-capi-resources
 directoryRecurse: ''
 directoryInclude: ''
 helmValues: ''

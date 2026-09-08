@@ -4,10 +4,13 @@ appName: platform-namespaces
 destinationNamespace: platform-ops
 isPlatformOwned: 'true'
 syncWave: '-2'
-repoURL: ''
+repoURL: oci://ghcr.io/soloz-io/charts
 targetRevision: ''
-path: manifests/hub-core-services/platform-namespaces
-chart: ''
+path: ''
+# Source of the published chart, read by scripts/package/component-chart.sh.
+# `path` names the chart now, so the content it is built from is declared here.
+sourcePath: manifests/hub-core-services/platform-namespaces
+chart: platform-namespaces
 directoryRecurse: ''
 directoryInclude: ''
 helmValues: ''

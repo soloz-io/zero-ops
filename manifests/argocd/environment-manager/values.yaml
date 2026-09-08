@@ -1,5 +1,14 @@
 environmentRevision: "main"
 
+# ADR-063/064: the published bundle version this cluster runs.
+#
+# A component whose repoURL is an OCI registry takes its version from here
+# rather than from environmentRevision, because a chart is requested by semantic
+# version and a git source by revision -- the same bundle named two ways for two
+# kinds of source. One value per cluster, so promoting a cluster is a change to
+# this field (ADR-064) rather than to anything the component declares.
+bundleVersion: "0.1.0"
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Repository identities (ADR-004 dual-repository contract)
 # ──────────────────────────────────────────────────────────────────────────────
