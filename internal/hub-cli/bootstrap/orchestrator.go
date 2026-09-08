@@ -334,7 +334,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseGenerateLocalSecrets, "generate-local-secrets",
 		"Generating local bootstrap secrets...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 			return ci.GenerateLocalSecrets(ctx)
 		},
 		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
@@ -364,7 +364,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseInjectCACert, "inject-ca-cert",
 		"Injecting CNPG CA certificate into infisical-secrets...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 			return ci.UpdateInfisicalSecretsWithCNPGCert(ctx)
 		},
 		func() { fmt.Println("[inject-ca-cert] ✓ CNPG CA certificate injected") },
@@ -395,7 +395,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapInfisicalAPI, "bootstrap-infisical-api",
 		"Bootstrapping Infisical API...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 			return ci.BootstrapInfisicalAPI(ctx)
 		},
 		func() { fmt.Println("[bootstrap-infisical-api] ✓ Infisical API bootstrapped") },
@@ -923,7 +923,7 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // (same mechanism as home-worker-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
-	ci := &components.Installer{Kubeconfig: kubeconfig}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
@@ -1171,7 +1171,7 @@ func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string
 }
 
 func (o *Orchestrator) getArgoCDPassword(ctx context.Context, kubeconfig string) string {
-	ci := &components.Installer{Kubeconfig: kubeconfig}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 	pwd, err := ci.GetArgoCDPassword(ctx)
 	if err != nil {
 		return "<check secret manually>"
@@ -1270,7 +1270,7 @@ func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig st
 		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot sync the private zero-ops repo")
 	}
 
-	ci := &components.Installer{Kubeconfig: kubeconfig}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
 		return err
 	}

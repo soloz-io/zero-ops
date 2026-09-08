@@ -7,3 +7,11 @@ bases:
 patchesStrategicMerge:
   - patch-config.yaml
   - patch-hubenvironment.yaml
+
+# ADR-045: this environment's bootstrap-generated values.
+#
+# Per environment rather than in ../base: one shared file held whichever cluster
+# bootstrapped last, so every overlay rendered the same Infisical project and an
+# environment could be pointed at another's without a diff in its own directory.
+patches:
+  - path: generated/hub-bootstrap-config-patch.yaml

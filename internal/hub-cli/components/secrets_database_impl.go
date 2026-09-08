@@ -135,7 +135,13 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 	// internal/hub-cli/bootstrap/seed.go), so nothing is generated into the tree.
 
 	// Write hub-bootstrap-config-patch.yaml into environments/base kustomization's generated/ dir
-	configPath := filepath.Join(projectRoot, "manifests", "environments", "base", "generated", "hub-bootstrap-config-patch.yaml")
+	env := i.EnvironmentSlug
+	if env == "" {
+		return false, fmt.Errorf("cannot write the ADR-045 bootstrap config: no environment slug.\n" +
+			"It would land in a directory shared by every overlay, where the last cluster\n" +
+			"bootstrapped wins and an environment renders another's Infisical project")
+	}
+	configPath := filepath.Join(projectRoot, "manifests", "environments", env, "generated", "hub-bootstrap-config-patch.yaml")
 	configPatch := fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -152,7 +158,7 @@ data:
 	if err := os.WriteFile(configPath, []byte(configPatch), 0644); err != nil {
 		return false, fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
-	fmt.Println("[bootstrap-secrets] ✓ manifests/environments/base/generated/hub-bootstrap-config-patch.yaml")
+	fmt.Printf("[bootstrap-secrets] ✓ manifests/environments/%s/generated/hub-bootstrap-config-patch.yaml\n", env)
 
 	// Validate all artifacts exist
 	if _, err := os.Stat(configPath); err != nil {
@@ -164,7 +170,7 @@ data:
 	fmt.Println("[bootstrap-secrets]  ADR-045: Bootstrap-Generated GitOps Artifacts")
 	fmt.Println("[bootstrap-secrets]  Generated artifacts:")
 
-	fmt.Println("[bootstrap-secrets]    manifests/environments/base/generated/")
+	fmt.Printf("[bootstrap-secrets]    manifests/environments/%s/generated/\n", env)
 	fmt.Println("[bootstrap-secrets]      └── hub-bootstrap-config-patch.yaml")
 	fmt.Println("[bootstrap-secrets]  Commit and push before platform readiness checks pass.")
 	fmt.Println("[bootstrap-secrets] ═══════════════════════════════════════════════════════")

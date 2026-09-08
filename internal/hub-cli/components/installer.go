@@ -26,6 +26,13 @@ import (
 // ArgoCD restarts itself mid-bootstrap.
 type Installer struct {
 	Kubeconfig string
+	// EnvironmentSlug scopes the ADR-045 artifacts this installer writes.
+	//
+	// They were written to manifests/environments/base/generated/, which every
+	// overlay inherits, so one file held whichever cluster bootstrapped last and
+	// prod rendered dev's Infisical project. ADR-037 isolates environments by
+	// directory; the artifact now sits in the environment's own.
+	EnvironmentSlug string
 }
 
 // GetArgoCDPassword retrieves ArgoCD admin password

@@ -14,12 +14,17 @@ artifacts:
   # repository; they now reach the security component as chart values read from
   # the infisical-auth Secret at seed time. Nothing is written to the tree, so
   # there is no artifact to register or validate.
+  # {env} is replaced with the environment slug being bootstrapped. The path is
+  # per environment because a single file under base was inherited by every
+  # overlay: it held whichever cluster bootstrapped last, so prod rendered dev's
+  # Infisical project and nothing in prod's directory showed why.
+  #
   # consumedBy names the Application that cannot converge until this file is
   # committed and pushed. It is declared rather than derived: this artifact sits
   # under environments/base while the Application reconciles environments/<slug>
   # and reaches it through a Kustomize ../base reference, so matching an
   # Application's source path against the artifact's path finds nothing.
-  - file: manifests/environments/base/generated/hub-bootstrap-config-patch.yaml
+  - file: manifests/environments/{env}/generated/hub-bootstrap-config-patch.yaml
     consumedBy: hub-environment
     requiredFields:
       - data.INFISICAL_ORGANIZATION_ID
