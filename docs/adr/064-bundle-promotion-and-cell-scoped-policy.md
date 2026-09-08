@@ -27,7 +27,7 @@ ADR-062 establishes that a spoke cluster belongs to exactly one tenant, that a c
 
 Each cluster instance declares the published bundle version it runs, and that declaration is the System of Record for what the cluster is running, in place of the render-time parameter. A cluster consumes the bundle by naming a version and supplying values, so the declaration is a version and the values beside it, and never the bundle's content.
 
-Day-0 seeds a cluster's initial version from the default carried in `zero-ops`, which preserves ADR-040: Day-0 still selects the first bundle and thereafter never acts. What changes is that the value is written into Git as part of declaring the cluster, rather than surviving only as a field of a cluster object nothing declares.
+Day-0 seeds a cluster's initial version from the version its own build carries (ADR-068), which preserves ADR-040: Day-0 still selects the first bundle and thereafter never acts. What changes is that the value is written into Git as part of declaring the cluster, rather than surviving only as a field of a cluster object nothing declares.
 
 The version is published to the ArgoCD cluster Secret as a label and read by the same generators that already read `cell-id`. The value that is control-plane-wide today becomes per-cluster through a selector that already exists.
 
@@ -159,3 +159,4 @@ Recording resolved versions duplicates into every tenant's repository what the t
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-067: Support Telemetry and the Basis of Maintenance
+- ADR-068: The Build Declares the Bundle Version

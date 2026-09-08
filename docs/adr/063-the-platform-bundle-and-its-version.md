@@ -45,13 +45,15 @@ A cluster consumes the bundle by naming a chart version and supplying values, bo
 
 Default values belong to the chart and are published with it. What a cluster supplies is only what deviates from them. A default can therefore be corrected in a new version without a proposal into any tenant's values file, and a tenant that has overridden a field keeps its override across the change.
 
-Day-0 accepts an override, and development continues to use it — a working branch is a legitimate bundle for a cluster being built rather than run. What changes is the default: a cluster that does not say otherwise runs a published version.
+A working branch is a legitimate bundle for a cluster being built rather than run, and a published version is what a cluster that is run requests. Which of the two a given build is, and how it knows, is ADR-068: the build carries its version, and an unreleased build carries none.
 
 Where that version is recorded, and how a cluster moves from one to the next, is ADR-064. This ADR settles what a version names; that one settles how it travels.
 
 ### A published version remains resolvable
 
 A version names a bundle a tenant is running, so it is withdrawn from neither the tenant nor the record. Published versions are immutable: a version is never re-published, re-pointed or deleted, and a defective bundle is superseded by a new version rather than corrected in place.
+
+A published bundle carries everything reconciling it requires, including the component declarations that name each third-party chart and its version. Those declarations are discovered from this repository today, so a cluster reconciling a published bundle would still depend on the platform's source control being reachable at the revision they were written at — and the bundle would be portable only in appearance. Travelling with the bundle is what makes one artefact enough.
 
 Immutability alone is insufficient. A tenant's repository holds a version and its values, not the content behind them, so what its clusters run is reachable only while that chart resolves. A tenant must be able to hold the bundle itself, by mirroring the published charts it runs into a registry of its own, without asking permission and without the platform's participation. Mirroring is a first-class operation of the distribution mechanism rather than something the platform must build, which is a further reason to publish rather than to be referenced.
 
@@ -153,6 +155,7 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - **Amends ADR-045.** Generated artifacts are scoped to the bundle that produced them; a bundle version and the artifacts committed under it are read together.
 - **Confirms ADR-062.** A fifth repository was considered for this purpose and rejected on that ADR's own test.
 - **Extends the mechanism of `scripts/validate-argocd-seed-parity.sh`** from one pair to the whole matrix.
+- **Amends ADR-061.** Component descriptors are discovered from within the published bundle rather than from this repository, so a cluster running a bundle needs nothing the bundle does not contain. How they are declared and what they carry is unchanged.
 - **Deferred to ADR-064.** Where a bundle version is recorded, how it advances, who approves it, and how it is withdrawn.
 - No change to ADR-021, ADR-042, ADR-055 or ADR-061. Boundaries, bootstrap phases, activation gating and descriptor composition are all *within* a bundle and are unaffected by how it is versioned.
 
@@ -168,4 +171,5 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-066: The Control Plane Boundary
+- ADR-068: The Build Declares the Bundle Version
 - ADR-064: Bundle Promotion and Tenant Placement
