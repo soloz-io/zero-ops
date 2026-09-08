@@ -25,6 +25,20 @@ except ImportError:
     sys.exit("PyYAML required")
 
 
+def subchart_names(chart_dir):
+    """Components the distribution carries, which an Application enables.
+
+    A component is no longer its own published chart (ADR-063): it is a subchart
+    of the one distribution, so a reference is satisfied by the subchart
+    existing, not by a chart of that name being published.
+    """
+    charts = os.path.join(chart_dir, "charts")
+    if not os.path.isdir(charts):
+        return set()
+    return {n for n in os.listdir(charts)
+            if os.path.exists(os.path.join(charts, n, "Chart.yaml"))}
+
+
 def chart_names(dirs):
     """What the release actually publishes, by Chart.yaml name.
 
@@ -72,6 +86,12 @@ def main() -> int:
         print(__doc__)
         return 2
     published = chart_names(sys.argv[1:])
+    # A component enabled inside the distribution is satisfied by its subchart.
+    for directory in sys.argv[1:]:
+        for name in published.copy():
+            if name == "platform":
+                for sub in subchart_names(os.path.join(directory, name)):
+                    published.setdefault(sub, f"platform/charts/{sub}")
     want = referenced(yaml.safe_load_all(sys.stdin))
     missing = sorted((c, a) for c, a in want if c not in published)
 

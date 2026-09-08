@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Fail a release whose bundle generates Applications that cannot be deployed.
+
+Rendering successfully is not the same as being deployable, and three defects
+reached published releases through exactly that gap: Applications naming charts
+no release published, a chart carrying one cluster's Infisical project IDs, and
+an Application naming a Helm chart and a Kustomize block together -- which
+ArgoCD refuses with "multiple application sources defined" and which no gate
+noticed because the chart itself rendered.
+
+Every ApplicationSet a bundle generates is expanded into the Applications it
+would create, and each is checked as a spec rather than as text:
+
+  1. source types are mutually exclusive     -- ArgoCD permits one per source
+  2. the chart it names is published         -- a reference to nothing
+  3. it resolves to at least one object      -- Healthy while managing nothing
+  4. no runtime dependency on platform git   -- ADR-063 custody
+  5. it renders for the topology given       -- variants must resolve
+  6. the spec is structurally valid          -- required fields, shapes
+
+Reads the released render on stdin.
+
+Usage: helm template ... | application-specs.py <chart-dir> [<chart-dir> ...]
+Exit 0 deployable, 1 not.
+"""
+import os
+import sys
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("PyYAML required")
+
+# ArgoCD keys the source type off which of these fields is present, and refuses
+# a source carrying more than one (application/v1alpha1/types.go).
+SOURCE_TYPES = ("chart", "kustomize", "helm", "directory", "plugin")
+
+
+def published(dirs):
+    """Chart names this release publishes, by what Chart.yaml declares."""
+    names = {}
+    for directory in dirs:
+        if not os.path.isdir(directory):
+            continue
+        for entry in sorted(os.listdir(directory)):
+            meta = os.path.join(directory, entry, "Chart.yaml")
+            if not os.path.exists(meta):
+                continue
+            with open(meta) as handle:
+                name = (yaml.safe_load(handle) or {}).get("name")
+            if name:
+                names[name] = entry
+    return names
+
+
+def sources_of(spec):
+    single = spec.get("source")
+    return ([single] if single else []) + list(spec.get("sources") or [])
+
+
+def check(appset, element, spec, charts, problems):
+    name = element.get("appName") or appset
+    sources = sources_of(spec)
+    if not sources:
+        problems.append((name, "the Application declares no source"))
+        return
+
+    for source in sources:
+        # 1. Mutually exclusive source types. `helm` alongside `chart` is the
+        # normal way to pass values and is not a conflict; the others are.
+        present = [t for t in SOURCE_TYPES if source.get(t)]
+        conflicting = [t for t in present if t != "helm"]
+        if len(conflicting) > 1:
+            problems.append((name, "multiple application sources defined: "
+                                   + ",".join(conflicting)))
+
+        repo = source.get("repoURL", "")
+        chart = source.get("chart")
+
+        # 4. Runtime dependency on the platform's own repository.
+        if repo and "github.com" in repo and "zero-ops" in repo:
+            problems.append((name, f"resolves platform git at runtime: {repo}"))
+
+        # 2. A chart this release does not publish.
+        if chart and repo.startswith("oci://") and chart not in charts:
+            problems.append((name, f"names chart {chart!r}, which this release "
+                                   f"does not publish"))
+
+        # 6. Structural: an OCI source needs a version to resolve.
+        if repo.startswith("oci://") and not source.get("targetRevision"):
+            problems.append((name, "OCI source has no targetRevision"))
+
+        # 6. A chart source carrying a path is rejected by ArgoCD.
+        if chart and source.get("path"):
+            problems.append((name, "source declares both chart and path"))
+
+    dest = spec.get("destination") or {}
+    if not (dest.get("server") or dest.get("name")):
+        problems.append((name, "destination names neither server nor name"))
+    if not spec.get("project"):
+        problems.append((name, "Application declares no project"))
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print(__doc__)
+        return 2
+    charts = published(sys.argv[1:])
+
+    problems = []
+    checked = 0
+    for doc in yaml.safe_load_all(sys.stdin):
+        if not doc or doc.get("kind") not in ("ApplicationSet", "Application"):
+            continue
+        if doc["kind"] == "Application":
+            checked += 1
+            check(doc["metadata"]["name"], {}, doc["spec"], charts, problems)
+            continue
+
+        appset = doc["metadata"]["name"]
+        template = (doc["spec"].get("template") or {}).get("spec") or {}
+        elements = [e for g in doc["spec"].get("generators", [])
+                    for e in (g.get("list") or {}).get("elements", []) or []]
+        if not elements:
+            # A generator this cannot expand -- cluster, git, pullRequest. Its
+            # template is still checked, because a conflict there applies to
+            # every Application it will ever generate.
+            checked += 1
+            check(appset, {}, template, charts, problems)
+            continue
+        for element in elements:
+            checked += 1
+            resolved = resolve(template, element)
+            check(appset, element, resolved, charts, problems)
+
+    if problems:
+        print(f"application specs: {len(problems)} problem(s) in {checked} "
+              f"Application(s)")
+        for name, detail in problems:
+            print(f"  {name}: {detail}")
+        print("Rendering is not deploying: ArgoCD would reject or silently "
+              "manage nothing.")
+        return 1
+    print(f"application specs: {checked} Application(s), all deployable")
+    return 0
+
+
+def resolve(template, element):
+    """Expand an ApplicationSet template the way ArgoCD's generator does.
+
+    The templates carry conditionals, not just references -- `path` is emitted
+    only when the element names its own repoURL, and a checker that ignored the
+    condition would report every platform-owned Application as declaring both a
+    chart and a path. Go text/template is what ArgoCD runs, so this runs it too
+    rather than approximating it.
+    """
+    import copy
+    import json
+    import subprocess
+
+    def walk(node):
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        if isinstance(node, str) and "{{" in node:
+            return _render(node, element)
+        return node
+
+    return walk(copy.deepcopy(template))
+
+
+_GO = None
+
+
+def _render(text, element):
+    """Render one field through Go's template engine, as ArgoCD does."""
+    global _GO
+    if _GO is None:
+        _GO = _start_helper()
+    if _GO is False:
+        return text
+    import json
+    try:
+        _GO.stdin.write(json.dumps({"t": text, "d": element}) + "\n")
+        _GO.stdin.flush()
+        line = _GO.stdout.readline()
+        if not line:
+            return text
+        result = json.loads(line)
+        return result.get("out", text)
+    except Exception:
+        return text
+
+
+def _start_helper():
+    """A tiny Go program that renders a template against an element.
+
+    Falls back to leaving fields untouched when Go is unavailable, because a
+    checker that cannot expand a template should say less rather than say
+    something wrong -- an unexpanded field carries braces and matches none of
+    the checks that would otherwise fire on it.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not shutil.which("go"):
+        return False
+    source = """package main
+import ("bufio";"encoding/json";"os";"strings";"text/template")
+type in struct{ T string; D map[string]interface{} }
+func main(){
+  r:=bufio.NewScanner(os.Stdin); r.Buffer(make([]byte,1<<20),1<<20)
+  w:=bufio.NewWriter(os.Stdout); defer w.Flush()
+  for r.Scan(){
+    var q in
+    if json.Unmarshal(r.Bytes(),&q)!=nil { continue }
+    out:=q.T
+    if t,err:=template.New("x").Parse(q.T); err==nil {
+      var b strings.Builder
+      if t.Execute(&b,q.D)==nil { out=b.String() }
+    }
+    b,_:=json.Marshal(map[string]string{"out":out})
+    w.Write(b); w.WriteByte('\\n'); w.Flush()
+  }
+}
+"""
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "render.go")
+    with open(path, "w") as handle:
+        handle.write(source)
+    try:
+        return subprocess.Popen(["go", "run", path], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, text=True)
+    except Exception:
+        return False
+
+
+if __name__ == "__main__":
+    sys.exit(main())

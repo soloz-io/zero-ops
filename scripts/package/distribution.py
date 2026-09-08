@@ -130,6 +130,8 @@ def write_subchart(sub, component, version, has_variants):
             f'appVersion: "{version}"\n'
         )
     os.makedirs(os.path.join(sub, "templates"), exist_ok=True)
+    # content.yaml emits the verbatim half. Any other template in this directory
+    # came from the component's own chart and is left alone.
     with open(os.path.join(sub, "templates", "content.yaml"), "w") as handle:
         handle.write(SUBCHART_TEMPLATE if has_variants else PLAIN_TEMPLATE)
 
@@ -192,14 +194,41 @@ def main() -> int:
     for component, variants in sorted(grouped.items()):
         sub = os.path.join(chart, "charts", component)
         real = [d for d in variants.values() if is_real_chart(d)]
-        if real:
-            if len(variants) > 1:
-                sys.exit(f"{component}: a templated chart cannot also carry variants")
+        if real and len(variants) == 1:
             shutil.copytree(real[0], sub)
             set_version(os.path.join(sub, "Chart.yaml"), version)
             continue
 
-        os.makedirs(sub)
+        if real:
+            # Both templated and varying: the spoke catalogue is reconciled by
+            # every spoke, so a few fields come from values, and its content
+            # still differs by environment and provider. The templates are the
+            # same across variants -- they are what the packager derived from
+            # one declaration -- so they are taken once and the verbatim content
+            # is deduplicated as usual. A variant whose templates differed would
+            # mean the declaration is not shared, which is a packaging fault
+            # rather than something to merge silently.
+            # A templated object can also vary by topology -- the catalogue's
+            # CNPG Cluster carries both a per-spoke backup path and the
+            # placement pair -- so taking the templates from one variant would
+            # give every spoke that variant's placement. Each variant keeps its
+            # own template, guarded so only the matching one emits.
+            os.makedirs(os.path.join(sub, "templates"))
+            for variant, directory in sorted(variants.items()):
+                for name in sorted(os.listdir(os.path.join(directory, "templates"))):
+                    if name == "content.yaml":
+                        continue
+                    with open(os.path.join(directory, "templates", name)) as handle:
+                        body = handle.read()
+                    guard = ('{{- if eq (printf "%s-%s" '
+                             '(.Values.global.environmentSlug | default "") '
+                             '(.Values.global.provider | default "")) '
+                             f'"{variant}" }}}}\n')
+                    target = os.path.join(sub, "templates", f"{variant}-{name}")
+                    with open(target, "w") as handle:
+                        handle.write(guard + body + "\n{{- end }}\n")
+
+        os.makedirs(sub, exist_ok=True)
         by_variant = {v: documents(d) for v, d in variants.items()}
         total += sum(len(d) for d in by_variant.values())
 

@@ -93,6 +93,14 @@ jobs:
           ./scripts/package/provider-charts.sh            "${{ steps.v.outputs.version }}" dist/charts
           ./scripts/package/tenant-and-catalog-charts.sh  "${{ steps.v.outputs.version }}" dist/charts
           ./scripts/package/inline-charts.sh              "${{ steps.v.outputs.version }}" dist/charts
+
+          # ADR-063: one published artefact. The per-component charts above are
+          # internal structure and are folded in here; only the distribution and
+          # the bundle are pushed.
+          python3 scripts/package/distribution.py "${{ steps.v.outputs.version }}" dist/charts dist/dist
+          python3 scripts/package/verify-distribution.py dist/dist/platform dist/charts
+          cp -R dist/charts/universal-tenant dist/charts/tenant-public-tls dist/dist/
+          rm -rf dist/charts && mv dist/dist dist/charts
           ./scripts/package/bundle-chart.sh               "${{ steps.v.outputs.version }}" dist/charts
 
       # A release invariant, not a report. ADR-063 makes mirroring a condition of
@@ -125,6 +133,24 @@ jobs:
       # behind it. v0.1.1 shipped green with six Applications resolving charts
       # nothing published, and the check that would have caught it was scoped to
       # the one combination already known to work.
+      # Rendering is not deploying. Three defects reached published releases
+      # through that gap -- Applications naming charts no release published, a
+      # chart carrying one cluster's Infisical project IDs, and an Application
+      # naming a Helm chart and a Kustomize block together, which ArgoCD refuses
+      # outright. Each rendered perfectly.
+      - name: Refuse a bundle whose Applications cannot be deployed
+        run: |
+          set -euo pipefail
+          for combo in "dev hybrid" "stg hybrid" "prod hetzner"; do
+            set -- $combo
+            echo "  $1+$2"
+            helm template platform-bundle dist/charts/platform-bundle \
+              --set environmentSlug="$1" --set provider="$2" \
+              --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
+              --set bundleVersion="${{ steps.v.outputs.version }}" \
+            | python3 scripts/validate/application-specs.py dist/charts
+          done
+
       - name: Assert the supported platform matrix
         run: ./scripts/validate/support-matrix.sh dist/charts/platform-bundle "${{ steps.v.outputs.version }}" dist/charts
 

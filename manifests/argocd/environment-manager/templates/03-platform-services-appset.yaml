@@ -443,6 +443,22 @@ spec:
 {{- else }}
         path: 'manifests/spoke/spoke-catalog/environments/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
 {{- end }}
+{{- if $released }}
+        # Released: the per-spoke fields are chart values, because ArgoCD
+        # permits one source type per source and an Application naming a Helm
+        # chart cannot also carry Kustomize patches -- it is refused with
+        # "multiple application sources defined". The catalogue is packaged
+        # with those objects as templates (ADR-063); the values below are the
+        # same substitutions the patches made.
+        helm:
+          values: |
+            platform-spoke-catalog:
+              enabled: true
+              spokeName: '{{"{{"}}.name{{"}}"}}'
+            global:
+              environmentSlug: {{ .Values.environmentSlug | quote }}
+              provider: {{ .Values.provider | quote }}
+{{- else }}
         kustomize:
           patches:
             # Inject the per-spoke crossplane-admin password key (ADR-003/tenant-db
@@ -550,6 +566,7 @@ spec:
                   path: /spec/provider/infisical/secretsScope/environmentSlug
                   value: '{{ .Values.environmentSlug }}'
 
+{{- end }}
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
         namespace: platform-ops

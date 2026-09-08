@@ -94,6 +94,19 @@ spec:
         # into the platform's repository to reconcile it.
         - repoURL: {{ .Values.bundleRegistry | quote }}
           targetRevision: {{ .Values.bundleVersion | quote }}
+          # Not folded into the distribution, and the reason is a constraint
+          # rather than a preference: this Application loads a tenant-authored
+          # values file from the fleet registry, and a values file lands at the
+          # chart's root. As a subchart of the distribution its values would
+          # have to nest under the subchart's name, so every tenant's file
+          # would have to be rewritten and the file's shape is a published
+          # interface tenants hold in their own repositories.
+          #
+          # ADR-063's test is whether an artefact is independently installable,
+          # versioned, supported, and able to change without the bundle moving.
+          # This is installed per tenant but is none of the other three, so it
+          # does not pass -- it is published separately because a mechanism
+          # forces it, which is worth revisiting rather than settling.
           chart: tenant-public-tls
 {{- else }}
         - repoURL: {{ .Values.platformRepoURL | quote }}

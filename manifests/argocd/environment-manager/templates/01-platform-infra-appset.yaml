@@ -92,7 +92,14 @@ spec:
             destinationNamespace: 'kube-system'
             isPlatformOwned: 'true'
             syncWave: '1'
-            repoURL: {{ .Values.platformRepoURL | quote }}
+            # Empty means platform-owned, resolved once in the source block
+            # below (ADR-068). Naming platformRepoURL here made this the one
+            # element the released path never converted, so a released cluster
+            # fetched it from the platform's repository for the life of the
+            # cluster -- and the portability audit did not see it, because it
+            # looks for references the released render produces and this element
+            # produced a correct-looking one.
+            repoURL: ''
             targetRevision: ''
             path: 'manifests/hub-core-services/storage'
             chart: ''

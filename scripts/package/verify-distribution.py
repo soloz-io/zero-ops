@@ -64,7 +64,14 @@ def main() -> int:
             else:
                 continue
 
-            expected, err = render(["helm", "template", "x", os.path.join(src, origin)])
+            # Values both sides need identically. A component that takes
+            # per-cluster values renders nothing without them, and comparing two
+            # empty renders would pass while proving nothing.
+            shared = ["--set", "spokeName=probe",
+                      "--set", f"global.environmentSlug={env}",
+                      "--set", f"global.provider={provider}"]
+            expected, err = render(
+                ["helm", "template", "x", os.path.join(src, origin)] + shared)
             if err:
                 print(f"  ERROR   {component} [{env}+{provider}]: {err}")
                 differ += 1
@@ -72,6 +79,7 @@ def main() -> int:
             actual, err = render([
                 "helm", "template", "x", umbrella,
                 "--set", f"{component}.enabled=true",
+                "--set", f"{component}.spokeName=probe",
                 "--set", f"global.environmentSlug={env}",
                 "--set", f"global.provider={provider}",
             ])

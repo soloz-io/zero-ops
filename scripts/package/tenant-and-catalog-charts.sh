@@ -56,6 +56,14 @@ CHART
         fi
         rm -f "$chart/.err"
 
+        # Objects whose content differs per spoke become chart templates; the
+        # rest stays verbatim. As a Kustomize source these were patches on the
+        # Application, and a Helm source cannot carry those (ADR-063).
+        if ! scripts/package/templated-fields.py "$chart/files/rendered.yaml" \
+             manifests/spoke/spoke-catalog/templated-fields.yaml "$chart"; then
+            rm -rf "$chart"; exit 1
+        fi
+
         # Helm refuses any chart file over 5 MiB, and vendored CRDs put these
         # well past it. Split at document boundaries so no object is divided.
         scripts/package/split-rendered.py "$chart/files/rendered.yaml" "$chart/files" >/dev/null
@@ -66,7 +74,12 @@ CHART
 {{ $.Files.Get $path }}
 {{- end }}
 TMPL
-        objects=$(helm template "$name" "$chart" 2>/dev/null | grep -c '^kind:' || true)
+        # Rendered with the values a cluster supplies, because the templated
+        # objects need them: rendering without would count zero and delete a
+        # chart that is correct.
+        objects=$(helm template "$name" "$chart" \
+            --set spokeName=probe --set global.environmentSlug="$env" \
+            --set global.provider="$prov" 2>/dev/null | grep -c '^kind:' || true)
         [[ "${objects:-0}" -gt 0 ]] || { echo "$name: renders no objects; refusing" >&2; rm -rf "$chart"; exit 1; }
         echo "packaged $name -> $chart ($objects object(s))"
     done

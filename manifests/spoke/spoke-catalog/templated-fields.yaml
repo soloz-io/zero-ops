@@ -1,0 +1,88 @@
+# Fields of the spoke catalogue that depend on which spoke is reconciling it.
+#
+# The catalogue used to be Kustomize-rendered, and these were Kustomize patches
+# on the Application. A published bundle makes the source a Helm chart, and
+# ArgoCD permits one source type per source -- its own validation refuses more
+# with "multiple application sources defined" -- so an Application naming a
+# chart could not also carry those patches. They become chart values instead.
+#
+# Kept as data rather than written into the packager, because this list is the
+# contract: it names every object whose content is not the same on every spoke,
+# and reviewing it is how that claim stays true. A field missing here is not a
+# render failure -- it is a spoke reading another spoke's secrets.
+#
+# spokeName is the ArgoCD cluster name, resolved per generated Application.
+# environmentSlug is a Helm value resolved at bootstrap.
+- kind: ExternalSecret
+  name: crossplane-admin-credentials
+  # ADR-003 tenant-db bootstrap: the hub-operator generates
+  # <spoke>-crossplane-admin-password in hub-secrets, and the remoteRef must
+  # match that key exactly or the spoke CNPG/provider-sql bootstrap never
+  # resolves.
+  fields:
+    - path: [spec, data, 0, remoteRef, key]
+      value: '{{ .Values.spokeName }}-crossplane-admin-password'
+
+- kind: Cluster
+  name: shared-cnpg
+  # ADR-014 backup contract: per-spoke barman prefix. destinationPath is a
+  # Cluster property; ScheduledBackup has no destination fields and inherits it.
+  fields:
+    - path: [spec, backup, barmanObjectStore, destinationPath]
+      value: 's3://spoke-pool-backups/{{ .Values.spokeName }}/'
+
+- kind: ExternalSecret
+  name: s3-credentials
+  # ADR-014: per-spoke S3 keys at /spoke-pool/<spoke>/shared/. The hcloud-token
+  # is an HCloud API token, NOT a Hetzner Object Storage key -- it fails with
+  # InvalidAccessKeyId (verified live 2026-08-18).
+  fields:
+    - path: [spec, data, 0, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_ACCESS_KEY_ID'
+    - path: [spec, data, 1, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_SECRET_ACCESS_KEY'
+
+- kind: ExternalSecret
+  name: grafana-cloud-credentials
+  # ADR-031 cell-scoped authorisation: the cell Machine Identity may read
+  # /spoke-pool/<cell-id>/ only, so every spoke ExternalSecret must resolve
+  # inside that prefix. These previously used ROOT-path keys and so could never
+  # resolve on any spoke, while the hub read the same keys fine -- which made an
+  # authorisation contract violation look like a seeding gap.
+  #
+  # GRAFANA_CLOUD_* is one fleet credential materialised into each cell's own
+  # path: deliberate duplication, chosen over a privileged cross-cell read path
+  # that would weaken ADR-031's invariant.
+  fields:
+    - path: [spec, data, 0, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_PROMETHEUS_URL'
+    - path: [spec, data, 1, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_PROMETHEUS_USER'
+    - path: [spec, data, 2, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_URL'
+    - path: [spec, data, 3, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_USER'
+    - path: [spec, data, 4, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_API_KEY'
+
+- kind: Deployment
+  name: external-dns
+  # WS3 blast radius and record ownership. --domain-filter scopes which zone a
+  # spoke may write, so a dev spoke can never touch prod records; --txt-owner-id
+  # keys the TXT registry, and two spokes sharing an owner id fight over records.
+  # Both are args[0]/args[1] by contract (see external-dns.yaml), pinned first
+  # precisely so appended flags cannot shift the index.
+  fields:
+    - path: [spec, template, spec, containers, 0, args, 0]
+      value: '--domain-filter={{ if eq .Values.global.environmentSlug "prod" }}nutgraf.in{{ else }}{{ .Values.global.environmentSlug }}.nutgraf.in{{ end }}'
+    - path: [spec, template, spec, containers, 0, args, 1]
+      value: '--txt-owner-id={{ .Values.spokeName }}'
+
+- kind: ClusterSecretStore
+  name: infisical-backend
+  # Environment isolation (ADR-037). The catalogue's own manifest hardcodes
+  # environmentSlug to "dev", so a stg or prod spoke would read DEV secrets out
+  # of Infisical. The hub's environmentSlug is the authority.
+  fields:
+    - path: [spec, provider, infisical, secretsScope, environmentSlug]
+      value: '{{ .Values.global.environmentSlug }}'
