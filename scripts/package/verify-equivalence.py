@@ -49,12 +49,6 @@ def main() -> int:
     descriptor, chart = pathlib.Path(sys.argv[1]), sys.argv[2]
     text = descriptor.read_text()
     app, src = field(text, "appName"), field(text, "path")
-    # A component already consuming its published chart has no `path`: that field
-    # names the chart, and the content it was built from is declared as
-    # sourcePath. Reading only `path` made this silently SKIP exactly the
-    # components whose equivalence matters most -- the ones already published.
-    if not src:
-        src = field(text, "sourcePath")
     if not app or not src:
         print(f"  SKIP       {descriptor.name}: no appName or no path")
         return 0

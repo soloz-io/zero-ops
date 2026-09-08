@@ -1,4 +1,9 @@
 ---
+{{- /* ADR-068: an uninjected build is unreleased and sources from the working
+     tree; a build carrying a version sources from the bundle published under
+     it. Known at render time, so the choice is made here rather than by ArgoCD
+     per element. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -120,10 +125,28 @@ spec:
         # The condition is emptiness, NOT the ownership flag. platform-stalwart-mail
         # is flagged platform-owned but sourced from an OCI chart registry;
         # keying on the flag would silently retarget it at the platform repo.
-        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
-        targetRevision: '{{"{{"}} if hasPrefix "oci://" .repoURL {{"}}"}}{{ .Values.bundleVersion }}{{"{{"}} else if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # Where the platform's own content comes from is decided here, once, from
+        # the build's version (ADR-068) -- not named by each component. A
+        # component pinned to a published chart could never be exercised from a
+        # working tree, and one pinned to a path would never be exercised as
+        # published; the distinction is a property of the build.
+        #
+        # An empty repoURL means "the platform's own content". A component that
+        # names its own registry is third-party: its URL and version are pinned
+        # by the descriptor, the descriptor is bundle content, and so those move
+        # with the bundle without being resolved here.
+        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ if $released }}{{ .Values.bundleRegistry }}{{ else }}{{ .Values.platformRepoURL }}{{ end }}{{"{{"}} end {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ if $released }}{{ .Values.bundleVersion }}{{ else }}{{ .Values.environmentRevision }}{{ end }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- if $released }}
+        # Released: platform content is a chart in the bundle, named for the
+        # component. Its path is dropped -- an Application carrying both is
+        # rejected.
+        path: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .path {{"}}"}}{{"{{"}} end {{"}}"}}'
+        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- else }}
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+{{- end }}
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           # Single-quoted ON PURPOSE, and NOT a block scalar. This is inside

@@ -24,13 +24,7 @@ OUTDIR="${3:-dist/charts}"
 field() { grep -m1 "^$1:" "$DESCRIPTOR" | sed "s/^$1: *//; s/^['\"]//; s/['\"]$//"; }
 
 APP=$(field appName)
-# A component already consuming its published chart has no `path` -- that field
-# now names the chart -- so it declares sourcePath instead. Without this, flipping
-# a component to OCI would silently drop it from the next build: the packager
-# would see no path, skip it as unpackageable, and the published version would
-# quietly stop being rebuilt from source.
 SRC=$(field path)
-[[ -z "$SRC" ]] && SRC=$(field sourcePath)
 OWNED=$(field isPlatformOwned)
 INCLUDE=$(field directoryInclude)
 RECURSE=$(field directoryRecurse)

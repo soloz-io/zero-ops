@@ -74,8 +74,18 @@ spec:
     spec:
       project: boundary-02
       source:
+        # This boundary's components stay on the repository even in a released
+        # build, unlike boundaries 01, 03 and 04 (ADR-068).
+        #
+        # Their paths are a function of the provider, which ADR-061 gives as the
+        # reason they are declared here rather than as descriptors: a descriptor
+        # states a fixed source and these do not have one. Publishing them means
+        # a chart per component that selects its provider from a value, which is
+        # a change to each component rather than to this resolution. Until then a
+        # released cluster still reconciles this boundary from Git, and the
+        # portability ADR-063 asks of a bundle is not yet whole.
         repoURL: '{{"{{"}} .repoURL {{"}}"}}'
-        targetRevision: '{{"{{"}} if hasPrefix "oci://" .repoURL {{"}}"}}{{ .Values.bundleVersion }}{{"{{"}} else if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
         helm:

@@ -1,13 +1,17 @@
 environmentRevision: "main"
 
-# ADR-063/064: the published bundle version this cluster runs.
+# ADR-068: the bundle version this build requests, written by Day-0 from the
+# version the CLI binary carries.
 #
-# A component whose repoURL is an OCI registry takes its version from here
-# rather than from environmentRevision, because a chart is requested by semantic
-# version and a git source by revision -- the same bundle named two ways for two
-# kinds of source. One value per cluster, so promoting a cluster is a change to
-# this field (ADR-064) rather than to anything the component declares.
-bundleVersion: "0.1.0"
+# "development" is what an uninjected build carries and is not a fallback: it
+# means unreleased, and platform content is then reconciled from the repository
+# at environmentRevision. A real version means the content comes from the bundle
+# published under it. Day-0 writes this once; the cluster owns it afterwards, so
+# a re-applied seed must not overwrite a version a promotion set (ADR-064).
+bundleVersion: "development"
+
+# Where published bundles are pulled from. Only consulted by a released build.
+bundleRegistry: "oci://ghcr.io/soloz-io/charts"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Repository identities (ADR-004 dual-repository contract)

@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
 )
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -173,12 +173,22 @@ func (o *Orchestrator) infisicalCoordinates(ctx context.Context, kubeconfig stri
 	return read("projectId"), read("client-id")
 }
 
-// defaultBundleVersion is the published bundle a cluster starts on when nothing
-// says otherwise (ADR-063). It is the version Day-0 writes onto the seed, and
-// from there it is the cluster's own: ADR-064 promotes a cluster by changing it,
-// so it is a per-cluster value that happens to have a default rather than a
-// platform-wide constant.
-const defaultBundleVersion = "0.1.0"
+// readSeedBundleVersion returns the bundle version already recorded on this
+// cluster's seed Application, or "" when there is none to read.
+//
+// An unreadable seed and an absent one are the same answer here on purpose:
+// both mean nothing on the cluster claims a version, and the caller then seeds
+// the build's. The failure this guards against is overwriting a version that IS
+// there, which requires having read it.
+func readSeedBundleVersion(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"-n", "platform-ops", "get", "application", seedAppName,
+		"-o", `jsonpath={.spec.source.helm.parameters[?(@.name=="bundleVersion")].value}`).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
 
 func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
 	scopes := ""
@@ -337,9 +347,24 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		envRevision = b
 	}
 
-	bundleVersion := defaultBundleVersion
-	if v := strings.TrimSpace(os.Getenv("ZERO_OPS_BUNDLE_VERSION")); v != "" {
-		bundleVersion = v
+	// Day-0 seeds the version; the cluster owns it afterwards (ADR-068).
+	//
+	// This function is the seed renderer, and it runs again after Day-0: to
+	// supply the Infisical coordinates discovered later in the pipeline, to
+	// resume an interrupted bootstrap, and through `hub reseed`. Writing the
+	// build's version unconditionally would return a cluster promoted to a newer
+	// bundle (ADR-064) to whatever the operator's binary happened to carry --
+	// a downgrade with no diff, no error, and nothing recording what moved it.
+	//
+	// So a version already on the cluster wins, and the build's is used only
+	// when there is none: the first apply, which is what seeding means.
+	bundleVersion := versions.BundleVersion
+	if existing := readSeedBundleVersion(ctx, kubeconfig); existing != "" {
+		if existing != bundleVersion {
+			fmt.Printf("[seed] cluster runs bundle %s; leaving it (this build carries %s)\n",
+				existing, bundleVersion)
+		}
+		bundleVersion = existing
 	}
 
 	infisicalProjectID, infisicalClientID := o.infisicalCoordinates(ctx, kubeconfig)
