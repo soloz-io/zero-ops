@@ -115,5 +115,5 @@ Control planes will run different bundle versions, and the platform supports the
 - ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-063: The Platform Bundle and its Version
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
-- ADR-066: The Control Plane Boundary
+- ADR-066: The Platform Boundary
 - ADR-067: Support Telemetry and the Basis of Maintenance

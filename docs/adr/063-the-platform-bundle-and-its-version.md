@@ -33,7 +33,9 @@ The codebase contains no upgrade machinery of any kind. The only occurrence of "
 
 **The platform is a bundle, and its version is a tag.**
 
-A bundle is the complete set of platform content at one revision of `zero-ops`: every boundary, every component descriptor, every chart version, and the Day-0 constants that must agree with them. It is delivered as a unit because it is only ever tested as a unit.
+A bundle is the complete set of platform content at one revision of `zero-ops`: every boundary, every component descriptor, every chart version, and the Day-0 constants that must agree with them.
+
+What a version certifies is one substrate and each capability on it, not every combination of capabilities. The machinery every box runs is tested as a unit, because it is only ever deployed as one; a selectable capability is tested against that substrate at that version and declares what it requires of it. Ten independently selectable capabilities are a thousand combinations, and a version claiming to have exercised them all would assert something nobody could check. Where two capabilities genuinely interact, that pair is declared and certified as a pair (ADR-066).
 
 ### The bundle is published as a versioned chart
 
@@ -83,10 +85,11 @@ namespaces, RBAC, secret bindings, gateways and TLS — from the same version, s
 advancing a cluster's bundle advances that infrastructure with it on the next
 reconcile, without touching any tenant's repository.
 
-Which of those a given cluster runs is a value, not a version. ADR-066 draws the
-line between the control plane every cluster runs and the workloads a tenant
-selects; selection is expressed in the tenant's values file and never in the
-version, so choosing a workload and upgrading a bundle remain independent acts.
+Which of those a given cluster runs is a value, not a version. ADR-066 separates
+the cluster machinery every box runs from the capabilities a tenant selects, and
+the platform maintains both; selection is expressed in the tenant's values file
+and never in the version, so adopting a capability and upgrading a bundle remain
+independent acts.
 
 A bundle version is therefore also a statement about what a tenant's workloads
 rest on, and publishing it makes that reproducible on the same terms as the
@@ -170,6 +173,6 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-061: Component Descriptors for Boundary Composition
 - ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-065: The Control Plane Ships Into the Box
-- ADR-066: The Control Plane Boundary
+- ADR-066: The Platform Boundary
 - ADR-068: The Build Declares the Bundle Version
 - ADR-064: Bundle Promotion and Tenant Placement

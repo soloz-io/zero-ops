@@ -98,4 +98,4 @@ Pre-flight verdicts are produced by the tenant's own control plane, so the platf
 - ADR-063: The Platform Bundle and its Version
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
 - ADR-065: The Control Plane Ships Into the Box
-- ADR-066: The Control Plane Boundary
+- ADR-066: The Platform Boundary
