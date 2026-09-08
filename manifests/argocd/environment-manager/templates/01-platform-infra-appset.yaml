@@ -35,7 +35,12 @@ spec:
     {{- $descriptors := $.Files.Glob "descriptors/01/*.yaml" }}
     {{- if not $descriptors }}{{ fail "released bundle carries no descriptors for boundary 01: they are copied in at package time, and a chart without them would generate an empty boundary and report it healthy" }}{{ end }}
     {{- range $path, $_ := $.Files.Glob "descriptors/01/*.yaml" }}
-          -{{ $.Files.Get $path | fromYaml | toYaml | nindent 12 }}
+{{- $d := $.Files.Get $path | fromYaml }}
+{{- if $released }}
+          -{{ include "environment-manager.releasedElement" (dict "descriptor" $d "root" $) | nindent 12 }}
+{{- else }}
+          -{{ $d | toYaml | nindent 12 }}
+{{- end }}
     {{- end }}
     {{- else }}
     - git:
@@ -121,6 +126,20 @@ spec:
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: |
+              {{- if $released }}
+              platform-security-infra:
+                enabled: true
+                infisical:
+                  fleet:
+                    projectId: {{ .Values.infisical.fleet.projectId | quote }}
+                    clientId: {{ .Values.infisical.fleet.clientId | quote }}
+                  signing:
+                    projectId: {{ .Values.infisical.signing.projectId | quote }}
+                    clientId: {{ .Values.infisical.signing.clientId | quote }}
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- else }}
               infisical:
                 fleet:
                   projectId: {{ .Values.infisical.fleet.projectId | quote }}
@@ -128,6 +147,7 @@ spec:
                 signing:
                   projectId: {{ .Values.infisical.signing.projectId | quote }}
                   clientId: {{ .Values.infisical.signing.clientId | quote }}
+              {{- end }}
             helmReleaseName: ''
 
           - appName: 'platform-kyverno'
@@ -392,7 +412,10 @@ spec:
         # component. Its path is dropped -- an Application carrying both is
         # rejected.
         path: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .path {{"}}"}}{{"{{"}} end {{"}}"}}'
-        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # One artefact (ADR-063): platform-owned content resolves the
+        # distribution and enables its component through values; a component
+        # naming its own repoURL keeps the chart its descriptor pins.
+        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}platform{{"{{"}} end {{"}}"}}'
 {{- else }}
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'

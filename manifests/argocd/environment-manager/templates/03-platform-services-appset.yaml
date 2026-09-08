@@ -52,7 +52,12 @@ spec:
     {{- $descriptors := $.Files.Glob "descriptors/03/*.yaml" }}
     {{- if not $descriptors }}{{ fail "released bundle carries no descriptors for boundary 03: they are copied in at package time, and a chart without them would generate an empty boundary and report it healthy" }}{{ end }}
     {{- range $path, $_ := $.Files.Glob "descriptors/03/*.yaml" }}
-          -{{ $.Files.Get $path | fromYaml | toYaml | nindent 12 }}
+{{- $d := $.Files.Get $path | fromYaml }}
+{{- if $released }}
+          -{{ include "environment-manager.releasedElement" (dict "descriptor" $d "root" $) | nindent 12 }}
+{{- else }}
+          -{{ $d | toYaml | nindent 12 }}
+{{- end }}
     {{- end }}
     {{- else }}
     - git:
@@ -99,8 +104,18 @@ spec:
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: |
+              {{- if $released }}
+              hub-gateway:
+                enabled: true
+                externalDns:
+                  target: {{ .Values.hubIngressAddress | quote }}
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- else }}
               externalDns:
                 target: {{ .Values.hubIngressAddress | quote }}
+              {{- end }}
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
@@ -112,16 +127,18 @@ spec:
             repoURL: ''
             targetRevision: ''
             path: 'manifests/environments/{{ .Values.environmentSlug }}'
-{{- if $released }}
-            # Packaged per combination, so the element names the chart it
-            # wants rather than letting it default to the appName.
-            chart: 'hub-environment-{{ .Values.environmentSlug }}'
-{{- else }}
             chart: ''
-{{- end }}
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              hub-environment:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- else }}
+              {{- end }}
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
@@ -132,16 +149,18 @@ spec:
             repoURL: ''
             targetRevision: ''
             path: 'manifests/providers/{{ .Values.provider }}'
-{{- if $released }}
-            # Packaged per combination, so the element names the chart it
-            # wants rather than letting it default to the appName.
-            chart: 'infrastructure-provider-{{ .Values.provider }}'
-{{- else }}
             chart: ''
-{{- end }}
             directoryRecurse: 'false'
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              infrastructure-provider:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- else }}
+              {{- end }}
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
@@ -152,16 +171,18 @@ spec:
             repoURL: ''
             targetRevision: ''
             path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
-{{- if $released }}
-            # Packaged per combination, so the element names the chart it
-            # wants rather than letting it default to the appName.
-            chart: 'platform-spoke-pools-{{ .Values.environmentSlug }}-{{ .Values.provider }}'
-{{- else }}
             chart: ''
-{{- end }}
             directoryRecurse: 'true'
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              platform-spoke-pools:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- else }}
+              {{- end }}
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
@@ -204,7 +225,10 @@ spec:
         # wants; falling back to the appName would name a chart no release
         # publishes, and the Application would resolve nothing.
         path: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .path {{"}}"}}{{"{{"}} end {{"}}"}}'
-        chart: '{{"{{"}} if .chart {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # One artefact (ADR-063). A component naming its own repoURL keeps the
+        # chart its descriptor pins; everything platform-owned resolves the
+        # distribution and enables its own component through values.
+        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}platform{{"{{"}} end {{"}}"}}'
 {{- else }}
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
@@ -411,7 +435,11 @@ spec:
         # provider. The provider is still read from the cluster's own label, so
         # a spoke gets the catalogue matching what it actually is rather than
         # what the hub assumed.
-        chart: 'platform-spoke-catalog-{{ .Values.environmentSlug }}-{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog chart" {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # One artefact (ADR-063). The spoke's own provider label still chooses
+        # the content -- it selects a variant inside the distribution now
+        # instead of a separate chart, so a spoke still gets the catalogue
+        # matching what it is rather than what the hub assumed.
+        chart: 'platform'
 {{- else }}
         path: 'manifests/spoke/spoke-catalog/environments/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
 {{- end }}

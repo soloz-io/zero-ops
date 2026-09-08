@@ -92,7 +92,11 @@ spec:
         repoURL: {{ .Values.bundleRegistry | quote }}
         targetRevision: {{ .Values.bundleVersion | quote }}
         path: ''
-        chart: '{{"{{"}} .appName {{"}}"}}-{{ .Values.provider }}'
+        # One artefact (ADR-063). The provider used to be part of the chart
+        # name because each overlay was published separately; it now selects a
+        # variant inside the distribution, so the name is the same everywhere
+        # and adding a provider publishes nothing new.
+        chart: 'platform'
 {{- else }}
         repoURL: '{{"{{"}} .repoURL {{"}}"}}'
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
