@@ -11,7 +11,15 @@ environmentRevision: "main"
 bundleVersion: "development"
 
 # Where published bundles are pulled from. Only consulted by a released build.
-bundleRegistry: "oci://ghcr.io/soloz-io/charts"
+#
+# No oci:// scheme. ArgoCD decides how to fetch a Helm source from the shape of
+# this URL: a scheme-less registry host is pulled as an OCI artefact, while
+# anything else is passed to `helm pull --repo`, which is the classic chart
+# repository protocol and does not speak OCI. With the scheme present every
+# platform-owned Application failed with "not a valid chart repository or
+# cannot be reached: object required" -- a message about the registry, for a
+# registry that was reachable and correct.
+bundleRegistry: "ghcr.io/soloz-io/charts"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Repository identities (ADR-004 dual-repository contract)

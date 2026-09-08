@@ -194,7 +194,9 @@ func readSeedBundleVersion(ctx context.Context, kubeconfig string) string {
 // environment-manager's own default, and is here rather than passed because the
 // seed and the chart must name the same registry -- a seed pointing at one
 // registry and a chart at another would resolve two different distributions.
-const bundleRegistry = "oci://ghcr.io/soloz-io/charts"
+// No oci:// scheme: ArgoCD pulls a scheme-less registry host as an OCI artefact
+// and passes anything else to `helm pull --repo`, which does not speak OCI.
+const bundleRegistry = "ghcr.io/soloz-io/charts"
 
 func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
 	scopes := ""
@@ -216,7 +218,7 @@ func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressA
 	if bundleVersion != versions.DevelopmentBundle {
 		source = fmt.Sprintf(`    repoURL: %q
     targetRevision: %q
-    chart: environment-manager`, strings.TrimPrefix(bundleRegistry, "oci://"), bundleVersion)
+    chart: environment-manager`, bundleRegistry, bundleVersion)
 	}
 
 	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1

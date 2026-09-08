@@ -36,6 +36,25 @@ except ImportError:
 SOURCE_TYPES = ("chart", "kustomize", "helm", "directory", "plugin")
 
 
+# Where this platform publishes. A chart from anywhere else is third-party: its
+# name and version are pinned by its descriptor and it is not ours to publish,
+# so checking it against what this release produced would report every upstream
+# chart as missing.
+PLATFORM_REGISTRY = "ghcr.io/soloz-io/charts"
+
+
+def is_registry(url):
+    """Whether a repoURL names a chart registry rather than a git repository.
+
+    ArgoCD decides how to fetch a Helm source from the shape of the URL, and so
+    does this: a scheme-less host is pulled as an OCI artefact. Keying on an
+    "oci://" prefix instead would have made every check below silently stop
+    applying the moment the scheme was dropped -- which is what the platform had
+    to do to make ArgoCD pull these charts at all.
+    """
+    return bool(url) and not url.startswith(("http://", "https://", "git@"))
+
+
 def published(dirs):
     """Chart names this release publishes, by what Chart.yaml declares."""
     names = {}
@@ -82,13 +101,27 @@ def check(appset, element, spec, charts, problems):
             problems.append((name, f"resolves platform git at runtime: {repo}"))
 
         # 2. A chart this release does not publish.
-        if chart and repo.startswith("oci://") and chart not in charts:
+        if chart and repo == PLATFORM_REGISTRY and chart not in charts:
             problems.append((name, f"names chart {chart!r}, which this release "
                                    f"does not publish"))
 
+        # 6. A chart source carrying a scheme. ArgoCD decides how to fetch a
+        # Helm source from the shape of this URL: a scheme-less host is pulled
+        # as an OCI artefact, and anything else goes to `helm pull --repo`,
+        # which is the classic chart repository protocol and does not speak OCI.
+        # An "oci://" prefix therefore reads as a classic repository whose host
+        # happens to be a registry, and every Application fails with "not a
+        # valid chart repository or cannot be reached: object required" -- a
+        # message about the registry, for a registry that is reachable and
+        # correct. Every platform-owned Application failed this way once.
+        if chart and repo.startswith("oci://"):
+            problems.append((name, f"chart source repoURL carries an oci:// "
+                                   f"scheme ({repo}); ArgoCD would fetch it as a "
+                                   f"classic Helm repository and fail"))
+
         # 6. Structural: an OCI source needs a version to resolve.
-        if repo.startswith("oci://") and not source.get("targetRevision"):
-            problems.append((name, "OCI source has no targetRevision"))
+        if chart and is_registry(repo) and not source.get("targetRevision"):
+            problems.append((name, "registry source has no targetRevision"))
 
         # 6. A chart source carrying a path is rejected by ArgoCD.
         if chart and source.get("path"):

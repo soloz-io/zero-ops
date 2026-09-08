@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "clusterName": "hub-hybrid-dev",
+  "provider": "hybrid",
+  "region": "",
+  "bootstrapId": "",
+  "currentPhase": "cleanup",
+  "completedPhases": [
+    "preflight",
+    "bootstrap-create",
+    "day0-infra",
+    "capi-init",
+    "cluster-provision",
+    "home-worker-join",
+    "argocd-install",
+    "pivot-move",
+    "pivot-ready",
+    "cleanup",
+    "clusterclass-deploy",
+    "platform-pre-reqs",
+    "cleanup",
+    "cleanup",
+    "cleanup"
+  ],
+  "bootstrapContext": "kind-hub-hybrid-dev",
+  "mgmtKubeconfig": "k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig",
+  "talosConfig": "",
+  "talosImageId": "",
+  "networkCIDR": "",
+  "timestamp": "2026-09-08T22:35:47.075281Z",
+  "metadata": null,
+  "startedAt": "2026-09-08T21:17:45.830171Z",
+  "phaseTimings": [
+    {
+      "phase": "preflight",
+      "startedAt": "2026-09-08T21:17:45.167556Z",
+      "completedAt": "2026-09-08T21:17:45.830142Z",
+      "seconds": 0.663
+    },
+    {
+      "phase": "bootstrap-create",
+      "startedAt": "2026-09-08T21:17:45.831494Z",
+      "completedAt": "2026-09-08T21:18:16.826689Z",
+      "seconds": 30.995
+    },
+    {
+      "phase": "day0-infra",
+      "startedAt": "2026-09-08T21:18:16.827278Z",
+      "completedAt": "2026-09-08T21:18:17.02731Z",
+      "seconds": 0.2
+    },
+    {
+      "phase": "capi-init",
+      "startedAt": "2026-09-08T21:18:17.027777Z",
+      "completedAt": "2026-09-08T21:21:36.639175Z",
+      "seconds": 199.611
+    },
+    {
+      "phase": "cluster-provision",
+      "startedAt": "2026-09-08T21:21:36.640056Z",
+      "completedAt": "2026-09-08T21:24:38.260826Z",
+      "seconds": 181.621
+    },
+    {
+      "phase": "home-worker-join",
+      "startedAt": "2026-09-08T21:51:20.340252Z",
+      "completedAt": "2026-09-08T21:55:59.896111Z",
+      "seconds": 279.556
+    },
+    {
+      "phase": "argocd-install",
+      "startedAt": "2026-09-08T21:55:59.897606Z",
+      "completedAt": "2026-09-08T22:00:13.435087Z",
+      "seconds": 253.537
+    },
+    {
+      "phase": "pivot-move",
+      "startedAt": "2026-09-08T22:00:13.436324Z",
+      "completedAt": "2026-09-08T22:05:24.565219Z",
+      "seconds": 311.129
+    },
+    {
+      "phase": "pivot-ready",
+      "startedAt": "2026-09-08T22:05:24.566458Z",
+      "completedAt": "2026-09-08T22:05:30.848378Z",
+      "seconds": 6.282
+    },
+    {
+      "phase": "clusterclass-deploy",
+      "startedAt": "2026-09-08T22:05:32.907732Z",
+      "completedAt": "2026-09-08T22:05:33.987326Z",
+      "seconds": 1.08
+    },
+    {
+      "phase": "platform-pre-reqs",
+      "startedAt": "2026-09-08T22:05:33.988328Z",
+      "completedAt": "2026-09-08T22:05:48.547439Z",
+      "seconds": 14.559
+    }
+  ]
+}

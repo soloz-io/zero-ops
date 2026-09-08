@@ -26,7 +26,9 @@ def main() -> int:
         name = doc["metadata"]["name"]
 
         def note(kind: str, url: str) -> None:
-            if url and PLATFORM_REPO in url and not url.startswith("oci://"):
+            # A registry URL is scheme-less; anything naming the platform's
+            # repository over http(s) is a runtime dependency on it.
+            if url and PLATFORM_REPO in url and url.startswith(("http://", "https://")):
                 refs.add((name, kind))
 
         for gen in doc["spec"].get("generators", []):

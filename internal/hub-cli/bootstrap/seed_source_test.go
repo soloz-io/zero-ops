@@ -35,6 +35,12 @@ func TestSeedSourceFollowsBuildMode(t *testing.T) {
 		t.Error("a released seed must not carry a git path: ArgoCD rejects a " +
 			"source declaring both a chart and a path")
 	}
+	// ArgoCD pulls a scheme-less registry host as an OCI artefact and passes
+	// anything else to `helm pull --repo`, which does not speak OCI. With the
+	// scheme present every platform-owned Application failed to load its source.
+	if strings.Contains(released, "oci://") {
+		t.Error("a released seed must name the registry without an oci:// scheme")
+	}
 	if !strings.Contains(released, "targetRevision: \"0.1.3\"") {
 		t.Error("a released seed must request the bundle version it was built for")
 	}
