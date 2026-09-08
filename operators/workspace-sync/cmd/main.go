@@ -432,6 +432,13 @@ func runServe(root string) error {
 			return
 		}
 		m, err := snapshot(req.Name, req.Description, "on-demand")
+		if errors.Is(err, store.ErrNothingToSave) {
+			// 200 with no id, like the not-configured case: the request was
+			// correct and there is simply nothing here yet. A 4xx would read as
+			// "you did something wrong".
+			writeJSON(w, http.StatusOK, map[string]any{"checkpointId": "", "skipped": "nothing-to-save"})
+			return
+		}
 		if errors.Is(err, store.ErrNotConfigured) {
 			// 200 with no id: the caller asked correctly and this deployment
 			// has nowhere to put it. Failing here would make an unconfigured
@@ -718,6 +725,8 @@ func runServe(root string) error {
 		switch {
 		case errors.Is(err, store.ErrNotConfigured):
 			log.Print("teardown checkpoint skipped — object storage not configured")
+		case errors.Is(err, store.ErrNothingToSave):
+			log.Print("teardown checkpoint skipped — workspace has no files to save")
 		case err != nil:
 			// Loud, and still a clean exit. Failing the container here would
 			// mark the pod as failed for a durability miss the backstop
