@@ -45,6 +45,8 @@ ignore: |
   manifests/argocd/environment-manager/templates/
   manifests/hub-core-services/security/templates/
   manifests/hub-core-services/gateway/templates/
+  manifests/hub-core-services/**/charts/
+  manifests/spoke/**/charts/
   internal/kube-sbt/providers/gitops/helm-chart/templates/
   # Go text/template assets are not valid plain YAML until rendered.
   internal/assets/manifests/addons/crs.yaml
