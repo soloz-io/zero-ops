@@ -19,7 +19,11 @@ Three facts bear on the choice.
 
 ## Decision
 
-**Each tenant's control plane runs inside that tenant's own box, and the platform operates no tenant infrastructure.**
+**The platform may propose changes to a tenant's platform state. It may never be the authority that causes those changes to take effect.**
+
+Every other decision in this set is a consequence of that sentence, and it is the one to test a proposal against: ADR-062 gives the proposal a surface, ADR-063 an immutable artefact to propose, ADR-064 a controlled path, ADR-066 a defined scope, ADR-067 evidence without access, ADR-068 a reproducible identity, and ADR-069 the terms under which the proposing continues.
+
+**Each tenant's control plane therefore runs inside that tenant's own box, and the platform operates no tenant infrastructure.**
 
 ### The control plane is delivered, not hosted
 
@@ -117,3 +121,5 @@ Control planes will run different bundle versions, and the platform supports the
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
 - ADR-066: The Platform Boundary
 - ADR-067: Support Telemetry and the Basis of Maintenance
+- ADR-068: The Build Declares the Bundle Version
+- ADR-069: The Maintenance Promise

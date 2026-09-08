@@ -57,6 +57,20 @@ Two properties follow. A promotion becomes reviewable on its own terms: the revi
 
 The resolved set is an output of the promotion, not an input to reconciliation. What a cluster runs is determined by the version; a recorded set that disagrees with the version it accompanies is a defect a validator rejects, not an override.
 
+### Rollback restores a declaration, not an operational state
+
+Reverting the version a cluster declares restores what it asks for. It does not restore what the cluster had.
+
+The two are the same only when nothing the upgrade did was one-way, and a bundle carries CRDs, controllers, admission policy and cluster machinery, where they routinely are not: a controller that migrates stored resources to a new API version leaves them migrated, and a predecessor that cannot read them is not made able to by being declared again. The move from Crossplane 1.x to 2.x is such a case, and it is in this platform's own upgrade path.
+
+So the platform promises declaration rollback and does not promise operational recovery.
+
+**Reversibility is declared per version, at publication.** A published bundle states its predecessor and whether that predecessor can be operationally restored from it. The statement is immutable, made when the version is published, and derived from what the upgrade actually does rather than asserted.
+
+**A promotion that is not reversible says so before it is accepted.** The proposal carries the statement, so a tenant approving a one-way upgrade knows it is one-way at the moment of approving rather than at the moment of needing to undo it. A tenant that needs the option to return takes it before merging, which is the only point at which it exists.
+
+This is narrower than a guarantee that every upgrade can be undone, and it is true. The wider guarantee would be false for a subset nobody could identify in advance, which is worse than a narrow promise: it would be relied on precisely when it did not hold.
+
 ### Approval is a property of the cluster instance
 
 Each cluster instance declares whether promotion to it is automatically approved. Because a cluster belongs to exactly one tenant and the pull request is raised in that tenant's own repository, the gate is the tenant's throughout; a tenant that opts into automatic approval obtains an end-to-end automated path with no human step.
@@ -74,6 +88,7 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 - A proposal carries a pre-flight verdict from the cluster it targets, or is raised as unverified (ADR-067).
 - The component versions a proposal records resolve from the bundle version it proposes.
 - A proposed bundle version exists as a published chart before the proposal is opened.
+- A proposed version declares its predecessor and whether that predecessor is operationally restorable from it.
 
 ### Alternatives considered
 
