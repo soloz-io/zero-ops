@@ -51,6 +51,22 @@ A working branch is a legitimate bundle for a cluster being built rather than ru
 
 Where that version is recorded, and how a cluster moves from one to the next, is ADR-064. This ADR settles what a version names; that one settles how it travels.
 
+### The distribution is one artefact; topology is configuration
+
+A version names one published artefact. The components it contains are internal structure, not separately published products, and the environment and provider a cluster runs are values supplied to it rather than names it resolves.
+
+The first implementation published a chart per component and then a chart per environment and provider combination, reaching fifty-five artefacts. Measuring two of them settled it: the spoke catalogue published for `dev+hybrid` and for `prod+hetzner` differed by thirty lines out of two hundred and three thousand, and those thirty lines were the placement pair ADR-046 §11 defines -- a `workload-location` nodeSelector and a `storageClassName`. Six twelve-megabyte artefacts existed to express a nodeSelector.
+
+**An artefact is published separately only when it is independently installable, independently versioned, independently supported, and able to change without the platform bundle moving. All four, or it belongs inside the distribution.**
+
+An environment and provider combination meets none of them. It is not installed on its own, it carries no version of its own, no support commitment attaches to it, and it cannot change without the bundle changing. Publishing it as an artefact makes a deployment dimension into a product identity, and the registry then describes the platform's internal topology rather than what the platform sells.
+
+The same test explains why a capability could one day qualify and a combination never will. If a capability is genuinely installed, versioned and supported on its own, it is a product and may be published as one; until that is true of it, asserting it through packaging claims a lifecycle boundary that does not exist.
+
+Deduplication follows rather than motivates. Those six artefacts held the same vendored CRDs six times, seventy megabytes of the seventy-seven the release published; carrying the variants as content inside one artefact leaves about eighteen. That the count and the size fall together is a consequence of the boundary being drawn correctly, not the reason for drawing it.
+
+The cost is that a cluster resolving any part of the platform resolves the whole distribution, because a chart reference names a chart and not a subchart within one. Every Application therefore renders the full chart and uses its own part. That is real work repeated per Application, and it is accepted: the alternative buys a smaller render by asserting product boundaries the platform cannot yet support, and a boundary asserted early is harder to withdraw than a render is to make cheaper.
+
 ### A published version remains resolvable
 
 A version names a bundle a tenant is running, so it is withdrawn from neither the tenant nor the record. Published versions are immutable: a version is never re-published, re-pointed or deleted, and a defective bundle is superseded by a new version rather than corrected in place.
@@ -140,6 +156,8 @@ The worked example is this repository on 2026-09-07: nine components moved to th
 
 **A separate repository holding the component versions.** Rejected on ADR-062's test. Such a repository would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. Per-cluster independence is obtained instead from the version each cluster pins in the tenant's own repository.
 
+**One artefact per environment and provider combination.** Rejected, having been built and measured. It makes the registry grow with the Cartesian product of deployment dimensions rather than with what the platform independently supports, so adding a provider multiplies published artefacts instead of adding one. It also makes every such artefact a thing a tenant can pull and pin on its own, which invites exactly the per-component drift the bundle exists to prevent.
+
 **Vendoring third-party charts into this repository.** Rejected. It would make a bundle rebuildable without reaching upstream, which is a real gain, but it blurs platform source with third-party release inputs and puts megabytes of upstream content under a review nobody performs. It also improves nothing a tenant depends on, because the published chart already carries the rendered objects. Retaining the fetched inputs alongside a release strengthens rebuildability without moving them into the source of record.
 
 **Copying the bundle's content into each tenant's repository.** Rejected. It would make a tenant's repository self-describing, which is a real benefit, at the cost of the property that makes a fleet maintainable: the platform and the tenant would write to the same files, so every upgrade would carry a merge for the platform to arbitrate, and the cost of an upgrade would grow with the number of tenants rather than staying constant. Publishing the content and pinning a version keeps the two writers on disjoint fields.
@@ -180,6 +198,8 @@ Publishing is a release step the platform does not have today: `manifests/` is a
 
 A published values schema is a public interface, though a narrower one than it first appears: only fields a tenant has actually overridden are load-bearing for compatibility, and the rest can be restructured freely. Renaming an overridden field is still a breaking change requiring migration across every tenant that set it, so the schema needs validation and a compatibility policy from the first release rather than the twentieth.
 
+Every Application resolves the whole distribution to use one part of it, so a cluster with sixty-four platform-owned Applications renders the same chart sixty-four times per reconcile sweep. The transfer is small and cached; the render is not free.
+
 Version numbers will have gaps wherever a release failed part-way, and someone reading the sequence will eventually ask what happened to a missing one. The answer is that nothing did, and that has to be explained each time rather than being visible from the record.
 
 Rebuilding a supported bundle from source depends on upstream chart repositories still serving the pinned versions, so the platform's ability to reconstruct an old bundle is weaker than its ability to keep serving one. No tenant runtime depends on this, and no release gate can detect it in advance.
@@ -205,6 +225,7 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-042: Bootstrap State Machine
 - ADR-045: Bootstrap-Generated GitOps Artifacts
+- ADR-046: Cluster Topology and Placement Classes
 - ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
 - ADR-062: Onboarding and Scaffolding a Tenant
