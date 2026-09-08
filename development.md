@@ -17,7 +17,8 @@ Sequenced (default) — boundaries activated one at a time in phase order:
   --gating sequenced \
   --spoke spoke-pool-hybrid-dev-01 \
   --home-worker-enabled \
-  --tailnet-name taila4c44b.ts.net
+  --tailnet-name taila4c44b.ts.net \
+  --bundle-version 0.1.3
 
 Converged (ADR-055) — all boundaries reconcile at once, red-then-green:
 
