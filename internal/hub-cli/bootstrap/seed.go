@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -172,7 +173,14 @@ func (o *Orchestrator) infisicalCoordinates(ctx context.Context, kubeconfig stri
 	return read("projectId"), read("client-id")
 }
 
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID string, oidcScopes []string) string {
+// defaultBundleVersion is the published bundle a cluster starts on when nothing
+// says otherwise (ADR-063). It is the version Day-0 writes onto the seed, and
+// from there it is the cluster's own: ADR-064 promotes a cluster by changing it,
+// so it is a per-cluster value that happens to have a default rather than a
+// platform-wide constant.
+const defaultBundleVersion = "0.1.0"
+
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
 	scopes := ""
 	for _, sc := range oidcScopes {
 		scopes += fmt.Sprintf("\n        - %q", sc)
@@ -191,6 +199,8 @@ spec:
     helm:
       parameters:
         - name: environmentRevision
+          value: %q
+        - name: bundleVersion
           value: %q
         - name: environmentSlug
           value: %q
@@ -221,7 +231,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+`, seedAppName, envRevision, envRevision, bundleVersion, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
 		infisicalProjectID, infisicalClientID, scopes)
 }
 
@@ -327,6 +337,11 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		envRevision = b
 	}
 
+	bundleVersion := defaultBundleVersion
+	if v := strings.TrimSpace(os.Getenv("ZERO_OPS_BUNDLE_VERSION")); v != "" {
+		bundleVersion = v
+	}
+
 	infisicalProjectID, infisicalClientID := o.infisicalCoordinates(ctx, kubeconfig)
 	if infisicalProjectID == "" || infisicalClientID == "" {
 		fmt.Println("[seed] warning: infisical-auth unreadable; the security boundary will refuse to render until it is")
@@ -334,7 +349,7 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
 		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
-		infisicalProjectID, infisicalClientID, oidcScopes)
+		infisicalProjectID, infisicalClientID, bundleVersion, oidcScopes)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}
