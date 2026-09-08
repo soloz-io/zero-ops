@@ -151,6 +151,42 @@ jobs:
           [ "$got" = "${{ steps.v.outputs.version }}" ] || {
             echo "::error::built CLI reports '$got', expected '${{ steps.v.outputs.version }}'"; exit 1; }
 
+      # ADR-063: the platform guarantees a published bundle stays resolvable, not
+      # that it can be rebuilt from upstream indefinitely. Third-party charts are
+      # pinned but fetched at package time, so keeping the exact tarballs the
+      # build used is what makes a supported version reconstructable if an
+      # upstream repository stops serving it. They are release inputs, not
+      # platform source, which is why they are retained here rather than
+      # committed.
+      - name: Retain the third-party inputs this bundle was built from
+        run: |
+          set -euo pipefail
+          mkdir -p dist/inputs
+          # Only the fetched caches, selected by what git ignores rather than by
+          # name: manifests/tenants/charts is platform source and is tracked, so
+          # a name match would sweep it in and blur the distinction this retains
+          # for. Nested charts/ directories are dropped because their parent
+          # already carries them.
+          mapfile -t fetched < <(
+            find manifests -type d -name charts -not -path './dist/*' \
+              | sort \
+              | while read -r d; do git check-ignore -q "$d" && echo "$d"; done \
+              | awk '{ if (prev == "" || index($0, prev "/") != 1) { print; prev = $0 } }'
+          )
+          if [ "${#fetched[@]}" -eq 0 ]; then
+            echo "::error::no fetched third-party chart directories found; this bundle could not be reconstructed"
+            exit 1
+          fi
+          printf '  retaining %s\n' "${fetched[@]}"
+          tar -czf "dist/inputs/third-party-charts-${{ steps.v.outputs.version }}.tar.gz" "${fetched[@]}"
+          ls -lh dist/inputs/
+
+      - name: Attach the retained inputs to the release
+        if: github.event_name == 'release'
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/inputs/* --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Attach the CLI to the release
         if: github.event_name == 'release'
         run: gh release upload "${{ github.event.release.tag_name }}" dist/bin/* --clobber

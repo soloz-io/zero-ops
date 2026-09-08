@@ -67,6 +67,18 @@ Mirroring is a first-class operation of the distribution mechanism rather than s
 
 This is what makes the independence ADR-065 claims survive the platform. Revoking an App installation stops proposals arriving and stops nothing running, but only if the content those clusters reconcile is still fetchable. A tenant whose running estate is reachable solely through a service it no longer buys has custody of its clusters and not of its platform.
 
+### The published bundle is authoritative, not the build that made it
+
+Two properties are easily conflated, and the platform guarantees only one of them absolutely.
+
+Runtime reproducibility says that a bundle digest resolves to the same artefact, forever. It is mandatory, and it is what every claim above rests on. A published chart carries its rendered objects with exact image references and declares no dependencies, so a tenant reconciling it contacts no upstream chart repository. What the tenant depends on is the immutable published artefact.
+
+Build reproducibility says that a source revision and the release inputs of the day produce the same bundle again. It is desirable, and it is not absolute. Third-party charts are fetched at package time from their upstream repositories, pinned to exact versions but not vendored into this repository, so reconstructing a bundle years later depends on those repositories still serving those versions. That dependency is on the platform's ability to rebuild, not on a tenant's ability to run.
+
+**The platform guarantees continued resolvability of published bundles, not indefinite ability to reconstruct them from their upstream sources. Release pipelines SHOULD retain the immutable inputs required to reconstruct supported bundle versions.**
+
+Stating it this way is not a weakening. It is what makes the custody claim precise: the artefact a tenant runs is immutable and mirrorable, and the platform's own build inputs are a separate concern that cannot reach into a running cluster. A platform that claimed indefinite rebuildability would be claiming something it does not control, and the claim would fail silently at the moment someone depended on it.
+
 ### Component versions are declared once
 
 Every third-party version the platform installs is declared in one place. The existing parity validators assert that the scattered pins — descriptors, inline elements, provider packages, Go constants — agree with that declaration.
@@ -116,6 +128,8 @@ The worked example is this repository on 2026-09-07: nine components moved to th
 
 **A separate repository holding the component versions.** Rejected on ADR-062's test. Such a repository would hold the same content, at the same revision, as `zero-ops`, and so is not a distinct type, instance or workload. Per-cluster independence is obtained instead from the version each cluster pins in the tenant's own repository.
 
+**Vendoring third-party charts into this repository.** Rejected. It would make a bundle rebuildable without reaching upstream, which is a real gain, but it blurs platform source with third-party release inputs and puts megabytes of upstream content under a review nobody performs. It also improves nothing a tenant depends on, because the published chart already carries the rendered objects. Retaining the fetched inputs alongside a release strengthens rebuildability without moving them into the source of record.
+
 **Copying the bundle's content into each tenant's repository.** Rejected. It would make a tenant's repository self-describing, which is a real benefit, at the cost of the property that makes a fleet maintainable: the platform and the tenant would write to the same files, so every upgrade would carry a merge for the platform to arbitrate, and the cost of an upgrade would grow with the number of tenants rather than staying constant. Publishing the content and pinning a version keeps the two writers on disjoint fields.
 
 ## Ownership
@@ -153,6 +167,8 @@ Declaring versions once means a second place to change when adding a component, 
 Publishing is a release step the platform does not have today: `manifests/` is applied directly and would have to be packaged as a chart, with a pipeline and a registry behind it.
 
 A published values schema is a public interface, though a narrower one than it first appears: only fields a tenant has actually overridden are load-bearing for compatibility, and the rest can be restructured freely. Renaming an overridden field is still a breaking change requiring migration across every tenant that set it, so the schema needs validation and a compatibility policy from the first release rather than the twentieth.
+
+Rebuilding a supported bundle from source depends on upstream chart repositories still serving the pinned versions, so the platform's ability to reconstruct an old bundle is weaker than its ability to keep serving one. No tenant runtime depends on this, and no release gate can detect it in advance.
 
 Immutable tags accumulate, and every tag any tenant still runs is one the platform continues to answer for. A version cannot be retired by deleting it, only by promoting every tenant off it.
 
