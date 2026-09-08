@@ -21,7 +21,12 @@ on:
         required: true
 
 permissions:
-  contents: read
+  # write, not read: the release attaches the CLI a tenant installs and the
+  # third-party inputs ADR-063 asks a pipeline to retain, and uploading a
+  # release asset is a write to contents. With read the packaging and the GHCR
+  # push both succeed and only the upload fails, so the run gets most of the way
+  # through before stopping.
+  contents: write
   packages: write
 
 jobs:
