@@ -1,3 +1,4 @@
+{{- include "environment-manager.assertSupported" . -}}
 ---
 # ADR-047: Fleet tenant provisioning ApplicationSets.
 # Reconciles the three tenant lifecycle resources for each fleet:

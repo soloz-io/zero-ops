@@ -1,3 +1,4 @@
+{{- include "environment-manager.assertSupported" . -}}
 {{- if not .Values.publicTlsIssuer -}}
 {{- /*
   Refuse to emit this ApplicationSet without an issuer, rather than emitting one

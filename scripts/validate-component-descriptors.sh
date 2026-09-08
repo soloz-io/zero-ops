@@ -76,7 +76,7 @@ rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
 helm template descriptor-check "$env_mgr" \
   --set environmentSlug=dev \
-  --set provider=hetzner \
+  --set provider=hybrid \
   --set topology=single \
   --set publicTlsIssuer=letsencrypt-prod \
   --set oidcIssuer=https://auth.example.invalid \

@@ -92,6 +92,7 @@ jobs:
           # should have received in the bundle.
           ./scripts/package/provider-charts.sh            "${{ steps.v.outputs.version }}" dist/charts
           ./scripts/package/tenant-and-catalog-charts.sh  "${{ steps.v.outputs.version }}" dist/charts
+          ./scripts/package/inline-charts.sh              "${{ steps.v.outputs.version }}" dist/charts
           ./scripts/package/bundle-chart.sh               "${{ steps.v.outputs.version }}" dist/charts
 
       # A release invariant, not a report. ADR-063 makes mirroring a condition of
@@ -112,6 +113,20 @@ jobs:
             [ -d "dist/charts/$app" ] || continue
             ./scripts/package/verify-equivalence.py "$d" "dist/charts/$app"
           done
+
+      # Asserts the whole support matrix, both halves. Every environment crossed
+      # with every provider: a supported combination must render and must name
+      # only charts this release publishes; an unsupported one must be refused
+      # by name.
+      #
+      # Both halves, because either alone drifts. Checking only that supported
+      # combinations render would let someone declare a combination supported,
+      # see the release stay green, and believe it -- while no sources exist
+      # behind it. v0.1.1 shipped green with six Applications resolving charts
+      # nothing published, and the check that would have caught it was scoped to
+      # the one combination already known to work.
+      - name: Assert the supported platform matrix
+        run: ./scripts/validate/support-matrix.sh dist/charts/platform-bundle "${{ steps.v.outputs.version }}" dist/charts
 
       - name: Push to GHCR
         run: |

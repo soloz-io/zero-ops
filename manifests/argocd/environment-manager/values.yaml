@@ -168,3 +168,29 @@ infisical:
   signing:
     projectId: ""
     clientId: ""
+
+# The supported platform matrix: which environment may run on which provider.
+#
+# Placement policy, not an implementation detail. dev and stg run on hybrid for
+# cheaper development capacity; prod runs on Hetzner. The combinations absent
+# here are unsupported today, and they are absent deliberately -- adding sources
+# to make a six-way matrix render would turn an implementation gap into a
+# product promise nobody decided to make.
+#
+# A combination not listed fails to render, naming itself and the reason. It
+# used to resolve a path that does not exist, so the Application reported
+# healthy while managing nothing -- the failure this platform documents as its
+# most dangerous, and the one a tenant discovers only when the thing it was
+# supposed to create is missing.
+#
+# The release gate reads this same list, asserts every supported combination
+# renders, and asserts every other combination is refused. Adding a combination
+# here without the sources behind it therefore fails the release rather than
+# shipping a topology that cannot converge.
+supportedMatrix:
+  dev:
+    - hybrid
+  stg:
+    - hybrid
+  prod:
+    - hetzner

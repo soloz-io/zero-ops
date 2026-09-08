@@ -1,3 +1,4 @@
+{{- include "environment-manager.assertSupported" . -}}
 ---
 {{- /* ADR-068: an uninjected build is unreleased and sources from the working
      tree; a build carrying a version sources from the bundle published under
@@ -111,7 +112,13 @@ spec:
             repoURL: ''
             targetRevision: ''
             path: 'manifests/environments/{{ .Values.environmentSlug }}'
+{{- if $released }}
+            # Packaged per combination, so the element names the chart it
+            # wants rather than letting it default to the appName.
+            chart: 'hub-environment-{{ .Values.environmentSlug }}'
+{{- else }}
             chart: ''
+{{- end }}
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: ''
@@ -125,7 +132,13 @@ spec:
             repoURL: ''
             targetRevision: ''
             path: 'manifests/providers/{{ .Values.provider }}'
+{{- if $released }}
+            # Packaged per combination, so the element names the chart it
+            # wants rather than letting it default to the appName.
+            chart: 'infrastructure-provider-{{ .Values.provider }}'
+{{- else }}
             chart: ''
+{{- end }}
             directoryRecurse: 'false'
             directoryInclude: ''
             helmValues: ''
@@ -139,7 +152,13 @@ spec:
             repoURL: ''
             targetRevision: ''
             path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
+{{- if $released }}
+            # Packaged per combination, so the element names the chart it
+            # wants rather than letting it default to the appName.
+            chart: 'platform-spoke-pools-{{ .Values.environmentSlug }}-{{ .Values.provider }}'
+{{- else }}
             chart: ''
+{{- end }}
             directoryRecurse: 'true'
             directoryInclude: ''
             helmValues: ''
@@ -176,11 +195,16 @@ spec:
         repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ if $released }}{{ .Values.bundleRegistry }}{{ else }}{{ .Values.platformRepoURL }}{{ end }}{{"{{"}} end {{"}}"}}'
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ if $released }}{{ .Values.bundleVersion }}{{ else }}{{ .Values.environmentRevision }}{{ end }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
 {{- if $released }}
-        # Released: platform content is a chart in the bundle, named for the
-        # component. Its path is dropped -- an Application carrying both is
-        # rejected.
+        # Released: platform content is a chart in the bundle. Its path is
+        # dropped -- an Application carrying both is rejected.
+        #
+        # The chart is named for the component unless the element names one
+        # itself. A component whose source path varies by environment or
+        # provider is packaged per combination, so it has to say which chart it
+        # wants; falling back to the appName would name a chart no release
+        # publishes, and the Application would resolve nothing.
         path: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .path {{"}}"}}{{"{{"}} end {{"}}"}}'
-        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
+        chart: '{{"{{"}} if .chart {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
 {{- else }}
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'

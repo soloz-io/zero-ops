@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Package the platform-owned components declared inline in the boundary
+# templates rather than as component descriptors.
+#
+# ADR-061 puts a component inline when it needs the environment or provider
+# dimensions in scope, which descriptors do not carry. Nothing connected that
+# list to the packager, so a released bundle named charts no release published
+# and the gap was invisible until a cluster tried to reconcile one.
+#
+# Where the path is parameterised the content is packaged per combination, the
+# same way boundary 02's provider overlays and the spoke catalogue are: the
+# overlay is the variation, and reconstructing it from values would let the
+# combinations drift apart.
+set -euo pipefail
+
+VERSION="${1:?usage: inline-charts.sh <version> [outdir]}"
+OUTDIR="${2:-dist/charts}"
+mkdir -p "$OUTDIR"
+
+# Wrap rendered content as a chart that emits it verbatim. Content goes to
+# files/ rather than templates/ because Helm templates everything under
+# templates/, and platform manifests legitimately contain Go template
+# delimiters -- an ExternalSecret's {{ .apikey }} rendered to an empty string
+# once, blanking a credential silently.
+emit_chart() {
+    local name="$1" chart="$2"
+    cat > "$chart/Chart.yaml" <<CHART
+apiVersion: v2
+name: $name
+description: Platform component $name, packaged for release $VERSION
+type: application
+version: $VERSION
+appVersion: "$VERSION"
+CHART
+    cat > "$chart/templates/content.yaml" <<'TMPL'
+{{- range $path, $_ := .Files.Glob "files/*.yaml" }}
+---
+{{ $.Files.Get $path }}
+{{- end }}
+TMPL
+    local objects
+    objects=$(helm template "$name" "$chart" 2>/dev/null | grep -c '^kind:' || true)
+    if [[ "${objects:-0}" -eq 0 ]]; then
+        echo "$name: renders no objects; refusing" >&2
+        rm -rf "$chart"; exit 1
+    fi
+    echo "packaged $name -> $chart ($objects object(s))"
+}
+
+# Render a source directory, however it is built, into a chart.
+package_path() {
+    local name="$1" src="$2" chart="$OUTDIR/$1"
+    rm -rf "$chart"; mkdir -p "$chart/files" "$chart/templates"
+    if [[ -f "$src/kustomization.yaml" ]]; then
+        if ! kustomize build --enable-helm "$src" > "$chart/files/rendered.yaml" 2>"$chart/.err"; then
+            echo "$name: kustomize build failed:" >&2; sed 's/^/  /' "$chart/.err" >&2
+            rm -rf "$chart"; exit 1
+        fi
+        rm -f "$chart/.err"
+        # Helm refuses any chart file over 5 MiB and vendored CRDs exceed it.
+        scripts/package/split-rendered.py "$chart/files/rendered.yaml" "$chart/files" >/dev/null
+        rm -f "$chart/files/rendered.yaml"
+    else
+        local found=0
+        for f in "$src"/*.yaml; do
+            [[ -e "$f" ]] || continue
+            [[ "$(basename "$f")" == kustomization.yaml ]] && continue
+            cp "$f" "$chart/files/"; found=1
+        done
+        if [[ "$found" -eq 0 ]]; then
+            echo "$name: no manifests at $src; refusing" >&2
+            rm -rf "$chart"; exit 1
+        fi
+    fi
+    emit_chart "$name" "$chart"
+}
+
+# Already Helm charts. Only the version is set, so every artefact in a bundle
+# carries the bundle's version and a cluster asks for one version, not a set.
+for src in manifests/hub-core-services/security manifests/hub-core-services/gateway; do
+    name=$(awk '/^name:/ {print $2; exit}' "$src/Chart.yaml")
+    chart="$OUTDIR/$name"
+    rm -rf "$chart"; cp -R "$src" "$chart"
+    python3 - "$chart/Chart.yaml" "$VERSION" <<'PY'
+import sys, re, pathlib
+p, v = pathlib.Path(sys.argv[1]), sys.argv[2]
+t = p.read_text()
+t = re.sub(r"(?m)^version:.*$", f"version: {v}", t)
+t = re.sub(r"(?m)^appVersion:.*$", f'appVersion: "{v}"', t)
+p.write_text(t)
+PY
+    echo "packaged $name -> $chart (existing chart)"
+done
+
+package_path platform-storage manifests/hub-core-services/storage
+
+# Parameterised paths: one chart per combination the boundary can ask for.
+# A directory a sibling overlay lists as a resource is a Kustomize base, not an
+# environment a boundary can ask for. Detected rather than named: excluding
+# "base" by name would hold only until the second base appeared, and the chart
+# it published would be one no Application ever resolves.
+bases=$(grep -h -oE '\.\./[a-z0-9-]+' manifests/environments/*/kustomization.yaml 2>/dev/null \
+        | sed 's|\.\./||' | sort -u)
+for d in manifests/environments/*/; do
+    env=$(basename "$d")
+    [[ -f "$d/kustomization.yaml" ]] || continue
+    if grep -qx "$env" <<<"$bases"; then
+        echo "skip hub-environment-${env}: a base other overlays build on, not an environment"
+        continue
+    fi
+    package_path "hub-environment-${env}" "$d"
+done
+
+for d in manifests/providers/*/; do
+    prov=$(basename "$d")
+    [[ -f "$d/kustomization.yaml" ]] || continue
+    package_path "infrastructure-provider-${prov}" "$d"
+done
+
+for d in manifests/spoke/spoke-pools/*/*/; do
+    compgen -G "$d*.yaml" >/dev/null || continue
+    prov=$(basename "$d"); env=$(basename "$(dirname "$d")")
+    package_path "platform-spoke-pools-${env}-${prov}" "$d"
+done
