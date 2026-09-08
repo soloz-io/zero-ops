@@ -30,6 +30,12 @@ REGION="${REGION:-hel1}"
 # boundaries reconcile concurrently. Mode and environment are independent: any
 # environment may be created in either mode.
 GATING="${GATING:-sequenced}"
+# Which bundle this run reconciles. Empty builds an unreleased binary, which
+# sources platform content from the working tree (ADR-068) -- the right default
+# for a cluster being built. A version here injects it at build time, so the run
+# resolves the published distribution instead and exercises the path a tenant
+# actually gets. Nothing else changes: the same binary, the same phases.
+BUNDLE_VERSION="${BUNDLE_VERSION:-}"
 
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"
@@ -528,9 +534,32 @@ check_prerequisites() {
     fi
 
     # --- Hub binary ---
-    log "Building hub binary..."
-    if (cd "$ZERO_OPS_DIR" && go build -mod=mod -o bin/hub ./cmd/hub 2>&1); then
+    # The version is injected the same way the release workflow injects it, so
+    # a run against a published bundle is not a different build path -- it is
+    # this build path with the version set.
+    local ldflags=""
+    if [[ -n "$BUNDLE_VERSION" ]]; then
+        ldflags="-X github.com/soloz-io/zero-ops/internal/hub-cli/versions.BundleVersion=${BUNDLE_VERSION}"
+        log "Building hub binary for bundle ${BUNDLE_VERSION}..."
+    else
+        log "Building hub binary..."
+    fi
+    if (cd "$ZERO_OPS_DIR" && go build -mod=mod -ldflags "$ldflags" -o bin/hub ./cmd/hub 2>&1); then
         log "  ✓ hub binary built"
+        if [[ -n "$BUNDLE_VERSION" ]]; then
+            # The binary must request what was asked for. A build that still
+            # reported "development" would silently source from the working tree
+            # on every cluster it bootstrapped, which is the failure this flag
+            # exists to avoid rather than introduce.
+            local got
+            got=$("$ZERO_OPS_DIR/bin/hub" bundle-version 2>/dev/null || true)
+            if [[ "$got" != "$BUNDLE_VERSION" ]]; then
+                log "ERROR: built CLI reports '${got}', expected '${BUNDLE_VERSION}'"
+                failed=1
+            else
+                log "  ✓ CLI reports bundle ${got}"
+            fi
+        fi
     else
         log "ERROR: Hub binary build failed"
         failed=1
@@ -1647,6 +1676,14 @@ main() {
                 ;;
             --topology)
                 TOPOLOGY="$2"
+                shift 2
+                ;;
+            --bundle-version=*)
+                BUNDLE_VERSION="${1#*=}"
+                shift
+                ;;
+            --bundle-version)
+                BUNDLE_VERSION="$2"
                 shift 2
                 ;;
             --gating=*)
