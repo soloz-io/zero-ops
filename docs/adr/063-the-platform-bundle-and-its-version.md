@@ -225,7 +225,7 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-042: Bootstrap State Machine
 - ADR-045: Bootstrap-Generated GitOps Artifacts
-- ADR-046: Cluster Topology and Placement Classes
+- ADR-046: Hybrid Provider Cell (Hetzner Control Plane + Home-Lab Workers)
 - ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
 - ADR-062: Onboarding and Scaffolding a Tenant
