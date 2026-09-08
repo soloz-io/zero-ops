@@ -77,6 +77,25 @@ jobs:
           echo "packaged=$published refused=$refused"
           [ "$refused" -eq 0 ] || { echo "::error::$refused component(s) carry per-cluster data and cannot be published"; exit 1; }
 
+      - name: Package the provider overlays and the bundle chart
+        run: |
+          set -euo pipefail
+          # Boundary 02's components are provider overlays, not descriptors
+          # (ADR-061), and the bundle chart carries the boundaries themselves
+          # plus the descriptors copied in at package time. Without these a
+          # released cluster reaches back into this repository for content it
+          # should have received in the bundle.
+          ./scripts/package/provider-charts.sh            "${{ steps.v.outputs.version }}" dist/charts
+          ./scripts/package/tenant-and-catalog-charts.sh  "${{ steps.v.outputs.version }}" dist/charts
+          ./scripts/package/bundle-chart.sh               "${{ steps.v.outputs.version }}" dist/charts
+
+      # A release invariant, not a report. ADR-063 makes mirroring a condition of
+      # a supported runtime, so a bundle that reaches back into this repository
+      # cannot be mirrored -- and shipping it would make the custody claim false
+      # for every tenant that received it.
+      - name: Refuse a bundle that still fetches from this repository
+        run: ./scripts/validate/bundle-portability.sh "${{ steps.v.outputs.version }}"
+
       - name: Verify each chart renders what the cluster applies today
         run: |
           set -euo pipefail

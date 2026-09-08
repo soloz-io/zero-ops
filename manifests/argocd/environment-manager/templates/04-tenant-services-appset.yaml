@@ -19,6 +19,19 @@ spec:
   generators:
     # ADR-061: components with a fixed source are one file each under
     # manifests/argocd/components/04/.
+    {{- if $released }}
+    # Released: the descriptors are files of this chart, so a cluster
+    # reconciling a published bundle fetches nothing from the platform's
+    # repository to learn what its own boundaries contain. Read from Git,
+    # a bundle would be portable only in appearance (ADR-063).
+    - list:
+        elements:
+    {{- $descriptors := $.Files.Glob "descriptors/04/*.yaml" }}
+    {{- if not $descriptors }}{{ fail "released bundle carries no descriptors for boundary 04: they are copied in at package time, and a chart without them would generate an empty boundary and report it healthy" }}{{ end }}
+    {{- range $path, $_ := $.Files.Glob "descriptors/04/*.yaml" }}
+          -{{ $.Files.Get $path | fromYaml | toYaml | nindent 12 }}
+    {{- end }}
+    {{- else }}
     - git:
         repoURL: {{ .Values.platformRepoURL | quote }}
         revision: {{ .Values.environmentRevision | quote }}
@@ -34,6 +47,7 @@ spec:
         pathParamPrefix: descriptorPath
         files:
           - path: 'manifests/argocd/components/04/*.yaml'
+    {{- end }}
 
   template:
     metadata:
