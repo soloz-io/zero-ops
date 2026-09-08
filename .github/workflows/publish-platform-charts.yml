@@ -120,6 +120,36 @@ jobs:
           for c in dist/charts/*/; do
             helm package "$c" -d dist/pkg >/dev/null
           done
+          # ADR-063: a version is consumed by any release that begins
+          # publishing it, so re-running one that already put charts in the
+          # registry would re-point tags that already resolve. Publishing is not
+          # atomic -- charts push one at a time -- so a failure part-way leaves
+          # exactly this state, and the next attempt must take the next version.
+          #
+          # Every chart is probed, not just one: which charts a partial run left
+          # behind depends on where it stopped, and the set changes between
+          # releases, so there is no single name whose absence proves the
+          # version is free.
+          existing=""
+          for pkg in dist/pkg/*.tgz; do
+            name=$(basename "$pkg" "-${{ steps.v.outputs.version }}.tgz")
+            ref="oci://ghcr.io/${{ github.repository_owner }}/charts/${name}"
+            if err=$(helm show chart "$ref" --version "${{ steps.v.outputs.version }}" 2>&1 >/dev/null); then
+              existing="${existing}  ${name}"$'\n'
+            elif ! grep -qiE ': not found$|manifest unknown|NAME_UNKNOWN' <<<"$err"; then
+              # Anything other than a clean absence is unknown, not free. Treating
+              # a network or auth failure as "nothing is there" would let a
+              # re-publish through at exactly the moment the check stopped working.
+              echo "::error::could not determine whether ${name} is already published: ${err}"
+              exit 1
+            fi
+          done
+          if [ -n "$existing" ]; then
+            echo "::error::version ${{ steps.v.outputs.version }} is already published; a version is consumed by any release that begins publishing it (ADR-063). Release the next version instead."
+            printf 'already in the registry at this version:\n%s' "$existing"
+            exit 1
+          fi
+
           for pkg in dist/pkg/*.tgz; do
             helm push "$pkg" "oci://ghcr.io/${{ github.repository_owner }}/charts"
           done

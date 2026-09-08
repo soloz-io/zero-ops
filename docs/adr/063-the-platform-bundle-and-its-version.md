@@ -67,6 +67,18 @@ Mirroring is a first-class operation of the distribution mechanism rather than s
 
 This is what makes the independence ADR-065 claims survive the platform. Revoking an App installation stops proposals arriving and stops nothing running, but only if the content those clusters reconcile is still fetchable. A tenant whose running estate is reachable solely through a service it no longer buys has custody of its clusters and not of its platform.
 
+### A version is consumed by any release that begins publishing it
+
+Publishing is not atomic. Charts are pushed one at a time, and a run can fail after some have been pushed and before the release is complete -- the first release attempt here pushed forty-four charts at 0.1.0 and then failed attaching its assets. The artefacts that reached the registry are real and pullable, so the version already names something.
+
+**A release that publishes any artefact consumes its version, whether or not it completed. The next attempt takes the next version.**
+
+The alternative is to re-run the same version, which re-points tags that already resolve. That is the one thing immutability forbids, and it would be done at the moment attention is on a failure rather than on the invariant, which is when a rule is least likely to be defended.
+
+Deleting the partial artefacts to reclaim the version is also rejected. It makes deleting a published version a routine step, which is the habit immutability exists to prevent, and it cannot be verified after the fact: anything pulled during the window is content the platform would then believe had never existed.
+
+Version numbers are free and gaps in them carry no meaning. A gap is not evidence of a defect, a withdrawal, or a version anyone ran -- it is evidence only that a release was attempted, which is why nothing is served by reusing one.
+
 ### The published bundle is authoritative, not the build that made it
 
 Two properties are easily conflated, and the platform guarantees only one of them absolutely.
@@ -167,6 +179,8 @@ Declaring versions once means a second place to change when adding a component, 
 Publishing is a release step the platform does not have today: `manifests/` is applied directly and would have to be packaged as a chart, with a pipeline and a registry behind it.
 
 A published values schema is a public interface, though a narrower one than it first appears: only fields a tenant has actually overridden are load-bearing for compatibility, and the rest can be restructured freely. Renaming an overridden field is still a breaking change requiring migration across every tenant that set it, so the schema needs validation and a compatibility policy from the first release rather than the twentieth.
+
+Version numbers will have gaps wherever a release failed part-way, and someone reading the sequence will eventually ask what happened to a missing one. The answer is that nothing did, and that has to be explained each time rather than being visible from the record.
 
 Rebuilding a supported bundle from source depends on upstream chart repositories still serving the pinned versions, so the platform's ability to reconstruct an old bundle is weaker than its ability to keep serving one. No tenant runtime depends on this, and no release gate can detect it in advance.
 
