@@ -467,17 +467,18 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return fmt.Errorf("[adr045-commit] %w", err)
 	}
 
-	generatedPaths := []string{
-		"manifests/hub-core-services/security/generated/",
-		"manifests/environments/base/generated/",
-		// The hub Gateway's external-dns target. Registered in
-		// manifests/generated/artifacts.yaml but previously missing here, so it
-		// was written to the working tree and never committed. ArgoCD renders
-		// this kustomization from Git, so an uncommitted value means external-dns
-		// keeps publishing the PREVIOUS cluster's load balancer address: every hub
-		// hostname resolves to a dead IP and ACME cannot validate a name that does
-		// not resolve. Nothing reports it, because the file on disk looks correct.
-		"manifests/hub-core-services/gateway/generated/",
+	// Derived from the registry rather than listed again beside it.
+	//
+	// This was a second hard-coded list of the same paths, and the two drifted
+	// the moment one artifact stopped being generated: the registry no longer
+	// named manifests/hub-core-services/security/generated/, this list still did,
+	// and `git add` on a directory that no longer exists fails the whole commit
+	// step with exit status 128 -- taking the artifacts that ARE still generated
+	// down with it. One declaration means removing an artifact removes it here
+	// too.
+	generatedPaths, err := o.adr045GeneratedDirs()
+	if err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
 	}
 
 	// Try to auto-commit (local-only — git remote not required)
@@ -492,7 +493,19 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// Poll ArgoCD apps for health. The apps will not reconcile until
 	// the generated files are in Git (committed + pushed). If the
 	// auto-commit succeeded, only a git push is needed.
-	appsToWait := []string{"platform-security-infra", "hub-environment"}
+	// Taken from the registry's consumedBy, not listed here. A second literal
+	// beside the declarations is what produced this phase's other failure: the
+	// registry stopped naming security/generated and a hard-coded copy did not,
+	// so the step tried to stage a directory that no longer exists.
+	//
+	// platform-security-infra was in that literal and is not in the registry: its
+	// Infisical coordinates arrive as chart values on the re-applied seed rather
+	// than as a committed patch, so waiting for it to reflect a commit waited for
+	// something that could never happen.
+	appsToWait, err := o.adr045Consumers()
+	if err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
 	fmt.Printf("[adr045-commit] Waiting for ArgoCD apps to reconcile: %v\n", appsToWait)
 	fmt.Println("[adr045-commit] This requires the generated files to be committed AND pushed.")
 	fmt.Println("[adr045-commit] If auto-push failed, push manually.")
@@ -1277,9 +1290,69 @@ func currentGitBranch() string {
 // ADR-045 artifact validation
 // ──────────────────────────────────────────────────────────────────────────
 
+// adr045GeneratedDirs returns the directories holding registered artifacts, so
+// the commit step stages exactly what the registry declares.
+func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
+	var reg adr045Registry
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return reg, fmt.Errorf("get working directory: %w", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(projectRoot, "manifests", "generated", "artifacts.yaml"))
+	if err != nil {
+		return reg, fmt.Errorf("read ADR-045 registry: %w", err)
+	}
+	if err := yaml.Unmarshal(raw, &reg); err != nil {
+		return reg, fmt.Errorf("parse ADR-045 registry: %w", err)
+	}
+	return reg, nil
+}
+
+func (o *Orchestrator) adr045GeneratedDirs() ([]string, error) {
+	reg, err := o.readADR045Registry()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var dirs []string
+	for _, a := range reg.Artifacts {
+		d := filepath.Dir(a.File) + "/"
+		if !seen[d] {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs, nil
+}
+
+// adr045Consumers returns the Applications that cannot converge until the
+// registered artifacts are committed and pushed.
+func (o *Orchestrator) adr045Consumers() ([]string, error) {
+	reg, err := o.readADR045Registry()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var apps []string
+	for _, a := range reg.Artifacts {
+		if a.ConsumedBy == "" || seen[a.ConsumedBy] {
+			continue
+		}
+		seen[a.ConsumedBy] = true
+		apps = append(apps, a.ConsumedBy)
+	}
+	return apps, nil
+}
+
 // adr045Artifact describes a single required generated artifact.
 type adr045Artifact struct {
-	File           string   `yaml:"file"`
+	File string `yaml:"file"`
+	// ConsumedBy names the Application that cannot converge until this file is
+	// committed and pushed. Declared rather than derived: an artifact under
+	// environments/base is reached by an Application reconciling
+	// environments/<slug> through a Kustomize ../base reference, so matching an
+	// Application's source path against the artifact's path finds nothing.
+	ConsumedBy     string   `yaml:"consumedBy"`
 	RequiredFields []string `yaml:"requiredFields"`
 }
 
