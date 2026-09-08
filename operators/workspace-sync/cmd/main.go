@@ -177,6 +177,31 @@ func mountFuse(ctx context.Context, workspaceRoot, staging, archivePath string) 
 		}
 	}
 
+	// upperDir backs every NEW entry the merged mount will ever show — not just
+	// its contents once something exists, but the top-level directory itself.
+	// fuse-overlayfs reports the merge point's own permission bits from upperDir
+	// (upperDir already contains the root, so it is never "copied up" the way a
+	// child directory is); those bits are otherwise whatever MkdirAll left them
+	// as a moment ago: root:root, 0755. A workload running as uid 1000 then gets
+	// EACCES on anything it tries to create directly under /workspace — `mkdir
+	// node_modules`, in particular — while files that already exist (restored
+	// from the read-only squashfs lower layer, correctly owned from when that
+	// layer was built) remain readable and writable, because THEIR ownership
+	// comes from the lower layer, not upperDir's.
+	//
+	// Confirmed live: `ls -lad /workspace` showed `root root`, while every entry
+	// inside it — including subdirectories the agent had already been writing
+	// into — showed `1000 root`. Only the mount's own top-level entry was wrong.
+	//
+	// This is also why the symptom outlives any one restore. The next snapshot
+	// walks the live (merged) tree with mksquashfs, which preserves ownership by
+	// default — so an unfixed root directory gets baked into the NEXT archive
+	// too, and the corruption survives every subsequent restore of this
+	// workspace until something explicitly re-chowns the mount root.
+	if err := os.Chown(upperDir, workspaceUID(), workspaceUID()); err != nil {
+		return fmt.Errorf("chown upper dir %s to workload uid: %w", upperDir, err)
+	}
+
 	// allow_other on BOTH mounts, and it is not optional.
 	//
 	// A FUSE mount is accessible only to the uid that created it. This process
@@ -203,7 +228,8 @@ func mountFuse(ctx context.Context, workspaceRoot, staging, archivePath string) 
 }
 
 // workspaceUID is the uid the workload container runs as, and therefore the
-// uid every restored file must belong to.
+// uid every restored file — and every directory the restore itself creates —
+// must belong to.
 //
 // This process runs as root because FUSE mounting requires it. Anything it
 // writes directly is therefore root-owned, and the agent — uid 1000 — cannot
@@ -211,8 +237,12 @@ func mountFuse(ctx context.Context, workspaceRoot, staging, archivePath string) 
 // unrelated operation rather than as anything about ownership, which is the
 // same failure that once took down every resumed session.
 //
-// The FUSE path does not need this: ownership there comes from the squashfs
-// image, which recorded the workload's uid when it was created.
+// The FUSE path is NOT exempt from this, despite this function previously
+// claiming it was. Existing content is fine — its ownership comes from the
+// squashfs image, which recorded the workload's uid when the archive was
+// built — but upperDir, the writable layer mountFuse creates fresh on every
+// restore, is written by this process directly and needs the same chown as
+// the slow path's chownTree below. See mountFuse for what shipped without it.
 func workspaceUID() int {
 	if v := os.Getenv("WORKSPACE_UID"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
