@@ -130,15 +130,24 @@ func (p *Provisioner) GetProvisioningStatus(ctx context.Context, tenantID string
 	if p.cfg.Storage == nil {
 		return &models.ProvisioningStatus{TenantID: tenantID, Status: "unknown"}, nil
 	}
-	
+
 	tenant, err := p.cfg.Storage.GetTenant(ctx, tenantID)
 	if err != nil {
 		return &models.ProvisioningStatus{TenantID: tenantID, Status: "not_found"}, nil
 	}
-	
+
+	// Two vocabularies meet here and only one can win. ProvisioningStatus.Status
+	// documents lower-case sync states (synced, degraded, progressing, ...) and
+	// the sentinel returns above use them; TenantStatus is the upper-case
+	// lifecycle machine (SYNCING, READY, FAILED). The conversion is explicit
+	// rather than a mapping because the state machine is the source this
+	// function is documented to report, and inventing a translation would put a
+	// value here that no consumer was written against either.
+	//
+	// The missing conversion is why this package did not compile.
 	return &models.ProvisioningStatus{
 		TenantID:     tenantID,
-		Status:       tenant.Status,
+		Status:       string(tenant.Status),
 		LastSyncTime: tenant.UpdatedAt,
 	}, nil
 }

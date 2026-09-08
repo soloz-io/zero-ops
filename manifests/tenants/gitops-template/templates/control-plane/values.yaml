@@ -1,0 +1,19 @@
+# Configuration for <CLUSTER_NAME>.
+#
+# This file holds only what differs from the bundle's defaults. It is not a copy
+# of them: a default that were copied here would have to be re-proposed into this
+# repository every time the platform changed it, and would conflict with any edit
+# made in the meantime. Add a field to override it; remove it to go back to the
+# default.
+#
+# The platform never writes this file.
+environmentSlug: <ENVIRONMENT>
+provider: <CLOUD_PROVIDER>
+environmentRevision: <BUNDLE_VERSION>
+
+platformRepoURL: <PLATFORM_REPO_URL>
+
+# Workload selection (ADR-066). The control plane is the same in every box;
+# workloads are chosen. Selection is a value and never a version, so choosing one
+# and upgrading the bundle are independent acts.
+workloads: {}

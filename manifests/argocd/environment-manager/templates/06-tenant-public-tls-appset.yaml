@@ -36,6 +36,9 @@
 # tenant-gateway (:80) remains the ACME solver attachment point and stays
 # untouched by this ApplicationSet; the two Gateways partition ports :80/:443.
 ---
+{{- /* ADR-068: unreleased builds source from the working tree, released builds
+     from the published bundle. Known at render time. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -84,9 +87,18 @@ spec:
         # Source 1: Platform TLS chart. The issuer comes from THIS environment's
         # bootstrap policy (publicTlsIssuer) — never from the fleet values, never
         # defaulted. An empty value fails chart rendering by design.
+{{- if $released }}
+        # Released: the chart that renders every tenant's platform-owned
+        # infrastructure is published, so a tenant's own clusters do not reach
+        # into the platform's repository to reconcile it.
+        - repoURL: {{ .Values.bundleRegistry | quote }}
+          targetRevision: {{ .Values.bundleVersion | quote }}
+          chart: tenant-public-tls
+{{- else }}
         - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: manifests/tenants/charts/tenant-public-tls
+{{- end }}
           helm:
             valueFiles:
               - $values/{{"{{"}} .path.path {{"}}"}}/values.yaml

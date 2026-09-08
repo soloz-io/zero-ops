@@ -7,8 +7,15 @@
 # timeout at the client, never a visible denial.
 #
 # Only workloads with policy already enforced need an entry. A pod that no policy
-# selects is unrestricted and reachable without one, so infisical, agentgateway
-# and auth-proxy need nothing until they gain a policy.
+# selects is unrestricted and reachable without one, so infisical and
+# agentgateway need nothing until they gain a policy.
+#
+# auth-proxy gained one on 2026-09-08. Its NetworkPolicy had existed since the
+# Ory stack and had never been delivered: the descriptor selecting it globbed for
+# network-policies.yaml and the file is network-policy.yaml, so the Application
+# reported Synced and Healthy while managing no resources at all. Correcting the
+# glob enforces it, and enforcing it without the entry below would leave
+# auth.<zone> answering nothing.
 #
 # argocd-server DID gain one (below), because server.insecure makes its :8080 a
 # functioning plaintext ArgoCD API rather than a port that only answers 307. The
@@ -64,4 +71,29 @@ spec:
       toPorts:
         - ports:
             - port: "8083"
+              protocol: TCP
+
+---
+# auth-proxy serves auth.<zone> through the hub Gateway and extAuthz for
+# agentgateway. Its own NetworkPolicy names agentgateway; Cilium admits the union
+# of both, so this expresses only what a stock NetworkPolicy cannot: the Gateway
+# itself, which arrives as reserved:ingress carrying no pod or namespace identity.
+#
+# Without this the failure is a timeout at the browser rather than a denial
+# anywhere, and every OAuth flow through auth.<zone> stops.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-gateway-to-auth-proxy
+  namespace: platform-edge
+spec:
+  endpointSelector:
+    matchLabels:
+      app: auth-proxy
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "8080"
               protocol: TCP

@@ -8,7 +8,7 @@ targetRevision: ''
 path: manifests/hub-core-services/identity
 chart: ''
 directoryRecurse: 'true'
-directoryInclude: network-policies.yaml
+directoryInclude: network-policy.yaml
 helmValues: ''
 helmReleaseName: ''
 ignoreDifferencesNamespace: ''

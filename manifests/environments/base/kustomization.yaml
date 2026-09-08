@@ -14,5 +14,3 @@ patches:
     target:
       kind: HubEnvironment
       name: hub-environment
-  # ADR-045: Bootstrap-generated values for hub-bootstrap-config
-  - path: generated/hub-bootstrap-config-patch.yaml

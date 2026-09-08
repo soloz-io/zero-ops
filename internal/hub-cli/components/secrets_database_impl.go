@@ -124,31 +124,24 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		return false, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	// Write infisical-fleet-issuer-patch.yaml into security kustomization's generated/ dir
-	// URL is the in-cluster service address for local provider. The base manifest
-	// defaults to the production URL (https://infisical.dev.nutgraf.in) — the patch
-	// overrides it with the local service URL so the infisical-issuer controller
-	// can reach Infisical inside the Kind cluster without external DNS.
-	issuerPath := filepath.Join(projectRoot, "manifests", "hub-core-services", "security", "generated", "infisical-fleet-issuer-patch.yaml")
-	infisicalURL := "http://infisical-standalone-infisical.platform-security.svc:8080"
-	issuerPatch := fmt.Sprintf(`apiVersion: infisical-issuer.infisical.com/v1alpha1
-kind: ClusterIssuer
-metadata:
-  name: infisical-fleet-issuer
-spec:
-  url: %s
-  projectId: %s
-  authentication:
-    universalAuth:
-      clientId: %s
-`, infisicalURL, result.ProjectID, result.ClientID)
-	if err := os.WriteFile(issuerPath, []byte(issuerPatch), 0644); err != nil {
-		return false, fmt.Errorf("failed to write %s: %w", issuerPath, err)
-	}
-	fmt.Println("[bootstrap-secrets] ✓ manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml")
+	// The Infisical PKI coordinates were written here as a Kustomize patch under
+	// manifests/hub-core-services/security/generated/ and committed. They are
+	// per-cluster instance data, and ADR-062 keeps that out of the types
+	// repository; leaving them here also made the component impossible to publish
+	// as a chart, since every cluster would have pulled this cluster's project.
+	//
+	// They are now read back from the infisical-auth Secret written above and
+	// passed to the seed Application as values (see infisicalCoordinates in
+	// internal/hub-cli/bootstrap/seed.go), so nothing is generated into the tree.
 
 	// Write hub-bootstrap-config-patch.yaml into environments/base kustomization's generated/ dir
-	configPath := filepath.Join(projectRoot, "manifests", "environments", "base", "generated", "hub-bootstrap-config-patch.yaml")
+	env := i.EnvironmentSlug
+	if env == "" {
+		return false, fmt.Errorf("cannot write the ADR-045 bootstrap config: no environment slug.\n" +
+			"It would land in a directory shared by every overlay, where the last cluster\n" +
+			"bootstrapped wins and an environment renders another's Infisical project")
+	}
+	configPath := filepath.Join(projectRoot, "manifests", "environments", env, "generated", "hub-bootstrap-config-patch.yaml")
 	configPatch := fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -165,12 +158,9 @@ data:
 	if err := os.WriteFile(configPath, []byte(configPatch), 0644); err != nil {
 		return false, fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
-	fmt.Println("[bootstrap-secrets] ✓ manifests/environments/base/generated/hub-bootstrap-config-patch.yaml")
+	fmt.Printf("[bootstrap-secrets] ✓ manifests/environments/%s/generated/hub-bootstrap-config-patch.yaml\n", env)
 
 	// Validate all artifacts exist
-	if _, err := os.Stat(issuerPath); err != nil {
-		return false, fmt.Errorf("infisical-fleet-issuer-patch.yaml not found after generation: %w", err)
-	}
 	if _, err := os.Stat(configPath); err != nil {
 		return false, fmt.Errorf("hub-bootstrap-config-patch.yaml not found after generation: %w", err)
 	}
@@ -179,9 +169,8 @@ data:
 	fmt.Println("[bootstrap-secrets] ═══════════════════════════════════════════════════════")
 	fmt.Println("[bootstrap-secrets]  ADR-045: Bootstrap-Generated GitOps Artifacts")
 	fmt.Println("[bootstrap-secrets]  Generated artifacts:")
-	fmt.Println("[bootstrap-secrets]    manifests/hub-core-services/security/generated/")
-	fmt.Println("[bootstrap-secrets]      └── infisical-fleet-issuer-patch.yaml")
-	fmt.Println("[bootstrap-secrets]    manifests/environments/base/generated/")
+
+	fmt.Printf("[bootstrap-secrets]    manifests/environments/%s/generated/\n", env)
 	fmt.Println("[bootstrap-secrets]      └── hub-bootstrap-config-patch.yaml")
 	fmt.Println("[bootstrap-secrets]  Commit and push before platform readiness checks pass.")
 	fmt.Println("[bootstrap-secrets] ═══════════════════════════════════════════════════════")

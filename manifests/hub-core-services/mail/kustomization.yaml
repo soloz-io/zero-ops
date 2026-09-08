@@ -10,7 +10,6 @@ resources:
   - stalwart-db-credentials-es.yaml
   - stalwart-dkim-private-es.yaml
   - stalwart-dkim-public-es.yaml
-  - stalwart-kratos-smtp-credentials-es.yaml
   - stalwart-secrets-es.yaml
   - hetzner-dns-es.yaml
   - dkim-postsync-configmap.yaml

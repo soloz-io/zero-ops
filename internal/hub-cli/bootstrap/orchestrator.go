@@ -121,6 +121,9 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePreFlight, "preflight",
 		"Running infra preflight validation (docker/kind/token)...",
 		func() error {
+			if err := o.checkPlacementCapacityRequested(); err != nil {
+				return err
+			}
 			r := preflight.NewRunner()
 			for _, v := range o.Provider.PreflightValidators() {
 				r.Add(v)
@@ -331,7 +334,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseGenerateLocalSecrets, "generate-local-secrets",
 		"Generating local bootstrap secrets...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 			return ci.GenerateLocalSecrets(ctx)
 		},
 		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
@@ -361,7 +364,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseInjectCACert, "inject-ca-cert",
 		"Injecting CNPG CA certificate into infisical-secrets...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 			return ci.UpdateInfisicalSecretsWithCNPGCert(ctx)
 		},
 		func() { fmt.Println("[inject-ca-cert] ✓ CNPG CA certificate injected") },
@@ -392,13 +395,34 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapInfisicalAPI, "bootstrap-infisical-api",
 		"Bootstrapping Infisical API...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 			return ci.BootstrapInfisicalAPI(ctx)
 		},
 		func() { fmt.Println("[bootstrap-infisical-api] ✓ Infisical API bootstrapped") },
 	); err != nil {
 		return err
 	}
+
+	// The seed carries the Infisical PKI coordinates as chart values, and they
+	// are only knowable once the phase above has created the project and the
+	// machine identity. The seed was applied before boundary 01, five phases
+	// earlier, so at that point they were empty and the security component
+	// rendered without its ClusterIssuers.
+	//
+	// Re-applying the seed here supplies them. The renderer reads them back from
+	// the infisical-auth Secret, so this needs no new state threaded through the
+	// pipeline, and applying the same manifest twice is what ReapplySeed exists
+	// for.
+	//
+	// This replaces a Kustomize patch the previous phase wrote into the
+	// repository and committed. That arrangement appeared to work only because
+	// the committed file survived between runs: a fresh cluster reconciled the
+	// PREVIOUS cluster's project id until the phase above overwrote it, so the
+	// issuers existed early and were wrong rather than absent.
+	if err := o.ReapplySeed(ctx, mgmtKubeconfig); err != nil {
+		return fmt.Errorf("re-apply seed with Infisical coordinates: %w", err)
+	}
+	fmt.Println("[bootstrap-infisical-api] ✓ seed re-applied with PKI coordinates")
 
 	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
@@ -443,17 +467,18 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return fmt.Errorf("[adr045-commit] %w", err)
 	}
 
-	generatedPaths := []string{
-		"manifests/hub-core-services/security/generated/",
-		"manifests/environments/base/generated/",
-		// The hub Gateway's external-dns target. Registered in
-		// manifests/generated/artifacts.yaml but previously missing here, so it
-		// was written to the working tree and never committed. ArgoCD renders
-		// this kustomization from Git, so an uncommitted value means external-dns
-		// keeps publishing the PREVIOUS cluster's load balancer address: every hub
-		// hostname resolves to a dead IP and ACME cannot validate a name that does
-		// not resolve. Nothing reports it, because the file on disk looks correct.
-		"manifests/hub-core-services/gateway/generated/",
+	// Derived from the registry rather than listed again beside it.
+	//
+	// This was a second hard-coded list of the same paths, and the two drifted
+	// the moment one artifact stopped being generated: the registry no longer
+	// named manifests/hub-core-services/security/generated/, this list still did,
+	// and `git add` on a directory that no longer exists fails the whole commit
+	// step with exit status 128 -- taking the artifacts that ARE still generated
+	// down with it. One declaration means removing an artifact removes it here
+	// too.
+	generatedPaths, err := o.adr045GeneratedDirs()
+	if err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
 	}
 
 	// Try to auto-commit (local-only — git remote not required)
@@ -468,7 +493,19 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// Poll ArgoCD apps for health. The apps will not reconcile until
 	// the generated files are in Git (committed + pushed). If the
 	// auto-commit succeeded, only a git push is needed.
-	appsToWait := []string{"platform-security-infra", "hub-environment"}
+	// Taken from the registry's consumedBy, not listed here. A second literal
+	// beside the declarations is what produced this phase's other failure: the
+	// registry stopped naming security/generated and a hard-coded copy did not,
+	// so the step tried to stage a directory that no longer exists.
+	//
+	// platform-security-infra was in that literal and is not in the registry: its
+	// Infisical coordinates arrive as chart values on the re-applied seed rather
+	// than as a committed patch, so waiting for it to reflect a commit waited for
+	// something that could never happen.
+	appsToWait, err := o.adr045Consumers()
+	if err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
 	fmt.Printf("[adr045-commit] Waiting for ArgoCD apps to reconcile: %v\n", appsToWait)
 	fmt.Println("[adr045-commit] This requires the generated files to be committed AND pushed.")
 	fmt.Println("[adr045-commit] If auto-push failed, push manually.")
@@ -633,6 +670,36 @@ const hubWorkerSelector = "hub-role=worker"
 
 // joinHomeWorkers brings up the home-lab worker(s) this hub needs before any
 // platform workload is deployed. No-op unless the provider asked for home workers.
+// checkPlacementCapacityRequested refuses a hybrid bootstrap that has not asked
+// for the home workers its own manifests require.
+//
+// The hybrid environment pins platform-data to nodes labelled
+// workload-location=home and node-role.kubernetes.io/worker (ADR-046 §11: both
+// selectors are mandatory), and only a home worker carries them. Home workers
+// are opt-in, and joinHomeWorkers returns success when they were not asked for,
+// so the two settings can disagree and nothing says so.
+//
+// What that costs is the reason this is a preflight check rather than a comment.
+// The bootstrap proceeds for roughly ninety minutes -- provisioning a cluster,
+// pivoting, and reconciling two boundaries -- and then stalls at inject-ca-cert
+// waiting for a CNPG cluster that reports "Setting up primary" forever, because
+// its pod is Pending against a single control-plane node. The message names
+// CNPG, the failure is scheduling, and the cause is a flag that was not passed.
+func (o *Orchestrator) checkPlacementCapacityRequested() error {
+	if o.providerName() != "hybrid" {
+		return nil
+	}
+	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
+	if ok && hw.HomeWorkersRequested() {
+		return nil
+	}
+	return fmt.Errorf(
+		"provider is hybrid but home workers were not requested, and this cell's\n" +
+			"platform-data pins workload-location=home; nothing would ever schedule it.\n" +
+			"Re-run with --home-worker-enabled --tailnet-name=<tailnet>, or bootstrap\n" +
+			"with --provider=hetzner, whose manifests pin workload-location=hetzner")
+}
+
 func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) error {
 	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
 	if !ok || !hw.HomeWorkersRequested() {
@@ -856,7 +923,7 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // (same mechanism as home-worker-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
-	ci := &components.Installer{Kubeconfig: kubeconfig}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
@@ -1104,7 +1171,7 @@ func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string
 }
 
 func (o *Orchestrator) getArgoCDPassword(ctx context.Context, kubeconfig string) string {
-	ci := &components.Installer{Kubeconfig: kubeconfig}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 	pwd, err := ci.GetArgoCDPassword(ctx)
 	if err != nil {
 		return "<check secret manually>"
@@ -1203,7 +1270,7 @@ func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig st
 		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot sync the private zero-ops repo")
 	}
 
-	ci := &components.Installer{Kubeconfig: kubeconfig}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
 	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
 		return err
 	}
@@ -1223,9 +1290,69 @@ func currentGitBranch() string {
 // ADR-045 artifact validation
 // ──────────────────────────────────────────────────────────────────────────
 
+// adr045GeneratedDirs returns the directories holding registered artifacts, so
+// the commit step stages exactly what the registry declares.
+func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
+	var reg adr045Registry
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return reg, fmt.Errorf("get working directory: %w", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(projectRoot, "manifests", "generated", "artifacts.yaml"))
+	if err != nil {
+		return reg, fmt.Errorf("read ADR-045 registry: %w", err)
+	}
+	if err := yaml.Unmarshal(raw, &reg); err != nil {
+		return reg, fmt.Errorf("parse ADR-045 registry: %w", err)
+	}
+	return reg, nil
+}
+
+func (o *Orchestrator) adr045GeneratedDirs() ([]string, error) {
+	reg, err := o.readADR045Registry()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var dirs []string
+	for _, a := range reg.Artifacts {
+		d := filepath.Dir(a.File) + "/"
+		if !seen[d] {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs, nil
+}
+
+// adr045Consumers returns the Applications that cannot converge until the
+// registered artifacts are committed and pushed.
+func (o *Orchestrator) adr045Consumers() ([]string, error) {
+	reg, err := o.readADR045Registry()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var apps []string
+	for _, a := range reg.Artifacts {
+		if a.ConsumedBy == "" || seen[a.ConsumedBy] {
+			continue
+		}
+		seen[a.ConsumedBy] = true
+		apps = append(apps, a.ConsumedBy)
+	}
+	return apps, nil
+}
+
 // adr045Artifact describes a single required generated artifact.
 type adr045Artifact struct {
-	File           string   `yaml:"file"`
+	File string `yaml:"file"`
+	// ConsumedBy names the Application that cannot converge until this file is
+	// committed and pushed. Declared rather than derived: an artifact under
+	// environments/base is reached by an Application reconciling
+	// environments/<slug> through a Kustomize ../base reference, so matching an
+	// Application's source path against the artifact's path finds nothing.
+	ConsumedBy     string   `yaml:"consumedBy"`
 	RequiredFields []string `yaml:"requiredFields"`
 }
 

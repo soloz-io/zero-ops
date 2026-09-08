@@ -70,6 +70,13 @@ var ErrNoArchive = errors.New("no squashfs archive for this workspace")
 // to build without being able to overwrite or evict the history it is reading.
 var ErrReadOnly = errors.New("workspace is read-only: refusing to write to object storage")
 
+// ErrNothingToSave means the workspace holds no files worth checkpointing.
+//
+// Distinct from a failure: the request was correct and the answer is "there is
+// nothing here yet". A caller should say so rather than reporting either a
+// successful save of nothing or an error.
+var ErrNothingToSave = errors.New("workspace has no files to save")
+
 // Entry is one file in a manifest.
 type Entry struct {
 	Path string `json:"path"`
@@ -257,6 +264,43 @@ func (s *Store) checkpointArchiveKey(id string) string {
 	return s.prefix + "/checkpoints/" + id + ".sqsh"
 }
 
+// Directories a checkpoint never captures: everything in them is DERIVED from
+// something the checkpoint does capture.
+//
+// This is not an optimisation, it is the difference between a working feature
+// and a broken one. Measured on a real scaffolded Expo app: 21,412 files and
+// 369 MB in the workspace, of which 21,388 files and 368 MB were node_modules —
+// the actual source was 24 files. Since Snapshot hashes and PutIfAbsent-checks
+// every file individually, that is 21k round trips to object storage per save,
+// which no request timeout in the chain survives. Saves failed with a 504 and
+// the walk kept running for minutes afterwards, holding the snapshot lock.
+//
+// §14's rule — "tracked, untracked and uncommitted alike" — is about not losing
+// the USER'S WORK, and none of this is work: node_modules comes back from a
+// lockfile, build output from source, caches from nothing. The git-era design
+// excluded exactly these via .gitignore (waypoint ADR-036 §4); the
+// content-addressed rewrite dropped the exclusion by accident, not by argument.
+//
+// `.git` is deliberately NOT here. It IS the user's history, it is small next to
+// node_modules, and §14 names it explicitly as an ordinary subdirectory.
+//
+// The cost is real and accepted: a restored workspace has source but no
+// installed dependencies, so it needs an install before it runs. That is
+// seconds-to-minutes of a machine's time against minutes of a person's on every
+// single save.
+var skipDir = map[string]bool{
+	"node_modules": true,
+	".expo":        true,
+	".next":        true,
+	"dist":         true,
+	"build":        true,
+	"web-build":    true,
+	".cache":       true,
+	".turbo":       true,
+	"__pycache__":  true,
+	".venv":        true,
+}
+
 // hashFile returns the content address of a file. This is the whole basis of
 // dedup: two checkpoints differing in 3 of 10,000 files upload 3 objects,
 // because the other 9,997 hash to keys that already exist.
@@ -310,11 +354,18 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		if err != nil {
 			return err
 		}
+		if info.IsDir() {
+			// Derived trees are not checkpointed — see skipDir.
+			if skipDir[info.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		// Symlinks are skipped rather than followed: the skills directory is
 		// materialised as links into per-session temp paths whose names are
 		// random, so capturing them checkpoints paths that cannot exist in any
 		// other pod and a restore reinstates dangling links.
-		if info.IsDir() || !info.Mode().IsRegular() {
+		if !info.Mode().IsRegular() {
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)
@@ -354,13 +405,19 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	// plausibly the user's doing; one that contains literally nothing, in a
 	// workspace that previously had checkpoints, is a fault every time — a real
 	// agent workspace always holds at least .git.
+	// A checkpoint of nothing is never worth writing.
+	//
+	// Previously this refused only when a PRIOR checkpoint existed, so the first
+	// save of an unscaffolded workspace wrote an empty one — which then became
+	// LATEST, showed in the deploy picker as something selectable that would
+	// build nothing, and consumed a retention slot. Observed exactly that way:
+	// `checkpoint 18d31e0c… (0 files)`.
+	//
+	// Refusing unconditionally also keeps the stronger guarantee: if the tree is
+	// empty because a restore or a mount failed rather than because the user has
+	// not started, an existing checkpoint cannot be superseded by the emptiness.
 	if len(m.Entries) == 0 {
-		if prior, err := s.Latest(ctx); err == nil && prior != "" {
-			return nil, fmt.Errorf(
-				"refusing to checkpoint an empty workspace over existing checkpoint %s: "+
-					"the tree at %s has no files, which is a restore or mount failure rather "+
-					"than a change worth recording", prior, root)
-		}
+		return nil, ErrNothingToSave
 	}
 
 	body, err := json.Marshal(m)
@@ -680,12 +737,24 @@ func newID() string {
 // This is called during Snapshot() to ensure every checkpoint has a
 // corresponding fast-restore image.
 func (s *Store) CreateArchive(ctx context.Context, root, archivePath string) error {
-	cmd := exec.CommandContext(ctx, "mksquashfs", root, archivePath,
+	// The SAME exclusions as the manifest walk. Without them the archive
+	// re-imports the whole cost the walk just avoided — 368 MB compressed and
+	// uploaded on every save — and restores a tree the manifest does not
+	// describe, so the two paths would disagree about what the checkpoint is.
+	//
+	// `-e` takes source-relative paths and must come last.
+	args := []string{
+		root, archivePath,
 		"-comp", "zstd",
 		"-processors", "8",
 		"-no-progress",
 		"-noappend",
-	)
+		"-e",
+	}
+	for name := range skipDir {
+		args = append(args, name)
+	}
+	cmd := exec.CommandContext(ctx, "mksquashfs", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("mksquashfs: %w (output: %s)", err, strings.TrimSpace(string(out)))

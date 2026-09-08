@@ -826,9 +826,9 @@ materialize verbatim
     └──────────────────┬──────────────────┘                  │
                        │                                      │
                        ▼                                      │
-       periodic backstop (anonymous, same  ────────────────────┘
-       engine, no name) — covers the span
-       since the last named checkpoint
+       (periodic backstop, same engine, no  ────────────────────┘
+        name — OFF by default since §14.6;
+        opt-in for unattended workloads)
                        │
                        ▼
        idle-timeout fires, or explicit delete
@@ -866,7 +866,7 @@ graph TB
     subgraph OPERATOR["ephemeral-job-operator (this ADR)"]
         RECON["buildPodSpec: PVC lookup-or-create<br/>+ both workspace containers as initContainers"]
         INITC["init container: workspace-sync restore<br/>owned image, holds S3 credential via Secret"]
-        SIDEC["NATIVE sidecar: workspace-sync serve<br/>initContainer, restartPolicy: Always<br/>snapshot engine — on-demand + periodic backstop<br/>+ teardown snapshot on SIGTERM, in-pod<br/>owned image, holds S3 credential via Secret"]
+        SIDEC["NATIVE sidecar: workspace-sync serve<br/>initContainer, restartPolicy: Always<br/>snapshot engine — on user save + teardown SIGTERM<br/>(periodic backstop opt-in, off by default: §14.6)<br/>owned image, holds S3 credential via Secret"]
         REAPER["separate reconcile loop:<br/>workspace-PVC reaper (30-day TTL)"]
     end
     subgraph POD["Sandbox Pod"]
@@ -945,7 +945,40 @@ Both triggers call the identical underlying function — there is one snapshot e
 - **Init container (`workspace-sync restore`).** Runs before the workload container starts. Checks whether the PVC is freshly empty — first-ever provisioning for this `WorkspaceID`, or a genuine delete — and only then reads the workspace's latest manifest, downloads every object it references, and materializes the tree verbatim. On an ordinary reattach (idle-timeout recreate, crash restart) the PVC already has the data and this is a no-op, exiting immediately.
 - **Restore-to-a-specific-checkpoint** (not just latest) is the same operation parameterized by `checkpoint_id` instead of "latest" — this is what a user-initiated "undo to checkpoint-002" resolves to (see waypoint ADR-036 §10 for the caller-side flow and the checkpoint-history record this populates).
 - **Teardown snapshot is taken in-pod, on SIGTERM, by the sidecar itself** — see §14.1. It is a graceful-shutdown optimization, not the durability mechanism.
-- **S3 credential.** Provisioned into the init container and sidecar's env from a zero-ops-owned Secret (the platform's existing Infisical/ESO secret-delivery pattern), the same shape `agent-vault` already uses for GitHub/Tavily/RunPod/AI-Gateway credentials (`buildWorkloadContainer`, `agent-vault-entrypoint.sh`). The fleet's own workload container never receives this credential, brokered or otherwise — it only ever calls the sidecar's local, unauthenticated-to-S3 control endpoint.
+- **S3 credential.** Provisioned into the sidecar's env from the FLEET's own app
+Secret — the same one its SDK binds S3 from, named by the fleet registry
+(`tenants/<fleet>/workloads/base/sdk/rollout-patch.yaml`) and rendered into the
+tenant namespace by an ExternalSecret from Infisical (ADR-003, ADR-047 Tier 2).
+
+The operator holds a **template**, not a name: `WORKSPACE_SYNC_SECRET` defaults
+to `{namespace}-app-secrets`, expanded with the EphemeralJob's own namespace at
+reconcile. The tenant namespace is the fleet id (registries render workloads
+into `namespace: {TENANT_ID}`), so this resolves to each fleet's own Secret
+while the platform names none.
+
+That is required, not stylistic. ADR-047's addendum forbids a tenant identifier
+in platform code and preflight enforces it — and a literal name would resolve to
+one fleet's Secret for *every* fleet on the spoke. Because each injected
+reference is `optional`, the second fleet onboarded would not error: its sidecar
+would find nothing, report "object storage not configured", and no-op every
+checkpoint silently. A literal value is still accepted where a spoke's single
+fleet uses a non-conventional name; expansion is a no-op without the
+placeholder.
+
+Reusing the fleet's Secret rather than rendering a parallel platform-owned one
+means a credential rotation lands in one place, and the sidecar and the SDK
+cannot disagree about which bucket a workspace lives in. The keys are mapped
+individually with `secretKeyRef`, never `envFrom`: that Secret also holds LLM
+keys, database URLs and provider tokens, and §19.6 is about what a process can
+reach.
+
+An earlier revision named a platform INFRASTRUCTURE Secret (`hetzner-credentials`,
+"For CAPI/CCM/CSI") because the local Kind manifest binds S3 from it. The
+registry never does, so that worked locally and in no deployed environment — and
+silently, because every injected reference is optional and a missing Secret is
+indistinguishable from a cluster with no object storage.
+
+Previously described as: provisioned into the init container and sidecar's env from a zero-ops-owned Secret (the platform's existing Infisical/ESO secret-delivery pattern), the same shape `agent-vault` already uses for GitHub/Tavily/RunPod/AI-Gateway credentials (`buildWorkloadContainer`, `agent-vault-entrypoint.sh`). The fleet's own workload container never receives this credential, brokered or otherwise — it only ever calls the sidecar's local, unauthenticated-to-S3 control endpoint.
 #### §14.1 The teardown checkpoint: native sidecar, not operator flush
 
 `workspace-sync serve` is a **native sidecar** — an entry in `.spec.initContainers` carrying `restartPolicy: Always` (Kubernetes ≥1.29, stable in 1.33; this fleet's version floor is §20). Both of the operator's workspace containers live in `initContainers`, `workspace-restore` first and `workspace-sync` last. Three properties follow from that placement, and all three are load-bearing:
@@ -966,7 +999,7 @@ The teardown snapshot runs in the sidecar's own SIGTERM handler, in a fixed orde
 
 The generalisable error is that **durability of pod-local state was modelled as an operator responsibility.** The operator's authority is over the workload's lifecycle; it has no privileged access to the workload's state and no way to reach into a pod that has already terminated. Moving the checkpoint into the process that already holds the credential, the volume mount, and a kubelet-guaranteed termination signal removes the network call, the authentication question, the finalizer, and the phase — the correct boundary is that **the operator manages the lifecycle of the workload, and the workload manages the durability of its own state.**
 
-The limit is explicit and unavoidable: no signal-based design survives node failure, hard eviction, or SIGKILL. Under those conditions there is no teardown checkpoint. This is why the periodic backstop, not this path, is the stated durability mechanism.
+The limit is explicit and unavoidable: no signal-based design survives node failure, hard eviction, or SIGKILL. Under those conditions there is no teardown checkpoint, and — since §14.6 turned the periodic backstop off by default — nothing else covers that window either. What bounds the loss is how recently the user saved. That is a deliberate trade, argued in §14.6.
 
 - **Checkpoint retention is an open question, not resolved here.** Deleting a manifest is cheap. Reclaiming the content-addressed objects it referenced is not automatically safe — another checkpoint (this workspace's or, if objects are ever shared cross-workspace, another's) may reference the same hash. This needs either per-workspace-scoped object keys (simpler, no cross-checkpoint reference-counting, some dedup benefit given up) or a real mark-and-sweep/reference-counted GC pass (more dedup, more complexity) — Sandbox0's own snapshot delete is consistent with not solving this eagerly either (*"Delete a snapshot... does not affect forks created from the same rootfs state"*, implying it doesn't naively free shared content on delete). Left as an implementation decision.
 
@@ -1409,7 +1442,7 @@ path.
 
 - Content-addressed checkpoint system (`store.Snapshot()`)
 - Manifest format and crash-safety guarantees (manifest written last)
-- Periodic backstop mechanism (5min interval)
+- Periodic backstop mechanism — retained, but OFF by default as of §14.6
 - SIGTERM teardown checkpoint (application-consistent, in sidecar)
 - `workspaceId` as workspace identity (determines S3 prefix)
 - Native sidecar lifecycle properties (§14.1: Job completion, termination
@@ -1761,6 +1794,97 @@ standing between a deployed checkpoint and deletion. A fleet that deploys rarely
 relative to its checkpoint rate should raise it (§14.2 bounds it at 50) and
 accept the storage cost, which is linear and predictable — one compressed copy
 of the workspace per retained checkpoint.
+
+#### §14.6 Snapshots are taken on intent, not on a clock (Amendment 2026-09-07)
+
+**The gap.** §14 specified a periodic backstop, and it ran unconditionally every
+five minutes. Two costs, neither theoretical:
+
+- Every run writes a full compressed squashfs image **twice** (the per-checkpoint
+  archive and the workspace `archive.sqsh`) whether or not a byte changed. An
+  idle sandbox shipped an entire workspace to object storage twelve times an hour.
+- At twelve checkpoints an hour against a retention bound of five (§14.2), the
+  checkpoints a user actually cared about were evicted by identical idle ones
+  within roughly twenty-five minutes.
+
+The content layer was never the problem — `putIfAbsent` uploads only new hashes,
+so an unchanged tree costs a handful of `Stat` calls. The archives are the cost,
+and they are rebuilt every time.
+
+**The reference design does not do this.** The Cloudflare sandbox SDK
+(`reference-projects/sandbox/sandbox-sdk`) has **no periodic snapshot anywhere**:
+its container saves when suspended, and the platform deliberately declines to
+destroy the container so that save can finish —
+
+```ts
+// devin/src/index.ts
+async stop(sessionId: string, reason: string): Promise<void> {
+  // On sleep the Devin CLI exits naturally and the entrypoint saves before
+  // the container exits. Destroying here would interrupt that checkpoint.
+  if (reason === 'suspended') return;
+```
+
+Checkpointing there is purely lifecycle-driven, to a single overwritten object
+per session. §14's content-addressed store comes from the *other* reference
+(Sandbox0) and stands; the periodic trigger had no support from either.
+
+**Decision.** A snapshot is taken when something means it:
+
+| Trigger | Owner | When |
+|---|---|---|
+| **User save** | the person | `POST /workspace/checkpoint`, from a Save action in the UI |
+| **Teardown** | the platform | the sidecar's SIGTERM handler, after the workload exits (§14.1) |
+| Periodic | opt-in | `WORKSPACE_SYNC_INTERVAL_SECONDS`, unset by default |
+
+The periodic backstop is **off unless configured**. It remains available for an
+unattended workload with nobody to press Save — a long batch job — where the
+teardown checkpoint alone is too coarse.
+
+**The user save path crosses four processes, and it has to.** The sidecar binds
+`127.0.0.1` (§14.1), so nothing outside the pod can reach it:
+
+```
+frontend → BFF → SDK  ──starts──▶ save-workspace-workflow
+                                        │  system/save-workspace
+                                        ▼
+                     sandbox harness (shares the pod's netns)
+                                        │  POST 127.0.0.1:7070/checkpoint
+                                        ▼
+                          workspace-sync sidecar ──▶ object storage
+```
+
+The harness is a pass-through: it does not decide when to checkpoint, does not
+know what one contains, and holds no object-store credential (waypoint ADR-037
+§1) — the same reason it already proxies Metro on localhost.
+
+**The workflow owns the trigger; the sidecar owns the data.** A save is a
+platform operation a person asked for, so it runs through the workflow engine
+like every other one, gaining an execution record, retry semantics and the same
+observability — the division `submit-app-build` already uses.
+
+It is worth being explicit about why the workflow does not move the data itself,
+since its sibling `s3-sync-artifacts` does. That step can upload content because
+the content is already in Postgres. A workspace snapshot's bytes are on
+pod-local disk, and four things follow: routing them through the SDK means
+pod → HTTP → SDK → object storage for every byte; no endpoint exposes the right
+bytes (the editor's file listing deliberately skips `.git`, `node_modules` and
+build output, while a snapshot is defined as *tracked, untracked and uncommitted
+alike, `.git` included*); the squashfs image is built by `mksquashfs` against a
+real local filesystem; and the teardown checkpoint fires after the workload
+exits, a moment no caller outside the pod can act in.
+
+Status codes are forwarded rather than flattened, because a person pressing Save
+needs to know which of these happened: `503` no workspace persistence on this
+sandbox, `409` the workspace is read-only (a build, §14.3), or `200` with an
+empty `checkpointId` — the request was correct and this deployment has no object
+storage. That last one is a success to the server and a failure to the user, and
+the UI reports it as a warning.
+
+**What this trades.** Unsaved work is now bounded by user behaviour, not by a
+timer: a crash, a SIGKILL or node loss between saves loses everything since the
+last one. That is the same exposure the reference design accepts, and it is why
+the UI prompts for a save each time the preview refreshes with new work rather
+than leaving the user to remember.
 
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 

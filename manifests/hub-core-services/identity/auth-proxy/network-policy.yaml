@@ -31,19 +31,22 @@ spec:
   # The rule removed here named a namespace called ingress-nginx which never existed
   # on this platform, so it admitted nothing at all.
   egress:
-  # Allow to Hydra and Kratos (ports-only: Cilium evaluates NetworkPolicy BEFORE
-  # service DNAT when bpf-lb-sock=false; ClusterIPs match no namespace selector.
-  # Ports constrain accessible services; identity ingress policies restrict callers.)
+  # Allow to Zitadel (ports-only: Cilium evaluates NetworkPolicy BEFORE service
+  # DNAT when bpf-lb-sock=false; ClusterIPs match no namespace selector. Ports
+  # constrain accessible services; identity ingress policies restrict callers.)
+  #
+  # 8080 is ZITADEL_INTERNAL_URL, which is where this workload fetches the
+  # discovery document and JWKS from; the public issuer it advertises is only
+  # compared against a token's iss claim and is never dialled.
+  #
+  # This allowed 4444/4445 and 4433/4434 -- Hydra and Kratos -- until the Ory
+  # stack was removed. Those ports then served nothing and 8080 was never added,
+  # so wherever this policy is enforced auth-proxy could not reach the issuer at
+  # all, and the failure presents as token validation errors rather than as a
+  # blocked connection.
   - ports:
     - protocol: TCP
-      port: 4444
-    - protocol: TCP
-      port: 4445
-  - ports:
-    - protocol: TCP
-      port: 4433
-    - protocol: TCP
-      port: 4434
+      port: 8080
   # Allow DNS (no 'to' selector: Cilium socket-LB resolves kube-dns before
   # NetworkPolicy evaluation; omitting 'to' is the portable pattern for DNS)
   - ports:

@@ -1,0 +1,181 @@
+# ADR-062: Onboarding and Scaffolding a Tenant
+
+**Date:** 2026-09-06
+**Status:** Proposed
+
+## Context
+
+ADR-004 establishes a dual-repository contract: platform code in `zero-ops`, tenant runtime state in `fleet-registry`. ADR-007 defines the fleet-registry spoke flow. ADR-047 defines the tenant deployment contract and rejects fleets authoring external workload repositories.
+
+Nothing in the decision record says how an organisation becomes a running box. ADR-065 has the platform propose changes to a tenant's infrastructure repository, which presumes that repository exists, is structured in a way the platform can propose against, and is reconciled by a control plane. None of those are true of an organisation that has just arrived.
+
+Five facts bear on this decision.
+
+**The word "fleet" names two different things in the decision record.** ADR-033 uses it for the cluster estate. ADR-047 uses it for a single tenant's deployment boundary. The implementation follows neither consistently — the tenant provisioning ApplicationSets are written in terms of `tenantId`, while ADR-047 specifies `fleetId`, and both appear in the same file.
+
+**`fleet-registry` holds two kinds of content with different owners and change rates.** Per-tenant, per-environment values, which change when a tenant is onboarded or reassigned; and rendered workload state, whose image digests change on every build of every tenant. Those writes share a branch and contend, and the contention scales with tenants multiplied by build frequency.
+
+**Cluster instances and cluster definitions share commit rights.** SpokePool declarations are stored in `zero-ops` beside the Compositions and XRDs that define what a spoke pool is, so declaring a cluster and changing the meaning of a cluster are the same privilege.
+
+**Tenants are connected through a GitHub App.** The App installation is the platform's record of which repositories belong to which tenant, and it is the access under which ADR-065 permits the platform to propose.
+
+**A comparable platform scaffolds and does not return.** kubefirst creates repositories in the customer's own organisation and renders a template into them, substituting some thirty tokens whose reference documentation warns explicitly that none may carry a secret. Its placement logic prunes every provider but the one selected, flattens that provider's directory to the repository root, discards the upstream history, hydrates a cluster directory from a template and then deletes the template that produced it. What remains in the customer's repository is a version pin and values per component; chart bodies are referenced from upstream registries and never copied. Nothing propagates to that repository afterwards.
+
+## Decision
+
+**A tenant is onboarded by creating and scaffolding the repositories its box reconciles.**
+
+### The tenant supplies a git organisation and a cloud account
+
+Onboarding begins with an App installation on the tenant's git organisation and a cloud account the tenant controls. The App installation is the platform's only credential, and it reaches repositories and nothing else.
+
+Cloud credentials are not supplied to the platform. They are held in the tenant's box under ADR-065, and the Day-0 sequence that establishes the control plane is run by the tenant against its own account. The platform scaffolds what Day-0 reconciles; it does not provision the tenant's infrastructure.
+
+### The platform creates and scaffolds `<tenant>-gitops`
+
+The platform creates one repository per tenant, named `<tenant>-gitops`, in the tenant's organisation, and renders it from a template held in `zero-ops`, substituting the identifiers and locations that make it that tenant's: organisation, repository locations, domain, cloud provider and region, cluster names.
+
+The repository holds one directory per cluster — the tenant's control plane and each of its spoke clusters alike — and each such directory holds two things: the bundle version that cluster runs, and the values it runs with. It also retains the templates from which the tenant renders its next cluster.
+
+Nothing of the bundle's content is placed there. Under ADR-063 the bundle is published as a versioned chart and consumed by naming a version, so the platform writes the version file and the tenant writes the values file. That the two write to separate files is what allows a fleet of these repositories to be maintained without arbitration, and it is the reason the content is published rather than copied.
+
+**The values file carries deviations, not defaults.** Scaffolding writes the facts that are true of this tenant and no other — organisation, domain, region, cluster names, selected workloads — and nothing that merely restates what the chart already specifies. A tenant customises by adding the field it wants to change. Copying the chart's defaults into the repository at scaffold time would make every later change to a default a proposal into every tenant's repository, and a conflict with any tenant that had edited the same file.
+
+Separation is by file rather than by permission. A repository in the tenant's organisation is administered by that organisation, and no arrangement of access control changes that; a repository the tenant could not write would also be one it could not customise, and would contradict the ownership ADR-065 asserts. Review rules on the version file express the intended division and are the tenant's to keep or remove.
+
+Substituted values carry no secret material. They are identifiers and locations. Secrets are generated into and delivered from the tenant's own store, which the standing secret lifecycle already requires and which onboarding does not vary.
+
+### Scaffolding happens once; maintenance is continuous
+
+The rendered repository is a starting state, not a fork. Once it exists the platform proposes changes to it under ADR-064 and never renders it again.
+
+This is the difference from the platform examined above, and it is the whole of the service: scaffolding without maintenance leaves a tenant holding a copy that ages, and maintenance without scaffolding has nothing to propose against.
+
+### Repositories are separated by what their content is
+
+Repositories are separated by what their content **is** — a type, an instance, or a workload — rather than by who authored it, because that division is also the maintenance boundary.
+
+The platform maintains types, proposes changes to instances, and never touches workloads. Those are three different relationships, and a repository is the unit at which access is granted and revoked. Separating by content puts each relationship in its own repository, so what the platform may do to a thing follows from where the thing lives rather than from a rule applied on top of it.
+
+**`zero-ops` holds types.** XRDs, Compositions, ClusterClasses, boundary charts, the scaffolding template, and the catalogue of selectable workloads. It defines what a spoke cluster is, what a tenant is, and what a boundary is. It holds no instance of any of them.
+
+**`<tenant>-gitops` holds cluster instances.** One per tenant, in the tenant's own organisation, created by scaffolding, declaring each of that tenant's clusters — control plane and spokes alike — with the bundle version each runs and the values each runs with, together with the cell definitions that group them for policy and the workloads the tenant has selected. The tenant's own control plane reconciles it.
+
+`fleet-registry` is this repository for the platform's own box, and is the name retained for it.
+
+**Tenant-owned repositories hold workloads.** In the tenant's organisation, holding overlays and image pins, separate from `<tenant>-gitops` because the platform is granted access to one and never to the others. The platform does not fix their number; a tenant has as many as it has applications.
+
+### The App installation is the record
+
+Which repositories belong to which tenant is established by the App installation and is not restated elsewhere. No separate registry repository records tenant existence, because nothing reconciles such a record: under ADR-065 no platform-run component reconciles anything on a tenant's behalf.
+
+What remains — that an organisation is a customer, what it has bought, what it is owed — is commercial and is not held as reconciled state.
+
+### Vocabulary
+
+One word per concept, used unchanged by ADR-063 through ADR-067.
+
+**Platform** is the golden path: the types, the bundle, and the engineering that maintains them.
+
+**Tenant** is a customer organisation, and holds exactly one **box** — control plane access together with that tenant's own spoke clusters. `fleetId` in ADR-047 is `tenantId`, which is what the implementation has used throughout.
+
+**Spoke cluster** is the unit of everything measurable. It declares its region, provider and node pool, pins a bundle version, and is where compute is metered. It belongs to exactly one tenant, and is a **cluster instance** when referred to as a record in the tenant's infrastructure repository.
+
+**Cell** is a dynamic grouping of one tenant's spoke clusters, by label, for the purpose of attaching policy. A cluster may belong to several cells and receives the union of their policy. A cell is a selector: it holds no compute, pins no version, and owns nothing.
+
+**Fleet** is the cluster estate, as ADR-033 already uses it.
+
+**Bundle** is the complete set of platform content at one revision of `zero-ops`; a **bundle version** is the tag naming it. **Promotion** is advancing a cluster instance from one bundle version to the next.
+
+**Workload** is what a tenant runs on its own clusters.
+
+### A tenant authors its own instances
+
+A tenant declares its clusters, the cells that group them, and the workloads it selects. All are held in the tenant's own infrastructure repository and reconciled by the tenant's own control plane.
+
+The reasoning that once made cluster identity platform-held was cross-tenant: a tenant able to author a region or a secret path could name something outside its own box. With a single-tenant cluster and a control plane in the box there is nothing outside the box to name. What remains is the platform's interest in a declaration being well-formed, which is asserted by the validators ADR-064 records rather than by withholding the field.
+
+### Alternatives considered
+
+**Hold types and instances in one repository, separated by directory, as kubefirst does.** Rejected here, and correct there. Its template and its rendered instances live in one repository because the customer owns both after the render: no boundary runs through that repository, so no repository boundary is needed. Here the platform maintains the types and proposes to the instances, and a directory is not a unit at which access is granted or revoked. Placing both in one repository would require the platform to hold write access to a tenant's types in order to propose against its instances.
+
+**Retain one repository for all tenants, with directory-level ownership.** Rejected. It does not remove the write contention, because the contention is on the branch rather than on the paths. It also leaves history shared, so a tenant cannot be granted write access to its own state without being granted every other tenant's history.
+
+**Retain cluster instances in `zero-ops` under CODEOWNERS.** Rejected. Declaring a cluster should not require commit rights over the Compositions that define what a cluster is, and under ADR-065 the instances are reconciled by the tenant's control plane, which cannot read a repository the tenant does not hold.
+
+**Record tenant existence in a dedicated registry repository.** Considered and not taken. It was the natural shape while tenant discovery was a reconciliation input — the set of tenants was whatever a directory glob returned. With no platform-run component reconciling on a tenant's behalf, such a repository would have no reconciler, and the App installation already records the fact it would hold. Should a platform-operated control plane serving several tenants be adopted, tenant discovery becomes a reconciliation input again and this decision is revisited with it.
+
+## Ownership
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Platform type definitions | `zero-ops` | Platform | ArgoCD | Platform | Day-1+ |
+| Scaffolding template | `zero-ops` | Platform | — | Onboarding | Day-0 |
+| Repository ownership record | App installation | Tenant | — | Platform | Day-0 |
+| Cluster instance declarations | `<tenant>-gitops` | Tenant | Crossplane / CAPI | Tenant control plane | Day-1+ |
+| Bundle version per cluster | `<tenant>-gitops` | Platform | ArgoCD | Tenant control plane | Day-1+ |
+| Cluster values (deviations) | `<tenant>-gitops` | Tenant | ArgoCD | Bundle chart | Day-1+ |
+| Default values | published bundle chart | Platform | Release pipeline | Tenant control plane | Day-1+ |
+| Cell definitions and policy binding | `<tenant>-gitops` | Tenant | ArgoCD | Spoke clusters | Day-1+ |
+| Published bundle charts | OCI registry | Platform | Release pipeline | Tenant control planes | Day-1+ |
+| Tenant workload state | tenant workload repositories | Tenant | ArgoCD | Tenant | Day-1+ |
+
+In every row Git is the System of Record and the corresponding in-cluster resource is its reconciled projection. See ADR-039 for the complete ownership matrix.
+
+## Consequences
+
+### Positive
+
+An organisation becomes a running box by a defined sequence rather than by manual assembly, and the repository the platform later proposes against exists because onboarding created it.
+
+Write contention disappears rather than being mitigated, because per-tenant repositories share no branch.
+
+A tenant can be granted write access to its own desired state without being granted any other tenant's history.
+
+Declaring a cluster and defining what a cluster is carry different commit rights.
+
+The platform holds one credential per tenant, reaching repositories only, and revoking it ends the relationship without stopping anything running.
+
+### Negative
+
+Onboarding becomes software the platform must maintain, and a defect in it produces a malformed repository that a tenant owns and the platform can only propose to fix.
+
+Two or more repositories per tenant, each requiring a credential, ownership rules and continuous integration. They are the tenant's to carry, but the failure in which one repository is named two ways now occurs inside a tenant's box where the platform cannot see it.
+
+A change spanning a type and its instances spans repositories and cannot be atomic. Ordering that a single commit once guaranteed has to be reasoned about.
+
+The scaffolding template is a second expression of what a box contains, alongside the bundle chart, and the two can disagree. What a tenant's repository states is a version and values, so reading it does not say what runs without resolving the chart behind it.
+
+## Impact
+
+Supersedes ADR-004. The dual-repository contract is replaced by the separation above.
+
+Amends ADR-047. The rejection of fleets authoring external workload repositories stands on its original ground. `fleetId` is `tenantId` throughout.
+
+Amends ADR-007. The spoke flow is unchanged in mechanism, but the repository it names now holds the platform's own cluster instances.
+
+Amends ADR-031. A spoke cluster belongs to exactly one tenant, so the shared-cell blast radius that ADR's topology was written to contain does not arise between tenants. What remains within a cluster is isolation between one tenant's own workloads.
+
+Confirms ADR-033. Its use of "fleet" for the cluster estate is adopted as the platform's definition.
+
+Amended by ADR-065. A tenant's control plane runs in that tenant's box, which places the infrastructure repository with the control plane that reconciles it.
+
+No change to ADR-021, ADR-037, ADR-039, ADR-043 or ADR-055. No change to ADR-061: a component declares its own source, so a cluster-instance component naming a different repository is already expressible.
+
+## References
+
+- ADR-004: Dual Repository GitOps Pattern (superseded by this ADR)
+- ADR-007: Fleet Registry Spoke Flow
+- ADR-021: Boundary-Driven GitOps and Day-0 Choreography
+- ADR-031: Tenant Secret Isolation and Identity Topology
+- ADR-033: Fleet Scale Targets & SLOs
+- ADR-037: Directory-Based Environment Promotion and Gating
+- ADR-039: Platform Ownership Model
+- ADR-043: Control Plane Authority Model
+- ADR-047: Fleet Tenant Deployment Contract
+- ADR-055: Boundary Activation as the Day-0 Gating Mechanism
+- ADR-061: Component Descriptors for Boundary Composition
+- ADR-063: The Platform Bundle and its Version
+- ADR-064: Bundle Promotion and Cell-Scoped Policy
+- ADR-065: The Control Plane Ships Into the Box
+- ADR-067: Support Telemetry and the Basis of Maintenance

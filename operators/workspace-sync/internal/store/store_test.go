@@ -226,3 +226,49 @@ func TestSplitListIgnoresBlanks(t *testing.T) {
 		t.Errorf("splitList = %v, want [a b c]", got)
 	}
 }
+
+// TestSkipDirCoversTheCostlyTrees pins the exclusion list that makes a save
+// finish at all.
+//
+// Measured on a real scaffolded Expo app: 21,412 files / 369 MB in the
+// workspace, of which 21,388 files / 368 MB were node_modules — the source was
+// 24 files. Snapshot hashes and PutIfAbsent-checks each file individually, so
+// including node_modules meant ~21k round trips to object storage per save and
+// a 504 at every layer.
+func TestSkipDirCoversTheCostlyTrees(t *testing.T) {
+	for _, d := range []string{"node_modules", ".expo", "dist", "build", "web-build", ".cache"} {
+		if !skipDir[d] {
+			t.Errorf("%q is not excluded; it is derived output and re-adds the cost this list exists to avoid", d)
+		}
+	}
+
+	// `.git` must NEVER be excluded. It is the user's history, §14 names it
+	// explicitly as an ordinary subdirectory, and it is small next to
+	// node_modules. Excluding it would silently drop everything a restore needs
+	// to show what changed.
+	if skipDir[".git"] {
+		t.Error(".git is excluded; it is the user's history, not derived output (§14)")
+	}
+	// Nor the platform's own workspace scaffolding.
+	if skipDir[".builder"] {
+		t.Error(".builder is excluded; it is workspace state, not derived output")
+	}
+}
+
+// TestEmptyWorkspaceIsNotCheckpointed guards against writing a snapshot of
+// nothing.
+//
+// An empty checkpoint becomes LATEST, appears in the deploy picker as something
+// selectable that would build nothing, and consumes a retention slot. Observed:
+// `checkpoint 18d31e0c… (0 files)` written before the agent had scaffolded
+// anything.
+func TestEmptyWorkspaceIsNotCheckpointed(t *testing.T) {
+	// The sentinel is what callers branch on to say "nothing to save yet"
+	// rather than reporting either a success or a fault.
+	if ErrNothingToSave == nil {
+		t.Fatal("ErrNothingToSave must exist for callers to distinguish this case")
+	}
+	if errors.Is(ErrNothingToSave, ErrNotConfigured) || errors.Is(ErrNothingToSave, ErrReadOnly) {
+		t.Error("ErrNothingToSave must be distinguishable from the other no-op sentinels")
+	}
+}

@@ -22,6 +22,8 @@ func main() {
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
 	rootCmd.AddCommand(newReseedCmd())
+	rootCmd.AddCommand(newTenantCmd())
+	rootCmd.AddCommand(newBundleVersionCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

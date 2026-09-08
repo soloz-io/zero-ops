@@ -1,0 +1,16 @@
+# ADR-045 bootstrap-generated artifact — DO NOT EDIT BY HAND.
+#
+# Written by the hub CLI for the stg cluster. Empty until that cluster is
+# bootstrapped, which is what an unbuilt environment should say.
+#
+# This lived under environments/base until 2026-09-08, where every overlay
+# inherited it: one file held whichever cluster bootstrapped last, so prod
+# rendered dev's Infisical project and nothing in prod's own directory showed
+# why. ADR-037 isolates environments by directory; this file sat beneath all of
+# them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-bootstrap-config
+  namespace: platform-ops
+data: {}

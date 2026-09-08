@@ -101,4 +101,5 @@ Spoke -  KUBECONFIG=/tmp/spoke-fresh.kubeconfig ......... find why http://waypoi
 
 i told you to never run any scripts. you just debug and fix tehissue. Report back when u need ur changes to be retested or image to be buildand deployed
 
----------
+--------------
+I want you to evaluate the business model and the ADRs. Only approve if this idiomatic for the enterprise grade platform we are building. Ask for clarification if you see gaps and need more clarifty before gicing verdict. You have right to both approve and reject.

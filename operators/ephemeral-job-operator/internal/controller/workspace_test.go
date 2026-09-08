@@ -667,3 +667,63 @@ func TestWorkspaceSpecRequiresBothIds(t *testing.T) {
 		}
 	}
 }
+
+// TestPodStartupBlockerNamesTheCause covers the diagnostic that was missing
+// when the workspace-sync sidecar crash-looped.
+//
+// The CR read `Provisioning / CapacityAvailable=Scheduled()` while the real
+// cause — a sidecar exiting on a TLS failure — was visible only in a container
+// status nobody reads until they already suspect it. What the user saw was a
+// chat request timing out with a 504, several layers away.
+func TestPodStartupBlockerNamesTheCause(t *testing.T) {
+	waiting := func(name, reason string, last *corev1.ContainerStateTerminated) corev1.ContainerStatus {
+		cs := corev1.ContainerStatus{
+			Name:  name,
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}},
+		}
+		if last != nil {
+			cs.LastTerminationState = corev1.ContainerState{Terminated: last}
+		}
+		return cs
+	}
+
+	// The observed failure: a crash-looping INIT container, with the process's
+	// own reason in its last termination message.
+	pod := &corev1.Pod{Status: corev1.PodStatus{
+		InitContainerStatuses: []corev1.ContainerStatus{
+			waiting("workspace-sync", "CrashLoopBackOff", &corev1.ContainerStateTerminated{
+				ExitCode: 1, Message: "cannot reach object storage: x509: certificate signed by unknown authority",
+			}),
+		},
+	}}
+	got := podStartupBlocker(pod)
+	for _, want := range []string{"workspace-sync", "CrashLoopBackOff", "x509"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("message %q does not mention %q — it has to name the container and the reason", got, want)
+		}
+	}
+
+	// Init containers take precedence: under §14.1 the workspace sidecar must be
+	// ready before the workload starts, so when both look unhappy the init
+	// container is the cause and the workload is the symptom.
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{waiting("workload", "CrashLoopBackOff", nil)}
+	if got := podStartupBlocker(pod); !strings.Contains(got, "workspace-sync") {
+		t.Errorf("reported %q; the init container is the cause when both are waiting", got)
+	}
+
+	// Transient states must stay SILENT. Every pod passes through these, and
+	// reporting them would turn a normal start into an alarming message.
+	for _, reason := range []string{"ContainerCreating", "PodInitializing"} {
+		p := &corev1.Pod{Status: corev1.PodStatus{
+			InitContainerStatuses: []corev1.ContainerStatus{waiting("workspace-sync", reason, nil)},
+		}}
+		if got := podStartupBlocker(p); got != "" {
+			t.Errorf("reason %q reported as a blocker (%q); it is an ordinary transient state", reason, got)
+		}
+	}
+
+	// A healthy pod reports nothing.
+	if got := podStartupBlocker(&corev1.Pod{}); got != "" {
+		t.Errorf("empty pod reported %q, want no blocker", got)
+	}
+}

@@ -17,10 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
+	"time"
+
+	"github.com/go-logr/logr"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -63,6 +67,34 @@ func init() {
 }
 
 // nolint:gocyclo
+// waitForInfisicalConfig blocks until INFISICAL_PROJECT_ID is present.
+//
+// The value arrives from the hub-bootstrap-config ConfigMap, which the ADR-045
+// bootstrap phase fills two phases after this operator is reconciled. Env vars
+// sourced from a ConfigMap do not update in a running container, so the restart
+// that picks the value up is performed by the reloader watching that ConfigMap;
+// this wait exists so the pod stays alive and Ready-less until then instead of
+// crash-looping, which is what exiting produced.
+func waitForInfisicalConfig(ctx context.Context, log logr.Logger) {
+	const every = 15 * time.Second
+	for attempt := 1; ; attempt++ {
+		select {
+		case <-ctx.Done():
+			log.Info("Shutting down while waiting for INFISICAL_PROJECT_ID")
+			os.Exit(0)
+		case <-time.After(every):
+		}
+		if v := os.Getenv("INFISICAL_PROJECT_ID"); v != "" && v != "PLACEHOLDER_PROJECT_ID" {
+			log.Info("INFISICAL_PROJECT_ID now present", "attempts", attempt)
+			return
+		}
+		if attempt%20 == 0 {
+			log.Info("Still waiting for INFISICAL_PROJECT_ID from hub-bootstrap-config",
+				"waited", time.Duration(attempt)*every)
+		}
+	}
+}
+
 func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
@@ -221,6 +253,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Established here rather than below because the Infisical configuration may
+	// have to be waited for, and a wait that ignores SIGTERM outlives a delete.
+	ctx := ctrl.SetupSignalHandler()
+
 	// Initialize the Infisical Client for ADR-031 topology management
 	// These env vars are injected by your hub-operator Deployment manifest
 	projectID := os.Getenv("INFISICAL_PROJECT_ID")
@@ -230,10 +266,35 @@ func main() {
 	clientSecret := os.Getenv("INFISICAL_CLIENT_SECRET")
 	baseURL := os.Getenv("INFISICAL_BASE_URL")
 
-	// Fail fast on misconfiguration (e.g., stale ConfigMap or missing injection)
-	if projectID == "" || projectID == "PLACEHOLDER_PROJECT_ID" {
-		setupLog.Error(fmt.Errorf("invalid project ID: %s", projectID), "operator misconfigured: INFISICAL_PROJECT_ID is invalid")
+	// An absent project id and a wrong one are different states, and only the
+	// second is misconfiguration.
+	//
+	// This operator is reconciled in boundary 03, and Infisical is bootstrapped
+	// two phases later: on a cluster being built for the first time there is a
+	// window in which the id genuinely does not exist yet. Exiting through it
+	// turns that window into a crash loop.
+	//
+	// Until now the window was hidden rather than handled. The ADR-045 patch that
+	// supplies the id is committed to the repository, so a rebuilt cluster
+	// reconciled the PREVIOUS cluster's project until Day-0 overwrote it: the
+	// operator started against a live-looking id that pointed at someone else's
+	// project, which is worse than starting against none.
+	//
+	// So: a placeholder is still refused, because that is a manifest that was
+	// never rendered. An empty value waits.
+	if projectID == "PLACEHOLDER_PROJECT_ID" {
+		setupLog.Error(fmt.Errorf("project id is the unrendered placeholder"),
+			"operator misconfigured: INFISICAL_PROJECT_ID was never substituted")
 		os.Exit(1)
+	}
+	if projectID == "" {
+		setupLog.Info("INFISICAL_PROJECT_ID is not set yet; Infisical-backed controllers stay idle " +
+			"until the bootstrap config carries it. This is expected before the Infisical " +
+			"bootstrap phase and is not an error.")
+		waitForInfisicalConfig(ctx, setupLog)
+		projectID = os.Getenv("INFISICAL_PROJECT_ID")
+		secretsProjectID = os.Getenv("INFISICAL_SECRETS_PROJECT_ID")
+		orgID = os.Getenv("INFISICAL_ORGANIZATION_ID")
 	}
 	if secretsProjectID == "" {
 		setupLog.Info("INFISICAL_SECRETS_PROJECT_ID is missing, falling back to INFISICAL_PROJECT_ID for backward compatibility")
@@ -305,8 +366,6 @@ func main() {
 	// could not run at all without a Kratos to point at.
 
 	// +kubebuilder:scaffold:builder
-
-	ctx := ctrl.SetupSignalHandler()
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")

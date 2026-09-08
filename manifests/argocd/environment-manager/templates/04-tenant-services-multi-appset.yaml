@@ -1,4 +1,7 @@
 ---
+{{- /* ADR-068: unreleased builds source from the working tree, released builds
+     from the published bundle. Known at render time. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -22,6 +25,11 @@ spec:
             targetRevision: '10.0.4'
             chart: 'zitadel'
             valueFilesPath: 'manifests/hub-core-services/identity/zitadel/values.yaml'
+{{- if $released }}
+            # The same values, carried in the bundle chart rather than fetched.
+            valuesInline: |
+{{ $.Files.Get "values/zitadel.yaml" | indent 14 }}
+{{- end }}
             helmReleaseName: ''
             extraManifestsPath: 'manifests/hub-core-services/identity/zitadel'
             ignoreDifferencesExtSecrets: 'true'
@@ -33,6 +41,20 @@ spec:
         argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: boundary-04
+{{- if $released }}
+      # One source. The second existed only to make $values resolve, and it
+      # named the platform's repository -- so a released cluster would fetch a
+      # values file from us for the life of the cluster, which is the dependency
+      # ADR-063 requires a mirrored bundle not to have. The values are inlined
+      # from the bundle chart instead, so there is no repository left to name.
+      source:
+        repoURL: '{{"{{"}} .repoURL {{"}}"}}'
+        chart: '{{"{{"}} .chart {{"}}"}}'
+        targetRevision: '{{"{{"}} .targetRevision {{"}}"}}'
+        helm:
+          releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
+          values: '{{"{{"}} .valuesInline {{"}}"}}'
+{{- else }}
       sources:
         - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
           chart: '{{"{{"}} .chart {{"}}"}}'
@@ -44,6 +66,7 @@ spec:
         - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           ref: values
+{{- end }}
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{"{{"}} .destinationNamespace {{"}}"}}'

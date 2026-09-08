@@ -1,0 +1,41 @@
+# The platform version this cluster runs.
+#
+# This file is the platform's to propose and the tenant's to accept. It carries a
+# version and nothing else: the bundle's content is sourced from the platform,
+# not copied here, so an upgrade is a change to one field and cannot collide with
+# anything in values.yaml (ADR-062, ADR-064).
+#
+# targetRevision will become a published chart version once the bundle is
+# distributed as an OCI chart (ADR-063). Until then it names a revision of the
+# platform repository, which is the same statement made a different way: one
+# value selects the whole platform for this cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: <CLUSTER_NAME>-platform
+  namespace: platform-ops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: <PLATFORM_REPO_URL>
+      targetRevision: <BUNDLE_VERSION>
+      path: manifests/argocd/environment-manager
+      helm:
+        valueFiles:
+          - $values/clusters/<CLUSTER_NAME>/values.yaml
+    # The tenant's own repository, referenced so the values file above resolves.
+    # Values are read from where the tenant writes them, never from the platform.
+    - repoURL: <GITOPS_REPO_URL>
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

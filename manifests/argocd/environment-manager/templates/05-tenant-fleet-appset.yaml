@@ -9,6 +9,9 @@
 
 ---
 # ApplicationSet for fleet XRs (deployed to Hub where Crossplane runs)
+{{- /* ADR-068: unreleased builds source from the working tree, released builds
+     from the published bundle. Known at render time. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -52,9 +55,18 @@ spec:
 
       sources:
         # Source 1: Universal Tenant Helm Chart (only the XR template)
+{{- if $released }}
+        # Released: the chart that renders every tenant's platform-owned
+        # infrastructure is published, so a tenant's own clusters do not reach
+        # into the platform's repository to reconcile it.
+        - repoURL: {{ .Values.bundleRegistry | quote }}
+          targetRevision: {{ .Values.bundleVersion | quote }}
+          chart: universal-tenant
+{{- else }}
         - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: manifests/tenants/charts/universal-tenant
+{{- end }}
           helm:
             valueFiles:
               - $values/{{"{{"}} .path.path {{"}}"}}/values.yaml
@@ -135,9 +147,18 @@ spec:
 
       sources:
         # Source 1: Universal Tenant Helm Chart (namespace, Tier-2 RBAC, ExternalSecrets)
+{{- if $released }}
+        # Released: the chart that renders every tenant's platform-owned
+        # infrastructure is published, so a tenant's own clusters do not reach
+        # into the platform's repository to reconcile it.
+        - repoURL: {{ .Values.bundleRegistry | quote }}
+          targetRevision: {{ .Values.bundleVersion | quote }}
+          chart: universal-tenant
+{{- else }}
         - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           path: manifests/tenants/charts/universal-tenant
+{{- end }}
           helm:
             valueFiles:
               - $values/{{"{{"}} .path.path {{"}}"}}/values.yaml

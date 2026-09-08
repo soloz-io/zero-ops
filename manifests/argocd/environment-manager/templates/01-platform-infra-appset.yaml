@@ -1,4 +1,9 @@
 ---
+{{- /* ADR-068: an uninjected build is unreleased and sources from the working
+     tree; a build carrying a version sources from the bundle published under
+     it. Known at render time, so the choice is made here rather than by ArgoCD
+     per element. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -19,6 +24,19 @@ spec:
     #
     # Components with a fixed source are one file each under
     # manifests/argocd/components/01/.
+    {{- if $released }}
+    # Released: the descriptors are files of this chart, so a cluster
+    # reconciling a published bundle fetches nothing from the platform's
+    # repository to learn what its own boundaries contain. Read from Git,
+    # a bundle would be portable only in appearance (ADR-063).
+    - list:
+        elements:
+    {{- $descriptors := $.Files.Glob "descriptors/01/*.yaml" }}
+    {{- if not $descriptors }}{{ fail "released bundle carries no descriptors for boundary 01: they are copied in at package time, and a chart without them would generate an empty boundary and report it healthy" }}{{ end }}
+    {{- range $path, $_ := $.Files.Glob "descriptors/01/*.yaml" }}
+          -{{ $.Files.Get $path | fromYaml | toYaml | nindent 12 }}
+    {{- end }}
+    {{- else }}
     - git:
         repoURL: {{ .Values.platformRepoURL | quote }}
         revision: {{ .Values.environmentRevision | quote }}
@@ -34,6 +52,7 @@ spec:
         pathParamPrefix: descriptorPath
         files:
           - path: 'manifests/argocd/components/01/*.yaml'
+    {{- end }}
 
     # These two are NOT descriptors because neither is the same in every
     # environment, established by rendering all sixteen parameter combinations:
@@ -79,6 +98,37 @@ spec:
           # Kyverno's ADMISSION controller is placement-sensitive on a hybrid
           # hub, which a descriptor cannot express (ADR-061): it states one
           # fixed form, and this one differs per provider.
+          # ADR-035's Hub PKI issuers, plus the cert-manager approval RBAC and the
+          # spoke cell-id audit policy that accompany them.
+          #
+          # Declared here rather than as a descriptor because its values are
+          # environment-parameterised, which ADR-061 makes the test for where a
+          # component is declared: a descriptor states a fixed source, and a
+          # component whose configuration is a function of the environment
+          # belongs in the boundary template where those dimensions are in
+          # scope. It was a descriptor while the environment-specific half
+          # arrived as a Day-0-written Kustomize patch committed under
+          # generated/; removing that is what moves it here.
+          - appName: 'platform-security-infra'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            syncWave: '1'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/security'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              infisical:
+                fleet:
+                  projectId: {{ .Values.infisical.fleet.projectId | quote }}
+                  clientId: {{ .Values.infisical.fleet.clientId | quote }}
+                signing:
+                  projectId: {{ .Values.infisical.signing.projectId | quote }}
+                  clientId: {{ .Values.infisical.signing.clientId | quote }}
+            helmReleaseName: ''
+
           - appName: 'platform-kyverno'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'false'
@@ -324,10 +374,28 @@ spec:
         # same treatment targetRevision gets below. The condition is emptiness,
         # not the ownership flag, so a platform-owned component sourced from a
         # third-party registry keeps its own URL.
-        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
-        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # Where the platform's own content comes from is decided here, once, from
+        # the build's version (ADR-068) -- not named by each component. A
+        # component pinned to a published chart could never be exercised from a
+        # working tree, and one pinned to a path would never be exercised as
+        # published; the distinction is a property of the build.
+        #
+        # An empty repoURL means "the platform's own content". A component that
+        # names its own registry is third-party: its URL and version are pinned
+        # by the descriptor, the descriptor is bundle content, and so those move
+        # with the bundle without being resolved here.
+        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ if $released }}{{ .Values.bundleRegistry }}{{ else }}{{ .Values.platformRepoURL }}{{ end }}{{"{{"}} end {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ if $released }}{{ .Values.bundleVersion }}{{ else }}{{ .Values.environmentRevision }}{{ end }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- if $released }}
+        # Released: platform content is a chart in the bundle, named for the
+        # component. Its path is dropped -- an Application carrying both is
+        # rejected.
+        path: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .path {{"}}"}}{{"{{"}} end {{"}}"}}'
+        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- else }}
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+{{- end }}
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'

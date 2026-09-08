@@ -1,4 +1,9 @@
 ---
+{{- /* ADR-068: an uninjected build is unreleased and sources from the working
+     tree; a build carrying a version sources from the bundle published under
+     it. Known at render time, so the choice is made here rather than by ArgoCD
+     per element. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -36,6 +41,19 @@ spec:
     # The descriptors sit outside every deployed path on purpose: six components
     # in this boundary are recursive directory sources, so a descriptor stored
     # beside the content it describes would itself be applied to the cluster.
+    {{- if $released }}
+    # Released: the descriptors are files of this chart, so a cluster
+    # reconciling a published bundle fetches nothing from the platform's
+    # repository to learn what its own boundaries contain. Read from Git,
+    # a bundle would be portable only in appearance (ADR-063).
+    - list:
+        elements:
+    {{- $descriptors := $.Files.Glob "descriptors/03/*.yaml" }}
+    {{- if not $descriptors }}{{ fail "released bundle carries no descriptors for boundary 03: they are copied in at package time, and a chart without them would generate an empty boundary and report it healthy" }}{{ end }}
+    {{- range $path, $_ := $.Files.Glob "descriptors/03/*.yaml" }}
+          -{{ $.Files.Get $path | fromYaml | toYaml | nindent 12 }}
+    {{- end }}
+    {{- else }}
     - git:
         repoURL: {{ .Values.platformRepoURL | quote }}
         revision: {{ .Values.environmentRevision | quote }}
@@ -51,6 +69,7 @@ spec:
         pathParamPrefix: descriptorPath
         files:
           - path: 'manifests/argocd/components/03/*.yaml'
+    {{- end }}
 
     # The three components below are NOT descriptors because they have no fixed
     # source: their path is a function of the environment slug, the provider or
@@ -120,10 +139,28 @@ spec:
         # The condition is emptiness, NOT the ownership flag. platform-stalwart-mail
         # is flagged platform-owned but sourced from an OCI chart registry;
         # keying on the flag would silently retarget it at the platform repo.
-        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
-        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # Where the platform's own content comes from is decided here, once, from
+        # the build's version (ADR-068) -- not named by each component. A
+        # component pinned to a published chart could never be exercised from a
+        # working tree, and one pinned to a path would never be exercised as
+        # published; the distinction is a property of the build.
+        #
+        # An empty repoURL means "the platform's own content". A component that
+        # names its own registry is third-party: its URL and version are pinned
+        # by the descriptor, the descriptor is bundle content, and so those move
+        # with the bundle without being resolved here.
+        repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ if $released }}{{ .Values.bundleRegistry }}{{ else }}{{ .Values.platformRepoURL }}{{ end }}{{"{{"}} end {{"}}"}}'
+        targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ if $released }}{{ .Values.bundleVersion }}{{ else }}{{ .Values.environmentRevision }}{{ end }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- if $released }}
+        # Released: platform content is a chart in the bundle, named for the
+        # component. Its path is dropped -- an Application carrying both is
+        # rejected.
+        path: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .path {{"}}"}}{{"{{"}} end {{"}}"}}'
+        chart: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .chart {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} .appName {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- else }}
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+{{- end }}
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           # Single-quoted ON PURPOSE, and NOT a block scalar. This is inside
@@ -309,14 +346,27 @@ spec:
       project: boundary-03
 
       source:
+{{- if $released }}
+        repoURL: {{ .Values.bundleRegistry | quote }}
+        targetRevision: {{ .Values.bundleVersion | quote }}
+{{- else }}
         repoURL: {{ .Values.platformRepoURL | quote }}
         targetRevision: '{{ .Values.environmentRevision }}'
+{{- end }}
         # ADR-046 §11: spoke-catalog is structured per environment and provider;
         # the CNPG overlay lives at manifests/spoke/spoke-catalog/environments/<env>/<provider>.
         # The cluster generator exposes labels under .metadata.labels; fail closed
         # on any provider other than hybrid/hetzner (index + fail primitive also
         # covers a spoke whose provider take-along label is missing).
+{{- if $released }}
+        # Released: the catalogue is a published chart per environment and
+        # provider. The provider is still read from the cluster's own label, so
+        # a spoke gets the catalogue matching what it actually is rather than
+        # what the hub assumed.
+        chart: 'platform-spoke-catalog-{{ .Values.environmentSlug }}-{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog chart" {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- else }}
         path: 'manifests/spoke/spoke-catalog/environments/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
+{{- end }}
         kustomize:
           patches:
             # Inject the per-spoke crossplane-admin password key (ADR-003/tenant-db

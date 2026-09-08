@@ -1,4 +1,7 @@
 ---
+{{- /* ADR-068: unreleased builds source from the working tree, released builds
+     from the published bundle. Known at render time. */}}
+{{- $released := ne .Values.bundleVersion "development" }}
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -74,10 +77,27 @@ spec:
     spec:
       project: boundary-02
       source:
+        # This boundary's components are provider overlays: their path is a
+        # function of .Values.provider, which ADR-061 gives as the reason they
+        # are declared here rather than as descriptors.
+        #
+        # Published, that is a chart per component per provider, named for both.
+        # The overlay differs from its base only in ADR-046 §11's placement
+        # class -- a matched workload-location and storageClass -- so packaging
+        # the overlay keeps that pair intact, where one chart selecting a
+        # provider from a value would let the two drift apart, which is the
+        # failure §11 exists to prevent.
+{{- if $released }}
+        repoURL: {{ .Values.bundleRegistry | quote }}
+        targetRevision: {{ .Values.bundleVersion | quote }}
+        path: ''
+        chart: '{{"{{"}} .appName {{"}}"}}-{{ .Values.provider }}'
+{{- else }}
         repoURL: '{{"{{"}} .repoURL {{"}}"}}'
         targetRevision: '{{"{{"}} if eq .isPlatformOwned "true" {{"}}"}}{{ .Values.environmentRevision }}{{"{{"}} else {{"}}"}}{{"{{"}} .targetRevision {{"}}"}}{{"{{"}} end {{"}}"}}'
         path: '{{"{{"}} .path {{"}}"}}'
         chart: '{{"{{"}} .chart {{"}}"}}'
+{{- end }}
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .helmValues {{"}}"}}'

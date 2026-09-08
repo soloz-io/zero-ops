@@ -34,11 +34,12 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-  # Allow to Hydra for JWKS (ports-only: same Cilium pre-DNAT constraint)
-  - ports:
-    - protocol: TCP
-      port: 4444
-  # Allow HTTPS egress for OAuth metadata discovery
+  # Allow HTTPS egress for OAuth metadata discovery and for JWKS.
+  #
+  # A rule admitting 4444 sat here for Hydra's JWKS endpoint. Zitadel publishes
+  # keys at https://<issuer>/oauth/v2/keys and agentgateway must fetch them by
+  # the public name to resolve the right instance (agentgateway-config.yaml), so
+  # the fetch is ordinary HTTPS and 4444 admitted nothing after Ory was removed.
   - ports:
     - protocol: TCP
       port: 443

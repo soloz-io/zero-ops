@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# What a released bundle still fetches from the platform's own repository.
+#
+# ADR-063 requires a tenant to be able to hold the bundle it runs, and ADR-065
+# that revoking the platform's access stops proposals arriving and stops nothing
+# running. Both are false for anything a released cluster still reaches into
+# this repository for: the bundle would be portable only in appearance, and the
+# gap is invisible until the day the repository is not reachable.
+#
+# Fails rather than reports. ADR-063 makes mirroring a condition of a supported
+# runtime, so a bundle that cannot be mirrored cannot be released -- a reference
+# left here would make the custody claim untrue for every tenant that received
+# the bundle, and the gap stays invisible until the platform is unreachable.
+set -euo pipefail
+# pipefail alone is not enough: the exit code that matters is the checker's, and
+# it is the last stage of the pipe, so `set -e` propagates it.
+
+VERSION="${1:-0.0.0-audit}"
+CHART=$(mktemp -d)/platform-bundle
+scripts/package/bundle-chart.sh "$VERSION" "$(dirname "$CHART")" >/dev/null
+
+helm template platform-bundle "$CHART" \
+    --set environmentSlug=dev --set provider=hybrid \
+    --set publicTlsIssuer=letsencrypt-prod --set bundleVersion="$VERSION" 2>/dev/null \
+| python3 scripts/validate/bundle-portability.py

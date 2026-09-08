@@ -8,7 +8,7 @@
 # this ingress policy.
 #
 # Authorised callers on port 5432:
-#   - platform-identity   (Kratos, Hydra, Keto)
+#   - platform-identity   (Zitadel)
 #   - platform-billing    (OpenMeter)
 #   - platform-ops        (hub-operator, infisical setup jobs)
 #   - platform-data       (internal CNPG cluster communication)

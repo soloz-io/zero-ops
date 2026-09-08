@@ -17,9 +17,21 @@ RUN CGO_ENABLED=0 go build -o /workspace-sync ./cmd/main.go
 #   squashfuse       mounts the archive read-only.
 #   fuse-overlayfs   lays the writable upper layer over it.
 #   fuse3            fusermount3, which both of the above mount through.
+#
+#   ca-certificates  the root CA bundle. NOT optional, and easy to miss: the
+#                    previous base was distroless/static, which ships one, while
+#                    debian-slim does not. Without it every HTTPS call to object
+#                    storage fails with `x509: certificate signed by unknown
+#                    authority` — and because restore treats an unreachable
+#                    bucket as fatal (deliberately, §14.2: starting empty would
+#                    let the backstop overwrite a real workspace), the sidecar
+#                    crash-loops, its startup probe never passes, the workload
+#                    never starts, and the sandbox never becomes ready. Observed
+#                    exactly that way: chat requests timed out with a 504 while
+#                    the pod sat in Init:CrashLoopBackOff.
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    squashfs-tools squashfuse fuse-overlayfs fuse3 \
+    ca-certificates squashfs-tools squashfuse fuse-overlayfs fuse3 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /workspace /ws-staging
 

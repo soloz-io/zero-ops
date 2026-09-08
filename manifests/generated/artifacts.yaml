@@ -9,12 +9,23 @@ artifacts:
   # during BootstrapInfisicalAPI phase. Kustomize patches: paths
   # are relative to the kustomization directory (resolved via the
   # generated/ subdirectory inside each consumer).
-  - file: manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml
-    requiredFields:
-      - spec.url
-      - spec.projectId
-      - spec.authentication.universalAuth.clientId
-  - file: manifests/environments/base/generated/hub-bootstrap-config-patch.yaml
+  # The Infisical PKI coordinates were generated here as a Kustomize patch. They
+  # are per-cluster instance data, and ADR-062 keeps that out of the types
+  # repository; they now reach the security component as chart values read from
+  # the infisical-auth Secret at seed time. Nothing is written to the tree, so
+  # there is no artifact to register or validate.
+  # {env} is replaced with the environment slug being bootstrapped. The path is
+  # per environment because a single file under base was inherited by every
+  # overlay: it held whichever cluster bootstrapped last, so prod rendered dev's
+  # Infisical project and nothing in prod's directory showed why.
+  #
+  # consumedBy names the Application that cannot converge until this file is
+  # committed and pushed. It is declared rather than derived: this artifact sits
+  # under environments/base while the Application reconciles environments/<slug>
+  # and reaches it through a Kustomize ../base reference, so matching an
+  # Application's source path against the artifact's path finds nothing.
+  - file: manifests/environments/{env}/generated/hub-bootstrap-config-patch.yaml
+    consumedBy: hub-environment
     requiredFields:
       - data.INFISICAL_ORGANIZATION_ID
       - data.INFISICAL_PROJECT_ID
@@ -25,5 +36,6 @@ artifacts:
   # The hub Gateway's external-dns target. Only knowable once the control-plane
   # load balancer exists, so it cannot be written in the base manifest.
   - file: manifests/hub-core-services/gateway/generated/external-dns-target-patch.yaml
+    consumedBy: hub-gateway
     requiredFields:
       - metadata.annotations

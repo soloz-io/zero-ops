@@ -2,7 +2,7 @@
 
 ## Overview
 kube-sbt is the REST API server for the kube-sbt metering and billing system. It provides HTTP endpoints for:
-- User management (with Ory Kratos integration)
+- User management (via the Zitadel identity provider)
 - Usage queries (tenant and user-scoped)
 - Entitlement checking
 - Subscription management
@@ -81,7 +81,7 @@ The deployment includes a NetworkPolicy that:
 - **Egress**: Allows traffic to:
   - DNS (kube-dns)
   - OpenMeter API
-  - Ory Kratos
+  - Zitadel
   - NATS
   - Redis
 
@@ -124,7 +124,8 @@ kubectl delete networkpolicy -n platform-billing kube-sbt
 ### Environment Variables
 - `PORT`: HTTP server port (default: 8080)
 - `OPENMETER_URL`: OpenMeter API URL
-- `ORY_KRATOS_URL`: Ory Kratos public API URL
+- `AUTH_PROVIDER`: identity provider to use (default and only accepted value: `zitadel`)
+- `OIDC_ISSUER_URL`: Zitadel public issuer URL
 - `NATS_URL`: NATS server URL
 - `REDIS_URL`: Redis server URL
 

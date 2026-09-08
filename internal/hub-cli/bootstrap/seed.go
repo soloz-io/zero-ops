@@ -3,12 +3,14 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/hub-cli/health"
+	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
 )
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -138,7 +140,57 @@ spec:
 // than passed to a one-shot render. They are the cluster's identity, fixed at
 // creation, and being part of a reconciled object they survive rather than
 // having to be re-supplied by whoever last ran a render.
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL string, oidcScopes []string) string {
+// infisicalCoordinates returns the PKI project and machine-identity client id
+// that this hub's ClusterIssuers authenticate to Infisical with.
+//
+// They are read back from the infisical-auth Secret the secrets phase writes
+// into platform-security, rather than carried forward in memory, so a resumed
+// bootstrap that skips that phase still renders a complete seed.
+//
+// This replaces a Kustomize patch that the secrets phase wrote into
+// manifests/hub-core-services/security/generated/ and committed. That placed one
+// cluster's PKI project inside the types repository, which ADR-062 forbids and
+// which made the component impossible to publish: every cluster pulling the
+// chart would have received this cluster's project.
+//
+// Empty strings are returned when the Secret cannot be read. The consuming chart
+// requires both through values.schema.json, so the boundary refuses to render
+// rather than installing an issuer pointed at nothing.
+func (o *Orchestrator) infisicalCoordinates(ctx context.Context, kubeconfig string) (projectID, clientID string) {
+	read := func(key string) string {
+		out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "secret", "infisical-auth", "-n", "platform-security",
+			"-o", "jsonpath={.data."+key+"}").Output()
+		if err != nil {
+			return ""
+		}
+		dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(dec))
+	}
+	return read("projectId"), read("client-id")
+}
+
+// readSeedBundleVersion returns the bundle version already recorded on this
+// cluster's seed Application, or "" when there is none to read.
+//
+// An unreadable seed and an absent one are the same answer here on purpose:
+// both mean nothing on the cluster claims a version, and the caller then seeds
+// the build's. The failure this guards against is overwriting a version that IS
+// there, which requires having read it.
+func readSeedBundleVersion(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"-n", "platform-ops", "get", "application", seedAppName,
+		"-o", `jsonpath={.spec.source.helm.parameters[?(@.name=="bundleVersion")].value}`).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
 	scopes := ""
 	for _, sc := range oidcScopes {
 		scopes += fmt.Sprintf("\n        - %q", sc)
@@ -158,6 +210,8 @@ spec:
       parameters:
         - name: environmentRevision
           value: %q
+        - name: bundleVersion
+          value: %q
         - name: environmentSlug
           value: %q
         - name: provider
@@ -172,6 +226,10 @@ spec:
           value: %q
         - name: oidcJwksUrl
           value: %q
+        - name: infisical.fleet.projectId
+          value: %q
+        - name: infisical.fleet.clientId
+          value: %q
       valuesObject:
         oidcScopes:%s
   destination:
@@ -183,7 +241,8 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, scopes)
+`, seedAppName, envRevision, envRevision, bundleVersion, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+		infisicalProjectID, infisicalClientID, scopes)
 }
 
 // applySeed establishes the Day-0 seed: the six boundary AppProjects and the
@@ -288,8 +347,34 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		envRevision = b
 	}
 
+	// Day-0 seeds the version; the cluster owns it afterwards (ADR-068).
+	//
+	// This function is the seed renderer, and it runs again after Day-0: to
+	// supply the Infisical coordinates discovered later in the pipeline, to
+	// resume an interrupted bootstrap, and through `hub reseed`. Writing the
+	// build's version unconditionally would return a cluster promoted to a newer
+	// bundle (ADR-064) to whatever the operator's binary happened to carry --
+	// a downgrade with no diff, no error, and nothing recording what moved it.
+	//
+	// So a version already on the cluster wins, and the build's is used only
+	// when there is none: the first apply, which is what seeding means.
+	bundleVersion := versions.BundleVersion
+	if existing := readSeedBundleVersion(ctx, kubeconfig); existing != "" {
+		if existing != bundleVersion {
+			fmt.Printf("[seed] cluster runs bundle %s; leaving it (this build carries %s)\n",
+				existing, bundleVersion)
+		}
+		bundleVersion = existing
+	}
+
+	infisicalProjectID, infisicalClientID := o.infisicalCoordinates(ctx, kubeconfig)
+	if infisicalProjectID == "" || infisicalClientID == "" {
+		fmt.Println("[seed] warning: infisical-auth unreadable; the security boundary will refuse to render until it is")
+	}
+
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
-		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, oidcScopes)
+		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+		infisicalProjectID, infisicalClientID, bundleVersion, oidcScopes)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}
