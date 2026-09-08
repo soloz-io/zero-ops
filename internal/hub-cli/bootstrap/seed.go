@@ -190,11 +190,35 @@ func readSeedBundleVersion(ctx context.Context, kubeconfig string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// bundleRegistry is where a released bundle is published. It matches
+// environment-manager's own default, and is here rather than passed because the
+// seed and the chart must name the same registry -- a seed pointing at one
+// registry and a chart at another would resolve two different distributions.
+const bundleRegistry = "oci://ghcr.io/soloz-io/charts"
+
 func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
 	scopes := ""
 	for _, sc := range oidcScopes {
 		scopes += fmt.Sprintf("\n        - %q", sc)
 	}
+	// Where the seed reads the chart from follows the same rule as everything
+	// the chart goes on to render (ADR-068): an unreleased build sources from
+	// the working tree, a released one from the published distribution.
+	//
+	// The seed used to name git unconditionally, and a released run therefore
+	// asked git for a chart that only renders when it carries the descriptors
+	// copied in at package time. The render failed, no ApplicationSet was ever
+	// created, and the boundary reported that it had been activated but never
+	// rendered -- true, and pointing at the boundary rather than at the seed.
+	source := fmt.Sprintf(`    repoURL: https://github.com/soloz-io/zero-ops
+    targetRevision: %q
+    path: manifests/argocd/environment-manager`, envRevision)
+	if bundleVersion != versions.DevelopmentBundle {
+		source = fmt.Sprintf(`    repoURL: %q
+    targetRevision: %q
+    chart: environment-manager`, strings.TrimPrefix(bundleRegistry, "oci://"), bundleVersion)
+	}
+
 	return fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -203,9 +227,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/soloz-io/zero-ops
-    targetRevision: %q
-    path: manifests/argocd/environment-manager
+%s
     helm:
       parameters:
         - name: environmentRevision
@@ -241,7 +263,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, envRevision, envRevision, bundleVersion, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+`, seedAppName, source, envRevision, bundleVersion, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
 		infisicalProjectID, infisicalClientID, scopes)
 }
 

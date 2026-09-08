@@ -1,0 +1,45 @@
+package bootstrap
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
+)
+
+// The seed must read the chart from wherever the rest of the platform is read
+// from (ADR-068). A released seed pointing at git asks for a chart that only
+// renders when it carries the descriptors copied in at package time, so the
+// render fails, no ApplicationSet is created, and the boundary reports that it
+// was activated but never rendered.
+func TestSeedSourceFollowsBuildMode(t *testing.T) {
+	unreleased := renderSeedApplication("main", "dev", "hybrid", "", "1.2.3.4",
+		"letsencrypt-prod", "https://auth.example", "https://auth.example/jwks",
+		"proj", "client", versions.DevelopmentBundle, nil)
+
+	if !strings.Contains(unreleased, "path: manifests/argocd/environment-manager") {
+		t.Error("an unreleased seed must read the chart from the working tree")
+	}
+	if strings.Contains(unreleased, "chart: environment-manager") {
+		t.Error("an unreleased seed must not name a published chart")
+	}
+
+	released := renderSeedApplication("main", "dev", "hybrid", "", "1.2.3.4",
+		"letsencrypt-prod", "https://auth.example", "https://auth.example/jwks",
+		"proj", "client", "0.1.3", nil)
+
+	if !strings.Contains(released, "chart: environment-manager") {
+		t.Error("a released seed must name the published chart")
+	}
+	if strings.Contains(released, "path: manifests/argocd/environment-manager") {
+		t.Error("a released seed must not carry a git path: ArgoCD rejects a " +
+			"source declaring both a chart and a path")
+	}
+	if !strings.Contains(released, "targetRevision: \"0.1.3\"") {
+		t.Error("a released seed must request the bundle version it was built for")
+	}
+	if strings.Contains(released, "github.com/soloz-io/zero-ops") {
+		t.Error("a released seed must not resolve the platform's repository: " +
+			"ADR-063 requires a released cluster to reconcile from the bundle alone")
+	}
+}
