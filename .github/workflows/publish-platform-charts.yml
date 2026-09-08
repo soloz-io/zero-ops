@@ -1,0 +1,107 @@
+name: Publish platform charts
+
+# ADR-063: the bundle is published as versioned charts rather than referenced
+# from this repository, so what a cluster reconciles does not depend on the
+# availability of the platform's source control and a tenant can mirror the
+# versions it runs.
+#
+# Tags only. A branch build would publish a version that names whatever was
+# merged most recently, which is the thing a tag exists to distinguish.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (semver, no leading v)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          # Helm requires semver. A tag that is not one would publish a chart
+          # nobody can request by version.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' is not semver; a chart version must be requestable" && exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Pinned to Helm 3: kustomize's HelmChartInflationGenerator shells out to
+      # `helm version -c`, a flag Helm 4 removed, so a Helm 4 runner fails every
+      # component that inflates a chart from its kustomization (headlamp,
+      # infisical) with "unknown shorthand flag: 'c'".
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Install kustomize
+        run: |
+          curl -sSLo /tmp/k.tgz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.0/kustomize_v5.8.0_linux_amd64.tar.gz
+          tar -xzf /tmp/k.tgz -C /usr/local/bin kustomize
+
+      - name: Package every platform-owned component
+        run: |
+          set -euo pipefail
+          mkdir -p dist/charts
+          published=0 refused=0
+          for d in manifests/argocd/components/*/*.yaml; do
+            if ./scripts/package/component-chart.sh "$d" "${{ steps.v.outputs.version }}" dist/charts; then
+              published=$((published+1))
+            else
+              # component-chart.sh exits 3 when a component's source reaches into
+              # a generated/ directory. That is per-cluster instance data, and
+              # publishing it would hand every cluster one cluster's values, so
+              # the build fails rather than shipping it.
+              [ $? -eq 3 ] && refused=$((refused+1))
+            fi
+          done
+          echo "packaged=$published refused=$refused"
+          [ "$refused" -eq 0 ] || { echo "::error::$refused component(s) carry per-cluster data and cannot be published"; exit 1; }
+
+      - name: Verify each chart renders what the cluster applies today
+        run: |
+          set -euo pipefail
+          # The gate on the conversion, not a convenience: a published chart that
+          # renders different objects is a silent change to every cluster that
+          # pulls it.
+          for d in manifests/argocd/components/*/*.yaml; do
+            app=$(grep -m1 '^appName:' "$d" | sed 's/appName: *//')
+            [ -d "dist/charts/$app" ] || continue
+            ./scripts/package/verify-equivalence.py "$d" "dist/charts/$app"
+          done
+
+      - name: Push to GHCR
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for c in dist/charts/*/; do
+            helm package "$c" -d dist/pkg >/dev/null
+          done
+          for pkg in dist/pkg/*.tgz; do
+            helm push "$pkg" "oci://ghcr.io/${{ github.repository_owner }}/charts"
+          done
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published \`${{ steps.v.outputs.version }}\`"
+            echo
+            echo "Registry: \`oci://ghcr.io/${{ github.repository_owner }}/charts\`"
+            echo
+            ls dist/pkg | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"

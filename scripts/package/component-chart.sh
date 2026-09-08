@@ -50,7 +50,7 @@ MSG
 fi
 
 CHART="$OUTDIR/$APP"
-rm -rf "$CHART"; mkdir -p "$CHART/templates"
+rm -rf "$CHART"; mkdir -p "$CHART/templates" "$CHART/files"
 
 cat > "$CHART/Chart.yaml" <<MSG
 apiVersion: v2
@@ -68,7 +68,21 @@ MSG
 # components out of descriptors and in the boundary template.
 if [[ -f "$SRC/kustomization.yaml" ]]; then
     command -v kustomize >/dev/null || { echo "$APP: kustomize not found" >&2; exit 1; }
-    kustomize build "$SRC" > "$CHART/templates/rendered.yaml"
+    # --enable-helm because several components inflate a chart from their
+    # kustomization (headlamp, infisical). Without it kustomize refuses the
+    # build with "trouble configuring builtin HelmChartInflationGenerator",
+    # which reads as a malformed config rather than a missing flag.
+    # Built to a temporary file and checked before it becomes the chart's
+    # content. `kustomize build ... > file` creates the file whether or not the
+    # build succeeds, and a chart whose only file is zero bytes packages and
+    # pushes without complaint -- it just applies nothing. That is how a failing
+    # HelmChartInflationGenerator produced a published chart containing no
+    # objects at all.
+    if ! kustomize build --enable-helm "$SRC" > "$CHART/files/rendered.yaml" 2>"$CHART/.err"; then
+        echo "$APP: kustomize build failed:" >&2; sed 's/^/  /' "$CHART/.err" >&2
+        rm -rf "$CHART"; exit 1
+    fi
+    rm -f "$CHART/.err"
 else
     # directoryInclude is a glob the boundary template passes to ArgoCD; honour
     # it here so a chart contains exactly the objects its Application did.
@@ -78,9 +92,31 @@ else
     depth=(); [[ "$RECURSE" == "true" ]] || depth=(-maxdepth 1)
     found=0
     while IFS= read -r f; do
-        cp "$f" "$CHART/templates/$(echo "${f#$SRC/}" | tr '/' '_')"; found=1
+        cp "$f" "$CHART/files/$(echo "${f#$SRC/}" | tr '/' '_')"; found=1
     done < <(find "$SRC" ${depth[@]+"${depth[@]}"} -type f -name "$pattern" 2>/dev/null | sort)
     [[ $found -eq 1 ]] || { echo "$APP: no files matched '$pattern' under $SRC" >&2; exit 1; }
 fi
 
-echo "packaged $APP -> $CHART ($(find "$CHART/templates" -type f | wc -l | tr -d ' ') file(s))"
+# Content lives under files/ and is emitted verbatim. Helm applies Go templating
+# to everything in templates/, and platform manifests are full of syntax that is
+# not Go templating: ExternalSecret bodies interpolate with {{ .apikey }},
+# Kyverno policies with {{ request.* }}, Crossplane XRDs with {{ tenantId }}.
+# Rendering those as templates does not fail loudly -- {{ .apikey }} becomes an
+# empty string -- so a chart would publish an ExternalSecret with a blank
+# credential and look correct.
+cat > "$CHART/templates/content.yaml" <<'TMPL'
+{{- range $path, $_ := .Files.Glob "files/*.yaml" }}
+---
+{{ $.Files.Get $path }}
+{{- end }}
+TMPL
+
+# A chart that renders no objects is never what was intended, and it is the one
+# defect that survives packaging, pushing and installing in silence.
+objects=$(helm template "$APP" "$CHART" 2>/dev/null | grep -c '^kind:' || true)
+if [[ "${objects:-0}" -eq 0 ]]; then
+    echo "$APP: packaged chart renders no objects; refusing to produce it" >&2
+    rm -rf "$CHART"; exit 1
+fi
+
+echo "packaged $APP -> $CHART ($(find "$CHART/files" -type f | wc -l | tr -d ' ') file(s), $objects object(s))"

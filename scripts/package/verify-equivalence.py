@@ -55,7 +55,11 @@ def main() -> int:
 
     root = pathlib.Path(src)
     if (root / "kustomization.yaml").exists():
-        built = subprocess.run(["kustomize", "build", src], capture_output=True, text=True)
+        # --enable-helm matches how the packager builds: several components
+        # inflate a chart from their kustomization, and without it the build
+        # fails with "trouble configuring builtin HelmChartInflationGenerator",
+        # which reads as a malformed config rather than a missing flag.
+        built = subprocess.run(["kustomize", "build", "--enable-helm", src], capture_output=True, text=True)
         if built.returncode:
             print(f"  ERROR      {app}: kustomize build failed: {built.stderr.strip()[:120]}")
             return 2
