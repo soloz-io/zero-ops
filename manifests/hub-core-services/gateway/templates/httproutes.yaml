@@ -1,3 +1,15 @@
+{{- /*
+external-dns reads its target from the route, and falls back to the Gateway's
+address when the route does not carry one. In hostNetwork mode that address is a
+ClusterIP, so the fallback is unroutable and every hub hostname resolves to
+nothing. The annotation below is therefore load-bearing on each object, not only
+on the Gateway.
+
+It was applied by a Kustomize patch the CLI wrote into this directory and
+committed. That put one cluster's load-balancer address in the types repository,
+where every other cluster would have inherited it (ADR-062).
+*/ -}}
+{{- $target := .Values.externalDns.target }}
 # Routes replacing the six Ingress objects. Each route lives beside the Service it
 # forwards to, so its backendRef never crosses a namespace and needs no grant; the
 # Gateway admits these namespaces by selector.
@@ -8,6 +20,10 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: api
   namespace: platform-edge
 spec:
@@ -56,6 +72,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: auth
   namespace: platform-edge
 spec:
@@ -105,6 +125,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: console
   namespace: platform-identity
 spec:
@@ -144,6 +168,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: argocd
   namespace: platform-ops
 spec:
@@ -164,6 +192,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: infisical
   namespace: platform-security
 spec:
@@ -185,6 +217,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: dashboard
   namespace: platform-ops
 spec:
@@ -211,6 +247,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: http-to-https
   namespace: platform-ops
 spec:
@@ -261,6 +301,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: mail
   namespace: platform-mail
 spec:
@@ -281,6 +325,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: smtp
   namespace: platform-mail
 spec:

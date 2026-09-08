@@ -1,3 +1,15 @@
+{{- /*
+external-dns reads its target from the route, and falls back to the Gateway's
+address when the route does not carry one. In hostNetwork mode that address is a
+ClusterIP, so the fallback is unroutable and every hub hostname resolves to
+nothing. The annotation below is therefore load-bearing on each object, not only
+on the Gateway.
+
+It was applied by a Kustomize patch the CLI wrote into this directory and
+committed. That put one cluster's load-balancer address in the types repository,
+where every other cluster would have inherited it (ADR-062).
+*/ -}}
+{{- $target := .Values.externalDns.target }}
 # Hub public gateway — replaces ingress-nginx for every hub hostname.
 #
 # Path is unchanged end to end: DNS still resolves each hub hostname to the
@@ -15,6 +27,10 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
   name: hub-gateway
   namespace: platform-ops
   # The external-dns target is not written here. It is only known once the

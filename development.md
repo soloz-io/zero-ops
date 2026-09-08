@@ -37,6 +37,21 @@ created in either mode. Converged trades ordering guarantees for creation speed:
 every Application is created at once and retries until its dependencies exist, so
 a failure points at an Application rather than at a named phase.
 
+## Release
+
+- gh release create v0.1.0 --generate-notes
+- gh run watch
+
+What the run should do
+
+1. Package 33 components, 5 provider charts, 8 tenant + catalogue charts, and the bundle chart — 42 total
+2. Refuse if any portability reference reappears (passes on main right now)
+3. Assert each chart renders exactly what ArgoCD applies today — 28 verified identical locally
+4. Build four CLI binaries with the version injected, and fail if the built CLI doesn't report 0.1.0
+5. Push to oci://ghcr.io/soloz-io/charts and attach the binaries to the release
+
+- Make the GHCR packages public — ADR-063 requires a tenant to mirror without asking permission, and ArgoCD has no OCI credential.
+
 ## Boundary activation
 
 Which boundaries are open (activation is not reported as ArgoCD drift — a closed

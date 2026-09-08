@@ -80,6 +80,30 @@ spec:
     # template and hide the distinction rather than remove it.
     - list:
         elements:
+          # The hub's public Gateway and its routes.
+          #
+          # Declared here rather than as a descriptor because its external-dns
+          # target is environment-parameterised, which ADR-061 makes the test for
+          # where a component is declared. It was a descriptor while that target
+          # arrived as a Day-0-written Kustomize patch committed under
+          # generated/; removing that is what moves it here.
+          - boundary: '03'
+            appName: 'hub-gateway'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/gateway'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              externalDns:
+                target: {{ .Values.hubIngressAddress | quote }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
           - boundary: '03'
             appName: 'hub-environment'
             destinationNamespace: 'platform-ops'

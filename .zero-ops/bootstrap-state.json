@@ -1,1 +1,0 @@
-{"completedSteps": ["bootstrap_hub","configure_tailscale","configure_aws_secrets","configure_github","wait_namespaces","verify_secrets","wait_infisical","configure_eso","wait_database","wait_spokepool"]}

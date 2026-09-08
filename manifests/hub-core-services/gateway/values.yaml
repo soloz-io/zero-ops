@@ -1,0 +1,17 @@
+externalDns:
+  # The address external-dns publishes every hub hostname at.
+  #
+  # A per-cluster fact with no sensible default: it is the control-plane load
+  # balancer, known only once that exists. It reached the Gateway and every
+  # HTTPRoute as a Kustomize patch the CLI wrote into this directory and
+  # committed -- per-cluster instance data inside the types repository, which
+  # ADR-062 forbids and which made this component impossible to publish: every
+  # cluster pulling the chart would have received one cluster's IP, and every
+  # hub hostname would resolve to it.
+  #
+  # Empty renders the routes without the annotation. external-dns then falls
+  # back to the Gateway's own address, which is a ClusterIP in hostNetwork mode
+  # and unroutable, so public DNS is wrong rather than absent. That is the state
+  # before the address is known, and the platform-gateway Application is
+  # re-rendered with it once it is.
+  target: ""

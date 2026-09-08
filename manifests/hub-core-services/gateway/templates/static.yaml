@@ -1,0 +1,12 @@
+{{- /*
+Content that needs no per-cluster value, emitted verbatim.
+
+Under files/ rather than templates/ because Helm applies Go templating to
+everything in templates/, and the Gateway API CRDs are large enough that any
+delimiter appearing inside one would fail the render for reasons that point
+nowhere near the cause.
+*/ -}}
+{{- range $path, $_ := .Files.Glob "files/**.yaml" }}
+---
+{{ $.Files.Get $path }}
+{{- end }}

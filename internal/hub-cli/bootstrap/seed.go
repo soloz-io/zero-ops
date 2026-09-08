@@ -338,9 +338,13 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	if hubIngressAddress == "" {
 		fmt.Println("[seed] ⚠️  could not resolve hub ingress address; the hub Gateway's " +
 			"hostnames will not be published, which breaks public DNS and ACME issuance")
-	} else if err := writeExternalDNSTargetArtifact(hubIngressAddress); err != nil {
-		return fmt.Errorf("failed to write the external-dns target artifact: %w", err)
 	}
+	// The address is passed to the chart as hubIngressAddress, which the gateway
+	// component reads as its external-dns target. It used to be written into the
+	// repository as a Kustomize patch and committed -- one cluster's
+	// load-balancer address in the types repository, inherited by every other
+	// cluster that rendered from it, and the reason that component could not be
+	// published (ADR-062, ADR-063).
 
 	envRevision := "main"
 	if b := currentGitBranch(); b != "" && b != "main" {
