@@ -336,7 +336,19 @@ func (p *Provisioner) WaitForReady(ctx context.Context) error {
 		Interval: 30 * time.Second,
 		Timeout:  30 * time.Minute,
 	}
-	if err := waiter.Wait(ctx, p.kubeconfigPath()); err != nil {
+	// A kubeconfig alone does not name a cluster when the file holds several.
+	// Health checks take only a path, so they resolve the file's current
+	// context -- whatever the operator's shell last selected. Every other kubectl
+	// call here passes --context and looked at the right cluster, so the status
+	// dump reported a healthy provisioned cluster while the check beside it
+	// said the resource type did not exist.
+	waitKubeconfig, cleanup, err := p.pinnedKubeconfig(ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := waiter.Wait(ctx, waitKubeconfig); err != nil {
 		p.dumpDiagnosticsOnFailure(ctx)
 		return err
 	}
@@ -387,6 +399,49 @@ func (p *Provisioner) dumpDiagnosticsOnFailure(ctx context.Context) {
 // kubeconfigPath returns the kubeconfig path used by this provisioner.
 // It exists so WaitForReady's HealthWaiter call has a single source of
 // truth for the kubeconfig location.
+// pinnedKubeconfig returns a kubeconfig naming exactly one cluster: the context
+// this provisioner was given.
+//
+// Returned as a temporary file rather than by adding --context to the health
+// framework, because a checker receives a path and nothing else. Pinning the
+// file keeps that contract while removing the ambient dependency: a path that
+// identifies one cluster cannot resolve to another.
+//
+// With no context configured there is nothing to pin and the path is returned
+// unchanged, which is the single-cluster kubeconfig every other caller passes.
+func (p *Provisioner) pinnedKubeconfig(ctx context.Context) (string, func(), error) {
+	noop := func() {}
+	if p.Context == "" {
+		return p.kubeconfigPath(), noop, nil
+	}
+
+	out, err := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", p.kubeconfigPath(),
+		"--context", p.Context,
+		"config", "view", "--minify", "--flatten", "-o", "yaml",
+	).Output()
+	if err != nil {
+		return "", noop, fmt.Errorf("failed to resolve context %q in %s: %w",
+			p.Context, p.kubeconfigPath(), err)
+	}
+
+	f, err := os.CreateTemp("", "hub-health-kubeconfig-*.yaml")
+	if err != nil {
+		return "", noop, fmt.Errorf("failed to create a pinned kubeconfig: %w", err)
+	}
+	cleanup := func() { os.Remove(f.Name()) }
+	if _, err := f.Write(out); err != nil {
+		f.Close()
+		cleanup()
+		return "", noop, fmt.Errorf("failed to write the pinned kubeconfig: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("failed to close the pinned kubeconfig: %w", err)
+	}
+	return f.Name(), cleanup, nil
+}
+
 func (p *Provisioner) kubeconfigPath() string {
 	if p.Kubeconfig != "" {
 		return p.Kubeconfig
