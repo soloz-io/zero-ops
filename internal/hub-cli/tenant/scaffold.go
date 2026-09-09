@@ -37,8 +37,14 @@ type Spec struct {
 	ClusterName string
 	// BundleVersion is the platform version this box starts on.
 	BundleVersion string
-	// PlatformRepoURL is where the bundle is sourced from.
+	// PlatformRepoURL is the platform's repository. A scaffolded box does not
+	// resolve it at runtime (ADR-063); it is recorded so a tenant can find the
+	// source of what it runs.
 	PlatformRepoURL string
+	// BundleRegistry is where published bundles are pulled from, without a
+	// scheme: ArgoCD pulls a scheme-less registry host as an OCI artefact and
+	// passes anything else to `helm pull --repo`, which does not speak OCI.
+	BundleRegistry string
 	// Private controls repository visibility at creation.
 	Private bool
 }
@@ -56,7 +62,7 @@ func (s Spec) validate() error {
 		"tenant": s.TenantID, "org": s.GitOrg, "domain": s.Domain,
 		"provider": s.Provider, "environment": s.Environment,
 		"cluster": s.ClusterName, "bundle-version": s.BundleVersion,
-		"platform-repo": s.PlatformRepoURL,
+		"platform-repo": s.PlatformRepoURL, "bundle-registry": s.BundleRegistry,
 	} {
 		if strings.TrimSpace(v) == "" {
 			missing = append(missing, name)
@@ -76,6 +82,7 @@ func (s Spec) tenantTokens() map[string]string {
 		"<GIT_ORG>":           s.GitOrg,
 		"<GITOPS_REPO_URL>":   s.repoURL(),
 		"<PLATFORM_REPO_URL>": s.PlatformRepoURL,
+		"<BUNDLE_REGISTRY>":   s.BundleRegistry,
 		"<DOMAIN_NAME>":       s.Domain,
 	}
 }

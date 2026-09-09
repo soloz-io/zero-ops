@@ -54,6 +54,8 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.ClusterName, "cluster", "", "control plane cluster name (default <tenant>-hub)")
 	f.StringVar(&scaffoldSpec.BundleVersion, "bundle-version", "main", "platform bundle version this box starts on")
 	f.StringVar(&scaffoldSpec.PlatformRepoURL, "platform-repo", "https://github.com/soloz-io/zero-ops", "where the bundle is sourced from")
+	f.StringVar(&scaffoldSpec.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts",
+		"registry published bundles are pulled from (no scheme)")
 	f.BoolVar(&scaffoldSpec.Private, "private", true, "create the repository private")
 	f.StringVar(&scaffoldTemplate, "template", "manifests/tenants/gitops-template", "template to render")
 	f.StringVar(&scaffoldOut, "out", "", "render here instead of a temporary directory")

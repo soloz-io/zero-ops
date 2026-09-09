@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func testSpec() Spec {
@@ -13,6 +15,7 @@ func testSpec() Spec {
 		Provider: "hetzner", Region: "hel1", Environment: "dev",
 		ClusterName: "acme-hub", BundleVersion: "v1.2.3",
 		PlatformRepoURL: "https://github.com/soloz-io/zero-ops",
+		BundleRegistry:  "ghcr.io/soloz-io/charts",
 	}
 }
 
@@ -135,5 +138,72 @@ func TestSpec_RepoNameAndValidation(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("validation error does not name %q: %v", want, err)
 		}
+	}
+}
+
+// A scaffolded cluster resolves the published distribution and its own values,
+// and nothing else. The shape is checked rather than the text because every part
+// of it has failed in production at least once.
+func TestRender_BundleResolvesTheRegistryAndTheTenantsOwnValues(t *testing.T) {
+	dir := t.TempDir()
+	if err := Render("../../../manifests/tenants/gitops-template", dir, testSpec()); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, "clusters", "acme-hub", "bundle.yaml"))
+	if err != nil {
+		t.Fatalf("reading the hydrated bundle: %v", err)
+	}
+
+	var app struct {
+		Spec struct {
+			Source  map[string]any `yaml:"source"`
+			Sources []struct {
+				RepoURL        string `yaml:"repoURL"`
+				Chart          string `yaml:"chart"`
+				TargetRevision string `yaml:"targetRevision"`
+				Ref            string `yaml:"ref"`
+			} `yaml:"sources"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(raw, &app); err != nil {
+		t.Fatalf("parsing the hydrated bundle: %v", err)
+	}
+
+	// ArgoCD's GetSources returns spec.sources whenever it is non-empty and never
+	// consults spec.source, so an Application holding both resolves the array and
+	// silently ignores the chart. Released clusters carried the platform's own
+	// git repository this way for three versions.
+	if app.Spec.Source != nil {
+		t.Error("spec.source must be absent when spec.sources is used; ArgoCD " +
+			"ignores spec.source entirely and the conflict is silent")
+	}
+	if len(app.Spec.Sources) != 2 {
+		t.Fatalf("expected the chart and the tenant's values, got %d source(s)", len(app.Spec.Sources))
+	}
+
+	chart := app.Spec.Sources[0]
+	if chart.Chart == "" {
+		t.Error("the first source must name a chart: the bundle is a published " +
+			"distribution, not a path in a repository (ADR-063)")
+	}
+	if strings.Contains(chart.RepoURL, "://") {
+		t.Errorf("the registry must carry no scheme, got %q; ArgoCD passes "+
+			"anything else to `helm pull --repo`, which does not speak OCI", chart.RepoURL)
+	}
+	if chart.TargetRevision == "<BUNDLE_VERSION>" || chart.TargetRevision == "" {
+		t.Errorf("the bundle version must be substituted, got %q", chart.TargetRevision)
+	}
+
+	// The second source is the tenant's own repository. If it were the
+	// platform's, revoking the platform's access would stop the cluster
+	// reconciling, which ADR-063 and ADR-065 both forbid.
+	values := app.Spec.Sources[1]
+	if values.Ref != "values" {
+		t.Errorf("the second source must be the values ref, got %q", values.Ref)
+	}
+	if strings.Contains(values.RepoURL, "zero-ops") {
+		t.Errorf("a scaffolded cluster must not resolve the platform's repository "+
+			"at runtime, got %q", values.RepoURL)
 	}
 }
