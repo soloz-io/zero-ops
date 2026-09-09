@@ -1384,7 +1384,7 @@ step10_wait_spokepool() {
         log "❌ Bootstrap PKI artifacts not ready within timeout"
         log "Check hub-operator and spoke-identity-operator logs"
         log "This may mean Infisical is unhealthy or the infisical-auth secret is missing"
-        error_exit "bootstrap PKI timeout"
+        error_exit "bootstrap PKI timeout. Resume the run 5min sometime later."
     fi
 
     # Step 10d: Verify certificates exist in target namespaces

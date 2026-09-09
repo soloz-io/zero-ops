@@ -43,7 +43,14 @@ a failure points at an Application rather than at a named phase.
 - gh release create v0.1.0 --generate-notes
 - gh run watch
 
-What the run should do
+- ./bin/hub reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
+  --bundle-version 0.1.6     
+
+- KUBECONFIG=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \                   
+  kubectl get app platform-database -n platform-ops \
+  -o jsonpath='{.spec.source.helm.values}{"\n"}'
+
+### What the run should do:
 
 1. Package 33 components, 5 provider charts, 8 tenant + catalogue charts, and the bundle chart — 42 total
 2. Refuse if any portability reference reappears (passes on main right now)

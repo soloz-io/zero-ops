@@ -26,7 +26,7 @@ while [[ $identity_attempt -le $identity_max_attempts ]]; do
         break
     fi
 
-    log "Waiting for Identity Infrastructure (attempt $identity_attempt/$identity_max_attempts). Normally takes 98 attempts.."
+    log "Waiting for Identity Infrastructure (attempt $identity_attempt/$identity_max_attempts). Normally takes 17 attempts.."
     
     # Log hints for debugging if taking a long time
     if [[ $((identity_attempt % 6)) -eq 0 ]]; then
