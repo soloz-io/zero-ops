@@ -22,8 +22,8 @@ import (
 // they start (or restart) their own pods.
 //
 // Order encodes dependencies:
-//   1. CNPG cluster: primary instance is ready
-//   2. PgBouncer pooler: connection-brokering layer is available
+//  1. CNPG cluster: primary instance is ready
+//  2. PgBouncer pooler: connection-brokering layer is available
 //
 // Add new data-layer dependencies here, in the order they must be
 // ready before downstream services start.
@@ -56,8 +56,16 @@ func (d *DataLayerReadiness) Checkers() []HealthChecker {
 	if namespace == "" {
 		namespace = constants.NamespaceData
 	}
+	cnpg := NewCNPGClusterHealth(clusterName, namespace)
+	// The Application that creates this cluster. Naming it lets the check
+	// distinguish "not created yet" from "nothing is going to create it": an
+	// Application ArgoCD reports Synced and Healthy while managing no resources
+	// renders nothing, and waiting thirty minutes ends where it began.
+	cnpg.OwnerApplication = "platform-database"
+	cnpg.OwnerNamespace = constants.NamespaceOps
+
 	return []HealthChecker{
-		NewCNPGClusterHealth(clusterName, namespace),
+		cnpg,
 		NewPgBouncerPoolerHealth(poolerName, namespace),
 	}
 }

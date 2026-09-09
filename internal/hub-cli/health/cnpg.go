@@ -22,6 +22,12 @@ import (
 // only the "Cluster in healthy state" phase guarantees that the primary
 // instance is accepting connections.
 type CNPGClusterHealth struct {
+	// OwnerApplication is the ArgoCD Application that creates this cluster, if
+	// one does. Named so the check can tell "not created yet" from "nothing is
+	// going to create it" -- the second is not worth waiting thirty minutes for.
+	OwnerApplication string
+	OwnerNamespace   string
+
 	ClusterName string
 	Namespace   string
 }
@@ -49,6 +55,12 @@ func (c *CNPGClusterHealth) Check(ctx context.Context, kubeconfig string) error 
 	}
 	out, err := runKubectl(ctx, args)
 	if err != nil {
+		if c.OwnerApplication != "" {
+			if fatal := ApplicationOwnsNothing(ctx, kubeconfig,
+				c.OwnerNamespace, c.OwnerApplication); fatal != nil {
+				return fatal
+			}
+		}
 		return fmt.Errorf("%s: %w", c.Name(), err)
 	}
 	phase := strings.TrimSpace(string(out))

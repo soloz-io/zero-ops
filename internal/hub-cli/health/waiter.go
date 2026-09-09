@@ -144,6 +144,13 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 				break
 			}
 
+			// Some failures waiting cannot fix. Polling to the deadline would
+			// end with the same answer the first poll gave, and hide it behind
+			// half an hour of identical lines.
+			if IsTerminal(err) {
+				return fmt.Errorf("health check %q cannot succeed: %w", checker.Name(), err)
+			}
+
 			// Surface WHY it is still waiting. The checker's error is the only
 			// thing that distinguishes "pulling an image" from "CrashLoopBackOff",
 			// and it used to be discarded on every poll.
