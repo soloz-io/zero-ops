@@ -7,12 +7,16 @@
 # both reconciles the sources array and silently ignores the single source that
 # was meant to replace it.
 #
-# The ApplicationSet controller patches generated Applications rather than
-# replacing them, so a template changed from `sources:` to `source:` leaves the
-# old array in place on every Application it had already generated. Nothing
-# reports a problem: the ApplicationSet is correct, the released bundle is
-# correct, the Application is Synced and Healthy, and it is reconciling the
-# source the platform stopped shipping.
+# How an Application comes to hold both is not established. The controller
+# assigns the whole spec (`found.Spec = generatedApp.Spec`) rather than merging
+# it, which should clear the array, and the live ApplicationSet template on the
+# affected cluster carries only `source`. The mechanism is therefore unexplained,
+# and this check does not depend on knowing it: the state is wrong whatever
+# produced it.
+#
+# What is established is that nothing else reports it. The ApplicationSet is
+# correct, the released bundle is correct, and the Application is Synced and
+# Healthy while reconciling the source the platform stopped shipping.
 #
 # Observed on the dev hub: zitadel carried a correct single OCI source alongside
 # a stale sources array naming the platform's git repository twice. The bundle
