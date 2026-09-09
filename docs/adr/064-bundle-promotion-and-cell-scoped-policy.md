@@ -49,6 +49,18 @@ A promotion never writes a values file. Values are the tenant's, defaults belong
 
 This is the shape of a dependency-update bot, and the properties that make that arrangement work carry over: the proposal is legible before it is accepted, it is declined by closing it, the access that produces it is granted by the tenant and revocable, and a tenant may configure its repository to accept qualifying proposals automatically. The platform maintains the estate without holding a credential that can change anything running in it.
 
+### A held proposal is not a missed one
+
+A tenant that does not merge a promotion does not fall off the upgrade path. The next published version raises its own pull request behind the first, and the queue that accumulates is the migration path in order: each proposal moves one version, states what it moves, and is validated on its own before the next is considered. A tenant eight versions behind merges eight proposals in sequence and arrives where a tenant who merged each on the day it opened already is. Nothing is skipped and nothing has to be reconstructed.
+
+**The platform raises one pull request per version and never rewrites an open one to carry a newer one.** This is the mechanism the property depends on, and it is the opposite of what the dependency-update bots this borrows from do by default: they keep a single open proposal per dependency and rebase it forward, so a tenant returning after eight versions finds one pull request that jumps all eight. That is fewer round trips and a worse outcome. It presents as a single reviewable change something that is eight, and it crosses every migration in the chain at once.
+
+The reversibility statement above is why that matters rather than merely being untidy. A version declares whether its predecessor is operationally restorable from it, and a proposal surfaces that before it is accepted. Stepping the chain means a tenant meets each one-way step as its own decision, with the option to stop in front of it. A collapsed jump crosses them together, and the tenant learns which step was irreversible only by needing to undo it.
+
+Two things follow for the mechanism. Proposals are ordered, and merging out of order is refused rather than resolved: the validator that a cluster advances only from the version it currently runs is what enforces the sequence, and a proposal whose stated predecessor is not the running version does not apply. And proposals are not squashed as they accumulate — the queue's length is the honest measure of how far behind a cluster is, and shortening it by combining would hide exactly that.
+
+The cost is that a tenant far behind pays a reconcile per step rather than one, and each step must be independently valid — a version that is only usable in combination with its successor cannot be published. That constraint is worth keeping for its own sake: it is what makes any given version a state a cluster may sit in indefinitely, which is what ADR-069's supported window assumes.
+
 ### A proposal resolves the versions it carries
 
 A promotion pull request records the component versions the bundle version resolves to, alongside the version itself. The version remains the unit of change and the thing that is promoted; the resolved set is written beside it so that a proposal states what moves.
@@ -84,6 +96,7 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 - Every cluster matching a cell satisfies that cell's policy, including residency.
 - A declared bundle version exists as a published chart.
 - A cluster advances only to a version that has reconciled and passed validation in the preceding environment.
+- A proposal's stated predecessor is the version its target cluster currently runs, so proposals apply in the order they were raised and merging out of order is refused.
 - A cluster instance names exactly one owning tenant.
 - A proposal carries a pre-flight verdict from the cluster it targets, or is raised as unverified (ADR-067).
 - The component versions a proposal records resolve from the bundle version it proposes.
@@ -137,6 +150,9 @@ Residency stops being a special case. It is a cell policy asserted against a clu
 
 ### Negative
 
+A tenant that holds proposals accumulates a queue, and clearing it costs a reconcile per version rather than one. The alternative -- collapsing the queue into a single proposal -- is rejected above, so the cost is deliberate and falls on the tenant furthest behind.
+
+
 Clusters will run different bundle versions simultaneously, and the set in production becomes a support matrix the platform did not previously have to reason about.
 
 Propagation of a security fix is bounded by the slowest approver. Clusters on automatic approval are unaffected; a tenant that holds the gate holds the exposure with it.
@@ -174,4 +190,5 @@ Recording resolved versions duplicates into every tenant's repository what the t
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-067: Support Telemetry and the Basis of Maintenance
+- ADR-069: The Maintenance Promise
 - ADR-068: The Build Declares the Bundle Version

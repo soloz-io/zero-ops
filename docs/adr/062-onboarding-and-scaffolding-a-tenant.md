@@ -51,6 +51,18 @@ The rendered repository is a starting state, not a fork. Once it exists the plat
 
 This is the difference from the platform examined above, and it is the whole of the service: scaffolding without maintenance leaves a tenant holding a copy that ages, and maintenance without scaffolding has nothing to propose against.
 
+### The platform writes a branch, never a default branch
+
+Every write the platform makes into a tenant's repository is a branch and a pull request. That is true of scaffolding's own follow-ups, of ADR-064's promotions, and of anything a future mechanism adds on a tenant's behalf. The platform holds write access because a pull request requires it; holding it is not permission to use it against `main`.
+
+The platform examined above ends its equivalent operations differently. Adding a component to a customer's cluster clones the customer's repository, renders the component into the cluster's registry directory, commits with a message naming the requesting user, and pushes to the default branch. The cluster reconciles moments later, because there is nothing in between.
+
+That is coherent there and would not be here. Their customer operates the console that issues the request, so the push executes an instruction its own operator just gave: the commit records who asked, and the answer is always someone on the customer's side. Here the platform is a party outside the tenant, and ADR-065 fixes what that party may do — it may propose changes to a tenant's platform state, and may never be the authority that causes those changes to take effect. A push to `main` on a repository whose reconciler auto-syncs *is* that authority, whatever the commit message says.
+
+The difference is not a preference about review. It is that a pull request leaves a decision point owned by the tenant, and a push does not. A tenant that wants the fast path can enable auto-merge, and the authority is then delegated deliberately by the tenant rather than assumed by the platform — which is the same end state reached from the correct direction.
+
+The cost is real and is accepted: every change costs a round trip, and a tenant that ignores its pull requests drifts while believing it is maintained. ADR-067 is what makes that drift visible, and ADR-069 is what bounds how long it may continue before the platform stops promising maintenance for the version left running.
+
 ### Repositories are separated by what their content is
 
 Repositories are separated by what their content **is** — a type, an instance, or a workload — rather than by who authored it, because that division is also the maintenance boundary.
@@ -99,6 +111,8 @@ The reasoning that once made cluster identity platform-held was cross-tenant: a 
 
 **Hold types and instances in one repository, separated by directory, as kubefirst does.** Rejected here, and correct there. Its template and its rendered instances live in one repository because the customer owns both after the render: no boundary runs through that repository, so no repository boundary is needed. Here the platform maintains the types and proposes to the instances, and a directory is not a unit at which access is granted or revoked. Placing both in one repository would require the platform to hold write access to a tenant's types in order to propose against its instances.
 
+**Push directly to the tenant's default branch, as the platform examined above does.** Rejected, and correct there. It is the fastest path from a decision to a running cluster, and it costs nothing where the party pushing and the party owning the repository are the same. They are not the same here, and an arrangement in which the platform's write reaches a tenant's cluster without the tenant acting is the one ADR-065 exists to prevent. Rejecting it is what makes the authority claim testable rather than a statement of intent.
+
 **Retain one repository for all tenants, with directory-level ownership.** Rejected. It does not remove the write contention, because the contention is on the branch rather than on the paths. It also leaves history shared, so a tenant cannot be granted write access to its own state without being granted every other tenant's history.
 
 **Retain cluster instances in `zero-ops` under CODEOWNERS.** Rejected. Declaring a cluster should not require commit rights over the Compositions that define what a cluster is, and under ADR-065 the instances are reconciled by the tenant's control plane, which cannot read a repository the tenant does not hold.
@@ -137,6 +151,9 @@ Declaring a cluster and defining what a cluster is carry different commit rights
 The platform holds one credential per tenant, reaching repositories only, and revoking it ends the relationship without stopping anything running.
 
 ### Negative
+
+A tenant that does not act on its pull requests stays where it is. Proposing rather than pushing means the platform cannot correct a running cluster on its own, including when the correction is one it considers urgent, and the tenant that most needs the fix is the one least likely to be watching for it.
+
 
 Onboarding becomes software the platform must maintain, and a defect in it produces a malformed repository that a tenant owns and the platform can only propose to fix.
 
@@ -179,3 +196,4 @@ No change to ADR-021, ADR-037, ADR-039, ADR-043 or ADR-055. No change to ADR-061
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-067: Support Telemetry and the Basis of Maintenance
+- ADR-069: The Maintenance Promise
