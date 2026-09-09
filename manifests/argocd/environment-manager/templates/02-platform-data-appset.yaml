@@ -30,7 +30,17 @@ spec:
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              # One artefact (ADR-063): enable this component and
+              # give it the topology, or the distribution renders
+              # nothing and reports the Application healthy.
+              platform-database:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- end }}
             helmReleaseName: ''
           {{- if ne .Values.provider "hybrid" }}
           # NATS is not deployed on a hybrid hub. It has no consumer inside
@@ -52,7 +62,17 @@ spec:
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              # One artefact (ADR-063): enable this component and
+              # give it the topology, or the distribution renders
+              # nothing and reports the Application healthy.
+              platform-nats:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- end }}
             helmReleaseName: ''
           {{- end }}
           - appName: 'platform-redis'
@@ -69,7 +89,17 @@ spec:
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              # One artefact (ADR-063): enable this component and
+              # give it the topology, or the distribution renders
+              # nothing and reports the Application healthy.
+              platform-redis:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- end }}
             helmReleaseName: ''
   template:
     metadata:

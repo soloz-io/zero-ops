@@ -42,6 +42,10 @@ SOURCE_TYPES = ("chart", "kustomize", "helm", "directory", "plugin")
 # chart as missing.
 PLATFORM_REGISTRY = "ghcr.io/soloz-io/charts"
 
+# The one published artefact (ADR-063). Every platform-owned Application names
+# it and enables its own component through values.
+DISTRIBUTION_CHART = "platform"
+
 
 def is_registry(url):
     """Whether a repoURL names a chart registry rather than a git repository.
@@ -77,7 +81,7 @@ def sources_of(spec):
     return ([single] if single else []) + list(spec.get("sources") or [])
 
 
-def check(appset, element, spec, charts, problems):
+def check(appset, element, spec, charts, components, problems):
     name = element.get("appName") or appset
     sources = sources_of(spec)
     if not sources:
@@ -127,6 +131,30 @@ def check(appset, element, spec, charts, problems):
         if chart and source.get("path"):
             problems.append((name, "source declares both chart and path"))
 
+    # An Application resolving the distribution must enable the component it
+    # owns, and that component must exist in the distribution. Neither is
+    # checked by anything else: the chart name is "platform" for all of them, so
+    # a component that is not enabled, or enabled under a name the distribution
+    # does not carry, renders nothing -- and ArgoCD reports the Application
+    # Synced and Healthy while it manages zero resources. platform-database
+    # shipped exactly that way.
+    for source in sources:
+        if source.get("chart") != DISTRIBUTION_CHART:
+            continue
+        values = (source.get("helm") or {}).get("values") or ""
+        enabled = [line.split(":")[0].strip()
+                   for line in values.splitlines()
+                   if line and not line[0].isspace() and line.rstrip().endswith(":")]
+        enabled = [e for e in enabled if e and e != "global"]
+        if not enabled:
+            problems.append((name, "resolves the distribution but enables no "
+                                   "component; it would render nothing and "
+                                   "report healthy"))
+        for component in enabled:
+            if component not in components:
+                problems.append((name, f"enables component {component!r}, which "
+                                       f"the distribution does not carry"))
+
     dest = spec.get("destination") or {}
     if not (dest.get("server") or dest.get("name")):
         problems.append((name, "destination names neither server nor name"))
@@ -139,6 +167,12 @@ def main() -> int:
         print(__doc__)
         return 2
     charts = published(sys.argv[1:])
+    components = set()
+    for directory in sys.argv[1:]:
+        sub = os.path.join(directory, DISTRIBUTION_CHART, "charts")
+        if os.path.isdir(sub):
+            components |= {n for n in os.listdir(sub)
+                           if os.path.exists(os.path.join(sub, n, "Chart.yaml"))}
 
     problems = []
     checked = 0
@@ -147,7 +181,7 @@ def main() -> int:
             continue
         if doc["kind"] == "Application":
             checked += 1
-            check(doc["metadata"]["name"], {}, doc["spec"], charts, problems)
+            check(doc["metadata"]["name"], {}, doc["spec"], charts, components, problems)
             continue
 
         appset = doc["metadata"]["name"]
@@ -171,12 +205,12 @@ def main() -> int:
             # template is still checked, because a conflict there applies to
             # every Application it will ever generate.
             checked += 1
-            check(appset, {}, template, charts, problems)
+            check(appset, {}, template, charts, components, problems)
             continue
         for element in elements:
             checked += 1
             resolved = resolve(template, element)
-            check(appset, element, resolved, charts, problems)
+            check(appset, element, resolved, charts, components, problems)
 
     if problems:
         print(f"application specs: {len(problems)} problem(s) in {checked} "

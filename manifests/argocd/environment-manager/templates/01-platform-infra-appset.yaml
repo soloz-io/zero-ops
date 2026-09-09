@@ -105,7 +105,17 @@ spec:
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
-            helmValues: ''
+            helmValues: |
+              {{- if $released }}
+              # One artefact (ADR-063): enable this component and give it the
+              # topology, or the distribution renders nothing and reports the
+              # Application healthy.
+              platform-storage:
+                enabled: true
+              global:
+                environmentSlug: {{ $.Values.environmentSlug | quote }}
+                provider: {{ $.Values.provider | quote }}
+              {{- end }}
             helmReleaseName: ''
           {{- end }}
           # Kyverno's ADMISSION controller is placement-sensitive on a hybrid

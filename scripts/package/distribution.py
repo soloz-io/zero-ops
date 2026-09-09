@@ -168,15 +168,16 @@ def main() -> int:
     # Provider-suffixed charts from boundary 02, discovered rather than listed:
     # their component names are arbitrary, so a suffix is a variant only when the
     # same component appears under more than one provider.
+    # A provider suffix is a variant whether or not a sibling exists. Requiring
+    # two meant a component built for one provider kept the suffix in its
+    # subchart name, while the boundary enables it by appName -- so the
+    # Application enabled a component the distribution does not carry, rendered
+    # nothing, and reported healthy. platform-nats is built for hetzner only.
     provider_charts = {}
     for name in names:
         for provider in ("hetzner", "hybrid"):
-            if not name.endswith("-" + provider):
-                continue
-            base = name[: -(len(provider) + 1)]
-            siblings = [p for p in ("hetzner", "hybrid") if base + "-" + p in names]
-            if len(siblings) > 1:
-                provider_charts[name] = (base, provider)
+            if name.endswith("-" + provider):
+                provider_charts[name] = (name[: -(len(provider) + 1)], provider)
 
     chart = os.path.join(out, "platform")
     shutil.rmtree(chart, ignore_errors=True)
