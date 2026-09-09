@@ -12,9 +12,14 @@ patched and upgradeable without breaking what is running on it.
 
 ## Who it is for
 
-Funded startups saving runway from hyperscaler pricing, who want platform
-engineering to define a golden path and maintain the stack, and cannot justify
-a platform team of their own.
+Funded startups saving runway from hyperscaler pricing, who want a golden path
+defined and maintained for them, and cannot staff a platform engineering team to
+do it. Zero-Ops is platform engineering as a service: the golden path arrives
+tested, and stays maintained, without the team it would otherwise take.
+
+This is the opposite end of the market from tools that hand a platform team a
+faster start and room to customise. A tenant here inherits a tested set rather
+than a starting point to diverge from — see `docs/adr/071-how-this-platform-differs-from-kubefirst.md`.
 
 ## The box
 
@@ -50,17 +55,30 @@ Support extends as far as the telemetry a box exports. Telemetry is egress-only
 and covers control-plane state, never workload data. An upgrade proposal carries
 a pre-flight verdict produced inside the box, or is raised as unverified.
 
-## Control plane and workloads
+## What the platform is, and what the tenant owns
 
-A component is **control plane** if removing it stops clusters or workloads
-being declared, provisioned, reconciled, secured or reached: the GitOps engine,
-Crossplane and Cluster API, secret delivery, certificate issuance, DNS, gateway,
-admission policy, capacity lifecycle.
+The platform is the set of capabilities Zero-Ops provides and maintains, on
+which a tenant's applications execute. The tenant owns the application logic and
+the use it makes of those capabilities.
 
-Everything else is a **workload**, including workloads Zero-Ops authors:
-databases, identity for a tenant's end users, messaging, analytics, mail,
-metering, and the tenant's own applications. Every box runs the same control
-plane; workloads are selected, so a tenant pays for what it runs.
+The line is what authored it, not what it does. A database engine, an identity
+provider, a message bus, a gateway and a certificate authority are platform:
+their behaviour is determined by the platform that ships them. The schemas in
+that database, the organisations in that identity provider, the routes through
+that gateway and the images behind them are the tenant's.
+
+Required and selectable is a separate question. Every box runs the same cluster
+machinery — GitOps engine, composition and cluster lifecycle, secret delivery,
+certificate issuance, DNS, gateway, admission policy, capacity lifecycle —
+because without it a box cannot reconcile anything. Above that sit capabilities
+a tenant selects: a database, an identity provider, messaging, object storage,
+metrics.
+
+**Selecting is enabling, not acquiring.** There is no catalog to choose from and
+nothing to install. Every capability the bundle provides ships to every tenant,
+and a tenant turns on what it runs. A capability left off is still maintained:
+it advances with every bundle, and turning it on later needs no action by
+Zero-Ops.
 
 ## Exit
 
@@ -98,9 +116,10 @@ Contributions must hold to these:
 
 ## Where to start
 
-- `docs/adr/` — the architecture, decision by decision. ADR-062 through ADR-067
-  define the tenant model, the bundle, promotion, the control-plane boundary and
-  the basis of support.
+- `docs/adr/` — the architecture, decision by decision. ADR-062 through ADR-071
+  define the tenant model, the bundle and its version, promotion, the platform
+  boundary, the basis of support, the maintenance promise, and how this platform
+  differs from kubefirst.
 - `docs/runbooks/bootstrap-and-binaries.md` — bootstrapping a hub, the binaries,
   teardown and state management.
 
