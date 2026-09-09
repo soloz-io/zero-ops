@@ -1171,6 +1171,19 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
 
+// kubeconfigPaths returns the bootstrap cluster's kubeconfig and context.
+//
+// The kubeconfig is pinned to that context: ~/.kube/config holds every cluster
+// an operator has ever touched, and the twenty-three kubectl calls below pass
+// the path without the context, so each resolves whatever the operator's shell
+// last selected. That is not a hypothetical -- it read a CAPI cluster's status
+// from an unrelated local kind cluster and reported that the resource type did
+// not exist, and it looked for the hub's kubeconfig Secret in a namespace that
+// cluster does not have.
+//
+// Pinning here rather than at each call site is deliberate: a path that names
+// one cluster cannot be used against another, while a --context argument has to
+// be remembered twenty-three times and is silently absent when it is not.
 func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string) {
 	homeDir, _ := os.UserHomeDir()
 	kubeconfig := filepath.Join(homeDir, ".kube", "config")
@@ -1181,7 +1194,32 @@ func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string
 	if ctx == "" {
 		ctx = "kind-" + o.ClusterName
 	}
+	if pinned, err := pinKubeconfig(kubeconfig, ctx); err == nil {
+		return pinned, ctx
+	}
+	// The context may not exist yet -- the bootstrap cluster is created later in
+	// the run. Returning the unpinned path keeps that path working, and the
+	// calls that need the cluster fail on their own terms rather than here.
 	return kubeconfig, ctx
+}
+
+// pinKubeconfig writes a kubeconfig naming exactly one cluster.
+func pinKubeconfig(kubeconfig, kubeContext string) (string, error) {
+	out, err := exec.Command("kubectl",
+		"--kubeconfig", kubeconfig, "--context", kubeContext,
+		"config", "view", "--minify", "--flatten", "-o", "yaml",
+	).Output()
+	if err != nil {
+		return "", fmt.Errorf("context %q not resolvable in %s: %w", kubeContext, kubeconfig, err)
+	}
+
+	// Named for the context and reused across phases, so a resumed run reads the
+	// same file rather than accumulating one per invocation.
+	path := filepath.Join(os.TempDir(), "hub-bootstrap-"+kubeContext+".kubeconfig")
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return "", fmt.Errorf("failed to write a pinned kubeconfig: %w", err)
+	}
+	return path, nil
 }
 
 func (o *Orchestrator) getArgoCDPassword(ctx context.Context, kubeconfig string) string {
