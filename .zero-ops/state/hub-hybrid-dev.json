@@ -20,6 +20,7 @@
     "platform-pre-reqs",
     "cleanup",
     "cleanup",
+    "cleanup",
     "cleanup"
   ],
   "bootstrapContext": "kind-hub-hybrid-dev",
@@ -27,7 +28,7 @@
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-09-08T22:35:47.075281Z",
+  "timestamp": "2026-09-09T03:34:19.289332Z",
   "metadata": null,
   "startedAt": "2026-09-08T21:17:45.830171Z",
   "phaseTimings": [

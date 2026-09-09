@@ -41,6 +41,12 @@ func TestSeedSourceFollowsBuildMode(t *testing.T) {
 	if strings.Contains(released, "oci://") {
 		t.Error("a released seed must name the registry without an oci:// scheme")
 	}
+	// Supplied, not defaulted: a published chart carries the registry it was
+	// built with, so a cluster running a chart with a defective default could
+	// not be repaired by a reseed if the seed did not override it.
+	if !strings.Contains(released, "name: bundleRegistry") {
+		t.Error("a released seed must supply the registry to the chart")
+	}
 	if !strings.Contains(released, "targetRevision: \"0.1.3\"") {
 		t.Error("a released seed must request the bundle version it was built for")
 	}

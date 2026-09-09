@@ -194,8 +194,17 @@ func readSeedBundleVersion(ctx context.Context, kubeconfig string) string {
 // environment-manager's own default, and is here rather than passed because the
 // seed and the chart must name the same registry -- a seed pointing at one
 // registry and a chart at another would resolve two different distributions.
+// Where a released bundle is published.
+//
 // No oci:// scheme: ArgoCD pulls a scheme-less registry host as an OCI artefact
 // and passes anything else to `helm pull --repo`, which does not speak OCI.
+//
+// The seed supplies this to the chart rather than letting the chart default it.
+// A published chart carries the default it was built with, so correcting the
+// default only reaches clusters that install a later bundle -- and a cluster
+// already running the defective one cannot be repaired by a reseed, which is
+// the operation that exists to repair exactly this. The CLI knows which
+// registry it fetched from; the chart should not have to guess.
 const bundleRegistry = "ghcr.io/soloz-io/charts"
 
 func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
@@ -236,6 +245,8 @@ spec:
           value: %q
         - name: bundleVersion
           value: %q
+        - name: bundleRegistry
+          value: %q
         - name: environmentSlug
           value: %q
         - name: provider
@@ -265,7 +276,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, source, envRevision, bundleVersion, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+`, seedAppName, source, envRevision, bundleVersion, bundleRegistry, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
 		infisicalProjectID, infisicalClientID, scopes)
 }
 
