@@ -1235,7 +1235,7 @@ step10_wait_spokepool() {
             break
         fi
 
-        log "Waiting for SpokePool readiness (attempt $attempt/$max_attempts, Ready: $spokepool_status, Synced: $spokepool_synced). It mostly get ready by 130"
+        log "Waiting for SpokePool readiness (attempt $attempt/$max_attempts, Ready: $spokepool_status, Synced: $spokepool_synced). It mostly get ready by 55"
         sleep 10
         ((attempt++))
     done
