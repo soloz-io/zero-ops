@@ -4,12 +4,48 @@
 **Status:** Rejected
 
 The platform does not run a mail server. This was never accepted, and the
-implementation that had been built against it -- the Stalwart deployment, its
-database and role, its DKIM key pair, its gateway listeners and routes, and its
-Infisical key mappings -- was removed on 2026-09-09.
+implementation built against it was removed on 2026-09-09.
 
-The record is kept because the reasoning below is the argument for building one,
-and anyone proposing it again should start from why it was not.
+## Why it was rejected
+
+The available chart did not fit this platform's infrastructure. The specific
+failure was not recorded at the time, and the deployment never reached a state
+where it could be diagnosed -- its pod sat in `Init:0/1` for hours and was in
+that state when the component was removed. What follows is the mismatch visible
+in the configuration it required, not a reconstruction of the failure.
+
+**It assumed a cloud-shaped deployment.** The chart exposes each mail protocol
+as its own `LoadBalancer` Service -- SMTP, submission, SMTPS, IMAP, IMAPS,
+Sieve. On a hybrid cell the mail workload was pinned to a home node
+(`workload-location: home`, ADR-046 §11) with `local-path` storage, so a
+provider load balancer had no route to it. The chart's networking model and this
+platform's placement model contradict each other, and no value reconciles them.
+
+**It wanted to own things the platform already owns.** It issued its own
+cert-manager Certificate for a secret the hub Gateway also referenced, and
+carried its own secret shape while ADR-003 requires credentials to arrive
+through Infisical and ESO. Each of those is a second owner for something that
+already has one.
+
+Adopting it would therefore have meant maintaining a fork of the chart, or
+changing the platform's placement and secret models to suit one component. Both
+are the wrong trade for a capability tenants' applications *use* rather than one
+the platform must run itself (ADR-066).
+
+Two further considerations, neither decisive on its own but both real. Operating
+mail is an ongoing obligation rather than a maintained version -- deliverability,
+IP reputation, blocklist handling and abuse response -- and ADR-069 promises
+maintenance, not operations of that kind. And ADR-070 bounds a production-capable
+box at EUR 150-400 a month, which several load balancers and a stateful service
+consume without a tenant asking for them.
+
+The original argument is kept below. It was written when Kratos sent mail
+through a third-party relay with credentials in a ConfigMap, which ADR-003
+forbids; Ory was later removed entirely, so the problem that motivated this no
+longer exists in the form described. Anyone proposing a mail server again should
+start here, and should establish that a chart exists which fits the platform's
+placement, TLS and secret models -- or accept that maintaining one is part of
+the proposal.
 
 ## Context
 
@@ -205,6 +241,10 @@ The Kratos configmap is updated to use `smtp.nutgraf.in` instead of `smtp.resend
 - ADR-035: Enterprise PKI and Delegated Trust via Infisical OSS
 - ADR-036: Pluggable Infrastructure Provider Architecture
 - ADR-039: Platform Ownership Model
+- ADR-046: Hybrid Provider Cell (Hetzner Control Plane + Home-Lab Workers)
+- ADR-066: The Platform Boundary
+- ADR-069: The Maintenance Promise
+- ADR-070: The Minimum Supported Box
 - ADR-046: Hybrid Provider Home Worker (firewall gap, addendum 4)
 - ADR-051: Environment DNS Naming and Public Gateway TLS
 - Antigenic-OSS Stalwart Helm Chart: `ghcr.io/antigenic-oss/charts/antigenic-stalwart-helm-chart` v1.0.5
