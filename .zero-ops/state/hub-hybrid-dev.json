@@ -4,7 +4,7 @@
   "provider": "hybrid",
   "region": "",
   "bootstrapId": "",
-  "currentPhase": "cleanup",
+  "currentPhase": "complete",
   "completedPhases": [
     "preflight",
     "bootstrap-create",
@@ -18,85 +18,157 @@
     "cleanup",
     "clusterclass-deploy",
     "platform-pre-reqs",
+    "boundary-01",
+    "generate-local-secrets",
+    "boundary-02",
     "cleanup",
     "cleanup",
+    "inject-ca-cert",
+    "boundary-03",
+    "bootstrap-infisical-api",
+    "boundary-04",
+    "boundary-05",
+    "boundary-06",
     "cleanup",
-    "cleanup"
+    "cleanup",
+    "finalize",
+    "complete"
   ],
   "bootstrapContext": "kind-hub-hybrid-dev",
   "mgmtKubeconfig": "k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig",
   "talosConfig": "",
   "talosImageId": "",
   "networkCIDR": "",
-  "timestamp": "2026-09-09T03:34:19.289332Z",
+  "timestamp": "2026-09-09T14:10:04.849761Z",
   "metadata": null,
-  "startedAt": "2026-09-08T21:17:45.830171Z",
+  "startedAt": "2026-09-09T05:22:13.025955Z",
+  "completedAt": "2026-09-09T14:10:04.849761Z",
   "phaseTimings": [
     {
       "phase": "preflight",
-      "startedAt": "2026-09-08T21:17:45.167556Z",
-      "completedAt": "2026-09-08T21:17:45.830142Z",
-      "seconds": 0.663
+      "startedAt": "2026-09-09T05:22:12.020387Z",
+      "completedAt": "2026-09-09T05:22:13.025946Z",
+      "seconds": 1.006
     },
     {
       "phase": "bootstrap-create",
-      "startedAt": "2026-09-08T21:17:45.831494Z",
-      "completedAt": "2026-09-08T21:18:16.826689Z",
-      "seconds": 30.995
+      "startedAt": "2026-09-09T05:22:13.026371Z",
+      "completedAt": "2026-09-09T05:22:51.687803Z",
+      "seconds": 38.661
     },
     {
       "phase": "day0-infra",
-      "startedAt": "2026-09-08T21:18:16.827278Z",
-      "completedAt": "2026-09-08T21:18:17.02731Z",
-      "seconds": 0.2
+      "startedAt": "2026-09-09T05:22:51.688509Z",
+      "completedAt": "2026-09-09T05:22:51.875823Z",
+      "seconds": 0.187
     },
     {
       "phase": "capi-init",
-      "startedAt": "2026-09-08T21:18:17.027777Z",
-      "completedAt": "2026-09-08T21:21:36.639175Z",
-      "seconds": 199.611
+      "startedAt": "2026-09-09T05:22:51.876266Z",
+      "completedAt": "2026-09-09T05:26:35.491076Z",
+      "seconds": 223.615
     },
     {
       "phase": "cluster-provision",
-      "startedAt": "2026-09-08T21:21:36.640056Z",
-      "completedAt": "2026-09-08T21:24:38.260826Z",
-      "seconds": 181.621
+      "startedAt": "2026-09-09T05:47:52.048366Z",
+      "completedAt": "2026-09-09T05:47:52.316953Z",
+      "seconds": 0.269
     },
     {
       "phase": "home-worker-join",
-      "startedAt": "2026-09-08T21:51:20.340252Z",
-      "completedAt": "2026-09-08T21:55:59.896111Z",
-      "seconds": 279.556
+      "startedAt": "2026-09-09T05:50:33.162897Z",
+      "completedAt": "2026-09-09T05:56:06.879792Z",
+      "seconds": 333.717
     },
     {
       "phase": "argocd-install",
-      "startedAt": "2026-09-08T21:55:59.897606Z",
-      "completedAt": "2026-09-08T22:00:13.435087Z",
-      "seconds": 253.537
+      "startedAt": "2026-09-09T05:56:06.880555Z",
+      "completedAt": "2026-09-09T05:59:49.033562Z",
+      "seconds": 222.153
     },
     {
       "phase": "pivot-move",
-      "startedAt": "2026-09-08T22:00:13.436324Z",
-      "completedAt": "2026-09-08T22:05:24.565219Z",
-      "seconds": 311.129
+      "startedAt": "2026-09-09T05:59:49.035156Z",
+      "completedAt": "2026-09-09T06:05:00.785285Z",
+      "seconds": 311.75
     },
     {
       "phase": "pivot-ready",
-      "startedAt": "2026-09-08T22:05:24.566458Z",
-      "completedAt": "2026-09-08T22:05:30.848378Z",
-      "seconds": 6.282
+      "startedAt": "2026-09-09T06:05:00.786242Z",
+      "completedAt": "2026-09-09T06:05:07.460742Z",
+      "seconds": 6.675
     },
     {
       "phase": "clusterclass-deploy",
-      "startedAt": "2026-09-08T22:05:32.907732Z",
-      "completedAt": "2026-09-08T22:05:33.987326Z",
-      "seconds": 1.08
+      "startedAt": "2026-09-09T06:05:09.599355Z",
+      "completedAt": "2026-09-09T06:05:10.58859Z",
+      "seconds": 0.989
     },
     {
       "phase": "platform-pre-reqs",
-      "startedAt": "2026-09-08T22:05:33.988328Z",
-      "completedAt": "2026-09-08T22:05:48.547439Z",
-      "seconds": 14.559
+      "startedAt": "2026-09-09T06:05:10.589244Z",
+      "completedAt": "2026-09-09T06:05:27.741894Z",
+      "seconds": 17.153
+    },
+    {
+      "phase": "boundary-01",
+      "startedAt": "2026-09-09T06:05:27.742781Z",
+      "completedAt": "2026-09-09T06:06:14.543151Z",
+      "seconds": 46.8
+    },
+    {
+      "phase": "generate-local-secrets",
+      "startedAt": "2026-09-09T06:06:14.544122Z",
+      "completedAt": "2026-09-09T06:06:17.161624Z",
+      "seconds": 2.618
+    },
+    {
+      "phase": "boundary-02",
+      "startedAt": "2026-09-09T06:06:17.163541Z",
+      "completedAt": "2026-09-09T06:06:39.278194Z",
+      "seconds": 22.115
+    },
+    {
+      "phase": "inject-ca-cert",
+      "startedAt": "2026-09-09T07:13:07.299895Z",
+      "completedAt": "2026-09-09T07:13:09.749825Z",
+      "seconds": 2.45
+    },
+    {
+      "phase": "boundary-03",
+      "startedAt": "2026-09-09T07:13:09.751718Z",
+      "completedAt": "2026-09-09T07:13:53.400916Z",
+      "seconds": 43.649
+    },
+    {
+      "phase": "bootstrap-infisical-api",
+      "startedAt": "2026-09-09T07:13:53.401431Z",
+      "completedAt": "2026-09-09T07:26:40.819871Z",
+      "seconds": 767.418
+    },
+    {
+      "phase": "boundary-04",
+      "startedAt": "2026-09-09T07:26:51.395465Z",
+      "completedAt": "2026-09-09T07:27:08.202727Z",
+      "seconds": 16.807
+    },
+    {
+      "phase": "boundary-05",
+      "startedAt": "2026-09-09T07:27:08.203329Z",
+      "completedAt": "2026-09-09T07:27:50.875884Z",
+      "seconds": 42.673
+    },
+    {
+      "phase": "boundary-06",
+      "startedAt": "2026-09-09T07:27:50.87729Z",
+      "completedAt": "2026-09-09T07:28:23.92936Z",
+      "seconds": 33.052
+    },
+    {
+      "phase": "finalize",
+      "startedAt": "2026-09-09T14:10:04.150051Z",
+      "completedAt": "2026-09-09T14:10:04.849299Z",
+      "seconds": 0.699
     }
   ]
 }

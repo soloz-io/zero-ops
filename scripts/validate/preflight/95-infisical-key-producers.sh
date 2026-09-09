@@ -97,7 +97,7 @@ for f in SRC:
     produced |= set(re.findall(r'InfisicalKey:\s*"([^"]+)"', src))
     produced |= set(re.findall(r'PasswordKey:\s*"([^"]+)"', src))
     produced |= {k for k in re.findall(r'UsernameKey:\s*"([^"]+)"', src) if k}
-    # DKIM ed25519 pair: PrivateKeyKey / PublicKeyKey (KeyType != ""), e.g. hub-stalwart-dkim-*
+    # Key pairs: PrivateKeyKey / PublicKeyKey (KeyType != "")
     produced |= set(re.findall(r'PrivateKeyKey:\s*"([^"]+)"', src))
     produced |= set(re.findall(r'PublicKeyKey:\s*"([^"]+)"', src))
     # Key constants, consumed by the DB-role and uploader paths.

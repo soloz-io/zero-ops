@@ -62,26 +62,6 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-    # The mail server's role (ADR-054), owned by RoleManager like every other
-    # application role.
-    #
-    # It OWNS its database rather than holding DML grants on one -- Stalwart runs
-    # its own schema migrations at startup, so it needs DDL. Ownership is set on
-    # the Database CR in hub-core-services/database/stalwart-database.yaml; the
-    # permissions below are the DML floor RoleManager applies to every declared
-    # role. Same shape as hub_zitadel above.
-    #
-    # Its credential is projected into platform-data by
-    # database/stalwart-db-credentials-es.yaml, which is where RoleManager
-    # resolves it: mapRoleToSecretName("stalwart") is "stalwart-db-credentials"
-    # and the namespace defaults to spec.database.namespace.
-    - name: stalwart
-      database: stalwart
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
     - name: openmeter
       database: openmeter
       permissions:

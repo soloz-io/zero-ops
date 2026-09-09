@@ -1,7 +1,15 @@
 # ADR-054: Platform Mail Server (Stalwart)
 
 **Date:** 2026-08-26
-**Status:** Proposed
+**Status:** Rejected
+
+The platform does not run a mail server. This was never accepted, and the
+implementation that had been built against it -- the Stalwart deployment, its
+database and role, its DKIM key pair, its gateway listeners and routes, and its
+Infisical key mappings -- was removed on 2026-09-09.
+
+The record is kept because the reasoning below is the argument for building one,
+and anyone proposing it again should start from why it was not.
 
 ## Context
 

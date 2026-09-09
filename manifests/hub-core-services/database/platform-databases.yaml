@@ -29,7 +29,7 @@
 # and changing it silently alters the privilege model of a running platform.
 # That belongs in its own reviewed change.
 #
-# infisical and stalwart are not listed: they already have their own CRs, with
+# infisical is not listed: it already has its own CR, with
 # their own owning roles declared in platform-db.yaml spec.managed.roles.
 ---
 apiVersion: postgresql.cnpg.io/v1

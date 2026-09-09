@@ -200,9 +200,11 @@ spec:
         # string, so a repository named in 21 places is one that will eventually
         # be named 21 ways.
         #
-        # The condition is emptiness, NOT the ownership flag. platform-stalwart-mail
-        # is flagged platform-owned but sourced from an OCI chart registry;
-        # keying on the flag would silently retarget it at the platform repo.
+        # The condition is emptiness, NOT the ownership flag. A component can be
+        # platform-owned and still name its own chart registry, and keying on
+        # the flag would silently retarget it at the platform repo. No component
+        # is in that state today -- the one that was, the mail server, has been
+        # removed -- so this is a guard rather than a live case.
         # Where the platform's own content comes from is decided here, once, from
         # the build's version (ADR-068) -- not named by each component. A
         # component pinned to a published chart could never be exercised from a
@@ -283,11 +285,10 @@ spec:
     {{"{{-"}} if ne .extraManifestsPath "" {{"}}"}}
     spec:
       sources:
-        # Same empty-means-platform fallback as spec.template above. Only
-        # platform-stalwart-mail takes this branch today and it carries its own
-        # OCI URL, so the fallback is currently unreachable -- it is here so that
-        # the first platform-owned component to use extraManifestsPath does not
-        # silently render an empty repoURL.
+        # Same empty-means-platform fallback as spec.template above. Nothing
+        # takes this branch today, so the fallback is unreachable -- it is here
+        # so that the first platform-owned component to use extraManifestsPath
+        # does not silently render an empty repoURL.
         - repoURL: '{{"{{"}} if .repoURL {{"}}"}}{{"{{"}} .repoURL {{"}}"}}{{"{{"}} else {{"}}"}}{{ .Values.platformRepoURL }}{{"{{"}} end {{"}}"}}'
           chart: '{{"{{"}} .chart {{"}}"}}'
           targetRevision: '{{"{{"}} .targetRevision {{"}}"}}'

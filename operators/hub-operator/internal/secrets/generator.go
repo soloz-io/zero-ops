@@ -88,7 +88,7 @@ func GenerateSecurePasswordWithCharset(length int, charset string) (string, erro
 
 // GenerateEd25519KeyPair generates an Ed25519 key pair for DKIM signing.
 // Returns:
-//   - privateKeyPEM: PKCS#8 PEM-encoded private key (for Stalwart's privateKey field)
+//   - privateKeyPEM: PKCS#8 PEM-encoded private key
 //   - publicKeyBase64: raw base64-encoded public key (for DKIM p= DNS record)
 //
 // The public key is NOT PEM-wrapped — it's the exact bytes needed for:

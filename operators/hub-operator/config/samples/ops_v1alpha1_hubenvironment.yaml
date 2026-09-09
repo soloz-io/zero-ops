@@ -36,13 +36,6 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-    - name: stalwart
-      database: stalwart
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
     - name: openmeter
       database: openmeter
       permissions:
