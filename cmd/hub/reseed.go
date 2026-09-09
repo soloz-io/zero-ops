@@ -7,7 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var reseedKubeconfig string
+var (
+	reseedKubeconfig    string
+	reseedBundleVersion string
+)
 
 // newReseedCmd re-applies the seed Application to a cluster that already exists.
 //
@@ -40,11 +43,18 @@ The environment, provider and topology are read from the cluster's existing seed
 Application, so a reseed cannot change which cluster the seed describes.
 
 Boundary activation state is not touched: only the seed Application is applied,
-never the boundary AppProjects, so an opened boundary is not re-gated.`,
+never the boundary AppProjects, so an opened boundary is not re-gated.
+
+The bundle version is left as the cluster records it, so a reseed cannot return
+a cluster to whatever bundle the operator's binary happens to carry. Pass
+--bundle-version to move it deliberately; the move is printed against the
+version it replaces.`,
 		RunE: runReseed,
 	}
 
 	cmd.Flags().StringVar(&reseedKubeconfig, "kubeconfig", "", "Path to the hub cluster kubeconfig")
+	cmd.Flags().StringVar(&reseedBundleVersion, "bundle-version", "",
+		"Move the cluster to this bundle version instead of keeping the one it records")
 	cmd.MarkFlagRequired("kubeconfig")
 
 	return cmd
@@ -59,9 +69,10 @@ func runReseed(cmd *cobra.Command, args []string) error {
 	}
 
 	o := &bootstrap.Orchestrator{
-		EnvironmentSlug: envSlug,
-		Topology:        topology,
-		ProviderName:    provider,
+		EnvironmentSlug:       envSlug,
+		Topology:              topology,
+		ProviderName:          provider,
+		BundleVersionOverride: reseedBundleVersion,
 	}
 
 	fmt.Printf("[reseed] Applying the seed Application (environment=%s provider=%s topology=%q)\n",

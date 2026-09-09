@@ -64,6 +64,20 @@ type Orchestrator struct {
 	// provider to read one string would mean standing up cloud credentials to
 	// apply a manifest.
 	ProviderName string
+
+	// BundleVersionOverride replaces the version a cluster already records,
+	// instead of preserving it.
+	//
+	// Empty means the normal rule: the cluster owns its version and a reseed
+	// leaves it alone (ADR-064), so an operator's binary cannot silently return
+	// a promoted cluster to an older bundle.
+	//
+	// Set, it is an explicit act and is reported as one. This is not the
+	// promotion mechanism ADR-064 describes -- that is a pull request against
+	// the tenant's repository, and the platform never causes it to take effect.
+	// This moves the platform's own cluster during development, where the
+	// alternative is rebuilding a cluster to change one string.
+	BundleVersionOverride string
 }
 
 // providerName returns the provider's name from whichever of the two fields is

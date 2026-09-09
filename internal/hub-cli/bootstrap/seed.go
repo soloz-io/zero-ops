@@ -398,7 +398,20 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	// So a version already on the cluster wins, and the build's is used only
 	// when there is none: the first apply, which is what seeding means.
 	bundleVersion := versions.BundleVersion
-	if existing := readSeedBundleVersion(ctx, kubeconfig); existing != "" {
+	existing := readSeedBundleVersion(ctx, kubeconfig)
+	switch {
+	case o.BundleVersionOverride != "":
+		// Asked for by name. Reported against what it replaces, because the
+		// number that changed is the one thing an operator needs to see and the
+		// one thing a silent success would hide.
+		if existing != "" && existing != o.BundleVersionOverride {
+			fmt.Printf("[seed] moving cluster from bundle %s to %s (requested)\n",
+				existing, o.BundleVersionOverride)
+		} else {
+			fmt.Printf("[seed] pinning bundle %s (requested)\n", o.BundleVersionOverride)
+		}
+		bundleVersion = o.BundleVersionOverride
+	case existing != "":
 		if existing != bundleVersion {
 			fmt.Printf("[seed] cluster runs bundle %s; leaving it (this build carries %s)\n",
 				existing, bundleVersion)
