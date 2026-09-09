@@ -149,12 +149,14 @@ spec:
         # bootstrap, not here.
         argocd.argoproj.io/compare-options: ServerSideDiff=false
     {{"{{-"}} end {{"}}"}}
+{{- if not $released }}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:
         directory:
           recurse: true
     {{"{{-"}} end {{"}}"}}
+{{- end }}
     spec:
       ignoreDifferences:
         - group: apps

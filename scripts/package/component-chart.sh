@@ -111,9 +111,21 @@ cat > "$CHART/templates/content.yaml" <<'TMPL'
 {{- end }}
 TMPL
 
+# Objects whose content depends on the cluster become templates. As a Kustomize
+# source these were patches on the Application; a Helm source cannot carry them,
+# because ArgoCD permits one source type per source (ADR-063).
+if [[ -f "$SRC/templated-fields.yaml" ]]; then
+    for f in "$CHART"/files/*.yaml; do
+        [[ -e "$f" ]] || continue
+        if ! scripts/package/templated-fields.py "$f" "$SRC/templated-fields.yaml" "$CHART"; then
+            rm -rf "$CHART"; exit 1
+        fi
+    done
+fi
+
 # A chart that renders no objects is never what was intended, and it is the one
 # defect that survives packaging, pushing and installing in silence.
-objects=$(helm template "$APP" "$CHART" 2>/dev/null | grep -c '^kind:' || true)
+objects=$(helm template "$APP" "$CHART" --set global.environmentSlug=probe 2>/dev/null | grep -c '^kind:' || true)
 if [[ "${objects:-0}" -eq 0 ]]; then
     echo "$APP: packaged chart renders no objects; refusing to produce it" >&2
     rm -rf "$CHART"; exit 1

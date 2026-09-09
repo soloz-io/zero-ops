@@ -104,12 +104,14 @@ spec:
           - CreateNamespace=true
           - ServerSideApply=true
   templatePatch: |
+{{- if not $released }}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:
         directory:
           recurse: true
     {{"{{-"}} end {{"}}"}}
+{{- end }}
     {{"{{-"}} if eq .ignoreDifferencesNamespace "true" {{"}}"}}
     spec:
       ignoreDifferences:

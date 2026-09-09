@@ -152,6 +152,18 @@ def main() -> int:
 
         appset = doc["metadata"]["name"]
         template = (doc["spec"].get("template") or {}).get("spec") or {}
+
+        # templatePatch is applied by ArgoCD after the template and can add a
+        # source type the template does not have. That is how every
+        # directoryRecurse component ended up with a directory block beside a
+        # chart and was refused with "multiple application sources defined:
+        # Helm,Directory" -- invisible to a check that reads only the template.
+        patch = doc["spec"].get("templatePatch") or ""
+        for kind in ("directory", "kustomize", "plugin"):
+            if f"{kind}:" in patch and template.get("source", {}).get("chart"):
+                problems.append((appset, f"templatePatch adds a {kind} source to "
+                                         f"an Application whose source is a chart; "
+                                         f"ArgoCD refuses both"))
         elements = [e for g in doc["spec"].get("generators", [])
                     for e in (g.get("list") or {}).get("elements", []) or []]
         if not elements:

@@ -1,0 +1,12 @@
+# The field of the ClusterSecretStore that depends on the environment.
+#
+# The manifest hardcodes "dev", and a stg or prod hub reading it unchanged would
+# resolve DEV secrets out of Infisical (ADR-037). As a Kustomize source that was
+# a patch on the Application; a published bundle makes the source a Helm chart,
+# and ArgoCD permits one source type per source, so the patch has nowhere to
+# live and the field becomes a chart value.
+- kind: ClusterSecretStore
+  name: infisical-backend
+  fields:
+    - path: [spec, provider, infisical, secretsScope, environmentSlug]
+      value: '{{ .Values.global.environmentSlug }}'

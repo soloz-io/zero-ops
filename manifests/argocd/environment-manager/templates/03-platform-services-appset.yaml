@@ -260,6 +260,7 @@ spec:
           - ServerSideApply=true
           - RespectIgnoreDifferences=true
   templatePatch: |
+{{- if not $released }}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:
@@ -269,6 +270,7 @@ spec:
           include: '{{"{{"}} .directoryInclude {{"}}"}}'
     {{"{{-"}} end {{"}}"}}
     {{"{{-"}} end {{"}}"}}
+{{- end }}
     {{"{{-"}} if eq .ignoreDifferencesNamespace "true" {{"}}"}}
     spec:
       ignoreDifferences:

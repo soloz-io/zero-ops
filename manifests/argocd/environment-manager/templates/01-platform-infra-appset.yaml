@@ -441,12 +441,15 @@ spec:
           - CreateNamespace=true
           - ServerSideApply=true
   templatePatch: |
+{{- if not $released }}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}
     spec:
       source:
         directory:
           recurse: true
     {{"{{-"}} end {{"}}"}}
+{{- end }}
+{{- if not $released }}
     {{"{{-"}} if eq .appName "platform-cluster-secret-store" {{"}}"}}
     spec:
       source:
@@ -460,4 +463,5 @@ spec:
                   path: /spec/provider/infisical/secretsScope/environmentSlug
                   value: '{{ .Values.environmentSlug }}'
     {{"{{-"}} end {{"}}"}}
+{{- end }}
 ---
