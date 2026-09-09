@@ -51,15 +51,17 @@ This is the shape of a dependency-update bot, and the properties that make that 
 
 ### A held proposal is not a missed one
 
-A tenant that does not merge a promotion does not fall off the upgrade path. The next published version raises its own pull request behind the first, and the queue that accumulates is the migration path in order: each proposal moves one version, states what it moves, and is validated on its own before the next is considered. A tenant eight versions behind merges eight proposals in sequence and arrives where a tenant who merged each on the day it opened already is. Nothing is skipped and nothing has to be reconstructed.
+A tenant that does not merge a promotion does not fall off the upgrade path, and does not have to walk back up it. Every version is independently installable from any version before it, so a tenant eight versions behind may take the newest proposal directly and arrive where a tenant who merged each on the day it opened already is. Merging the latest is not skipping seven upgrades; it is one upgrade that happens to span eight versions.
 
-**The platform raises one pull request per version and never rewrites an open one to carry a newer one.** This is the mechanism the property depends on, and it is the opposite of what the dependency-update bots this borrows from do by default: they keep a single open proposal per dependency and rebase it forward, so a tenant returning after eight versions finds one pull request that jumps all eight. That is fewer round trips and a worse outcome. It presents as a single reviewable change something that is eight, and it crosses every migration in the chain at once.
+**The platform raises one pull request per version and never rewrites an open one to carry a newer one.** The queue exists so a tenant can choose where to stop, not to make it walk. The dependency-update bots this borrows from keep one open proposal per dependency and rebase it forward, which collapses the choice: a tenant returning after eight versions sees only the newest and cannot take a shorter step even when it wants one.
 
-The reversibility statement above is why that matters rather than merely being untidy. A version declares whether its predecessor is operationally restorable from it, and a proposal surfaces that before it is accepted. Stepping the chain means a tenant meets each one-way step as its own decision, with the option to stop in front of it. A collapsed jump crosses them together, and the tenant learns which step was irreversible only by needing to undo it.
+That choice is worth preserving because the versions in a queue are not interchangeable. A security fix published at one version is present in every version after it, so a tenant taking the newest has it — but a tenant unwilling to take the newest, because a later version carries a migration it is not ready for, can take the version that carries the fix and stop there. Collapsing the queue removes that option and leaves such a tenant with only "all of it or none of it".
 
-Two things follow for the mechanism. Proposals are ordered, and merging out of order is refused rather than resolved: the validator that a cluster advances only from the version it currently runs is what enforces the sequence, and a proposal whose stated predecessor is not the running version does not apply. And proposals are not squashed as they accumulate — the queue's length is the honest measure of how far behind a cluster is, and shortening it by combining would hide exactly that.
+**A proposal carrying a security fix says so, and the platform recommends it independently of the tenant's upgrade cadence.** ADR-069 already places security fixes outside the ordinary cadence; here that means the proposal is marked and its recommendation stands whether or not the tenant intends to move otherwise.
 
-The cost is that a tenant far behind pays a reconcile per step rather than one, and each step must be independently valid — a version that is only usable in combination with its successor cannot be published. That constraint is worth keeping for its own sake: it is what makes any given version a state a cluster may sit in indefinitely, which is what ADR-069's supported window assumes.
+A proposal spanning several versions states what it spans. It names the versions it crosses, the security fixes among them, and — because reversibility is recorded per version above — which of the crossed steps are one-way. A tenant is entitled to cross them together; it is not entitled to cross them without being told.
+
+The queue is not squashed as it accumulates, because its length is the honest measure of how far behind a cluster is, and shortening it by combining would hide exactly that.
 
 ### A proposal resolves the versions it carries
 
@@ -96,7 +98,7 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 - Every cluster matching a cell satisfies that cell's policy, including residency.
 - A declared bundle version exists as a published chart.
 - A cluster advances only to a version that has reconciled and passed validation in the preceding environment.
-- A proposal's stated predecessor is the version its target cluster currently runs, so proposals apply in the order they were raised and merging out of order is refused.
+- A proposal states every version it spans, and for each, whether that step is operationally reversible and whether it carries a security fix.
 - A cluster instance names exactly one owning tenant.
 - A proposal carries a pre-flight verdict from the cluster it targets, or is raised as unverified (ADR-067).
 - The component versions a proposal records resolve from the bundle version it proposes.
@@ -150,7 +152,7 @@ Residency stops being a special case. It is a cell policy asserted against a clu
 
 ### Negative
 
-A tenant that holds proposals accumulates a queue, and clearing it costs a reconcile per version rather than one. The alternative -- collapsing the queue into a single proposal -- is rejected above, so the cost is deliberate and falls on the tenant furthest behind.
+A tenant that holds proposals accumulates a queue it must read to act on, even though it may clear the queue with a single merge. The alternative -- collapsing it into one proposal -- is rejected above, so the cost of that legibility falls on the tenant furthest behind.
 
 
 Clusters will run different bundle versions simultaneously, and the set in production becomes a support matrix the platform did not previously have to reason about.
