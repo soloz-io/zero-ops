@@ -1,0 +1,15 @@
+---
+boundary: '03'
+appName: platform-spoke-pool-xrds
+destinationNamespace: default
+isPlatformOwned: 'true'
+repoURL: ''
+targetRevision: ''
+path: manifests/spoke/xrds
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

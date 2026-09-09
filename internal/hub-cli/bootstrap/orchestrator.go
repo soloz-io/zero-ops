@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/platform"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1350,7 +1351,8 @@ func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
 	if err != nil {
 		return reg, fmt.Errorf("get working directory: %w", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(projectRoot, "manifests", "generated", "artifacts.yaml"))
+	_ = projectRoot
+	raw, err := platform.ReadFile(filepath.Join("manifests", "generated", "artifacts.yaml"))
 	if err != nil {
 		return reg, fmt.Errorf("read ADR-045 registry: %w", err)
 	}

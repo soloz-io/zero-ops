@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/platform"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,9 +81,16 @@ func (b *BoundaryInventoryChecker) descriptorCount() (int, error) {
 		root = wd
 	}
 
-	dir := filepath.Join(root, "manifests", "argocd", "components", b.Boundary)
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
+	// Repository-relative unless a caller named a root. The resolver reads an
+	// absolute path directly and a relative one from the embedded tree in a
+	// released build, so a caller supplying a root still gets that root, and one
+	// that does not gets what the binary carries (ADR-063, ADR-068).
+	dir := filepath.Join("manifests", "argocd", "components", b.Boundary)
+	if root != "" {
+		dir = filepath.Join(root, dir)
+	}
+	entries, err := platform.ReadDir(dir)
+	if err != nil && !platform.Exists(dir) {
 		return 0, nil
 	}
 	if err != nil {

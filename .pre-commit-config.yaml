@@ -67,3 +67,15 @@ repos:
         language: system
         pass_filenames: false
         files: 'operators/hub-operator/.*\.go$'
+      - id: embedded-platform-assets
+        name: Embedded Platform Assets Match Their Source
+        # The embedded tree is a copy, so it can drift from the manifests it was
+        # copied from. A released CLI would then carry content the repository no
+        # longer has, and nothing would say so until a tenant bootstrapped from it.
+        # Syncs to a temporary tree and compares. An earlier version synced over
+        # the checked-in copy and then diffed it, so it repaired the drift it was
+        # checking for and could never fail.
+        entry: bash -c 't=$(mktemp -d); trap "rm -rf $t" EXIT; ./scripts/package/embed-platform-assets.sh "$t/embedded" >/dev/null && diff -r -x embed.go internal/platform/embedded "$t/embedded" >/dev/null || { echo "internal/platform/embedded is stale; run scripts/package/embed-platform-assets.sh and commit the result"; exit 1; }'
+        language: system
+        pass_filenames: false
+        files: '(manifests/(environments|providers|argocd/components|tenants/gitops-template)/.*|manifests/generated/artifacts\.yaml|internal/platform/embedded/.*)'

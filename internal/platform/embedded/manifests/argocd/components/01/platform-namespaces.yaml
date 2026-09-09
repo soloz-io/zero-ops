@@ -1,0 +1,14 @@
+---
+boundary: '01'
+appName: platform-namespaces
+destinationNamespace: platform-ops
+isPlatformOwned: 'true'
+syncWave: '-2'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/platform-namespaces
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''

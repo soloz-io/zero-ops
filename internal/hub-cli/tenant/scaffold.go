@@ -9,10 +9,13 @@
 package tenant
 
 import (
+	"io/fs"
+
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/platform"
 	"net/http"
 	"os"
 	"os/exec"
@@ -145,7 +148,7 @@ func Render(templateDir, dst string, s Spec) error {
 		}
 	}
 
-	if err := copyTree(templateDir, dst); err != nil {
+	if err := copyPlatformTree(templateDir, dst); err != nil {
 		return fmt.Errorf("copy template: %w", err)
 	}
 
@@ -153,7 +156,7 @@ func Render(templateDir, dst string, s Spec) error {
 	// produced it. It is consumed once, at onboarding; a tenant adding a cluster
 	// later renders templates/spoke-cluster, which is why that one is kept.
 	src := filepath.Join(dst, "templates", "control-plane")
-	if err := copyTree(src, filepath.Join(dst, "clusters", s.ClusterName)); err != nil {
+	if err := copyDir(src, filepath.Join(dst, "clusters", s.ClusterName)); err != nil {
 		return fmt.Errorf("hydrate control plane: %w", err)
 	}
 	if err := os.RemoveAll(src); err != nil {
@@ -169,8 +172,16 @@ func Render(templateDir, dst string, s Spec) error {
 	return substitute(filepath.Join(dst, "clusters", s.ClusterName), s.clusterTokens(), true)
 }
 
-func copyTree(src, dst string) error {
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+// copyTree copies the template, resolved through the platform package so a
+// released binary reads the template it carries and an unreleased one the
+// working tree (ADR-063, ADR-068).
+//
+// Walking through fs.WalkDir rather than filepath.Walk is what makes both cases
+// one code path: an embedded FS and a directory present the same interface, so
+// the scaffolder cannot acquire a dependency on being run inside a checkout --
+// which is what it had, and what made the published binary unusable.
+func copyPlatformTree(src, dst string) error {
+	return platform.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -179,17 +190,20 @@ func copyTree(src, dst string) error {
 			return err
 		}
 		target := filepath.Join(dst, rel)
-		if info.IsDir() {
+		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		b, err := os.ReadFile(p)
+		b, err := platform.ReadFile(p)
 		if err != nil {
 			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(target, b, info.Mode())
+		// 0o644 rather than the source mode: an embedded FS reports its own
+		// permissions, not the repository's, so preserving them would give a
+		// released run different modes from a development one for the same file.
+		return os.WriteFile(target, b, 0o644)
 	})
 }
 
@@ -366,4 +380,36 @@ func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
 		}
 	}
 	return nil
+}
+
+// copyDir copies a directory already on disk.
+//
+// Kept separate from copyPlatformTree because the two look alike and are not:
+// this one moves content the render has already produced -- hydrating a cluster
+// from the template the tenant keeps -- and its source is an absolute path in
+// the destination, not a repository-relative platform path. Routing it through
+// the platform resolver made a released build look for a temporary directory
+// inside its embedded tree.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, info.Mode())
+	})
 }

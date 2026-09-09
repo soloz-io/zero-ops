@@ -1,0 +1,14 @@
+---
+boundary: '01'
+appName: platform-crossplane-providers
+destinationNamespace: platform-ops
+isPlatformOwned: 'true'
+syncWave: '3'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/crossplane/providers
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''

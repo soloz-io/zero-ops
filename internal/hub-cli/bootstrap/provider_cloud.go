@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
+	"github.com/soloz-io/zero-ops/internal/platform"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -149,7 +149,7 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// Read the provider's own base and retarget it to what Cilium actually consumes.
 	ciliumConfigPath := filepath.Join(
 		"manifests", "providers", p.driver.Name(), "k8s", "cilium-config-base.yaml")
-	ciliumConfig, err := os.ReadFile(ciliumConfigPath)
+	ciliumConfig, err := platform.ReadFile(ciliumConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to read cilium-config base (ADR-046 §24) at %s: %w", ciliumConfigPath, err)
 	}
@@ -400,7 +400,7 @@ type CloudDriver interface {
 // the given data key (used for cilium/CCM addon templates).
 func readTemplateManifest(basePath, templateFile, dataKey string) ([]byte, error) {
 	biosPath := basePath + templateFile
-	data, err := os.ReadFile(biosPath)
+	data, err := platform.ReadFile(biosPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", biosPath, err)
 	}

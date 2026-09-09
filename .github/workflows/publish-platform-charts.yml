@@ -211,6 +211,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/bin
+          # ADR-063: the binary carries the platform content Day-0 reads, so a
+          # tenant needs no checkout of this repository.
+          ./scripts/package/embed-platform-assets.sh
           pkg=github.com/soloz-io/zero-ops/internal/hub-cli/versions
           for os in linux darwin; do
             for arch in amd64 arm64; do
@@ -234,6 +237,12 @@ jobs:
       # upstream repository stops serving it. They are release inputs, not
       # platform source, which is why they are retained here rather than
       # committed.
+      # The gate the review asked for: a released CLI must bootstrap from its
+      # binary alone. Run outside a checkout, because inside one a binary that
+      # still reads the working tree passes and the dependency stays hidden.
+      - name: Refuse a released CLI that needs a checkout
+        run: ./scripts/validate/released-cli-standalone.sh "${{ steps.v.outputs.version }}"
+
       - name: Retain the third-party inputs this bundle was built from
         run: |
           set -euo pipefail

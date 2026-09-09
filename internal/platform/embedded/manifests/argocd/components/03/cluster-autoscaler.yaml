@@ -1,0 +1,15 @@
+---
+boundary: '03'
+appName: cluster-autoscaler
+destinationNamespace: platform-capi
+isPlatformOwned: 'true'
+repoURL: ''
+targetRevision: main
+path: manifests/hub-core-services/cluster-autoscaler
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

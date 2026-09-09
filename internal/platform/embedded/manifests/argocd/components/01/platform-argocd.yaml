@@ -1,0 +1,256 @@
+---
+boundary: '01'
+appName: platform-argocd
+destinationNamespace: platform-ops
+isPlatformOwned: 'false'
+syncWave: '1'
+repoURL: https://argoproj.github.io/argo-helm
+targetRevision: 7.8.0
+path: ''
+chart: argo-cd
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: |
+  configs:
+    cm:
+      # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
+      url: "https://argocd.dev.nutgraf.in"
+      admin.enabled: "true"
+      application.instanceLabelKey: argocd.argoproj.io/instance
+      exec.enabled: "false"
+      server.rbac.log.enforce.enable: "false"
+      timeout.hard.reconciliation: "0s"
+      timeout.reconciliation: "60s"
+
+      # Enable Helm support in Kustomize (required for helmCharts field in kustomization.yaml)
+      # This allows ArgoCD to process kustomization.yaml files that inflate Helm charts from OCI registries
+      # Used by: OpenMeter deployment (manifests/hub-core-services/openmeter/kustomization.yaml)
+      # Reference: https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/
+      kustomize.buildOptions: --enable-helm
+
+      # ExternalSecret custom health check
+      # Treats SecretSyncedError as Progressing when the underlying ClusterSecretStore is not ready,
+      # preventing a cascade of Degraded statuses across all apps that consume secrets.
+      resource.customizations.health.external-secrets.io_ExternalSecret: |
+        hs = {}
+        if obj.status ~= nil then
+          if obj.status.conditions ~= nil then
+            for i, condition in ipairs(obj.status.conditions) do
+              if condition.type == "Ready" then
+                if condition.status == "True" then
+                  hs.status = "Healthy"
+                  hs.message = condition.message or "Secret synced"
+                  return hs
+                else
+                  if condition.reason == "SecretSyncedError" then
+                    hs.status = "Progressing"
+                    hs.message = "Waiting for secret store: " .. (condition.message or "")
+                    return hs
+                  end
+                  hs.status = "Degraded"
+                  hs.message = condition.message or "Secret sync failed"
+                  return hs
+                end
+              end
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for external secret to sync"
+        return hs
+
+      # CNPG Cluster health check
+      resource.customizations.health.postgresql.cnpg.io_Cluster: |
+        hs = {}
+        if obj.status ~= nil and obj.status.phase ~= nil then
+          if obj.status.phase == "Cluster in healthy state" then
+            hs.status = "Healthy"
+            hs.message = obj.status.phase
+            return hs
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for cluster to be healthy"
+        return hs
+
+      # Exclude dynamically-created CiliumIdentity resources from ArgoCD tracking.
+      # Cilium copies argocd.argoproj.io/instance labels from pods onto CiliumIdentity
+      # objects it creates. ArgoCD then treats them as orphaned managed resources and
+      # marks the owning app as OutOfSync. Excluding them globally prevents this.
+      resource.exclusions: |
+        - apiGroups:
+            - cilium.io
+          kinds:
+            - CiliumIdentity
+          clusters:
+            - '*'
+      # Ensures ArgoCD waits for the Provider CRD to be fully registered before
+      # advancing to wave 4 (ProviderConfig), preventing the CRD-not-found race condition.
+      resource.customizations.health.pkg.crossplane.io_Provider: |
+        hs = {}
+        if obj.status ~= nil then
+          if obj.status.conditions ~= nil then
+            for i, condition in ipairs(obj.status.conditions) do
+              if condition.type == "Healthy" and condition.status == "True" then
+                hs.status = "Healthy"
+                hs.message = condition.message
+                return hs
+              end
+              if condition.type == "Healthy" and condition.status == "False" then
+                hs.status = "Degraded"
+                hs.message = condition.message
+                return hs
+              end
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for Crossplane provider to be installed and healthy"
+        return hs
+
+      # CROSSPLANE Function health check
+      # Ensures ArgoCD waits for the Function CRD to be fully registered before
+      # advancing to dependent waves, preventing the FunctionRevision-not-found race condition.
+      resource.customizations.health.pkg.crossplane.io_Function: |
+        hs = {}
+        if obj.status ~= nil then
+          if obj.status.conditions ~= nil then
+            for i, condition in ipairs(obj.status.conditions) do
+              if condition.type == "Healthy" and condition.status == "True" then
+                hs.status = "Healthy"
+                hs.message = condition.message
+                return hs
+              end
+              if condition.type == "Healthy" and condition.status == "False" then
+                hs.status = "Degraded"
+                hs.message = condition.message
+                return hs
+              end
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for Crossplane function to be installed and healthy"
+        return hs
+
+      # ValidatingWebhookConfiguration health check
+      # Ensures ArgoCD waits for the caBundle to be injected by controllers (like ESO cert-controller)
+      # before considering the webhook healthy and proceeding to next sync waves or boundaries.
+      resource.customizations.health.admissionregistration.k8s.io_ValidatingWebhookConfiguration: |
+        hs = {}
+        hs.status = "Healthy"
+        hs.message = "Webhook is healthy"
+        if obj.webhooks ~= nil then
+          for i, webhook in ipairs(obj.webhooks) do
+            if webhook.clientConfig ~= nil and webhook.clientConfig.service ~= nil and (webhook.clientConfig.caBundle == nil or webhook.clientConfig.caBundle == "") then
+              hs.status = "Progressing"
+              hs.message = "Waiting for caBundle to be injected into " .. webhook.name
+              return hs
+            end
+          end
+        end
+        return hs
+
+    params:
+      # The Cilium Gateway terminates TLS (hub-gateway.yaml mode: Terminate)
+      # and forwards plaintext to argocd-server:80 (httproutes.yaml). In its
+      # default secure mode argocd-server answers that plaintext request with
+      # a 307 to https://<same-url>, which the Gateway terminates again --
+      # an infinite redirect. Browsers hide it; the CLI fails outright with
+      # "stopped after 10 redirects", so `argocd login` could never work over
+      # the Gateway, only via port-forward.
+      #
+      # --insecure makes argocd-server serve HTTP and trust the
+      # X-Forwarded-Proto header the Gateway sets. TLS is still terminated at
+      # the Gateway; nothing is unencrypted outside the cluster.
+      server.insecure: "true"
+
+      # Server-side DIFF, not just server-side apply.
+      #
+      # Applications here sync with ServerSideApply=true, which never writes
+      # kubectl.kubernetes.io/last-applied-configuration. ArgoCD's default
+      # diff is a client-side three-way merge that uses exactly that
+      # annotation to tell "a field the user manages" from "a field the API
+      # server defaulted". Without it every defaulted field reads as drift.
+      #
+      # The result on 2026-09-02 was eleven Applications permanently
+      # OutOfSync-but-Healthy, all on an ExternalSecret, because the
+      # ExternalSecret CRD defaults six fields nobody declares --
+      # conversionStrategy, decodingStrategy, metadataPolicy, deletionPolicy,
+      # engineVersion, mergePolicy. Nothing was wrong with any of them; the
+      # diff could not be computed correctly, and real drift was
+      # indistinguishable from that noise.
+      #
+      # This makes the diff use the same server-side apply dry-run the sync
+      # uses, so fields no manager owns are ignored. The controller flag is
+      # --server-side-diff-enabled, wired from this key via
+      # ARGOCD_APPLICATION_CONTROLLER_SERVER_SIDE_DIFF, and defaults false.
+      #
+      # This lived ONLY as a `helm --set` flag in the Day-0 CLI until
+      # 2026-09-05, so the first sync of this Application reverted it and the
+      # failure above could recur. It is declared here because ArgoCD renders
+      # argocd-cmd-params-cm from these values and owns the field.
+      controller.diff.server.side: "true"
+
+  # ArgoCD server ingress is deployed in 03-platform-services (after
+  # ingress-nginx controller is healthy). This avoids the webhook
+  # race: ingress-nginx controller must be running before any Ingress
+  # resource is applied, otherwise the validating webhook rejects.
+  server:
+    ingress:
+      enabled: false
+    service:
+      # Both Service ports target containerPort 8080. Under
+      # server.insecure that port serves PLAINTEXT, so a port named
+      # "https" on 443 would be a lie: a client dialling
+      # argocd-server:443 expecting TLS gets cleartext and no
+      # warning. TLS for this service terminates at the Gateway
+      # (hub-gateway listener "argocd", mode: Terminate); nothing
+      # behind it speaks TLS. Name the port for what it carries.
+      # The Gateway's HTTPRoute uses port 80 regardless.
+      servicePortHttpsName: http-no-tls
+  applicationSet:
+    metrics:
+      # Off by chart default, which leaves the platform's most
+      # dangerous failure mode unobservable.
+      #
+      # An ApplicationSet whose generator matches nothing does not
+      # error: it generates zero Applications and reports Healthy.
+      # That is indistinguishable from "nothing to generate yet", so
+      # a broken cell-id label (see the audit-spoke-cell-id Kyverno
+      # policy) silently stops reconciling every tenant on a spoke
+      # and nothing in ArgoCD says so.
+      #
+      # argocd_appset_owned_applications is the only signal that
+      # separates the two, and it needs this Service to exist.
+      # grafana-alloy discovers Services cluster-wide with no
+      # annotation filter, so creating it is sufficient to get the
+      # series into Grafana Cloud -- no scrape config change.
+      #
+      # The alert to build on it, once alerting-as-code exists for
+      # Grafana Cloud (nothing in this repo provisions it today):
+      #
+      #   argocd_appset_owned_applications == 0
+      #   and on(name, namespace)
+      #       max_over_time(argocd_appset_owned_applications[24h]) > 0
+      #
+      # The max_over_time guard is what makes it usable: it fires
+      # only for an ApplicationSet that USED to generate
+      # Applications, so a fresh environment with no tenants stays
+      # quiet instead of alerting on day one.
+      enabled: true
+  repoServer:
+    env:
+      # Default is 90s. Boundary 01 renders charts whose manifest sets are
+      # large enough to exceed it -- the argo-cd chart itself, kyverno, and
+      # crossplane all template thousands of lines, and a cold repo-server
+      # with an empty Helm cache does the chart pull inside this budget.
+      # A timeout here surfaces as `rpc error: context deadline exceeded`
+      # on the Application, not as a chart error, so the cause is not
+      # obvious from the failure.
+      #
+      # Carried only as a `helm --set` flag in the Day-0 CLI until
+      # 2026-09-05; the first sync of this Application reverted it to 90s.
+      - name: ARGOCD_EXEC_TIMEOUT
+        value: 600s
+helmReleaseName: argocd

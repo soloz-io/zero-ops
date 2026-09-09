@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"fmt"
-	"os"
+	"github.com/soloz-io/zero-ops/internal/platform"
 	"path/filepath"
 	"strings"
 
@@ -93,14 +93,25 @@ type hubEnvironmentOverlay struct {
 // apex, which the base layer already carries — so an absent domain in the overlay
 // falls back to the base object rather than being an error.
 func ReadHubZone(projectRoot, environmentSlug string) (string, error) {
+	// Repository-relative, resolved by the platform package: a released build
+	// reads what it carries, an unreleased one the working tree (ADR-063,
+	// ADR-068). projectRoot is retained for callers that pass one, and ignored
+	// by a released build, which has no tree to root against.
+	rel := func(parts ...string) string {
+		p := filepath.Join(parts...)
+		if projectRoot != "" {
+			return filepath.Join(projectRoot, p)
+		}
+		return p
+	}
 	candidates := []string{
-		filepath.Join(projectRoot, "manifests", "environments", environmentSlug, "patch-hubenvironment.yaml"),
-		filepath.Join(projectRoot, "manifests", "environments", "base", "hubenvironment.yaml"),
+		rel("manifests", "environments", environmentSlug, "patch-hubenvironment.yaml"),
+		rel("manifests", "environments", "base", "hubenvironment.yaml"),
 	}
 	for _, path := range candidates {
-		data, err := os.ReadFile(path)
+		data, err := platform.ReadFile(path)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if !platform.Exists(path) {
 				continue
 			}
 			return "", fmt.Errorf("failed to read %s: %w", path, err)

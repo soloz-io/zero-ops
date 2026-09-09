@@ -1,0 +1,107 @@
+apiVersion: ops.nutgraf.in/v1alpha1
+kind: HubEnvironment
+metadata:
+  name: hub-environment
+spec:
+  # Platform environment identity — the single authority for every
+  # environment-scoped value (ADR-051 addendum, ADR-043). Base carries the
+  # production value, mirroring spec.domain: non-production overlays patch both,
+  # prod deliberately patches neither. A forgotten patch is now rejected by the
+  # env-as-zone rules rather than silently claiming the production zone.
+  environment: prod
+  # Domain is sourced from hub-bootstrap-config ConfigMap
+  domain: nutgraf.in
+  tls:
+    issuer: letsencrypt-prod
+    email: ops@nutgraf.in
+  observability:
+    victoriaMetrics:
+      retentionPeriod: 90d
+    grafanaAlloy:
+      scrapeInterval: 15s
+  database:
+    clusterRef: platform-db
+    namespace: platform-data
+    roles:
+    - name: hub_control_plane
+      database: control_plane
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    # NOTE: `infisical` is deliberately ABSENT from this list. It is a BOOTSTRAP
+    # role owned by CNPG (platform-db spec.managed.roles), not an application role.
+    # RoleManager reads each role's credential from an ESO-synced Secret sourced
+    # from Infisical, so it cannot be the thing that lets Infisical start — that is
+    # a circular dependency, and listing it here would also give the role two
+    # controllers. See manifests/hub-core-services/database/platform-db.yaml.
+    - name: hub_centralized
+      database: hub
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+    # The identity provider's role (ADR-060).
+    #
+    # It OWNS its database rather than holding DML grants on one: Zitadel runs
+    # its own schema migrations at startup, so it needs DDL. Ownership is set on
+    # the Database CR; the permissions below are the DML floor the role manager
+    # applies to every declared role.
+    #
+    # hub_hydra, hub_kratos and hub_keto were removed with the Ory stack. Leaving
+    # a role here whose credential Secret no longer exists is not inert: the role
+    # manager iterates this list in order and returns on the first failure, so
+    # every role AFTER the missing one is skipped -- including this one. The
+    # symptom is Zitadel unable to authenticate to Postgres, which names neither
+    # the removed service nor this file.
+    - name: hub_zitadel
+      database: zitadel
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+    - name: openmeter
+      database: openmeter
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+  nats:
+    streams:
+    - name: spoke-events
+      subjects:
+      - "spoke.*.lifecycle.>"
+      - "spoke.*.billing.>"
+      retention: limits
+      storage: file
+    - name: hub-events
+      subjects:
+      - "hub.notifications.>"
+      retention: interest
+      storage: file
+  oauth:
+    clients:
+    - clientId: mcp-server
+      clientName: "MCP Server"
+      # WS4 / ADR-051: base declares spec.domain: nutgraf.in (the production apex),
+      # so this redirect URI must be the apex too. It previously read
+      # mcp.dev.nutgraf.in — a DEV callback. dev overrides oauth with localhost and
+      # stg had no oauth patch, so the dev literal was inherited only by stg and
+      # prod: a production authorization code would redirect to a dev-controlled
+      # host. Interim value; C7 derives this from spec.domain into a generated
+      # artifact, after which no environment declares it directly.
+      redirectUris:
+      - "https://mcp.nutgraf.in/callback"
+      grantTypes:
+      - authorization_code
+      - refresh_token
+      responseTypes:
+      - code
+  secrets:
+    infisical:
+      # ProjectSlug and EnvironmentSlug are sourced from hub-bootstrap-config ConfigMap
+      projectSlug: hub-platform
+      environmentSlug: dev

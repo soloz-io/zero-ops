@@ -1,0 +1,15 @@
+---
+boundary: '03'
+appName: grafana-alloy
+destinationNamespace: platform-observability
+isPlatformOwned: 'true'
+repoURL: ""
+targetRevision: ""
+path: manifests/hub-core-services/grafana-alloy
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''
