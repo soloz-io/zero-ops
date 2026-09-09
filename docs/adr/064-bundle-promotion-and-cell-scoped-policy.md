@@ -47,21 +47,21 @@ Under ADR-065 the platform proposes and does not apply. When a bundle version is
 
 A promotion never writes a values file. Values are the tenant's, defaults belong to the chart, and a version that required a values change to be usable would be a version that could not be proposed without arbitration.
 
-This is the shape of a dependency-update bot, and the properties that make that arrangement work carry over: the proposal is legible before it is accepted, it is declined by closing it, the access that produces it is granted by the tenant and revocable, and a tenant may configure its repository to accept qualifying proposals automatically. The platform maintains the estate without holding a credential that can change anything running in it.
+**The proposing mechanism is Renovate, run by the platform against the tenant's repository through the App installation.** It is a dependency-update bot in shape, and the shape is not worth reimplementing: pull request lifecycle, deduplication, scheduling, rate limiting, a dependency dashboard and configurable automerge already exist there, and a bundle version pinned in a tenant's file is a dependency by any definition. A custom manager matches the `targetRevision` under the chart source; the datasource is the registry ADR-063 publishes to.
+
+Run by the platform rather than by each tenant. Tenant-run automation would be the stronger custody claim -- the platform would hold no write access at all -- and it is rejected for the reason ADR-065 already gives for rejecting a control plane that proposes its own upgrades: it puts the maintenance mechanism in every box, where a defect in it is present across the field and correctable only through the mechanism that is itself defective. One engine proposing to every tenant is the arrangement that can be fixed once.
+
+The properties that make the arrangement tolerable are unchanged: the proposal is legible before it is accepted, it is declined by closing it, the access that produces it is granted by the tenant and revocable, and a tenant may configure its repository to accept qualifying proposals automatically. The platform maintains the estate without holding a credential that can change anything running in it.
 
 ### A held proposal is not a missed one
 
-A tenant that does not merge a promotion does not fall off the upgrade path, and does not have to walk back up it. Every version is independently installable from any version before it, so a tenant eight versions behind may take the newest proposal directly and arrive where a tenant who merged each on the day it opened already is. Merging the latest is not skipping seven upgrades; it is one upgrade that happens to span eight versions.
+A tenant that does not merge a promotion does not fall off the upgrade path, and does not have to walk back up it. Every version is independently installable from any version before it, so a tenant eight versions behind takes the current proposal and arrives where a tenant who merged each on the day it opened already is. Merging is not skipping the versions in between; it is one upgrade that spans them.
 
-**The platform raises one pull request per version and never rewrites an open one to carry a newer one.** The queue exists so a tenant can choose where to stop, not to make it walk. The dependency-update bots this borrows from keep one open proposal per dependency and rebase it forward, which collapses the choice: a tenant returning after eight versions sees only the newest and cannot take a shorter step even when it wants one.
+**How many proposals stand open at once is Renovate's to decide, not a platform invariant.** An earlier form of this decision required one pull request per version, never rewritten, so that a tenant could take a shorter step than the newest. That fights the tool's dependency-centric model for a case the independence of versions already covers: a tenant unwilling to take the newest declines it and says which version it wants, and the platform answers a request rather than maintaining a standing queue against the possibility of one.
 
-That choice is worth preserving because the versions in a queue are not interchangeable. A security fix published at one version is present in every version after it, so a tenant taking the newest has it — but a tenant unwilling to take the newest, because a later version carries a migration it is not ready for, can take the version that carries the fix and stop there. Collapsing the queue removes that option and leaves such a tenant with only "all of it or none of it".
+What the platform owes instead is disclosure, and that is a property of the release rather than of the proposal. A published version records the versions it spans from its predecessor, the security fixes among them (ADR-069 places those outside the ordinary cadence), whether each step is operationally reversible, and the minimum version it may be taken from. Renovate surfaces release metadata in the proposal it opens, so this reaches the tenant without the platform generating prose per pull request -- and it reaches a tenant reading the release directly, which a generated pull request body does not.
 
-**A proposal carrying a security fix says so, and the platform recommends it independently of the tenant's upgrade cadence.** ADR-069 already places security fixes outside the ordinary cadence; here that means the proposal is marked and its recommendation stands whether or not the tenant intends to move otherwise.
-
-A proposal spanning several versions states what it spans. It names the versions it crosses, the security fixes among them, and — because reversibility is recorded per version above — which of the crossed steps are one-way. A tenant is entitled to cross them together; it is not entitled to cross them without being told.
-
-The queue is not squashed as it accumulates, because its length is the honest measure of how far behind a cluster is, and shortening it by combining would hide exactly that.
+A tenant is entitled to cross several versions at once; it is not entitled to cross them without being told.
 
 ### A proposal resolves the versions it carries
 
@@ -98,7 +98,8 @@ Each rule is asserted mechanically, in the style ADR-063 establishes for version
 - Every cluster matching a cell satisfies that cell's policy, including residency.
 - A declared bundle version exists as a published chart.
 - A cluster advances only to a version that has reconciled and passed validation in the preceding environment.
-- A proposal states every version it spans, and for each, whether that step is operationally reversible and whether it carries a security fix.
+- A published version records the versions it spans from its predecessor, the security fixes among them, whether each step is operationally reversible, and the minimum version it may be taken from.
+- A proposal that would take a cluster below a version's stated minimum fails its checks rather than being opened and closed.
 - A cluster instance names exactly one owning tenant.
 - A proposal carries a pre-flight verdict from the cluster it targets, or is raised as unverified (ADR-067).
 - The component versions a proposal records resolve from the bundle version it proposes.
@@ -152,7 +153,9 @@ Residency stops being a special case. It is a cell policy asserted against a clu
 
 ### Negative
 
-A tenant that holds proposals accumulates a queue it must read to act on, even though it may clear the queue with a single merge. The alternative -- collapsing it into one proposal -- is rejected above, so the cost of that legibility falls on the tenant furthest behind.
+A tenant wanting a version other than the one proposed asks for it, because the platform no longer keeps every intermediate proposal standing. That is a slower path for the tenant furthest behind, and it is the cost of not maintaining a queue against a case that is rare and already served by declining.
+
+The maintenance mechanism is now a third-party tool the platform does not control. Its release cadence, its defaults and its model of what an update is are decisions made elsewhere, and a change to any of them is a change to how every tenant is maintained.
 
 
 Clusters will run different bundle versions simultaneously, and the set in production becomes a support matrix the platform did not previously have to reason about.

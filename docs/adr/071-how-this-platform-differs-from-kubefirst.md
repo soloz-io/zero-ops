@@ -71,7 +71,9 @@ Here the platform is a party outside the tenant. ADR-065 fixes what such a party
 
 kubefirst's published upgrade path is to reinstall the CLI. Nothing reaches a rendered repository after it is rendered. That is the cost of shipping the control plane and holding no customer credentials, and ADR-065 records it as a cost knowingly paid there.
 
-This platform ships the control plane the same way and keeps a propagation mechanism, because maintaining the stack across a tenant's estate is what the platform is paid for (ADR-069). A published version raises a pull request per subscribing cluster. The mechanism is a dependency-update bot's, and the properties that make that arrangement tolerable carry over: legible before acceptance, declined by closing, revocable at the App installation, and automatable by the tenant if it chooses.
+This platform ships the control plane the same way and keeps a propagation mechanism, because maintaining the stack across a tenant's estate is what the platform is paid for (ADR-069). A published version raises a pull request against each subscribing tenant's repository, proposing the new pin.
+
+The mechanism is Renovate, run by the platform through the tenant's App installation (ADR-064). It is not built here: a bundle version pinned in a tenant's file is a dependency, and the lifecycle around proposing one -- deduplication, scheduling, dashboards, configurable automerge -- is a solved problem whose reimplementation would be a second maintenance burden inside a product sold as maintenance.
 
 ### Repositories are separated; there, one repository is correct
 
