@@ -272,6 +272,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ADR-064: disclosure is a property of the release, not of the proposal.
+      # Renovate surfaces release notes in the pull request it opens, so writing
+      # this here reaches a tenant reading the proposal and one reading the
+      # release directly.
+      - name: Record what taking this version means
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          body=$(gh release view "${{ github.event.release.tag_name }}" --json body -q .body)
+          {
+            printf '%s\n' "$body"
+            ./scripts/package/release-metadata.sh "${{ steps.v.outputs.version }}"
+          } > /tmp/release-body.md
+          gh release edit "${{ github.event.release.tag_name }}" --notes-file /tmp/release-body.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE_REVERSIBLE: ${{ vars.BUNDLE_REVERSIBLE || 'unknown' }}
+          BUNDLE_MINIMUM_FROM: ${{ vars.BUNDLE_MINIMUM_FROM }}
+
       - name: Attach the CLI to the release
         if: github.event_name == 'release'
         run: gh release upload "${{ github.event.release.tag_name }}" dist/bin/* --clobber
