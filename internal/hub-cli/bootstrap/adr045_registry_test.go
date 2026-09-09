@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+// A second reader is how the placeholder fix missed the validator: it parsed
+// artifacts.yaml itself, so expanding {env} in the shared reader left it
+// validating a path with the placeholder still in it. One reader is the
+// invariant; this fails if another appears.
+func TestOneReaderOfTheArtifactRegistry(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Counts file opens, not mentions: the name appears in comments too, and a
+	// test that counted those would fail on documentation.
+	if n := strings.Count(string(src), `"artifacts.yaml"`); n > 1 {
+		t.Errorf("artifacts.yaml is opened in %d places; every consumer must go "+
+			"through readADR045Registry so the {env} placeholder is resolved once", n)
+	}
+}
+
 // readADR045Registry resolves the registry relative to the working directory,
 // which under `go test` is the package directory rather than the repository.
 func fromRepoRoot(t *testing.T) {

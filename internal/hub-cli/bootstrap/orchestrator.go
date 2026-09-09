@@ -1440,15 +1440,16 @@ func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	registryPath := filepath.Join(projectRoot, "manifests", "generated", "artifacts.yaml")
-	registryData, err := os.ReadFile(registryPath)
+	// Read through the shared reader, which resolves the {env} placeholder the
+	// registry writes for per-environment artifacts. This function parsed the
+	// file itself and so validated a path with the placeholder still in it,
+	// reporting the artifact missing while it sat at the resolved path.
+	//
+	// Two readers of one registry is how that happened: the fix went into the
+	// one this did not use.
+	registry, err := o.readADR045Registry()
 	if err != nil {
-		return fmt.Errorf("read %s: %w", registryPath, err)
-	}
-
-	var registry adr045Registry
-	if err := yaml.Unmarshal(registryData, &registry); err != nil {
-		return fmt.Errorf("parse %s: %w", registryPath, err)
+		return err
 	}
 
 	if len(registry.Artifacts) == 0 {
