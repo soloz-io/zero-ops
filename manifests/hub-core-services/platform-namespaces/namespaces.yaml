@@ -89,11 +89,3 @@ metadata:
   labels:
     name: platform-network
     topology.platform.io/role: hub
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: platform-mail
-  labels:
-    name: platform-mail
-    topology.platform.io/role: hub
