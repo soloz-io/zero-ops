@@ -1357,6 +1357,24 @@ func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
 	if err := yaml.Unmarshal(raw, &reg); err != nil {
 		return reg, fmt.Errorf("parse ADR-045 registry: %w", err)
 	}
+
+	// {env} is the environment being bootstrapped. The registry writes it
+	// because these artifacts live per environment (ADR-045) -- one shared file
+	// under base/ meant prod rendered dev's Infisical project -- and the
+	// placeholder is expanded here so no caller can forget: the validator, the
+	// commit paths and the wait list all read the registry through this.
+	//
+	// Declared and never expanded, the validator looked for a directory called
+	// "{env}" and reported the artifact missing, naming a path no step had ever
+	// written.
+	if o.EnvironmentSlug == "" {
+		return reg, fmt.Errorf("ADR-045 registry declares per-environment " +
+			"artifacts but no environment is set; the paths cannot be resolved")
+	}
+	for i := range reg.Artifacts {
+		reg.Artifacts[i].File = strings.ReplaceAll(
+			reg.Artifacts[i].File, "{env}", o.EnvironmentSlug)
+	}
 	return reg, nil
 }
 
