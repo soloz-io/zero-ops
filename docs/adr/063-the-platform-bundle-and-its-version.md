@@ -19,7 +19,7 @@ Three facts about the current arrangement bear on this decision.
 
 ### What a comparable platform does
 
-kubefirst was examined because it solves the same problem for the same class of system.
+kubefirst was examined because it builds the same kind of thing by the same means, for a different customer: one with a platform engineering team that will operate and customise what it is handed. The mechanisms are comparable; the customer is not, which is why some of what follows is adopted and some is rejected (ADR-071).
 
 Its CLI version is injected at build time (`-X configs.K1Version=v{{.Version}}`) and used directly as the tag of a separate `gitops-template` repository (`GitopsTemplateBranch = configs.K1Version`). Inside that template, every component pins an explicit chart version at the leaf, while the intermediate Applications point at the consuming repository at `HEAD`. The CLI version therefore names a complete, fixed component set.
 
@@ -233,3 +233,4 @@ Because the tenant template moves with the bundle, a defective bundle reaches th
 - ADR-066: The Platform Boundary
 - ADR-068: The Build Declares the Bundle Version
 - ADR-064: Bundle Promotion and Tenant Placement
+- ADR-071: How This Platform Differs From kubefirst
