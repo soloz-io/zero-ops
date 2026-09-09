@@ -46,6 +46,10 @@ PLATFORM_REGISTRY = "ghcr.io/soloz-io/charts"
 # it and enables its own component through values.
 DISTRIBUTION_CHART = "platform"
 
+# The platform's own repository. A released Application resolving it is the
+# runtime dependency ADR-063 forbids.
+PLATFORM_GIT = "github.com/soloz-io/zero-ops"
+
 
 def is_registry(url):
     """Whether a repoURL names a chart registry rather than a git repository.
@@ -193,6 +197,24 @@ def main() -> int:
         # chart and was refused with "multiple application sources defined:
         # Helm,Directory" -- invisible to a check that reads only the template.
         patch = doc["spec"].get("templatePatch") or ""
+
+        # A patch adding `sources` to a chart-sourced template is the worst of
+        # these, because ArgoCD does not report it. GetSources returns
+        # spec.sources whenever it is non-empty and never consults spec.source,
+        # so the Application resolves the array and silently ignores the chart it
+        # was given -- Synced, Healthy, and running what the bundle stopped
+        # shipping. Both boundaries did this, and the cluster resolved the
+        # platform's own repository for three published versions before a
+        # cluster-side check found it.
+        if "sources:" in patch and template.get("source", {}).get("chart"):
+            problems.append((appset, "templatePatch adds `sources` to an "
+                                     "Application whose source is a chart; ArgoCD "
+                                     "resolves the array and ignores the chart"))
+        if PLATFORM_GIT in patch:
+            problems.append((appset, f"templatePatch names the platform "
+                                     f"repository ({PLATFORM_GIT}); a released "
+                                     f"cluster would resolve it at runtime"))
+
         for kind in ("directory", "kustomize", "plugin"):
             if f"{kind}:" in patch and template.get("source", {}).get("chart"):
                 problems.append((appset, f"templatePatch adds a {kind} source to "

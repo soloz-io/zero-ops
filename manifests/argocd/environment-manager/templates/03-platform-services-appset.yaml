@@ -282,6 +282,16 @@ spec:
             - /metadata/annotations
             - /metadata/labels
     {{"{{-"}} end {{"}}"}}
+{{- if not $released }}
+    {{- /*
+      Unreleased only. templatePatch is applied after the template, so emitting
+      `sources` here puts it beside the `source` the released template produced.
+      ArgoCD does not treat that as a conflict: GetSources returns spec.sources
+      whenever it is non-empty and never consults spec.source, so the Application
+      resolves this array and silently ignores the single OCI source. Two of its
+      entries name the platform repository, which is the runtime dependency
+      ADR-063 forbids -- reintroduced on a cluster whose bundle is clean.
+    */}}
     {{"{{-"}} if ne .extraManifestsPath "" {{"}}"}}
     spec:
       sources:
@@ -304,6 +314,7 @@ spec:
           targetRevision: '{{ .Values.environmentRevision }}'
           path: '{{"{{"}} .extraManifestsPath {{"}}"}}'
     {{"{{-"}} end {{"}}"}}
+{{- end }}
     {{"{{-"}} if eq .appName "platform-infisical" {{"}}"}}
     spec:
       ignoreDifferences:

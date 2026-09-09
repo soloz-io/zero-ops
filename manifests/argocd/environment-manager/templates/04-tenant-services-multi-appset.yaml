@@ -86,6 +86,20 @@ spec:
   templatePatch: |
     {{"{{-"}} if or (ne .extraManifestsPath "") (eq .ignoreDifferencesExtSecrets "true") {{"}}"}}
     spec:
+{{- if not $released }}
+      {{- /*
+        Unreleased only. This rebuilds the multi-source form so a component with
+        extraManifestsPath can pull those manifests from a working tree.
+
+        Released, it must not run at all. templatePatch is applied after the
+        template, so emitting `sources` here puts it beside the `source` the
+        released template produced -- and ArgoCD does not treat that as a
+        conflict. GetSources returns spec.sources whenever it is non-empty and
+        never consults spec.source, so the Application resolves this array and
+        silently ignores the single OCI source it was given. Both entries below
+        name the platform's repository, which is the runtime dependency ADR-063
+        forbids, reintroduced on a cluster whose bundle is clean.
+      */}}
       {{"{{-"}} if ne .extraManifestsPath "" {{"}}"}}
       sources:
         - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
@@ -102,6 +116,7 @@ spec:
           targetRevision: '{{ .Values.environmentRevision }}'
           path: '{{"{{"}} .extraManifestsPath {{"}}"}}'
       {{"{{-"}} end {{"}}"}}
+{{- end }}
       {{"{{-"}} if eq .ignoreDifferencesExtSecrets "true" {{"}}"}}
       ignoreDifferences:
         - group: external-secrets.io
