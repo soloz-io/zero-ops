@@ -1,8 +1,10 @@
 package tenant
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -205,5 +207,70 @@ func TestRender_BundleResolvesTheRegistryAndTheTenantsOwnValues(t *testing.T) {
 	if strings.Contains(values.RepoURL, "zero-ops") {
 		t.Errorf("a scaffolded cluster must not resolve the platform's repository "+
 			"at runtime, got %q", values.RepoURL)
+	}
+}
+
+// The Renovate manager and the bundle it matches are two files that must agree,
+// and nothing else notices when they stop agreeing: a manager whose regex misses
+// produces no proposals at all, which looks exactly like a tenant already being
+// up to date. This renders both and matches one against the other.
+func TestRender_RenovateManagerMatchesTheBundleItProposesAgainst(t *testing.T) {
+	dir := t.TempDir()
+	if err := Render("../../../manifests/tenants/gitops-template", dir, testSpec()); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, "renovate.json"))
+	if err != nil {
+		t.Fatalf("a scaffolded repository must carry a Renovate config, or the "+
+			"platform has no way to propose to it (ADR-064): %v", err)
+	}
+
+	var cfg struct {
+		CustomManagers []struct {
+			MatchStrings        []string `json:"matchStrings"`
+			PackageNameTemplate string   `json:"packageNameTemplate"`
+			DatasourceTemplate  string   `json:"datasourceTemplate"`
+		} `json:"customManagers"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("renovate.json is not valid JSON: %v", err)
+	}
+	if len(cfg.CustomManagers) != 1 {
+		t.Fatalf("expected one custom manager, got %d", len(cfg.CustomManagers))
+	}
+	m := cfg.CustomManagers[0]
+
+	if strings.Contains(m.PackageNameTemplate, "<") {
+		t.Errorf("the registry token was not substituted: %q", m.PackageNameTemplate)
+	}
+	if m.DatasourceTemplate != "docker" {
+		t.Errorf("an OCI chart is a docker datasource, got %q", m.DatasourceTemplate)
+	}
+
+	bundle, err := os.ReadFile(filepath.Join(dir, "clusters", "acme-hub", "bundle.yaml"))
+	if err != nil {
+		t.Fatalf("reading the hydrated bundle: %v", err)
+	}
+
+	// Go's regexp is RE2 and Renovate's is JavaScript, but the construct used
+	// here -- literals, \s+ and one named group -- means the same in both.
+	re, err := regexp.Compile(m.MatchStrings[0])
+	if err != nil {
+		t.Fatalf("the manager's regex does not compile: %v", err)
+	}
+	got := re.FindSubmatch(bundle)
+	if got == nil {
+		t.Fatalf("the Renovate manager matches nothing in the bundle it exists to "+
+			"propose against; no proposal would ever open, and a tenant would look "+
+			"up to date while falling behind.\nregex: %s", m.MatchStrings[0])
+	}
+
+	// It must find the chart's version, not the branch the tenant's own values
+	// are read from. Rewriting that one would repoint this repository at a chart
+	// version and the cluster would stop resolving its values.
+	if v := string(got[1]); v != testSpec().BundleVersion {
+		t.Errorf("the manager matched %q; expected the bundle version %q",
+			v, testSpec().BundleVersion)
 	}
 }
