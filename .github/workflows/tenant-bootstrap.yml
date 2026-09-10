@@ -126,7 +126,6 @@ jobs:
             --region "${{ inputs.region }}" \
             --environment "${{ inputs.environment }}" \
             --gating "${{ inputs.gating }}" \
-            --bundle-version "${{ inputs.bundle-version }}" \
             --gitops-dir . \
             --debug
 

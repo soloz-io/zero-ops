@@ -36,6 +36,18 @@ on:
 # costs money and takes hours, and a push that triggered it would make an
 # editing mistake into an infrastructure bill. Changing a cluster after it
 # exists is reconciled by the control plane rather than by this workflow.
+# Day-0 commits the artifacts it generates back into this repository, so the run
+# needs write access to it.
+#
+# Declared here and not only in the workflow this calls. A called workflow's
+# permissions may be the same or more restrictive than its caller's, never wider:
+# a caller that declares none inherits this repository's default, and where that
+# default is read-only the callee asking for `contents: write` exceeds it. GitHub
+# rejects that before the job starts, as a `startup_failure` after a few seconds
+# with no logs and no annotation naming the cause.
+permissions:
+  contents: write
+
 jobs:
   bootstrap:
     uses: soloz-io/zero-ops/.github/workflows/tenant-bootstrap.yml@v<BUNDLE_VERSION>
