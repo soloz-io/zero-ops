@@ -27,6 +27,19 @@ grep -q "Minimum version this may be taken from" <<<"$body" || missing+=("the mi
 grep -q "Predecessor restorable from this version" <<<"$body" || missing+=("whether the predecessor is restorable")
 grep -qE "Security fixes in this version|No security fixes are declared" <<<"$body" || missing+=("its security-fix position")
 
+# "no earlier release" is true exactly once. Any later release claiming it means
+# the predecessor could not be resolved -- which v0.1.7 did, because
+# actions/checkout does not fetch tags and the lookup asked git. The disclosure
+# was well-formed and wrong, and a well-formed wrong answer is what a structural
+# check misses.
+if grep -q "no earlier release" <<<"$body"; then
+    earlier=$(gh release list --limit 20 --json tagName -q '.[].tagName' 2>/dev/null \
+        | grep -v "^${TAG}$" | head -1 || true)
+    if [[ -n "$earlier" ]]; then
+        missing+=("a real predecessor: it claims no earlier release, but ${earlier} exists")
+    fi
+fi
+
 if (( ${#missing[@]} > 0 )); then
     echo "release-discloses: $TAG does not record:" >&2
     printf '  %s\n' "${missing[@]}" >&2

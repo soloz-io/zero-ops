@@ -16,9 +16,24 @@ VERSION="${1:?usage: release-metadata.sh <version> [previous]}"
 PREVIOUS="${2:-}"
 
 if [[ -z "$PREVIOUS" ]]; then
-    # The version before this one, by tag order. A first release has none, which
-    # is stated rather than guessed at.
-    PREVIOUS=$(git tag --list 'v*' --sort=-v:refname | grep -v "^v${VERSION}$" | head -1 || true)
+    # Asked of GitHub rather than of git. actions/checkout does not fetch tags by
+    # default, so `git tag --list` returns nothing in a release run and every
+    # release reports itself as the first -- which v0.1.7 did, telling a tenant
+    # it spanned from nothing while two releases stood before it.
+    #
+    # Falls back to git for a local run, where the tags are present.
+    PREVIOUS=$(gh release list --limit 20 --json tagName -q '.[].tagName' 2>/dev/null \
+        | grep -v "^v\{0,1\}${VERSION}$" | head -1 || true)
+    if [[ -z "$PREVIOUS" ]]; then
+        PREVIOUS=$(git tag --list 'v*' --sort=-v:refname | grep -v "^v${VERSION}$" | head -1 || true)
+    fi
+fi
+
+if [[ -z "$PREVIOUS" ]]; then
+    echo "release-metadata: no earlier release found for ${VERSION}." >&2
+    echo "If this is genuinely the first, that is correct. If it is not, the" >&2
+    echo "disclosure below will tell every tenant this version spans from" >&2
+    echo "nothing, so check that tags and releases are readable here." >&2
 fi
 
 range=""
