@@ -7,6 +7,12 @@ set -euo pipefail
 #   - Tampered artifacts
 #   - Renovate PRs that bump the version but don't re-vendor
 #
+# The last of those is completed rather than merely refused:
+# .github/workflows/revendor-kyverno.yml re-renders on Renovate's branch and
+# commits, so a proposal has something to pass. Refusing without that left a
+# pull request that could only ever fail, which teaches people to merge past the
+# check rather than to trust it.
+#
 # Usage: bash scripts/validate/verify-vendor-digest.sh
 
 SPOKE_DIR="manifests/spoke/spoke-catalog/infra/kyverno"

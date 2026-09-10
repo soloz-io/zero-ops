@@ -1,0 +1,61 @@
+# Finish a Kyverno bump that Renovate cannot finish on its own.
+#
+# Kyverno's manifests are vendored: the CRDs and controller are rendered from the
+# upstream chart and committed, with the digest of the rendered content in a
+# provenance header. Renovate manages the version through a regex manager, so it
+# rewrites the version string and cannot re-render what that version produces --
+# leaving a header claiming one version over content from another, which
+# verify-vendor-digest.sh refuses.
+#
+# That refusal is correct and must stay. What was missing is the step that makes
+# the proposal complete, so the check has something to pass rather than a pull
+# request that can only ever fail.
+name: Re-vendor Kyverno
+
+on:
+  pull_request:
+    paths:
+      - 'manifests/spoke/spoke-catalog/infra/kyverno/**'
+      - 'manifests/argocd/environment-manager/templates/01-platform-infra-appset.yaml'
+
+permissions:
+  contents: write
+
+jobs:
+  revendor:
+    # Only Renovate's own branches. A person editing these files has a reason,
+    # and re-rendering over their edit would discard it silently.
+    if: startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      # Pinned, because the rendered output is what gets committed: a different
+      # Helm would produce a different digest and the change would look like a
+      # content change rather than a tooling one.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Re-render the vendored manifests
+        run: ./scripts/renovate/revendor-kyverno.sh
+
+      - name: Verify the digests now match
+        run: bash scripts/validate/verify-vendor-digest.sh
+
+      - name: Commit the re-rendered manifests
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "already re-vendored; nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: re-vendor Kyverno for the proposed version"
+          # Pushed with GITHUB_TOKEN, which deliberately does not trigger further
+          # workflow runs. The checks already running on this pull request pick
+          # up the new head, and nothing here can loop.
+          git push
