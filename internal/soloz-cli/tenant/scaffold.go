@@ -72,6 +72,22 @@ func (s Spec) validate() error {
 		}
 	}
 	if len(missing) > 0 {
+		// The version is the one an unreleased build cannot supply, and the
+		// reason is worth stating: a developer running from source has no
+		// published version to pin, and the alternatives are naming one or
+		// scaffolding a repository that cannot bootstrap.
+		for _, m := range missing {
+			if m == "bundle-version" {
+				return fmt.Errorf("no bundle version.\n\n"+
+					"A released CLI pins the version it carries. This build is unreleased, so\n"+
+					"it has none to offer and will not guess: a repository pinned to a version\n"+
+					"that does not resolve bootstraps into an Application that cannot load its\n"+
+					"source.\n\n"+
+					"Pass --bundle-version with a published version, or use a released CLI.\n"+
+					"Published versions: https://github.com/soloz-io/zero-ops/releases%s",
+					otherMissing(missing))
+			}
+		}
 		return fmt.Errorf("missing required values: %s", strings.Join(missing, ", "))
 	}
 	return nil
@@ -302,7 +318,20 @@ func TokenFromEnv(repoRoot string) (Credential, error) {
 	p := filepath.Join(repoRoot, "k8-secrets", "github", "github-pat-token")
 	b, err := os.ReadFile(p)
 	if err != nil {
-		return Credential{}, fmt.Errorf("no credential: set GITHUB_APP_TOKEN or GITHUB_TOKEN, or provide %s", p)
+		// Says what to do, not only what is missing. Scaffolding is often the
+		// first command anyone runs against this platform, and an error naming a
+		// variable without saying where its value comes from is a support round
+		// trip.
+		return Credential{}, fmt.Errorf(
+			"no GitHub credential.\n\n"+
+				"Scaffolding creates a repository in the tenant's organisation, so it needs\n"+
+				"one of these, in order of preference:\n\n"+
+				"  GITHUB_APP_TOKEN  an installation token for the App the tenant granted.\n"+
+				"                    Preferred: the access is the tenant's to revoke (ADR-062).\n"+
+				"  GITHUB_TOKEN      a personal access token with repo scope.\n"+
+				"                    Create one at https://github.com/settings/tokens\n"+
+				"  %s\n"+
+				"                    the same token, read from disk.", p)
 	}
 	return Credential{Token: strings.TrimSpace(string(b)), Source: p}, nil
 }
@@ -425,4 +454,19 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(target, b, info.Mode())
 	})
+}
+
+// otherMissing names what else is absent, so a developer fixing the version does
+// not then discover the next omission one run later.
+func otherMissing(missing []string) string {
+	var rest []string
+	for _, m := range missing {
+		if m != "bundle-version" {
+			rest = append(rest, m)
+		}
+	}
+	if len(rest) == 0 {
+		return ""
+	}
+	return "\n\nAlso missing: " + strings.Join(rest, ", ")
 }

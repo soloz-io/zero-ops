@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"os"
 	"path/filepath"
 
@@ -52,12 +53,27 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.Region, "region", "hel1", "cloud region")
 	f.StringVar(&scaffoldSpec.Environment, "environment", "dev", "environment slug")
 	f.StringVar(&scaffoldSpec.ClusterName, "cluster", "", "control plane cluster name (default <tenant>-hub)")
-	f.StringVar(&scaffoldSpec.BundleVersion, "bundle-version", "main", "platform bundle version this box starts on")
+	// Defaults to the version this binary carries (ADR-068). "main" was the old
+	// default and is a branch name where a chart version belongs: a repository
+	// scaffolded on it pins a version that does not resolve, and the workflow it
+	// carries calls a platform workflow at a tag named vmain.
+	//
+	// A released binary therefore needs no version flag. An unreleased one has no
+	// version to offer and says so rather than inventing one.
+	f.StringVar(&scaffoldSpec.BundleVersion, "bundle-version", defaultBundleVersion(),
+		"platform bundle version this box starts on (default: the version this CLI carries)")
+	// Platform facts rather than tenant decisions, so they are hidden. They stay
+	// flags because a platform developer testing against a fork needs them, and
+	// removing them would mean editing the source to do that.
 	f.StringVar(&scaffoldSpec.PlatformRepoURL, "platform-repo", "https://github.com/soloz-io/zero-ops", "where the bundle is sourced from")
 	f.StringVar(&scaffoldSpec.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts",
 		"registry published bundles are pulled from (no scheme)")
 	f.BoolVar(&scaffoldSpec.Private, "private", true, "create the repository private")
 	f.StringVar(&scaffoldTemplate, "template", "manifests/tenants/gitops-template", "template to render")
+
+	for _, hidden := range []string{"platform-repo", "bundle-registry", "template"} {
+		_ = f.MarkHidden(hidden)
+	}
 	f.StringVar(&scaffoldOut, "out", "", "render here instead of a temporary directory")
 	f.BoolVar(&scaffoldDryRun, "dry-run", false, "render only; create and push nothing")
 	return cmd
@@ -137,4 +153,18 @@ func printTree(dir string) error {
 		fmt.Println("  ", rel)
 		return nil
 	})
+}
+
+// defaultBundleVersion is the version this binary carries, or empty when it
+// carries none.
+//
+// Empty rather than a guess: an unreleased build has no published version to
+// offer, and scaffolding a repository pinned to something that does not resolve
+// produces a box that cannot bootstrap and says nothing about why until the
+// first Application fails to load its source.
+func defaultBundleVersion() string {
+	if versions.IsReleaseBuild() {
+		return versions.BundleVersion
+	}
+	return ""
 }
