@@ -359,7 +359,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseGenerateLocalSecrets, "generate-local-secrets",
 		"Generating local bootstrap secrets...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 			return ci.GenerateLocalSecrets(ctx)
 		},
 		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
@@ -389,7 +389,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseInjectCACert, "inject-ca-cert",
 		"Injecting CNPG CA certificate into infisical-secrets...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 			return ci.UpdateInfisicalSecretsWithCNPGCert(ctx)
 		},
 		func() { fmt.Println("[inject-ca-cert] ✓ CNPG CA certificate injected") },
@@ -420,7 +420,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBootstrapInfisicalAPI, "bootstrap-infisical-api",
 		"Bootstrapping Infisical API...",
 		func() error {
-			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug}
+			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 			return ci.BootstrapInfisicalAPI(ctx)
 		},
 		func() { fmt.Println("[bootstrap-infisical-api] ✓ Infisical API bootstrapped") },
@@ -948,7 +948,7 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // (same mechanism as home-worker-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
-	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
@@ -1234,7 +1234,7 @@ func pinKubeconfig(kubeconfig, kubeContext string) (string, error) {
 }
 
 func (o *Orchestrator) getArgoCDPassword(ctx context.Context, kubeconfig string) string {
-	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 	pwd, err := ci.GetArgoCDPassword(ctx)
 	if err != nil {
 		return "<check secret manually>"
@@ -1333,7 +1333,7 @@ func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig st
 		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot sync the private zero-ops repo")
 	}
 
-	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug}
+	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
 		return err
 	}
@@ -1386,6 +1386,23 @@ func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
 	for i := range reg.Artifacts {
 		reg.Artifacts[i].File = strings.ReplaceAll(
 			reg.Artifacts[i].File, "{env}", o.EnvironmentSlug)
+	}
+
+	// A tenant's repository holds these under the cluster they belong to, not
+	// under an environment overlay it does not have (ADR-072). The registry
+	// describes the platform's layout, so the paths are rewritten rather than
+	// declared twice -- a second registry for tenants would be a second thing to
+	// keep correct, and the artifact set is the same either way.
+	if o.GitopsDir != "" {
+		if o.ClusterName == "" {
+			return reg, fmt.Errorf("ADR-045 artifacts belong to one cluster, and " +
+				"no cluster is named; their location in the tenant's repository " +
+				"cannot be resolved")
+		}
+		for i := range reg.Artifacts {
+			reg.Artifacts[i].File = filepath.Join("clusters", o.ClusterName,
+				"generated", filepath.Base(reg.Artifacts[i].File))
+		}
 	}
 	return reg, nil
 }
@@ -1467,6 +1484,10 @@ func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
 	if len(registry.Artifacts) == 0 {
 		fmt.Println("[adr045-validate] ⚠️  No artifacts registered in artifacts.yaml")
 		return nil
+	}
+
+	if o.GitopsDir != "" {
+		projectRoot = o.GitopsDir
 	}
 
 	for _, a := range registry.Artifacts {
@@ -1552,16 +1573,27 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 		return fmt.Errorf("git not found: %w", err)
 	}
 
-	// git add for each path
+	// In the tenant's repository when bootstrapping one (ADR-072). Day-0 is the
+	// single write the platform's tooling makes outside a pull request, and it is
+	// bounded: it happens during a bootstrap the tenant invoked, to a repository
+	// with no cluster yet, before anything is running to be affected by it.
+	git := func(args ...string) *exec.Cmd {
+		c := exec.CommandContext(ctx, "git", args...)
+		if o.GitopsDir != "" {
+			c.Dir = o.GitopsDir
+		}
+		return c
+	}
+
 	for _, p := range paths {
-		cmd := exec.CommandContext(ctx, "git", "add", p)
+		cmd := git("add", p)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("git add %s: %w\n%s", p, err, out)
 		}
 	}
 
 	// git commit (idempotent — fails cleanly if nothing to commit)
-	cmd := exec.CommandContext(ctx, "git", "commit", "-m",
+	cmd := git("commit", "-m",
 		"chore: bootstrap-generated-gitops-artifacts [skip ci]")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Check if it's just "nothing to commit"
@@ -1578,7 +1610,14 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 	// (e.g. if another agent or user pushed commits to this branch while we were bootstrapping)
 	pullCtx, pullCancel := context.WithTimeout(ctx, 60*time.Second)
 	defer pullCancel()
+	// Their own timeouts, so they take the directory explicitly rather than
+	// through the helper above -- which is how they were missed when the rest of
+	// this function moved to the tenant's repository, and would have committed a
+	// tenant's artifacts locally and pushed the platform's repository instead.
 	pullCmd := exec.CommandContext(pullCtx, "git", "pull", "--rebase")
+	if o.GitopsDir != "" {
+		pullCmd.Dir = o.GitopsDir
+	}
 	if out, err := pullCmd.CombinedOutput(); err != nil {
 		fmt.Printf("[adr045-commit]   ⚠️  Auto-pull (rebase) failed, continuing to push: %s\n", strings.TrimSpace(string(out)))
 	}
@@ -1587,6 +1626,9 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 	pushCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	pushCmd := exec.CommandContext(pushCtx, "git", "push")
+	if o.GitopsDir != "" {
+		pushCmd.Dir = o.GitopsDir
+	}
 	if out, err := pushCmd.CombinedOutput(); err != nil {
 		fmt.Printf("[adr045-commit]   ⚠️  Auto-push failed (manual push required): %s\n",
 			strings.TrimSpace(string(out)))

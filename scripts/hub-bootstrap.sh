@@ -36,6 +36,11 @@ GATING="${GATING:-sequenced}"
 # resolves the published distribution instead and exercises the path a tenant
 # actually gets. Nothing else changes: the same binary, the same phases.
 BUNDLE_VERSION="${BUNDLE_VERSION:-}"
+# A checkout of the tenant's own repository. Set, the cluster is seeded with the
+# declaration that repository holds and its Day-0 artifacts are committed there
+# (ADR-072). Empty, the CLI renders its own seed, which is this repository's
+# development path.
+GITOPS_DIR="${GITOPS_DIR:-}"
 
 # Teardown existing cluster before bootstrap
 TEARDOWN="${TEARDOWN:-false}"
@@ -712,6 +717,8 @@ step1_bootstrap_hub() {
         env_flag="--environment=prod"
     fi
     local gating_flag="--gating=${GATING}"
+    local gitops_flag=""
+    [[ -n "$GITOPS_DIR" ]] && gitops_flag="--gitops-dir=${GITOPS_DIR}"
     local topo_flag=""
     # Topology is a matrix dimension (ADR-037) but hybrid claims live flat under
     # spoke-pools/{env}/{provider}. Pass an explicit empty topology so the Go CLI
@@ -740,7 +747,7 @@ step1_bootstrap_hub() {
             --region="${REGION}" \
             $env_flag \
             $topo_flag \
-            $gating_flag \
+            $gating_flag $gitops_flag \
             $hybrid_flags \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
@@ -750,7 +757,7 @@ step1_bootstrap_hub() {
             --region="${REGION}" \
             $env_flag \
             $topo_flag \
-            $gating_flag \
+            $gating_flag $gitops_flag \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     fi
 
@@ -1676,6 +1683,14 @@ main() {
                 ;;
             --topology)
                 TOPOLOGY="$2"
+                shift 2
+                ;;
+            --gitops-dir=*)
+                GITOPS_DIR="${1#*=}"
+                shift
+                ;;
+            --gitops-dir)
+                GITOPS_DIR="$2"
                 shift 2
                 ;;
             --bundle-version=*)

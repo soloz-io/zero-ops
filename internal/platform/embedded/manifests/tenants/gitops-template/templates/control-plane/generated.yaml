@@ -1,0 +1,42 @@
+# Day-0 artifacts for <CLUSTER_NAME>, applied by this cluster's own control plane.
+#
+# ADR-045 calls these bootstrap-generated artifacts: facts that do not exist
+# until Day-0 runs -- Infisical coordinates, the control-plane address, trust
+# material. ADR-062 makes them instance data, so they live in this repository
+# rather than the platform's, and ADR-072 permits Day-0 to commit them here.
+#
+# They are applied by a separate Application rather than folded into values.yaml
+# for two reasons. values.yaml is the tenant's file and the platform does not
+# write it; these the platform's Day-0 does write. And they are whole Kubernetes
+# objects rather than chart inputs, so a chart value would be the wrong shape for
+# them even if the ownership were the same.
+#
+# The directory is empty until Day-0 populates it. An Application over an empty
+# directory syncs nothing and reports healthy, which is correct here and is the
+# one place in this platform where that state is not a defect.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: <CLUSTER_NAME>-generated
+  namespace: platform-ops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <GITOPS_REPO_URL>
+    targetRevision: main
+    path: clusters/<CLUSTER_NAME>/generated
+    directory:
+      recurse: true
+      # An empty directory is the state before Day-0 writes, not an error.
+      include: '*.yaml'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-ops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

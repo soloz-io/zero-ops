@@ -119,7 +119,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 
 	fmt.Println("[bootstrap-secrets] Generating ADR-045 artifacts...")
 
-	projectRoot, err := os.Getwd()
+	projectRoot, err := i.artifactRoot()
 	if err != nil {
 		return false, fmt.Errorf("failed to get working directory: %w", err)
 	}
@@ -141,7 +141,19 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 			"It would land in a directory shared by every overlay, where the last cluster\n" +
 			"bootstrapped wins and an environment renders another's Infisical project")
 	}
+	// A tenant's repository holds its artifacts under the cluster they belong to;
+	// the platform's own tree holds them under the environment overlay that
+	// renders them (ADR-045, ADR-072). Same file, addressed by whose repository
+	// it is in.
 	configPath := filepath.Join(projectRoot, "manifests", "environments", env, "generated", "hub-bootstrap-config-patch.yaml")
+	if i.GitopsDir != "" {
+		if i.ClusterName == "" {
+			return false, fmt.Errorf("cannot write the ADR-045 bootstrap config into " +
+				"the tenant repository: no cluster name, and these artifacts belong to " +
+				"one cluster rather than to the repository")
+		}
+		configPath = filepath.Join(projectRoot, "clusters", i.ClusterName, "generated", "hub-bootstrap-config-patch.yaml")
+	}
 	configPatch := fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
 metadata:

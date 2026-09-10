@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -33,6 +34,27 @@ type Installer struct {
 	// prod rendered dev's Infisical project. ADR-037 isolates environments by
 	// directory; the artifact now sits in the environment's own.
 	EnvironmentSlug string
+
+	// GitopsDir is a checkout of the tenant's own repository.
+	//
+	// Set, ADR-045 artifacts are written there rather than into the platform's
+	// repository. They are per-cluster instance data (ADR-062), so a tenant
+	// bootstrap writing them into `zero-ops` would put one tenant's Infisical
+	// coordinates in the types repository -- the defect removed from the charts,
+	// reappearing in the bootstrap that produces them.
+	GitopsDir string
+
+	// ClusterName names the cluster a tenant artifact belongs to.
+	ClusterName string
+}
+
+// artifactRoot is where this installer's generated artifacts belong: the
+// tenant's repository when bootstrapping one, the working tree otherwise.
+func (i *Installer) artifactRoot() (string, error) {
+	if i.GitopsDir != "" {
+		return i.GitopsDir, nil
+	}
+	return os.Getwd()
 }
 
 // GetArgoCDPassword retrieves ArgoCD admin password
