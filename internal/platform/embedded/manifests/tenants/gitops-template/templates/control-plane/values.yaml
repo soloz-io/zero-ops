@@ -7,6 +7,11 @@
 # default.
 #
 # The platform never writes this file.
+# The tenant that owns this cluster (ADR-064). Written here rather than inferred
+# from the repository name because a cluster instance names exactly one owning
+# tenant, and a validator cannot assert that about a fact it has to guess.
+tenantId: <TENANT_ID>
+
 environmentSlug: <ENVIRONMENT>
 provider: <CLOUD_PROVIDER>
 environmentRevision: <BUNDLE_VERSION>

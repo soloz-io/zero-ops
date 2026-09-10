@@ -291,6 +291,16 @@ jobs:
           BUNDLE_REVERSIBLE: ${{ vars.BUNDLE_REVERSIBLE || 'unknown' }}
           BUNDLE_MINIMUM_FROM: ${{ vars.BUNDLE_MINIMUM_FROM }}
 
+      # ADR-064 states its constraints as validators. This one runs after the
+      # notes are written, because the generator that writes them appends to a
+      # body and an append producing nothing leaves a release that still looks
+      # complete.
+      - name: Refuse a release that does not say what taking it means
+        if: github.event_name == 'release'
+        run: ./scripts/validate/release-discloses.sh "${{ github.event.release.tag_name }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Attach the CLI to the release
         if: github.event_name == 'release'
         run: gh release upload "${{ github.event.release.tag_name }}" dist/bin/* --clobber
