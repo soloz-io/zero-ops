@@ -7,7 +7,7 @@
 bin
 cmd
 internal
-!internal/hub-cli
+!internal/soloz-cli
 k8-secrets
 memory
 reference-projects

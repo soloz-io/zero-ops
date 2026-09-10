@@ -1,6 +1,6 @@
-# breakdown of what `./bin/hub init-secrets` does:
+# breakdown of what `./bin/soloz init-secrets` does:
 
-## `./bin/hub init-secrets` Command Breakdown
+## `./bin/soloz init-secrets` Command Breakdown
 
 This command bootstraps all Layer 1 (Secret Zero) infrastructure secrets needed for the platform to function. Here's the step-by-step execution:
 

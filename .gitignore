@@ -3,10 +3,10 @@ archived
 chat-logs
 bin
 # The built CLI binaries, not the package directory. A bare "hub" also matched
-# cmd/hub/, so every new source file added there was silently ignored — the file
+# cmd/soloz/, so every new source file added there was silently ignored — the file
 # stays untracked, the build keeps working locally, and the change is lost.
 /hub
-/cmd/hub/hub
+/cmd/soloz/soloz
 hub.exe
 codebase.md
 .kiro/specs/agentic-enterprise-onboarding/references
@@ -45,7 +45,7 @@ dist/
 # 24 of these reached history before this rule existed — roughly 969MB across
 # eight paths, every one a macOS build from a laptop. They arrive the same way
 # each time: `go build` writes next to the source unless told otherwise, and a
-# later `git add -A` sweeps the result in. `cmd/hub/hub` is what `go build`
+# later `git add -A` sweeps the result in. `cmd/soloz/soloz` is what `go build`
 # produces run from inside that directory; `main` is what it produces with no
 # -o flag at all.
 #
@@ -66,7 +66,7 @@ dist/
 # Built INSIDE their own package directory, so they cannot be anchored to the
 # root. Named in full for the same reason: a bare `hub` would also ignore any
 # directory called hub.
-cmd/hub/hub
+cmd/soloz/soloz
 cmd/mcp-server/mcp-server
 cmd/auth-proxy/auth-proxy
 cmd/kube-sbt/kube-sbt

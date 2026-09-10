@@ -43,7 +43,7 @@ a failure points at an Application rather than at a named phase.
 - gh release create v0.1.0 --generate-notes
 - gh run watch
 
-- ./bin/hub reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
+- ./bin/soloz reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
   --bundle-version 0.1.6     
 
 - KUBECONFIG=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \                   

@@ -101,7 +101,7 @@ func runConfigureGitHubAccess(cmd *cobra.Command, ghcrPAT, kubeconfig string) er
 	fmt.Println("2. Verify platform-data namespace exists:")
 	fmt.Println("   kubectl get namespace platform-data")
 	fmt.Println("3. Run init-secrets:")
-	fmt.Println("   ./bin/hub init-secrets --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig")
+	fmt.Println("   ./bin/soloz init-secrets --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig")
 
 	return nil
 }
