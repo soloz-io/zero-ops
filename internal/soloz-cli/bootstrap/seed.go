@@ -210,7 +210,7 @@ func readSeedBundleVersion(ctx context.Context, kubeconfig string) string {
 // registry it fetched from; the chart should not have to guess.
 const bundleRegistry = "ghcr.io/soloz-io/charts"
 
-func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion string, oidcScopes []string) string {
+func renderSeedApplication(envRevision, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL, infisicalProjectID, infisicalClientID, bundleVersion, instanceRepoURL string, oidcScopes []string) string {
 	scopes := ""
 	for _, sc := range oidcScopes {
 		scopes += fmt.Sprintf("\n        - %q", sc)
@@ -250,6 +250,8 @@ spec:
           value: %q
         - name: bundleRegistry
           value: %q
+        - name: instanceRepoURL
+          value: %q
         - name: environmentSlug
           value: %q
         - name: provider
@@ -279,7 +281,7 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-`, seedAppName, source, envRevision, bundleVersion, bundleRegistry, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
+`, seedAppName, source, envRevision, bundleVersion, bundleRegistry, instanceRepoURL, envSlug, provider, topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
 		infisicalProjectID, infisicalClientID, scopes)
 }
 
@@ -437,9 +439,17 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		return o.applyTenantSeed(ctx, kubeconfig)
 	}
 
+	// Every box declares its own instance repository (ADR-062). There is no
+	// default to fall back to: a fallback would be some other box's repository,
+	// which is exactly how one box's identity became every box's.
+	instanceRepo, err := o.instanceRepoURL()
+	if err != nil {
+		return err
+	}
+
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
 		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
-		infisicalProjectID, infisicalClientID, bundleVersion, oidcScopes)
+		infisicalProjectID, infisicalClientID, bundleVersion, instanceRepo, oidcScopes)
 	if err := kubectlApplyStdin(ctx, kubeconfig, seed); err != nil {
 		return fmt.Errorf("failed to apply the seed Application: %w", err)
 	}

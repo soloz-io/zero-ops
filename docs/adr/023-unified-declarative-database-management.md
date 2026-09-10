@@ -1,8 +1,14 @@
 # ADR 023: Unified Declarative Database Management
 
 ## Status
-Accepted
+Accepted, partially amended (2026-09-10)
 *Supersedes: ADR-002 (Hub Operator Database Management)*
+*Amended by: ADR-074 (Withdrawing Atlas)*
+
+> The tri-state contract below is now two-state. CloudNativePG and Crossplane
+> `provider-sql` stand; the Atlas leg is vacant, and schema migration has no owner.
+> The instruction to strip `hub-operator` of DDL is void while that code is the
+> only migration path the platform has -- see ADR-074.
 
 ## Context
 Previously (per ADR-002), the custom `hub-operator` contained imperative Go logic to execute database migrations (via `golang-migrate`) and provision database roles (via raw SQL queries) for the Hub cluster. Concurrently, the Spoke clusters utilized declarative operators (Atlas Operator and Crossplane `provider-sql`) to achieve the same goals.

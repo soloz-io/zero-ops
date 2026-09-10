@@ -3,6 +3,12 @@
 **Date:** 2026-06-09
 **Status:** Proposed
 
+*Amended by: ADR-063 (The Platform Bundle and its Version)*
+
+> The generated artifact registry stands. A released bundle carries what
+> reconciling it requires, so artifacts are read through the bundle rather than
+> from this repository at runtime.
+
 ## Context
 
 The platform's GitOps model requires all resources to be defined in manifests committed to Git. However, some resources require values that are only known at Day-0 runtime — after the CLI has bootstrapped Infisical, created Machine Identities, and established the PKI hierarchy.

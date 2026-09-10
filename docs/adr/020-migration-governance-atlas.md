@@ -1,7 +1,14 @@
 # ADR-020: Enterprise Migration Governance with Atlas
 
 **Date:** 2026-05-11
-**Status:** Proposed
+**Status:** Withdrawn (2026-09-10)
+*Withdrawn by: ADR-074 (Withdrawing Atlas)*
+
+> Atlas has been removed from the platform. Everything below governs its
+> mechanics -- immutability, checksums, lineage, locking, drift, recovery -- and
+> none of it applies to a tool the repository no longer contains. It is retained
+> because the reasoning is sound and a future migration mechanism will need
+> governance of the same shape; it is not a decision in force.
 
 ## Context
 

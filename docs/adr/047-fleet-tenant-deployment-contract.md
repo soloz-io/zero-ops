@@ -3,6 +3,15 @@
 **Date:** 2026-08-13
 **Status:** Accepted
 
+*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-073 (Workload Delivery is Version Pinning), ADR-074 (Withdrawing Atlas)*
+
+> `fleetId` is `tenantId` throughout (ADR-062). The rejection of fleets authoring
+> external workload repositories stands, but on new ground: ADR-073 replaces
+> cross-tenant containment with the argument that a published version already
+> identifies the content, and withdraws `workloads.gitRepo`, `gitPath` and
+> `gitRevision` from the fleet values schema. ADR-074 withdraws the `migrations`
+> block with them.
+
 ## Context
 
 - ADR-004 establishes a dual-repository contract: platform code lives in zero-ops; tenant runtime state lives in fleet-registry, which is the ArgoCD source of truth for tenant workloads.

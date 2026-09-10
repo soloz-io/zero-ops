@@ -81,3 +81,4 @@ bin/
 # second declaration of what manifests/argocd/components/ already states, and
 # the two would drift the way every other duplicated list here has.
 manifests/argocd/environment-manager/descriptors/
+soloz

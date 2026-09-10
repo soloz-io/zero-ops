@@ -11,6 +11,7 @@ Usage: validate-embedded-yaml.py FILE...
 Exit 1 on any parse error with file/key/line context.
 """
 import re
+import pathlib
 import sys
 import yaml
 
@@ -65,10 +66,33 @@ def validate_file(path: str) -> bool:
     return ok
 
 
+# The paths this validates, as the pre-commit hook selects them. Kept here so the
+# script can run without arguments and still check something: returning 0 on an
+# empty argument list made an unconditional hook a vacuous pass, which reads in the
+# output exactly like a real one.
+PATTERNS = (
+    "manifests/*/*/k8s/*.yaml",
+    "manifests/*/k8s/*.yaml",
+    "manifests/*/spoke-bootstrap/*.yaml",
+    "manifests/*/*/spoke-bootstrap/*.yaml",
+    "internal/assets/manifests/addons/*.yaml",
+)
+
+
+def discover() -> list:
+    """Every file the hook would have passed, found from the repository root."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    found = []
+    for pattern in PATTERNS:
+        found.extend(str(p) for p in root.glob(pattern) if p.is_file())
+    return sorted(set(found))
+
+
 def main() -> int:
-    files = sys.argv[1:]
+    files = sys.argv[1:] or discover()
     if not files:
-        return 0
+        print("ERROR: no files matched; the validator would pass without checking anything")
+        return 1
     failed = False
     for path in files:
         if not validate_file(path):

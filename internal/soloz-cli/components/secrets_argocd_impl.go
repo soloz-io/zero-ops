@@ -11,7 +11,21 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string) error {
+// FixArgoCDGitHubAuth gives ArgoCD credentials for the git organisation that owns
+// this box's repositories.
+//
+// orgURL scopes the credential. It was the literal "https://github.com/soloz-io",
+// which worked only because the platform's own box and its repositories are in
+// the same organisation: the one credential covered zero-ops and fleet-registry
+// together. A tenant's box is in the tenant's organisation, where that prefix
+// matches nothing and boundaries 05 and 06 cannot read the very repository they
+// reconcile (ADR-062).
+func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken, orgURL string) error {
+	if orgURL == "" {
+		return fmt.Errorf("cannot create the ArgoCD git credential: no organisation " +
+			"URL. It scopes the credential, and an empty one would grant access to " +
+			"nothing while reporting success")
+	}
 	fmt.Println("[bootstrap] Creating ArgoCD GitHub repository secret...")
 
 	// Load kubeconfig and create clientset
@@ -41,7 +55,7 @@ func (i *Installer) FixArgoCDGitHubAuth(ctx context.Context, githubToken string)
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
 			"type":     "git",
-			"url":      "https://github.com/soloz-io", // Organization-scoped for all repos
+			"url":      orgURL, // Organisation-scoped: every repository this box reads
 			"username": "zero-ops-bot",
 			"password": githubToken,
 		},

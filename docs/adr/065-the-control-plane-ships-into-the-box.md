@@ -3,6 +3,12 @@
 **Date:** 2026-09-07
 **Status:** Proposed
 
+*Amended by: ADR-066 (The Platform Boundary)*
+*Constrained by: ADR-070 (The Minimum Supported Box)*
+
+> What ships into the box is defined by ADR-066; the floor beneath which a box is
+> not supported is ADR-070.
+
 ## Context
 
 ADR-062 establishes that a tenant is a customer organisation holding one box, and that a spoke cluster belongs to exactly one tenant. It does not say where the control plane that reconciles those clusters runs, or who operates it.

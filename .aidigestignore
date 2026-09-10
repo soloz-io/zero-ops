@@ -42,3 +42,4 @@ manifests/hub-core-services/gateway
 
 packages/*
 manifests/tenants
+soloz

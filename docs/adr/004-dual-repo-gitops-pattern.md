@@ -1,11 +1,20 @@
 # ADR: Dual-Repository GitOps Pattern for Hub-Spoke Architecture
 
-**Status**: Approved  
+**Status**: Superseded (2026-09-06)  
 **Date**: 2026-04-09  
 **Context**: Spoke Pool Provisioner (Phase 1)  
 **Deciders**: Platform Team
 
 ---
+
+*Superseded by: ADR-062 (Onboarding and Scaffolding a Tenant)*
+
+> The dual-repository contract below is replaced. Repositories are separated by
+> what their content is -- types, cluster instances, workloads -- and `fleet-registry`
+> is the instance repository for the platform's own box rather than the shared
+> source of truth for every tenant. Reasoning that cites this ADR as live is stale:
+> it is how a published chart came to default every box's fleet source to one
+> repository no other box could read.
 
 ## Context and Problem Statement
 

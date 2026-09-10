@@ -14,6 +14,13 @@ environmentRevision: <BUNDLE_VERSION>
 
 platformRepoURL: <PLATFORM_REPO_URL>
 
+# This repository. It holds this box's cluster declarations and its per-tenant
+# values under environments/<env>/<fleet>/values.yaml, and boundaries 05 and 06 read
+# it (ADR-062). Written here because it is a fact true of this box and no other;
+# the chart carries no default, so a box that omits it refuses to render rather
+# than silently reading someone else's repository.
+instanceRepoURL: <GITOPS_REPO_URL>
+
 # Cells group this tenant's clusters for policy (ADR-064). A cell is a label:
 # it holds no compute, pins no version, and owns nothing. A cluster may belong to
 # several and receives the union of their policy.

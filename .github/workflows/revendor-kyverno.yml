@@ -39,6 +39,18 @@ jobs:
         with:
           version: v3.16.4
 
+      # kustomize is not on the runner image, and the script pipes the rendered
+      # chart through it. Pinned for the same reason Helm is: the tool decides
+      # the bytes, and the bytes are what the digest attests to.
+      - name: Install kustomize
+        run: |
+          set -euo pipefail
+          VERSION=5.4.3
+          curl -sSfL -o /tmp/kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${VERSION}/kustomize_v${VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
+          kustomize version
+
       - name: Re-render the vendored manifests
         run: ./scripts/renovate/revendor-kyverno.sh
 

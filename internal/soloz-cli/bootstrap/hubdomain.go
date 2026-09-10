@@ -41,6 +41,13 @@ type HubEndpoints struct {
 	ArgoCD    string // ArgoCD server
 	Infisical string // Infisical public endpoint
 	MCP       string // OAuth redirect target (C7)
+	Dashboard string // Headlamp
+
+	// ZitadelOrg is the domain Zitadel generates for its default organisation,
+	// and it is derived rather than skipped because the admin machine user's
+	// address is built from it: changing the zone changes that address, and a
+	// literal would let the two drift into an account nobody can authenticate as.
+	ZitadelOrg string
 
 	// VictoriaMetrics carries an extra "hub." label no other host uses. WS4 §C1
 	// requires this to be normalised or recorded as intentional; it is recorded
@@ -71,6 +78,8 @@ func DeriveHubEndpoints(zone string) HubEndpoints {
 		ArgoCD:          host("argocd"),
 		Infisical:       host("infisical"),
 		MCP:             host("mcp"),
+		Dashboard:       host("dashboard"),
+		ZitadelOrg:      host("zitadel.id"),
 		VictoriaMetrics: host("victoriametrics.hub"),
 	}
 }

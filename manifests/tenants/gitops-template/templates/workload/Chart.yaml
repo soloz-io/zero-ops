@@ -1,0 +1,27 @@
+# What one workload runs, in one environment.
+#
+# Copy this to environments/<ENVIRONMENT>/<fleet>/workloads/Chart.yaml and add one
+# dependency per application. The ApplicationSet that reconciles it derives that
+# path from the fleet's identity, so nothing here declares a repository, a
+# revision or a location (ADR-073).
+#
+# The version is the only field a build writes. An application's CI publishes its
+# own chart, then commits the new version here -- one line, in this file, for the
+# application it just published. Nothing else about the workload is written into
+# this repository: no image digest, no overlay, no rendered manifest. What runs is
+# legible from this file without fetching anything.
+apiVersion: v2
+name: <FLEET_ID>-workloads
+description: Workloads <FLEET_ID> runs in <ENVIRONMENT>
+type: application
+version: 1.0.0
+
+# `repository` is yours to choose and is deliberately not filled in here. It may
+# be a registry you run or one you buy; ADR-073 leaves it per tenant because
+# publishing your applications into the platform's registry would make the
+# platform a runtime dependency of your own code, which is a heavier commitment
+# than it looks from the one line that creates it.
+dependencies:
+  # - name: bff
+  #   repository: oci://ghcr.io/<GIT_ORG>/charts
+  #   version: 1.4.2

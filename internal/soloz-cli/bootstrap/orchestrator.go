@@ -89,6 +89,11 @@ type Orchestrator struct {
 	// This moves the platform's own cluster during development, where the
 	// alternative is rebuilding a cluster to change one string.
 	BundleVersionOverride string
+
+	// InstanceRepoURL is this box's instance repository (ADR-062): where its
+	// cluster declarations and per-tenant values live. Empty means take it from
+	// the gitops repository Day-0 is running inside; there is no other source.
+	InstanceRepoURL string
 }
 
 // providerName returns the provider's name from whichever of the two fields is
@@ -1026,11 +1031,22 @@ func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig stri
 	}
 	fmt.Println("[argocd-install] ✓ 01-platform-infra boundary activated")
 
-	// ArgoCD apps read manifests from the private soloz-io/zero-ops repo. The
-	// repo credentials must exist before any app can sync (otherwise webhook
-	// waits below block on "authentication required"). Provision them from the
-	// GitHub PAT now so the raw CLI is self-contained.
-	if err := o.ensureArgoCDGitHubAuth(ctx, kubeconfig); err != nil {
+	// ArgoCD needs credentials for the git organisation that owns this box's
+	// repositories, before any Application can sync -- otherwise the webhook waits
+	// below block on "authentication required".
+	//
+	// This is NOT the platform's repository. A released box reads none of the
+	// platform's git (ADR-063); what it does read is its own instance repository,
+	// which boundaries 05 and 06 reconcile and which is private (ADR-062). An
+	// earlier version of this skipped the credential entirely on a released run,
+	// reasoning that a released box reads nothing from git. That confused "reads
+	// nothing of the platform's" with "reads nothing", and would have left tenant
+	// fleet sync unable to read the repository it exists to reconcile.
+	orgURL, err := o.boxOrgURL()
+	if err != nil {
+		return err
+	}
+	if err := o.ensureArgoCDGitHubAuth(ctx, kubeconfig, orgURL); err != nil {
 		return fmt.Errorf("failed to configure ArgoCD GitHub access: %w", err)
 	}
 	fmt.Println("[argocd-install] ✓ ArgoCD configured + seed established")
@@ -1384,7 +1400,7 @@ func (o *Orchestrator) waitForOperatorPods(ctx context.Context, kubeconfig strin
 // ensureArgoCDGitHubAuth provisions the ArgoCD repo-creds secret (GitHub PAT)
 // so private-repo apps can sync. Token from GITHUB_TOKEN env or the local
 // k8-secrets/github/github-pat-token file.
-func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig string) error {
+func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig, orgURL string) error {
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	if githubToken == "" {
 		data, err := os.ReadFile("k8-secrets/github/github-pat-token")
@@ -1394,14 +1410,70 @@ func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig st
 		githubToken = strings.TrimSpace(string(data))
 	}
 	if githubToken == "" {
-		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot sync the private zero-ops repo")
+		return fmt.Errorf("GITHUB_TOKEN is empty — ArgoCD cannot read this box's own gitops repository")
 	}
 
 	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
-	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken); err != nil {
+	if err := ci.FixArgoCDGitHubAuth(ctx, githubToken, orgURL); err != nil {
 		return err
 	}
 	return nil
+}
+
+// instanceRepoURL returns this box's instance repository (ADR-062).
+//
+// The source is the gitops repository Day-0 is running inside, which is what
+// ADR-072 makes Day-0 run from. There is deliberately no default: any default
+// would name some other box's repository, and shipping one as a chart default is
+// how soloz-io/fleet-registry became the fallback for every box that installed
+// the published bundle.
+func (o *Orchestrator) instanceRepoURL() (string, error) {
+	if o.InstanceRepoURL != "" {
+		return o.InstanceRepoURL, nil
+	}
+	if o.GitopsDir == "" {
+		return "", fmt.Errorf("this box declares no instance repository: no " +
+			"--gitops-dir and none configured. It holds the cluster and tenant " +
+			"declarations boundaries 05 and 06 reconcile (ADR-062), and there is " +
+			"no default because a default would be another box's repository")
+	}
+	out, err := exec.Command("git", "-C", o.GitopsDir, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", fmt.Errorf("cannot read the origin remote of %s: %w.\n"+
+			"Day-0 runs inside this box's own repository (ADR-072) and takes the "+
+			"instance repository URL from it", o.GitopsDir, err)
+	}
+	repo := strings.TrimSpace(string(out))
+	if repo == "" {
+		return "", fmt.Errorf("%s has no origin remote, so this box cannot name "+
+			"the repository it reconciles", o.GitopsDir)
+	}
+	return repo, nil
+}
+
+// boxOrgURL returns the git organisation owning this box's repositories, as the
+// URL prefix an ArgoCD repo-creds secret is scoped by. Derived from the instance
+// repository rather than named, which is what lets a box live in an organisation
+// that is not the platform's.
+func (o *Orchestrator) boxOrgURL() (string, error) {
+	repo, err := o.instanceRepoURL()
+	if err != nil {
+		return "", err
+	}
+
+	// scheme://host/org, dropping the repository name. An SSH remote
+	// (git@github.com:org/repo.git) is normalised to the same shape, because that
+	// is what ArgoCD matches an HTTPS source against.
+	repo = strings.TrimSuffix(repo, ".git")
+	if strings.HasPrefix(repo, "git@") {
+		repo = "https://" + strings.Replace(strings.TrimPrefix(repo, "git@"), ":", "/", 1)
+	}
+	parts := strings.Split(repo, "/")
+	if len(parts) < 4 {
+		return "", fmt.Errorf("cannot read an organisation out of %q: expected a "+
+			"repository URL of the form https://host/org/repo", repo)
+	}
+	return strings.Join(parts[:4], "/"), nil
 }
 
 func currentGitBranch() string {

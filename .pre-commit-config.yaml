@@ -9,7 +9,7 @@ repos:
         files: 'manifests/argocd/environment-manager/.*'
       - id: schema-validate-environment-manager
         name: Kubernetes Schema Validation
-        entry: bash -c "set -o pipefail; helm template environment-manager manifests/argocd/environment-manager/ --set environmentRevision=dry-run --set environmentSlug=prod --set provider=hetzner --set topology=single --set publicTlsIssuer=letsencrypt-prod | kubeconform -summary -ignore-missing-schemas"
+        entry: bash -c "set -o pipefail; helm template environment-manager manifests/argocd/environment-manager/ --set environmentRevision=dry-run --set environmentSlug=prod --set provider=hetzner --set topology=single --set publicTlsIssuer=letsencrypt-prod --set instanceRepoURL=https://github.com/example-org/example-gitops | kubeconform -summary -ignore-missing-schemas"
         language: system
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
@@ -47,20 +47,30 @@ repos:
         files: '\.yaml$'
       - id: validate-embedded-yaml
         name: Validate Embedded YAML (stringData block scalars)
+        # always_run, because the alternative is a hook that skips on most commits
+        # and is therefore never seen to pass. The script discovers the files the
+        # pattern below selects when it is given none, so running unconditionally
+        # checks all 23 of them rather than checking nothing and reporting success.
+        always_run: true
         entry: python3 scripts/validate-embedded-yaml.py
         language: system
         pass_filenames: true
         types: [yaml]
         files: 'manifests/.*/k8s/.*\.yaml$|manifests/.*/spoke-bootstrap/.*\.yaml$|internal/assets/manifests/addons/.*\.yaml$'
       - id: kustomize-build-providers
-        name: Kustomize Build Provider Cells (hybrid + hetzner)
+        name: Kustomize Build (provider cells + spoke catalog)
         # hetzner/base is consumed by BOTH cells, so a change there must build both.
         # The previous hook watched only manifests/providers/hybrid/, so edits to
         # hetzner/base/ or hetzner/ could break ArgoCD sync ungated.
-        entry: bash -c 'for c in hybrid hetzner; do kubectl kustomize --enable-helm "manifests/providers/$c" >/dev/null || { echo "kustomize build failed for manifests/providers/$c - broken YAML will fail ArgoCD sync"; exit 1; }; done'
+        # spoke-catalog is here because it was not anywhere. It is a kustomize root
+        # of ~330 objects carrying every vendored spoke operator, and a break in it
+        # fails ArgoCD sync on every spoke -- yet no hook built it, so an edit to
+        # its kustomization or a re-vendor of one of its charts was checked by
+        # nothing until a cluster tried to sync.
+        entry: bash -c 'for d in manifests/providers/hybrid manifests/providers/hetzner manifests/spoke/spoke-catalog/infra; do kubectl kustomize --enable-helm "$d" >/dev/null || { echo "kustomize build failed for $d - broken YAML will fail ArgoCD sync"; exit 1; }; done'
         language: system
         pass_filenames: false
-        files: 'manifests/providers/(hybrid|hetzner)/.*'
+        files: 'manifests/providers/(hybrid|hetzner)/.*|manifests/spoke/spoke-catalog/.*'
       - id: hub-operator-build
         name: Build Hub Operator
         entry: bash -c "cd operators/hub-operator && make build"

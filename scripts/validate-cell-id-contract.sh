@@ -90,6 +90,7 @@ trap 'rm -f "$rendered"' EXIT
 helm template cell-id-contract "$repo_root/manifests/argocd/environment-manager" \
   --set environmentSlug=dev \
   --set provider=hybrid \
+  --set instanceRepoURL=https://github.com/example-org/example-gitops \
   --set topology=single \
   --set publicTlsIssuer=letsencrypt-prod \
   --set oidcIssuer=https://auth.example.invalid \

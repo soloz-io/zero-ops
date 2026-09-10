@@ -50,6 +50,21 @@ DISTRIBUTION_CHART = "platform"
 # runtime dependency ADR-063 forbids.
 PLATFORM_GIT = "github.com/soloz-io/zero-ops"
 
+# The organisation the platform controls. ADR-063 forbids a released bundle from
+# resolving "the platform's repository" at runtime, and the check below read that
+# as one repository -- zero-ops. It is the organisation.
+#
+# soloz-io/fleet-registry is the instance repository for the platform's OWN box
+# (ADR-062), and the environment-manager chart carried it as the default for
+# instanceRepoURL (then named fleetRegistryRepoURL). Every released bundle
+# naming a repository the platform controls and no tenant can read, through
+# several versions, past this gate -- because the string "zero-ops" was not in it.
+#
+# A tenant's own repository is not a violation: it is the box reading its own
+# state, which is what ADR-062 requires. What is forbidden is a repository on the
+# platform's side of the boundary.
+PLATFORM_ORG = "github.com/soloz-io/"
+
 
 def is_registry(url):
     """Whether a repoURL names a chart registry rather than a git repository.
@@ -104,9 +119,12 @@ def check(appset, element, spec, charts, components, problems):
         repo = source.get("repoURL", "")
         chart = source.get("chart")
 
-        # 4. Runtime dependency on the platform's own repository.
-        if repo and "github.com" in repo and "zero-ops" in repo:
-            problems.append((name, f"resolves platform git at runtime: {repo}"))
+        # 4. Runtime dependency on a repository the platform controls.
+        if repo and not is_registry(repo) and PLATFORM_ORG in repo:
+            problems.append((name, f"resolves platform git at runtime: {repo}. "
+                                   f"A released bundle carries what it needs "
+                                   f"(ADR-063); a box reads its own repository "
+                                   f"and never the platform's (ADR-062)"))
 
         # 2. A chart this release does not publish.
         if chart and repo == PLATFORM_REGISTRY and chart not in charts:

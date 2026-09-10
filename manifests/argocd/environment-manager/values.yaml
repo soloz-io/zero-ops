@@ -36,12 +36,17 @@ bundleRegistry: "ghcr.io/soloz-io/charts"
 # element -- these two values are only for the repositories the platform owns.
 platformRepoURL: "https://github.com/soloz-io/zero-ops"
 
-# The fleet runtime-state repository. ADR-004 makes this the ArgoCD source of
-# truth for tenant workloads, and ADR-047 explicitly REJECTED letting fleets
-# author external workload repositories ("BYOWR ... it contradicts the
-# dual-repository contract"). It is therefore platform-owned and never read from
-# a fleet's values file -- see the workload generator in 05-tenant-fleet-appset.
-fleetRegistryRepoURL: "https://github.com/soloz-io/fleet-registry"
+# The instance repository this control plane reconciles: the `<tenant>-gitops`
+# repository ADR-062 establishes, holding this box's cluster declarations and its
+# per-tenant values under tenants/<tenant>/<env>/values.yaml. Boundaries 05 and 06
+# read it.
+#
+# Required, and deliberately without a default. Every box has its own, so any
+# default this chart carried would name a different box's repository and travel
+# to every cluster that installed the published bundle -- a runtime reference
+# from a published bundle to a repository the platform controls, which ADR-063
+# forbids. Day-0 supplies it from the repository it runs inside (ADR-072).
+instanceRepoURL: ""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Public ingress address (ADR-046 §25.3)

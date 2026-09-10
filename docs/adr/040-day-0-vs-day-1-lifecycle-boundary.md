@@ -3,6 +3,11 @@
 **Date:** 2026-06-08
 **Status:** Accepted
 
+*Amended by: ADR-063 (The Platform Bundle and its Version)*
+
+> Day-0 is unchanged as a boundary. What Day-0 installs is a published bundle at a
+> version rather than content resolved from the platform's repository.
+
 ## Context
 
 The platform's bootstrap sequence (ADRs 003, 021, 025, 035) mixes Day-0 imperative actions with Day-1+ declarative reconciliation. The CLI creates secrets, uploads them to Infisical, injects trust anchors, and gates ArgoCD boundaries — but nowhere is there a formal definition of when Day-0 ends and Day-1 begins, what each phase may do, or how ownership transfers between them.

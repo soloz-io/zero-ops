@@ -67,20 +67,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/charts
-          published=0 refused=0
+          published=0 refused=0 broken=0
           for d in manifests/argocd/components/*/*.yaml; do
-            if ./scripts/package/component-chart.sh "$d" "${{ steps.v.outputs.version }}" dist/charts; then
-              published=$((published+1))
-            else
+            rc=0
+            ./scripts/package/component-chart.sh "$d" "${{ steps.v.outputs.version }}" dist/charts || rc=$?
+            case "$rc" in
+              0) published=$((published+1)) ;;
               # component-chart.sh exits 3 when a component's source reaches into
               # a generated/ directory. That is per-cluster instance data, and
               # publishing it would hand every cluster one cluster's values, so
               # the build fails rather than shipping it.
-              [ $? -eq 3 ] && refused=$((refused+1))
-            fi
+              3) refused=$((refused+1)) ;;
+              # Anything else is a component that did not build. This used to be
+              # counted as neither published nor refused, so the step reported
+              # success having silently dropped it: the distribution shipped
+              # without a component the boundaries enable, and the first thing to
+              # notice was the release gate two steps later -- or nothing at all,
+              # for a component no boundary happens to enable.
+              *) echo "::error::$d failed to package (exit $rc)"; broken=$((broken+1)) ;;
+            esac
           done
-          echo "packaged=$published refused=$refused"
+          echo "packaged=$published refused=$refused broken=$broken"
           [ "$refused" -eq 0 ] || { echo "::error::$refused component(s) carry per-cluster data and cannot be published"; exit 1; }
+          [ "$broken" -eq 0 ]  || { echo "::error::$broken component(s) failed to build; the distribution would be incomplete"; exit 1; }
 
       - name: Package the provider overlays and the bundle chart
         run: |
@@ -147,6 +156,7 @@ jobs:
             helm template platform-bundle dist/charts/platform-bundle \
               --set environmentSlug="$1" --set provider="$2" \
               --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
+              --set instanceRepoURL=https://github.com/example-org/example-gitops \
               --set bundleVersion="${{ steps.v.outputs.version }}" \
             | python3 scripts/validate/application-specs.py dist/charts
           done

@@ -13,7 +13,7 @@ func TestBundleVersionOverrideIsExplicit(t *testing.T) {
 	render := func(version string) string {
 		return renderSeedApplication("main", "dev", "hybrid", "", "1.2.3.4",
 			"letsencrypt-prod", "https://id.dev", "https://id.dev/jwks",
-			"proj", "client", version, nil)
+			"proj", "client", version, "https://github.com/example-org/example-gitops", nil)
 	}
 
 	// What the cluster records reaches the chart unchanged.

@@ -43,6 +43,11 @@ if [ -z "$NEW_VERSION" ]; then
   exit 1
 fi
 
+# Normalise once. Callers pass `3.9.1`, Renovate's data file passes `3.9.1`,
+# and a human types `v3.9.1`; every use below assumes the bare form and adds
+# its own `v` where one belongs.
+NEW_VERSION="${NEW_VERSION}"
+
 echo "==> Re-vendoring Kyverno v${NEW_VERSION}..."
 
 CHART_REPO="https://kyverno.github.io/kyverno"
@@ -124,28 +129,50 @@ with open('${WORK_DIR}/final-controller.yaml', 'w') as f:
     yaml.dump_all(others, f, default_flow_style=False, sort_keys=False)
 "
 
-# --- Provenance headers ---
-echo "    Updating provenance headers..."
-HEADER="# Vendored from helm chart kyverno ${NEW_VERSION} (https://kyverno.github.io/kyverno)"
-
-for f in "$WORK_DIR/final-controller.yaml" "$WORK_DIR/final-crds.yaml"; do
-  # Compute hash of the YAML content (before header is added)
-  CONTENT_HASH=$(cat "$f" | sha256sum | cut -d' ' -f1)
-  DIGEST_LINE="# sha256: ${CONTENT_HASH}"
-  YAML_CONTENT=$(cat "$f")
-  printf '%s\n%s\n%s\n' "$HEADER" "$DIGEST_LINE" "$YAML_CONTENT" > "$f"
-done
-
 # --- Version labels ---
+# Applied before the provenance headers, not after. These substitutions edit
+# the content the digest covers, so running them afterwards recorded a hash
+# of a file that no longer existed and left the verifier failing on a
+# correctly vendored artifact.
 echo "    Updating version labels..."
 perl -pi -e "s|app\.kubernetes\.io/version: .*|app.kubernetes.io/version: ${NEW_VERSION}|g" \
   "$WORK_DIR/final-controller.yaml"
 perl -pi -e "s|helm\.sh/chart: kyverno-.*|helm.sh/chart: kyverno-${NEW_VERSION}|g" \
   "$WORK_DIR/final-controller.yaml"
 
+# --- Provenance headers ---
+echo "    Updating provenance headers..."
+# The `v` prefix is load-bearing: renovate.json matches the provenance header
+# with `# Vendored from helm chart (?<depName>\S+) v(?<currentValue>\S+)`.
+# Writing the version bare here would silently drop these files out of
+# Renovate's view, so strip any caller-supplied `v` and add exactly one.
+HEADER="# Vendored from helm chart kyverno v${NEW_VERSION} (https://kyverno.github.io/kyverno)"
+
+# Written into crd.yaml only. The split exists for a reason, and the reason
+# belongs next to the artifact rather than only in the script that made it.
+CRD_NOTE="# CRDs applied at sync-wave -5 so ArgoCD establishes them before
+# operators/resources that depend on them (ADR-023)."
+
+for f in "$WORK_DIR/final-controller.yaml" "$WORK_DIR/final-crds.yaml"; do
+  # Hash the YAML content under the same rule the verifier uses
+  # (scripts/validate/verify-vendor-digest.sh: everything except `# ` lines).
+  # Hashing the raw body instead would diverge the moment a rendered chart
+  # emits a comment of its own, and the gate would fail on a correct vendor.
+  CONTENT_HASH=$(grep -v '^# ' "$f" | sha256sum | cut -d' ' -f1)
+  DIGEST_LINE="# sha256: ${CONTENT_HASH}"
+  YAML_CONTENT=$(cat "$f")
+
+  if [ "$f" = "$WORK_DIR/final-crds.yaml" ]; then
+    printf '%s\n%s\n%s\n%s\n' "$HEADER" "$CRD_NOTE" "$DIGEST_LINE" "$YAML_CONTENT" > "$f"
+  else
+    printf '%s\n%s\n%s\n' "$HEADER" "$DIGEST_LINE" "$YAML_CONTENT" > "$f"
+  fi
+done
+
 # --- Write ---
 echo "    Writing vendored files..."
 cp "$WORK_DIR/final-controller.yaml" "${SPOKE_DIR}/controller.yaml"
 cp "$WORK_DIR/final-crds.yaml" "${SPOKE_DIR}/crd.yaml"
 
-echo "==> Done. Vendored Kyverno v${NEW_VERSION} (sha256: ${DIGEST:0:16}...)"
+echo "==> Done. Vendored Kyverno v${NEW_VERSION}"
+echo "    Verify with: bash scripts/validate/verify-vendor-digest.sh"

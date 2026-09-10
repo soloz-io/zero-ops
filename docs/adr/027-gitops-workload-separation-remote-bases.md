@@ -9,6 +9,13 @@
 
 ---
 
+*Amended by: ADR-073 (Workload Delivery is Version Pinning)*
+
+> Tenant workload overlays are no longer held in a platform-owned registry
+> repository. A workload is published as a versioned chart from its own repository
+> and consumed by the tenant's gitops repository naming that version. Remote bases
+> remain available to a workload's own chart.
+
 ## Context
 
 ADR-021 introduced the BYOWR (Bring Your Own Workload Repo) pattern and the

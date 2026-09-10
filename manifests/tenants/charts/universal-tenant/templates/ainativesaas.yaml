@@ -29,13 +29,6 @@ spec:
 
   database:
     name: {{ $databaseName }}
-    migrations:
-      {{- $mig := ((.Values.database | default dict).migrations | default dict) }}
-      baseline:
-        gitRepo: {{ ($mig.baseline | default dict).gitRepo | default "https://github.com/soloz-io/zero-ops" }}
-        gitRevision: {{ ($mig.baseline | default dict).gitRevision | default "main" }}
-        gitPath: {{ ($mig.baseline | default dict).gitPath | default "migrations/tenant-baseline" }}
-      tenant: {{ ($mig.tenantSpecific | default dict).gitPath | default (printf "fleet-registry/tenants/tenant-%s/migrations/" .Values.tenantId) }}
 
   pooler:
     maxConnections: {{ $poolerMaxConn }}

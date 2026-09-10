@@ -1,5 +1,10 @@
 ### **Fleet Registry Spoke Flow Architecture (With TenantDatabase XRD)**
 
+*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant)*
+
+> The spoke flow is unchanged in mechanism. The repository it names now holds the
+> platform's own cluster instances rather than every tenant's runtime state.
+
 **Fleet Registry** → **AINativeSaaS XR (Hub)** → **TenantDatabase XR (Spoke)** → **DB Resources (Spoke)**
 
 **Flow**:

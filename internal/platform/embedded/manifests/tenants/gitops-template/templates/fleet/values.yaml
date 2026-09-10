@@ -1,0 +1,38 @@
+# What one fleet is, in one environment.
+#
+# Copy to environments/<ENVIRONMENT>/<fleet>/values.yaml. A fleet is a deployment
+# boundary that gets its own namespace, quota and public hostnames (ADR-047 as
+# amended by ADR-062). Your box may hold several.
+#
+# Boundaries 05 and 06 glob environments/*/*/values.yaml, so this file existing is
+# what makes the fleet real. Its sibling workloads/ directory says what runs in
+# it; see templates/workload/.
+#
+# This file is yours. The platform never writes it.
+
+# Required. Names the namespace (tenant-<tenantId>) and the metering labels every
+# workload in it must carry.
+tenantId: <FLEET_ID>
+
+# Required. Must match the cell-id label on the spoke cluster this fleet runs on,
+# or no Application is generated for it -- deliberately: a certificate or an XR
+# for a cell that does not exist yet is a resource nothing can reconcile.
+cellId: <CELL_ID>
+
+tier: starter
+
+# Public hostnames (ADR-051). An empty list renders nothing; an absent `hosts`
+# key fails the render loudly, which is the schema enforcement.
+public:
+  hosts: []
+
+database:
+  enabled: false
+
+resourceQuota:
+  cpu: "1000m"
+  memory: "2Gi"
+  storage: "10Gi"
+  pods: "5"
+
+ownerEmail: <OWNER_EMAIL>

@@ -3,6 +3,13 @@
 **Date:** 2026-09-07
 **Status:** Proposed
 
+*Amended by: ADR-068 (The Build Declares the Bundle Version)*
+*Constrained by: ADR-065 (The Control Plane Ships Into the Box), ADR-067 (Support Telemetry and the Basis of Maintenance)*
+
+> A promotion is a proposal raised against a tenant's repository, never an action
+> against a tenant's cluster (ADR-065). A maintenance claim is bounded by what a
+> box exports (ADR-067).
+
 ## Context
 
 ADR-063 defines the bundle and states that its version is a tag. It does not say where that tag is recorded, how it reaches a running cluster, or how it is withdrawn when the bundle is defective. A version that names a tested set but has no sanctioned path onto a cluster is a label, not a release mechanism.

@@ -78,11 +78,6 @@ resources:
   # Vendored copies of manifests/spoke/xrds + manifests/spoke/compositions.
   - tenant-db/xrd.yaml
   - tenant-db/composition.yaml
-  # ADR-023: atlas-operator (v0.7.40) — vendored CRDs + controller for spoke-side
-  # schema migrations. Vendored from ariga/atlas-operator (NOT atlasgo/*, which is
-  # a 404). CRDs: atlasmigrations.db.atlasgo.io, atlasschemas.db.atlasgo.io.
-  - atlas-operator/crd.yaml
-  - atlas-operator/controller.yaml
   # ADR-052 §7: the EphemeralJob controller. Deployed here, on the spoke,
   # because that is where the workload runs — burst nodes join the same spoke
   # cluster that already runs the tenant (§6), and the controller authors the

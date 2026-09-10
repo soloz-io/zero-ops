@@ -25,7 +25,7 @@
 # platform-ops on the fleet's owning spoke, via the tenant-public-tls chart.
 #
 # Ownership chain (each link exactly once):
-#   fleet-registry tenants/<t>/<e>/values.yaml public.hosts = hostname intent
+#   instance repo environments/<env>/<fleet>/values.yaml public.hosts = intent
 #   environment bootstrap publicTlsIssuer                  = issuer policy
 #   this ApplicationSet                                    = fan-out + rendering
 #   cert-manager                                           = certificate lifecycle
@@ -53,7 +53,7 @@ spec:
 
   generators:
     # Matrix Generator: only create applications when BOTH conditions are met:
-    # 1. Fleet values exist in Git (fleet-registry) — public.hosts key present
+    # 1. Fleet values exist in Git (this box's instance repository) — public.hosts
     #    (empty list renders zero resources; absent key breaks rendering loudly,
     #    which is the schema-enforcement mechanism).
     # 2. Target spoke cluster is registered in ArgoCD (by capi2argo) with the
@@ -62,10 +62,10 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: https://github.com/soloz-io/fleet-registry
+              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'tenants/*/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -74,10 +74,10 @@ spec:
 
   template:
     metadata:
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-public-tls'
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-public-tls'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
-        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: public-tls
 
@@ -96,7 +96,7 @@ spec:
           targetRevision: {{ .Values.bundleVersion | quote }}
           # Not folded into the distribution, and the reason is a constraint
           # rather than a preference: this Application loads a tenant-authored
-          # values file from the fleet registry, and a values file lands at the
+          # values file from the instance repository, and a values file lands at the
           # chart's root. As a subchart of the distribution its values would
           # have to nest under the subchart's name, so every tenant's file
           # would have to be rewritten and the file's shape is a published
@@ -146,8 +146,8 @@ spec:
               - name: externalDnsTarget
                 value: '{{"{{"}} (splitList ":" (trimPrefix "https://" .server)) | first {{"}}"}}'
 
-        # Source 2: Fleet registry values file ($values ref above).
-        - repoURL: https://github.com/soloz-io/fleet-registry
+        # Source 2: the instance repository's values file ($values ref above).
+        - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
           ref: values
 

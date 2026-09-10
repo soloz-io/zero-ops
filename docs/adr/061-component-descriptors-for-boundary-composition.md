@@ -3,6 +3,12 @@
 **Date:** 2026-09-05
 **Status:** Accepted
 
+*Amended by: ADR-063 (The Platform Bundle and its Version)*
+
+> Component descriptors travel inside the published bundle rather than being read
+> from this repository, so a released cluster composes its boundaries without
+> reaching for platform git.
+
 ## Context
 
 ADR-021 divides platform delivery into independent boundaries. ADR-055 establishes that boundary content is complete at all times, rendered by a single seed Application, and that activation is separately owned as a per-boundary AppProject sync window.

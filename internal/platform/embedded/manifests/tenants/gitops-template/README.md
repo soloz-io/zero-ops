@@ -6,9 +6,13 @@ everything it describes.
 
 ## Layout
 
-    clusters/<name>/bundle.yaml   the platform version this cluster runs
-    clusters/<name>/values.yaml   your configuration for it
-    templates/spoke-cluster/      render this to add a cluster
+    clusters/<name>/bundle.yaml              the platform version this cluster runs
+    clusters/<name>/values.yaml              your configuration for it
+    environments/<env>/<fleet>/values.yaml   what this fleet is: cell, quotas, hostnames
+    environments/<env>/<fleet>/workloads/    the versions of your applications it runs
+    templates/spoke-cluster/                 render this to add a cluster
+    templates/fleet/                         render this to add a fleet
+    templates/workload/                      render this to run an application
 
 ## Who writes what
 
@@ -28,6 +32,30 @@ changes nothing about what the platform may do.
 
 Copy `templates/spoke-cluster/` to `clusters/<name>/`, replace the tokens, commit.
 Your control plane provisions it.
+
+## Running an application
+
+A fleet first: copy `templates/fleet/values.yaml` to
+`environments/<env>/<fleet>/values.yaml` and fill in the fleet's id, its cell, and its
+quota. That file existing is what makes the fleet real -- your control plane globs
+for it -- and it gets the fleet a namespace, a quota and its hostnames.
+
+Then copy `templates/workload/` to `environments/<env>/<fleet>/workloads/` and add one
+dependency per application.
+
+Your application's own repository holds its source and its Helm chart, builds it,
+publishes that chart to a registry, and then commits the new version into the
+`Chart.yaml` here. That commit is the deployment: your control plane reconciles
+it on the next pass.
+
+What lives here is a version and your values -- never an image digest, an overlay
+or a rendered manifest. Two consequences are worth knowing. What you are running
+is legible from this file without resolving anything, and a rollback is an edit to
+one line, because the version you are going back to still exists in the registry.
+
+Your build writes `Chart.yaml`; you write `values.yaml`. Same division as
+`bundle.yaml` and `values.yaml` above, and for the same reason: two writers, no
+shared field, nothing to arbitrate.
 
 ## Leaving
 

@@ -5,8 +5,12 @@
 #   {fleetId}-xr       → AINativeSaaS XR on the Hub (Crossplane data plane)
 #   {fleetId}-spoke    → namespace + Tier-2 platform-rendered capabilities on the spoke
 #   tenant-{fleetId}-workloads → fleet workload app (Tier 3) on the spoke
-# Fleet values are read from fleet-registry at tenants/<tenant>/<env>/values.yaml.
-# The env slug is derived from the matched path (tenants/<tenant>/<env>/values.yaml).
+# Fleet values are read from this box's own instance repository (ADR-062) at
+# environments/<env>/<fleet>/values.yaml. Which repository that is comes from Day-0,
+# never from a default: see _instance-repo.tpl.
+# The env slug is derived from the matched path: environments/<env>/<fleet>/,
+# so the environment is segment 1. Env-first keeps every fleet in one
+# environment together, which is the axis promotion moves along (ADR-037).
 
 ---
 # ApplicationSet for fleet XRs (deployed to Hub where Crossplane runs)
@@ -32,10 +36,10 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
+              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'tenants/*/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -44,10 +48,10 @@ spec:
 
   template:
     metadata:
-      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-xr'
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-xr'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
-        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: xr
 
@@ -64,7 +68,7 @@ spec:
           targetRevision: {{ .Values.bundleVersion | quote }}
           # Not folded into the distribution, and the reason is a constraint
           # rather than a preference: this Application loads a tenant-authored
-          # values file from the fleet registry, and a values file lands at the
+          # values file from the instance repository, and a values file lands at the
           # chart's root. As a subchart of the distribution its values would
           # have to nest under the subchart's name, so every tenant's file
           # would have to be rewritten and the file's shape is a published
@@ -88,8 +92,8 @@ spec:
               - name: deployXR
                 value: "true"
 
-        # Source 2: Fleet registry values file
-        - repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
+        # Source 2: the instance repository's values file
+        - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
           ref: values
 
@@ -132,15 +136,15 @@ spec:
 
   generators:
     # Matrix Generator: only create applications when BOTH conditions are met:
-    # 1. Fleet values exist in Git (fleet-registry)
+    # 1. Fleet values exist in Git (the instance repository)
     # 2. Target spoke cluster is registered in ArgoCD (by capi2argo) with the cell-id label
     - matrix:
         generators:
           - git:
-              repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
+              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'tenants/*/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -149,10 +153,10 @@ spec:
 
   template:
     metadata:
-      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-spoke'
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-spoke'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
-        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: spoke
 
@@ -169,7 +173,7 @@ spec:
           targetRevision: {{ .Values.bundleVersion | quote }}
           # Not folded into the distribution, and the reason is a constraint
           # rather than a preference: this Application loads a tenant-authored
-          # values file from the fleet registry, and a values file lands at the
+          # values file from the instance repository, and a values file lands at the
           # chart's root. As a subchart of the distribution its values would
           # have to nest under the subchart's name, so every tenant's file
           # would have to be rewritten and the file's shape is a published
@@ -209,8 +213,8 @@ spec:
 {{- end }}
 {{- end }}
 
-        # Source 2: Fleet registry values file
-        - repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
+        # Source 2: the instance repository's values file
+        - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
           ref: values
 
@@ -244,9 +248,12 @@ spec:
             - /status
 
 ---
-# ApplicationSet for fleet application workloads (Tier 3, within fleet-registry)
-# ADR-047: workloads live in fleet-registry (the ArgoCD source of truth); the values
-# file's workloads.gitPath points at the fleet's rendered state under tenants/.
+# ApplicationSet for fleet application workloads (Tier 3).
+# ADR-073: a workload is published as a versioned chart and consumed by this
+# repository naming that version. The path below holds a Chart.yaml declaring
+# those versions as dependencies, and a values.yaml -- the same shape kubefirst
+# renders at registry/environments/<env>/<app>/. No rendered workload state, no
+# image digest and no overlay is written here by a build.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -260,14 +267,14 @@ spec:
 
   generators:
     # Matrix: only generate an application when BOTH the fleet values file
-    # exists in fleet-registry AND the target spoke cluster is registered.
+    # exists in the instance repository AND the target spoke cluster is registered.
     - matrix:
         generators:
           - git:
-              repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
+              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'tenants/*/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -276,10 +283,10 @@ spec:
 
   template:
     metadata:
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}-workloads'
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-workloads'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
-        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 2 {{"}}"}}'
+        environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         resource-type: workload
         target-cluster: '{{"{{"}} .name {{"}}"}}'
 
@@ -287,25 +294,23 @@ spec:
       project: tenant-workloads
 
       sources:
-        # Single source: the fleet's rendered workload state in fleet-registry.
+        # Single source: this box's own repository, at a path derived from the
+        # fleet's identity rather than declared by it.
         #
-        # repoURL is PLATFORM-OWNED and deliberately not read from the fleet's
-        # values file. ADR-047 rejected BYOWR ("Fleets authoring external
-        # workload repositories -- rejected; it contradicts the dual-repository
-        # contract (ADR-004) and workload separation (ADR-021/027)"), but the
-        # generator read `.workloads.gitRepo` until 2026-09-05, which handed a
-        # fleet control over WHICH repository's manifests run in its namespace.
-        # The only thing standing between that and arbitrary code was the
-        # tenant-workloads AppProject sourceRepos allowlist -- a defence-in-depth
-        # control doing load-bearing primary work.
+        # ADR-047 rejected BYOWR, and the generator read `.workloads.gitRepo`
+        # until 2026-09-05 anyway -- handing a fleet control over WHICH
+        # repository's manifests ran in its namespace, with only the
+        # tenant-workloads AppProject allowlist between that and arbitrary code.
         #
-        # A fleet still chooses its revision and path within the repository; it
-        # no longer chooses the repository. Same reasoning as oidcIssuer in the
-        # spoke generator above (ADR-050): security-relevant inputs are
-        # environment-owned, never fleet-supplied.
-        - repoURL: {{ .Values.fleetRegistryRepoURL | quote }}
-          targetRevision: '{{"{{"}} .workloads.gitRevision {{"}}"}}'
-          path: '{{"{{"}} .workloads.gitPath {{"}}"}}'
+        # ADR-073 withdraws the field rather than continuing to ignore it, and
+        # takes gitPath and gitRevision with it. A version identifies the
+        # content; a path identifies only where a copy of it was put. The path is
+        # a convention derived from the two facts the generator already holds, so
+        # a fleet chooses neither repository, revision nor location -- it chooses
+        # versions, in the Chart.yaml that path holds.
+        - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+          targetRevision: main
+          path: 'environments/{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}/{{"{{"}} .tenantId {{"}}"}}/workloads'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'

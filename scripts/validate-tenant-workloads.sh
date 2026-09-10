@@ -388,7 +388,6 @@ check_secret() {
         if [[ "$name" == *"pooler-app" ]]; then
             capture_trace "TenantDatabase list: $ns" kc_spoke get tenantdatabase -n "$ns" -o yaml
             capture_trace "Pooler list: $ns" kc_spoke get pooler -n "$ns" -o yaml
-            capture_trace "AtlasMigration list: $ns" kc_spoke get atlasmigration -n "$ns" -o yaml
             capture_trace "Spoke infrastructure app describe" kc_hub describe application "${SPOKE_NAME}-infrastructure" -n "$ARGOCD_NS"
         fi
     fi
@@ -424,29 +423,6 @@ check_ainativesaas_xr() {
         msg=$(kc_hub get ainativesaas "$name" \
             -o jsonpath='{.status.conditions[?(@.type=="Synced")].message}' 2>/dev/null || echo "")
         log_fail "AINativeSaaS XR '$name': Ready=$ready Synced=$synced${msg:+  [$msg]}"
-    fi
-}
-
-# Check AtlasMigration status on the spoke
-check_atlas_migration() {
-    local ns="$1"
-    local name="$2"
-    local ready last_applied
-    ready=$(kc_spoke get atlasmigration "$name" -n "$ns" \
-        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
-    last_applied=$(kc_spoke get atlasmigration "$name" -n "$ns" \
-        -o jsonpath='{.status.lastApplied}' 2>/dev/null || echo "0")
-
-    if [[ "$ready" == "True" ]]; then
-        log_pass "AtlasMigration $ns/$name: Ready (lastApplied=$last_applied)"
-    else
-        local msg
-        msg=$(kc_spoke get atlasmigration "$name" -n "$ns" \
-            -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
-        log_fail "AtlasMigration $ns/$name: Ready=$ready${msg:+  [$msg]}"
-        capture_trace "AtlasMigration Describe: $ns/$name" kc_spoke describe atlasmigration "$name" -n "$ns"
-        capture_trace "AtlasMigration YAML: $ns/$name" kc_spoke get atlasmigration "$name" -n "$ns" -o yaml
-        capture_ns_events "$ns"
     fi
 }
 
@@ -520,8 +496,6 @@ check_data_layer() {
     # Database credentials secret (created by TenantDatabase XR on spoke)
     check_secret "$TENANT_NS" "${TENANT_ID}-pooler-app"
 
-    # AtlasMigration (baseline + tenant-specific SQL applied)
-    check_atlas_migration "$TENANT_NS" "${TENANT_ID}-migrations"
 
     # Migration ConfigMap (created by spoke ApplicationSet from universal-tenant chart)
     check_configmap "$TENANT_NS" "tenant-${TENANT_ID}-migrations"
@@ -532,7 +506,6 @@ check_service_accounts() {
     log_section "4. SERVICE ACCOUNTS (ADR-021 Blocker 6)"
 
     # ADR-022: namePrefix bff- and frontend- are applied by Kustomize overlays.
-    # The migration-sa has no prefix (defined directly in migration-job base).
     check_serviceaccount "$TENANT_NS" "bff-workload-sa"
     check_serviceaccount "$TENANT_NS" "frontend-workload-sa"
     check_serviceaccount "$TENANT_NS" "migration-sa"

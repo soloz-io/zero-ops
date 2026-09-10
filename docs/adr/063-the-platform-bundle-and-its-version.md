@@ -3,6 +3,11 @@
 **Date:** 2026-09-07
 **Status:** Proposed
 
+*Amended by: ADR-064 (Bundle Promotion and Cell-Scoped Policy), ADR-066 (The Platform Boundary)*
+
+> How a version travels to a cluster is ADR-064. What a version certifies -- cluster
+> machinery every box runs, against capabilities a tenant selects -- is ADR-066.
+
 ## Context
 
 The platform is delivered as a set of third-party components — Crossplane, ArgoCD, Kyverno, External Secrets, CloudNativePG, cert-manager, Cilium, two Crossplane providers and several charts besides. Nothing in the decision record says how their versions are chosen, where they are recorded, or what it means to upgrade them.

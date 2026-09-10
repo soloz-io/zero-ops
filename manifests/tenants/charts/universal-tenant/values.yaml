@@ -164,22 +164,6 @@ database:
   # Schema name (auto-generated from tenantId if not specified)
   schemaName: ""
 
-  # Migrations configuration
-  migrations:
-    # Git repository URL containing migrations
-    gitRepo: "https://github.com/soloz-io/zero-ops"
-    # Git branch or tag
-    gitRevision: "main"
-    # Path to migrations directory
-    gitPath: "migrations/tenant-baseline"
-
-# Workload source (BYOWR — Bring Your Own Workload Repo)
-# Points to the tenant's application manifests (Deployments, Services, Ingress, etc.)
-# gitRevision should be a commit SHA in production, branch name in development.
-workloads:
-  gitRepo: ""
-  gitRevision: "main"
-  gitPath: ""
 
 # ADR-047 Tier 2: Platform-rendered namespaced RBAC for fleet workloads.
 # Rendered only when deployXR=false (spoke provisioning). Each entry binds a

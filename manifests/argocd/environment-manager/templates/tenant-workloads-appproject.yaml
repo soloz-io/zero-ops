@@ -1,3 +1,5 @@
+{{- include "environment-manager.assertSupported" . -}}
+---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -9,20 +11,21 @@ spec:
   # Explicit repository trust boundary for fleet overlays and approved bases.
   #
   # sourceRepos matches by EXACT STRING, so a URL and the same URL with a '.git'
-  # suffix are two different repositories here. Until 2026-09-05 this list
-  # allowlisted both spellings of zero-ops to work around the tree carrying both;
-  # the URLs are now declared once as platformRepoURL / fleetRegistryRepoURL in
-  # environment-manager values.yaml, so one spelling each is correct and a second
-  # would only re-admit the drift.
+  # suffix are two different repositories here.
   #
-  # This list is now defence in depth rather than the primary control. The
-  # workload generator pins repoURL to the platform-owned fleet-registry instead
-  # of reading it from a fleet's values file (ADR-047 rejected BYOWR), so a fleet
-  # can no longer name the repository at all -- this list is what catches a
-  # regression in that generator, not what prevents the capability.
+  # Both entries are values rather than literals. This file was a static manifest
+  # naming soloz-io's own two repositories, which every box that installed the
+  # bundle then trusted -- and no box but the platform's could read either. It is
+  # a chart template so that a box allowlists its own (ADR-062).
+  #
+  # This list is defence in depth rather than the primary control. The workload
+  # generator pins repoURL to this box's instance repository instead of reading it
+  # from a fleet's values file (ADR-047 rejected BYOWR), so a fleet cannot name a
+  # repository at all -- this list catches a regression in that generator, not the
+  # capability itself.
   sourceRepos:
-    - 'https://github.com/soloz-io/fleet-registry'
-    - 'https://github.com/soloz-io/zero-ops'
+    - {{ include "environment-manager.instanceRepoURL" . | quote }}
+    - {{ .Values.platformRepoURL | quote }}
 
   # No cluster-scoped resources — tenant workloads are namespace-scoped only.
   # Cluster-level resources (Namespaces, CRDs, ClusterRoles) are owned by

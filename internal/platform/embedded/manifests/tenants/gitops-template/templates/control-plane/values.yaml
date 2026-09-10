@@ -18,6 +18,13 @@ environmentRevision: <BUNDLE_VERSION>
 
 platformRepoURL: <PLATFORM_REPO_URL>
 
+# This repository. It holds this box's cluster declarations and its per-tenant
+# values under environments/<env>/<fleet>/values.yaml, and boundaries 05 and 06 read
+# it (ADR-062). Written here because it is a fact true of this box and no other;
+# the chart carries no default, so a box that omits it refuses to render rather
+# than silently reading someone else's repository.
+instanceRepoURL: <GITOPS_REPO_URL>
+
 # Workload selection (ADR-066). The control plane is the same in every box;
 # workloads are chosen. Selection is a value and never a version, so choosing one
 # and upgrading the bundle are independent acts.

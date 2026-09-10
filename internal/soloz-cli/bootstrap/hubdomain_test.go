@@ -65,7 +65,7 @@ func TestDerivationCoversEveryHubHostnameLiteral(t *testing.T) {
 		}
 		e := DeriveHubEndpoints(zone)
 		for _, h := range []string{e.API, e.Auth, e.ID, e.Console, e.ArgoCD, e.Infisical,
-			e.MCP, e.VictoriaMetrics, e.Zone} {
+			e.MCP, e.Dashboard, e.ZitadelOrg, e.VictoriaMetrics, e.Zone} {
 			derived[h] = true
 		}
 	}
@@ -80,7 +80,14 @@ func TestDerivationCoversEveryHubHostnameLiteral(t *testing.T) {
 	}
 	skipHost := func(h string) bool {
 		return strings.HasPrefix(h, "argocd-principal.") ||
-			strings.HasPrefix(h, "argocd-principal-internal.")
+			strings.HasPrefix(h, "argocd-principal-internal.") ||
+			// acme.<zone> is the cert-manager webhook's Kubernetes API group, not
+			// a host: it appears as groupName, as an APIService name, and as a
+			// resource group. The prefix checks above catch it where it is written
+			// as `group:` or `name:`, and miss it as `groupName:`, as a bare list
+			// item and as an env `value:`. Deriving over any of those would rename
+			// an API group and leave cert-manager unable to resolve its solver.
+			strings.HasPrefix(h, "acme.")
 	}
 
 	host := regexp.MustCompile(`[a-z0-9][a-z0-9.-]*\.nutgraf\.in`)

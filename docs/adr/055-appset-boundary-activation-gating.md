@@ -3,6 +3,11 @@
 **Date:** 2026-08-27
 **Status:** Proposed
 
+*Amended by: ADR-064 (Bundle Promotion and Cell-Scoped Policy)*
+
+> Boundary activation is unchanged. What a boundary renders is selected by the
+> bundle version the cluster pins.
+
 ## Context
 
 ADR-021 split the platform into independent boundaries for blast-radius isolation and assigned Day-0 choreography to the CLI. ADR-040 lists "gate the activation of ArgoCD boundaries" as an allowed Day-0 responsibility and defines the ownership handoff to Day-1 controllers. ADR-042 defines the phases that sequence those boundaries. ADR-038 requires that platform-owned Applications track their environment revision continuously.

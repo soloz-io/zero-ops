@@ -488,7 +488,8 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		defer roleManager.Close()
 
-		// TODO(ADR-023): Replace with Crossplane provider-sql for roles and Atlas Operator for migrations
+		// TODO(ADR-023): Replace with Crossplane provider-sql for roles. Migrations have
+		// no declarative owner since Atlas Operator was removed.
 		if err := roleManager.CreateOrUpdateRoles(ctx, hubEnv); err != nil {
 			// This phase blocks every phase after it, so the message says so.
 			// A reconcile that stops here leaves the identity provider unable to

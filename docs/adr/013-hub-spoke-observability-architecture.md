@@ -4,6 +4,11 @@
 **Status:** Accepted  
 **Authors:** Platform Engineering Team  
 
+*Constrained by: ADR-066 (The Platform Boundary)*
+
+> What the platform observes is bounded by the boundary ADR-066 draws. ADR-067
+> records the egress-only telemetry a box exports.
+
 ## Context
 
 The Zero-Ops platform operates in a hub-spoke topology. The platform requires observability across three distinct telemetry domains:

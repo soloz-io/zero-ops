@@ -61,16 +61,26 @@ jobs:
         with:
           token: ${{ secrets.GITOPS_TOKEN }}
 
+      # Deliberately unauthenticated. Day-0 needs no platform credential, and
+      # this step is where that is either true or merely claimed: fetching the
+      # release under the tenant's own GITOPS_TOKEN would spend a repository-write
+      # token on reading the platform's releases, and would only ever succeed for
+      # a tenant who had been granted access to the platform's repository. The
+      # platform publishes; the tenant downloads; neither holds anything of the
+      # other's (ADR-065).
       - name: Fetch the released platform CLI
-        env:
-          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
         run: |
           set -euo pipefail
           # The binary carries the platform content Day-0 needs (ADR-063), so
           # nothing here checks out the platform's repository.
-          gh release download "v${{ inputs.bundle-version }}" \
-            --repo soloz-io/zero-ops \
-            --pattern 'soloz-linux-amd64' --output soloz --clobber
+          url="https://github.com/soloz-io/zero-ops/releases/download/v${{ inputs.bundle-version }}/soloz-linux-amd64"
+          if ! curl -fsSL --retry 3 --retry-connrefused -o soloz "$url"; then
+            echo "::error::could not download $url"
+            echo "::error::The asset must be published on a public release. An"
+            echo "::error::unauthenticated fetch of a private repository returns 404,"
+            echo "::error::and so does a release that does not carry this asset."
+            exit 1
+          fi
           chmod +x soloz
 
           # It must be the version the cluster is being bootstrapped on. A binary

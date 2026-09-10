@@ -1,5 +1,11 @@
 # ADR 031: Tenant Secret Isolation and Identity Topology
 
+*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-064 (Bundle Promotion and Cell-Scoped Policy)*
+
+> Secret isolation is bounded by a box: a spoke cluster belongs to exactly one
+> tenant, and no secret store serves more than one. The cross-tenant reasoning
+> below describes a topology the platform no longer has.
+
 ## Status
 
 Accepted

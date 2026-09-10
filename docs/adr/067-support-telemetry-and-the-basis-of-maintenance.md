@@ -3,6 +3,11 @@
 **Date:** 2026-09-07
 **Status:** Proposed
 
+*Constrained by: ADR-065 (The Control Plane Ships Into the Box)*
+
+> Evidence crosses outward under a tenant's grant. No platform component initiates
+> a connection into a box.
+
 ## Context
 
 Maintenance of the control plane is what the platform sells. ADR-065 places that control plane inside the tenant's box and gives the platform no access to it, recording as a consequence that support, incident response and defect reproduction all depend on what a tenant reports or chooses to share.

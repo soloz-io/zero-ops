@@ -3,6 +3,13 @@
 **Date:** 2026-09-06
 **Status:** Proposed
 
+*Amended by: ADR-065 (The Control Plane Ships Into the Box), ADR-073 (Workload Delivery is Version Pinning)*
+
+> A tenant's control plane runs in that tenant's own box (ADR-065). Workload state
+> is published from a tenant-owned repository and the gitops repository holds a
+> version and values (ADR-073), which resolves the tension between the workload
+> separation asserted here and ADR-047's rejection restated here.
+
 ## Context
 
 ADR-004 establishes a dual-repository contract: platform code in `zero-ops`, tenant runtime state in `fleet-registry`. ADR-007 defines the fleet-registry spoke flow. ADR-047 defines the tenant deployment contract and rejects fleets authoring external workload repositories.

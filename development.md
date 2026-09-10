@@ -62,14 +62,19 @@ a failure points at an Application rather than at a named phase.
 
 ## Download the released CLI
 
-gh release download v0.1.9 --pattern 'soloz-darwin-arm64' --output soloz --clobber
+gh release download v0.1.11 --pattern 'soloz-darwin-arm64' --output soloz --clobber
 chmod +x soloz
 
 ## Scaffold a real tenant repo 
 
+cd /Users/arun_subramanian/Projects/soloz-io/zero-ops
+./soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
+Or from your current directory:
+/Users/arun_subramanian/Projects/soloz-io/zero-ops/soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
+
 ### Interactive
 
-soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.in
+soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
 
 Prompts for the two secrets (no echo), sets them on the tenant's repo, dispatches the bootstrap, prints the Actions URL.
 

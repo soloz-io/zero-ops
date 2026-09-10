@@ -51,28 +51,6 @@ spec:
                     type: string
                     description: "Deterministic database name: tenant-<tenantId>-db"
                     pattern: '^tenant-[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
-                  migrations:
-                    type: object
-                    properties:
-                      baseline:
-                        type: object
-                        description: "Git source for tenant baseline migrations"
-                        properties:
-                          gitRepo:
-                            type: string
-                            description: "Git repository URL"
-                          gitRevision:
-                            type: string
-                            description: "Git branch or tag"
-                            default: "main"
-                          gitPath:
-                            type: string
-                            description: "Path to migrations directory in repo"
-                            default: "migrations/tenant-baseline"
-                      tenant:
-                        type: string
-                        description: "Path to tenant-specific migrations in Git"
-                        default: "fleet-registry/tenants/{{tenantId}}/migrations/"
               pooler:
                 type: object
                 description: "PgBouncer pooler configuration"
@@ -299,6 +277,3 @@ spec:
               postgrestReady:
                 type: boolean
                 description: "True when PostgREST Deployment is Ready"
-              migrationsApplied:
-                type: boolean
-                description: "True when Atlas migrations are applied"

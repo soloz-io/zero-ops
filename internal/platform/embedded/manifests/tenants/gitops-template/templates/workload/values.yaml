@@ -1,0 +1,10 @@
+# Values for the workloads above, per application.
+#
+# This file is the tenant's. A build never writes it -- builds write versions in
+# Chart.yaml, humans write configuration here, and the two never touch the same
+# field (ADR-073, following ADR-062's division for the bundle).
+#
+# Keys are the dependency names declared in Chart.yaml.
+#
+# bff:
+#   replicaCount: 2

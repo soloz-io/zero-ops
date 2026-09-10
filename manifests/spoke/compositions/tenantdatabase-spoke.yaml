@@ -178,7 +178,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-user"
 
-          # Resource 3b: Pooler App Secret (for AtlasMigration & Workloads)
+          # Resource 3b: Pooler App Secret (for Workloads)
           # Follows ADR-003: Infisical as single source of truth (Pattern B: Application Secrets)
           # Follows ADR-030: Discrete keys + urlquery-encoded DSN + readiness gate
           - name: pooler-app-secret

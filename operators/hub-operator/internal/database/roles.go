@@ -1,8 +1,9 @@
 // DEPRECATED: This file contains imperative DDL/DCL in violation of ADR-023.
 // Database roles and grants are owned by Crossplane provider-sql.
-// Schema migrations are owned by Atlas Operator.
-// This code is retained for temporary backward compatibility only.
-// It MUST be removed once provider-sql and Atlas Operator are fully operational.
+// Schema migrations have no owner: Atlas Operator was removed from the platform
+// and nothing replaced it, so this file is the only migration path that exists.
+// It was written as a stopgap and is now load-bearing -- retire it by choosing a
+// declarative migration mechanism, not by deleting it.
 
 package database
 

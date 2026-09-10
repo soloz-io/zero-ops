@@ -10,6 +10,7 @@ import (
 
 func newConfigureGitHubAccessCmd() *cobra.Command {
 	var ghcrPAT string
+	var orgURL string
 	var kubeconfig string
 
 	cmd := &cobra.Command{
@@ -58,19 +59,24 @@ Security Note:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigureGitHubAccess(cmd, ghcrPAT, kubeconfig)
+			return runConfigureGitHubAccess(cmd, ghcrPAT, orgURL, kubeconfig)
 		},
 	}
 
 	cmd.Flags().StringVar(&ghcrPAT, "ghcr-pat", "", "GitHub Personal Access Token (used for both Git and GHCR access)")
 	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file (default: ~/.kube/config)")
+	// Scopes the credential. Required rather than defaulted: a default would be
+	// the platform's own organisation, which is what this used to hard-code and
+	// which grants a box access to nothing it owns (ADR-062).
+	cmd.Flags().StringVar(&orgURL, "org-url", "", "Git organisation the credential is scoped to, e.g. https://github.com/acme")
 
 	cmd.MarkFlagRequired("ghcr-pat")
+	cmd.MarkFlagRequired("org-url")
 
 	return cmd
 }
 
-func runConfigureGitHubAccess(cmd *cobra.Command, ghcrPAT, kubeconfig string) error {
+func runConfigureGitHubAccess(cmd *cobra.Command, ghcrPAT, orgURL, kubeconfig string) error {
 	ctx := cmd.Context()
 
 	fmt.Println("🔐 Configuring GitHub Access (Secret Zero)...")
@@ -82,7 +88,7 @@ func runConfigureGitHubAccess(cmd *cobra.Command, ghcrPAT, kubeconfig string) er
 
 	// Step 1: Create ArgoCD GitHub auth secret
 	fmt.Println("\n[1/2] Creating ArgoCD GitHub authentication secret...")
-	if err := installer.FixArgoCDGitHubAuth(ctx, ghcrPAT); err != nil {
+	if err := installer.FixArgoCDGitHubAuth(ctx, ghcrPAT, orgURL); err != nil {
 		return fmt.Errorf("failed to create ArgoCD GitHub secret: %w", err)
 	}
 
