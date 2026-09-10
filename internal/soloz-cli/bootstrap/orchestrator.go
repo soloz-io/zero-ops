@@ -768,7 +768,7 @@ const hubWorkerSelector = "hub-role=worker"
 // for the home workers its own manifests require.
 //
 // The hybrid environment pins platform-data to nodes labelled
-// workload-location=home and node-role.kubernetes.io/worker (ADR-046 §11: both
+// workload-location=on-prem and node-role.kubernetes.io/worker (ADR-046 §11: both
 // selectors are mandatory), and only a home worker carries them. Home workers
 // are opt-in, and joinHomeWorkers returns success when they were not asked for,
 // so the two settings can disagree and nothing says so.
@@ -789,7 +789,7 @@ func (o *Orchestrator) checkPlacementCapacityRequested() error {
 	}
 	return fmt.Errorf(
 		"provider is hybrid but home workers were not requested, and this cell's\n" +
-			"platform-data pins workload-location=home; nothing would ever schedule it.\n" +
+			"platform-data pins workload-location=on-prem; nothing would ever schedule it.\n" +
 			"Re-run with --on-prem --tailnet-name=<tailnet>, or bootstrap\n" +
 			"with --provider=hetzner, whose manifests pin workload-location=hetzner")
 }

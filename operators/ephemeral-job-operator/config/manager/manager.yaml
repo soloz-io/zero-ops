@@ -29,7 +29,7 @@ spec:
       # controller that lives on the capacity it is waiting for cannot report
       # that the capacity is missing.
       nodeSelector:
-        workload-location: home
+        workload-location: on-prem
         node-role.kubernetes.io/worker: ""
       securityContext:
         runAsNonRoot: true

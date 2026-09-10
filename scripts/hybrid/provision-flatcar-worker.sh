@@ -644,9 +644,9 @@ EOF
   TMP_DIR=$(mktemp -d /tmp/ignition-gen-XXXXXX)
   trap 'rm -rf "$TMP_DIR"' RETURN
 
-  local NODE_LABELS="workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
+  local NODE_LABELS="workload-location=on-prem,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
   if [[ "$CLUSTER_TARGET" == "hub" ]]; then
-    NODE_LABELS="workload-location=home,hub-role=worker,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
+    NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
   fi
 
   local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64
@@ -1418,7 +1418,7 @@ phase_monitor_and_verify() {
       # Apply node-role labels from cluster side (idempotent with kubelet --node-labels)
       if [[ "$CLUSTER_TARGET" == "hub" ]]; then
         kubectl --kubeconfig="${HUB_KUBECONFIG}" label node "${HOSTNAME}" \
-          node-role.kubernetes.io/home= node-role.kubernetes.io/worker= hub-role=worker workload-location=home --overwrite >/dev/null 2>&1 || true
+          node-role.kubernetes.io/on-prem= node-role.kubernetes.io/worker= hub-role=worker workload-location=on-prem --overwrite >/dev/null 2>&1 || true
       else
         local SPOKE_KC
         SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
@@ -1427,7 +1427,7 @@ phase_monitor_and_verify() {
               -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
               | base64 -d > "$SPOKE_KC"; then
           kubectl --kubeconfig="$SPOKE_KC" label node "${HOSTNAME}" \
-            node-role.kubernetes.io/home= node-role.kubernetes.io/worker= workload-location=home --overwrite >/dev/null 2>&1 || true
+            node-role.kubernetes.io/on-prem= node-role.kubernetes.io/worker= workload-location=on-prem --overwrite >/dev/null 2>&1 || true
           rm -f "$SPOKE_KC"
         fi
       fi

@@ -55,7 +55,7 @@ instanceRepoURL: ""
 # name because §11 forbids the halves drifting apart:
 #
 #   hetzner  workload-location=hetzner  +  hcloud-volumes
-#   hybrid   workload-location=home     +  local-path   (the on-prem class)
+#   hybrid   workload-location=on-prem     +  local-path   (the on-prem class)
 #
 # Empty means "this box's provider", which is what every box did before this
 # value existed. A hetzner box that has joined on-prem capacity sets `hybrid`

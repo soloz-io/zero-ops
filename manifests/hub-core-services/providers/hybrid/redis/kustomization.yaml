@@ -5,7 +5,7 @@ kind: Kustomization
 #
 # §11 defines exactly two classes, and each pairs a location with the only storage
 # its nodes can attach:
-#   home     workload-location: home     -> local-path      (home-lab Flatcar nodes)
+#   on-prem  workload-location: on-prem  -> local-path      (nodes on the tenant's premises)
 #   hetzner  workload-location: hetzner  -> hcloud-volumes  (Hetzner nodes)
 #
 # Mixing them is BANNED: hcloud-volumes cannot be attached by a home VM, and

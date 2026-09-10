@@ -13,7 +13,7 @@
 # Worker lifecycle split (ADR-046 §1):
 #   Home workers → unmanaged kubeadm join + hub-operator token minting (WS4)
 #   Hetzner burst workers → native CAPI, class burst-worker, scaled 0..maxNodes by cluster-autoscaler
-#   Scheduling → nodeSelector: workload-location: home (default)
+#   Scheduling → nodeSelector: workload-location: on-prem (default)
 #               burst pods carry workload-location=hetzner + the workload-class=burst
 #               toleration, written by the platform (ADR-052 §4)
 apiVersion: apiextensions.crossplane.io/v1

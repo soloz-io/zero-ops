@@ -6,7 +6,7 @@
 # Spoke API: CAPH-managed Hetzner Load Balancer (public TCP 443), same as hub/hetzner.
 #
 # Scheduling contract:
-#   Default: nodeSelector: workload-location: home
+#   Default: nodeSelector: workload-location: on-prem
 #   Burst:   nodeSelector: workload-location: hetzner (explicit)
 apiVersion: nutgraf.in/v1alpha1
 kind: SpokePool

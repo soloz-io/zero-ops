@@ -118,6 +118,35 @@ and this ADR does not pretend otherwise.
 
 Stateless workloads have no such constraint and may follow placement freely.
 
+### Losing an on-prem node is a restore, not a failover
+
+An on-prem node can leave at any time -- someone's power, someone's network, a
+machine repurposed. What that costs depends on what was placed there.
+
+**Stateless workloads reschedule.** A hetzner box keeps its cloud workers whether
+or not the capability is enabled, so capacity to reschedule onto already exists.
+Nothing is provisioned in response, because nothing needs to be.
+
+**Stateful workloads must be restored.** The on-prem class stores on `local-path`,
+which is node-local and destroyed with its node, and the hub database runs a single
+instance. So losing that node loses the primary and its volume together, and the
+object-store archive is the only remaining copy. The sequence is: return
+`placement.class` to the cloud class, rebuild the database from the archive
+(`manifests/hub-core-services/database-recovery`), and let it come up on the cloud
+workers that were there all along.
+
+**This bounds data loss; it does not eliminate it.** Recovery restores to the last
+archived WAL, and whatever was written after that is gone. A claim of no data loss
+would require a second instance on a second node so a replica can be promoted --
+that is a topology decision under ADR-070, and this decision does not make it. What
+this decision guarantees is that the loss is bounded and recoverable rather than
+silent: the alternative, which is what the platform did before, was a replacement
+database initialising EMPTY and reporting Healthy.
+
+Neither step is automatic, and that is deliberate. A node that has gone missing for
+ninety seconds is not a node that has left, and a platform that rebuilt a database
+on that evidence would destroy more data than it saved.
+
 ### What this does not make instantaneous
 
 **Nodes already joined do not gain a tailnet address.** `preKubeadmCommands` runs once, at join. Enabling the capability enrols every node that joins afterwards; existing nodes keep the addresses they registered with. Where that matters is the control plane: ADR-046 §21 requires the hub CP on the tailnet for cross-node pod traffic to on-prem nodes, so a box enabling this after its control plane exists must replace those nodes to complete the arrangement.

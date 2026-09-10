@@ -40,7 +40,7 @@ validate_hub_placement_capacity() {
         else
             notready+=("${line%%=*}")
         fi
-    done < <(kc get nodes -l 'workload-location=home,node-role.kubernetes.io/worker' \
+    done < <(kc get nodes -l 'workload-location=on-prem,node-role.kubernetes.io/worker' \
         -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}')
 
     if (( ready >= 1 )); then
@@ -55,7 +55,7 @@ validate_hub_placement_capacity() {
     # A Ready node that cannot be scheduled onto is the same outage with a friendlier
     # status, so cordon is checked separately rather than folded into Ready.
     local schedulable
-    schedulable=$(kc get nodes -l 'workload-location=home,node-role.kubernetes.io/worker' \
+    schedulable=$(kc get nodes -l 'workload-location=on-prem,node-role.kubernetes.io/worker' \
         -o jsonpath='{range .items[?(@.spec.unschedulable==true)]}{.metadata.name}{"\n"}{end}' | grep -c . || true)
     if [[ "${schedulable:-0}" -eq 0 ]]; then
         pass "hub home worker is schedulable"

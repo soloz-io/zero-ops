@@ -71,7 +71,7 @@ spec:
           # ON-PREM ONLY — the entry below exists because the box has nodes on the
           # tenant's own premises. A box with none has nothing to run it on, and
           # shipping it there is actively harmful: the provisioner requires
-          # workload-location=home, so the DaemonSet schedules zero pods and
+          # workload-location=on-prem, so the DaemonSet schedules zero pods and
           # leaves a local-path StorageClass with nothing behind it — any PVC
           # naming it would hang for ever with no obvious cause.
           #

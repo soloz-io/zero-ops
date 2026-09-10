@@ -131,7 +131,7 @@ spec:
               - matchExpressions:
                   - key: workload-location
                     operator: In
-                    values: ["home"]
+                    values: ["on-prem"]
       containers:
         - name: local-path-provisioner
           image: rancher/local-path-provisioner:v0.0.30

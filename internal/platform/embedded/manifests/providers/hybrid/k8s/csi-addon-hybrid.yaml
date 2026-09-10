@@ -5,14 +5,14 @@
 #
 # Changes vs. the shared template (ADR-046 §11 "CSI daemonset boundary"):
 #   1. hcloud-csi-node DaemonSet: nodeAffinity gains `required NotIn
-#      workload-location: home` — a home worker must NEVER run the Hetzner CSI
+#      workload-location: on-prem` — an on-prem node must NEVER run the Hetzner CSI
 #      node driver (no block devices).
-#   2. local-path-provisioner DaemonSet: `required In workload-location: home`,
+#   2. local-path-provisioner DaemonSet: `required In workload-location: on-prem`,
 #      hostPath /opt/local-path-provisioner (node-local storage for the home
 #      placement class).
 #   3. local-path StorageClass (WaitForFirstConsumer, reclaimPolicy Delete, NOT
 #      default). hcloud-volumes REMAINS the default class in hybrid cells —
-#      a bare PVC on a home worker must Pending, not silently take local-path.
+#      a bare PVC on an on-prem node must Pending, not silently take local-path.
 #
 # Resource-set Secret consumed by the spokepool-hybrid CRS (same contract as
 # cilium-addon-hybrid).
@@ -167,7 +167,7 @@ stringData:
                   - key: workload-location
                     operator: NotIn
                     values:
-                    - home
+                    - on-prem
           tolerations:
             - effect: NoExecute
               operator: Exists
@@ -477,7 +477,7 @@ stringData:
                   - key: workload-location
                     operator: In
                     values:
-                    - home
+                    - on-prem
           tolerations:
             - effect: NoExecute
               operator: Exists

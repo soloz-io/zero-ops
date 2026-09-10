@@ -187,7 +187,7 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	//
 	// The hub's workers are the Flatcar home-lab nodes: provision-flatcar-worker.sh
 	// joins them with hub-role=worker + node-role.kubernetes.io/worker +
-	// workload-location=home when its target cluster is "hub" (see home-lab.env,
+	// workload-location=on-prem when its target cluster is "hub" (see home-lab.env,
 	// where flatcar-hub-node-1 is registered against the hub).
 	//
 	// Overriding here rather than in HetznerDriver keeps the tested pure-Hetzner
