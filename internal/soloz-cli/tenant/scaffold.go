@@ -402,6 +402,36 @@ func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
 	remote := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git",
 		cred.Token, s.GitOrg, s.RepoName())
 
+	// A repository that already has history is not scaffolded over.
+	//
+	// This check used to be a claim: the caller said pushing was "refused below
+	// if it already has history", and nothing below refused it. What actually
+	// stopped it was GitHub rejecting a non-fast-forward push, which is a
+	// different thing -- it produced a raw git error advising `git pull`, which
+	// would merge a tenant's box into a freshly rendered template. Safe by
+	// accident, and unreadable.
+	//
+	// ADR-062: scaffolding happens once and the repository is a starting state
+	// rather than a fork. Re-rendering one that exists is not a resume, it is a
+	// second starting state for a box that already has one.
+	ls := exec.CommandContext(ctx, "git", "ls-remote", "--heads", remote)
+	out, err := ls.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git ls-remote: %w: %s", err,
+			strings.ReplaceAll(string(out), cred.Token, "***"))
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return fmt.Errorf("%s/%s already has commits, so it is not scaffolded again.\n"+
+			"Scaffolding produces a starting state, not a fork (ADR-062), and pushing\n"+
+			"this render over an existing box would replace declarations its clusters\n"+
+			"are reconciling.\n\n"+
+			"  To re-scaffold from scratch: delete the repository, then run this again.\n"+
+			"  To inspect what would be written: re-run with --dry-run --out <dir>.\n"+
+			"  To bootstrap the box that is already there: dispatch its own\n"+
+			"  bootstrap-cluster workflow rather than scaffolding.",
+			s.GitOrg, s.RepoName())
+	}
+
 	steps := [][]string{
 		{"init", "-q", "-b", "main"},
 		{"add", "."},

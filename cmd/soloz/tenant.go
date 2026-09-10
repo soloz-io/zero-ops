@@ -135,11 +135,12 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	kind := "personal access token"
-	if cred.IsApp {
-		kind = "app installation token"
-	}
-	fmt.Printf("[scaffold] authenticating with %s from %s\n", kind, cred.Source)
+	// Deliberately not announced. Naming the credential's source printed the
+	// filesystem path of a secret file to the terminal and to whatever collects
+	// it, for no decision the operator makes: the lines that follow say whether
+	// the repository was created and pushed, which is the only thing the
+	// authentication outcome affects. A failure still names the source, because
+	// there the path is the fix.
 
 	existed, err := tenant.CreateRepo(ctx, scaffoldSpec, cred)
 	if err != nil {
@@ -147,9 +148,9 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 	if existed {
 		// Resumable rather than fatal: a run that failed after creating the
-		// repository must be able to continue. Pushing into it is still refused
-		// below if it already has history, so this cannot overwrite a tenant's
-		// work.
+		// repository but before pushing must be able to continue. Publish refuses
+		// once the repository has commits, so a repository that was only created
+		// is resumed and one that was scaffolded is not overwritten.
 		fmt.Printf("[scaffold] %s/%s already exists; continuing\n", scaffoldSpec.GitOrg, scaffoldSpec.RepoName())
 	} else {
 		fmt.Printf("[scaffold] created %s/%s\n", scaffoldSpec.GitOrg, scaffoldSpec.RepoName())
