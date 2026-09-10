@@ -31,8 +31,13 @@ on:
       environment:
         required: true
         default: <ENVIRONMENT>
+      on-prem:
+        description: Accept nodes on your own premises, joining over your tailnet.
+        required: false
+        type: boolean
+        default: false
       tailnet:
-        description: Your Tailscale tailnet, e.g. acme.ts.net. Hybrid only.
+        description: Your Tailscale tailnet, e.g. acme.ts.net. Required with on-prem.
         required: false
         default: ''
 
@@ -61,11 +66,12 @@ jobs:
       region: ${{ inputs.region }}
       environment: ${{ inputs.environment }}
       bundle-version: <BUNDLE_VERSION>
+      on-prem: ${{ inputs.on-prem }}
       tailnet: ${{ inputs.tailnet }}
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
-      # Only the hybrid provider reads this. Set it on this repository if your
-      # clusters run home-lab workers: the control plane and those workers join
-      # your tailnet from this one key (ADR-046).
+      # Read only when on-prem is enabled. Set it on this repository if this
+      # cluster accepts nodes on your own premises: the control plane and those
+      # nodes join your tailnet from this one key (ADR-046, ADR-075).
       TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}

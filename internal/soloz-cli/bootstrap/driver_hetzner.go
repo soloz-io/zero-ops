@@ -31,7 +31,16 @@ type HetznerDriver struct {
 
 // ── CloudDriver interface ──────────────────────────────────────────────────
 
-func (d *HetznerDriver) Name() string   { return "hetzner" }
+func (d *HetznerDriver) Name() string { return "hetzner" }
+
+// CiliumAddonPath is the shared spoke-bootstrap template: hetzner's hub installs
+// exactly what its spokes install. Its config base declares external-envoy-proxy
+// false and gateway-api-hostnetwork-enabled false, and this artifact ships only
+// the cilium DaemonSet -- no standalone cilium-envoy, no mangle guard. The two
+// agree, which is what the hybrid cell needed its own artifact to achieve.
+func (d *HetznerDriver) CiliumAddonPath() string {
+	return "manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml"
+}
 func (d *HetznerDriver) OSType() string { return d.OS }
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────

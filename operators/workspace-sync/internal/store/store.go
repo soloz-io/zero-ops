@@ -350,6 +350,19 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		CreatedAt:   time.Now().UTC(),
 	}
 
+	// Phase timing, reported once at the end.
+	//
+	// A checkpoint of 18 files was measured at 101.8 seconds by its caller,
+	// and this function logged one line — the completion — so there was no way
+	// to tell which phase spent the time. The file count in that line is the
+	// MANIFEST's, which counts only what the walk kept; the archive below is
+	// built from the whole tree, and the two uploads that follow are of that
+	// archive rather than of those files. Attributing the cost needs the
+	// phases separated, so they are.
+	tStart := time.Now()
+	var uploadedFiles, dedupedFiles int
+	var uploadedBytes int64
+
 	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -376,8 +389,15 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		if err != nil {
 			return err
 		}
-		if err := s.putIfAbsent(ctx, hash, p, size); err != nil {
+		put, err := s.putIfAbsent(ctx, hash, p, size)
+		if err != nil {
 			return fmt.Errorf("upload %s: %w", rel, err)
+		}
+		if put {
+			uploadedFiles++
+			uploadedBytes += size
+		} else {
+			dedupedFiles++
 		}
 		m.Entries = append(m.Entries, Entry{Path: rel, Hash: hash, Mode: uint32(info.Mode().Perm()), Size: size})
 		return nil
@@ -385,6 +405,8 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	if err != nil {
 		return nil, err
 	}
+	tObjects := time.Since(tStart)
+
 	sort.Slice(m.Entries, func(i, j int) bool { return m.Entries[i].Path < m.Entries[j].Path })
 
 	// Refuse to checkpoint an empty tree over a workspace that has content.
@@ -432,6 +454,7 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	if err := s.setLatest(ctx, m.ID); err != nil {
 		return nil, err
 	}
+	tManifest := time.Since(tStart) - tObjects
 
 	// Create and upload the squashfs archive for O(1) restore (§14.2).
 	//
@@ -444,9 +467,17 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	// valid checkpoint — it just restores the slow way. Failing the snapshot
 	// here would throw away work that is already safely uploaded.
 	archivePath := filepath.Join(s.staging, "snapshot-"+m.ID+".sqsh")
+	tBeforeArchive := time.Since(tStart)
+	var tArchiveCreate, tArchiveUpload time.Duration
+	var archiveBytes int64
 	if err := s.CreateArchive(ctx, root, archivePath); err != nil {
 		log.Printf("WARNING: squashfs archive creation failed — this checkpoint will restore file-by-file: %v", err)
+		tArchiveCreate = time.Since(tStart) - tBeforeArchive
 	} else {
+		tArchiveCreate = time.Since(tStart) - tBeforeArchive
+		if st, statErr := os.Stat(archivePath); statErr == nil {
+			archiveBytes = st.Size()
+		}
 		if err := s.UploadArchive(ctx, archivePath); err != nil {
 			log.Printf("WARNING: squashfs archive upload failed: %v", err)
 		}
@@ -454,6 +485,7 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		if err := s.UploadCheckpointArchive(ctx, m.ID, archivePath); err != nil {
 			log.Printf("WARNING: checkpoint archive upload failed: %v", err)
 		}
+		tArchiveUpload = time.Since(tStart) - tBeforeArchive - tArchiveCreate
 		os.Remove(archivePath)
 	}
 
@@ -464,9 +496,29 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	// surplus. Failure is logged, not returned: a checkpoint that was written
 	// successfully must not be reported as failed because cleaning up an older
 	// one did not work.
+	tBeforePrune := time.Since(tStart)
 	if err := s.Prune(ctx); err != nil {
 		log.Printf("WARNING: checkpoint retention failed (storage will keep growing): %v", err)
 	}
+	tPrune := time.Since(tStart) - tBeforePrune
+
+	// One line, every phase, always — not only when something is slow.
+	// A duration is only meaningful next to the ones it is competing with,
+	// and a threshold would have hidden the 101.8s case behind whichever
+	// number someone guessed at the time.
+	log.Printf(
+		"checkpoint %s timing: objects=%s (uploaded %d/%d files, %d bytes; %d deduped) "+
+			"manifest=%s archive-create=%s archive-upload=%s (%d bytes) prune=%s total=%s",
+		m.ID,
+		tObjects.Round(time.Millisecond),
+		uploadedFiles, uploadedFiles+dedupedFiles, uploadedBytes, dedupedFiles,
+		tManifest.Round(time.Millisecond),
+		tArchiveCreate.Round(time.Millisecond),
+		tArchiveUpload.Round(time.Millisecond),
+		archiveBytes,
+		tPrune.Round(time.Millisecond),
+		time.Since(tStart).Round(time.Millisecond),
+	)
 
 	return m, nil
 }
@@ -605,18 +657,23 @@ func (s *Store) Prune(ctx context.Context) error {
 //
 // Existing-and-identical is success, not a conflict: the key IS the content
 // hash, so an object that is already there is by definition the same bytes.
-func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) error {
+// putIfAbsent uploads the file unless the object store already has its
+// content. Reports whether an upload actually happened, so a caller can tell
+// the cost of a checkpoint from the cost of its dedup.
+func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) (bool, error) {
 	key := s.objectKey(hash)
 	if _, err := s.c.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{}); err == nil {
-		return nil
+		return false, nil
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer f.Close()
-	_, err = s.c.PutObject(ctx, s.bucket, key, f, size, minio.PutObjectOptions{})
-	return err
+	if _, err := s.c.PutObject(ctx, s.bucket, key, f, size, minio.PutObjectOptions{}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 const latestPointer = "/checkpoints/LATEST"

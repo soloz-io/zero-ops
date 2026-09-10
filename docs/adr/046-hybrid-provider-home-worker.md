@@ -3,6 +3,23 @@
 **Date:** 2026-08-12
 **Status:** Accepted
 
+*Amended by: ADR-075 (On-Prem Nodes are a Capability, Not a Provider)*
+
+> `hybrid` is withdrawn as a provider in principle and **retained in code** until a
+> `hetzner` box has run on-prem nodes end to end; ADR-075 names that exit
+> condition. Everything below therefore still describes a working cell.
+>
+> The arrangement this ADR names is, in the new vocabulary, `provider: hetzner`
+> with the `onPrem` capability enabled -- selectable at any point in a cluster's
+> life. Two of the datapath settings specified here per-provider are now
+> platform-wide: every box runs `mtu: 1200` with `tailscale0` named in `devices`,
+> so enabling on-prem nodes never requires a datapath change. The rest of this
+> cell's Cilium configuration is NOT unified; it carries hostNetwork Gateway mode
+> and decoupled Envoy, which ADR-075 leaves as a separate question.
+>
+> Every invariant below stands, invariant 6 and §21 included. "Home worker" and
+> "home node" throughout this ADR mean an on-prem node.
+
 ## Context
 
 The platform historically used CAPD (Cluster API Provider Docker) for local

@@ -31,6 +31,11 @@ PATHS=(
     "manifests/argocd/components"
     # The tenant scaffolding template (tenant/scaffold.go).
     "manifests/tenants/gitops-template"
+    # The Cilium workloads a hetzner hub installs (provider_cloud.go, via
+    # HetznerDriver.CiliumAddonPath). One file rather than the directory: the
+    # rest of spoke-bootstrap is delivered to spokes by ClusterResourceSet and is
+    # never read by the CLI, and the directory is 1.7M against this file's 0.9M.
+    "manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml"
 )
 
 rm -rf "$DEST"

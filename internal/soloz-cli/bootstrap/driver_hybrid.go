@@ -34,9 +34,9 @@ type HybridDriver struct {
 	// Used to construct the spoke controlPlaneEndpoint MagicDNS name.
 	TailnetName string
 
-	// HomeWorkerEnabled controls whether the home-worker join flow is
+	// OnPremEnabled controls whether the home-worker join flow is
 	// activated in the hub-operator (reconcileHomeWorkerJoin).
-	HomeWorkerEnabled bool
+	OnPremEnabled bool
 
 	// HomeWorkerTTL is the bootstrap-token TTL for home worker join
 	// credentials (e.g. "24h"). Used by hub-operator token minting.
@@ -50,11 +50,19 @@ type HybridDriver struct {
 
 func (d *HybridDriver) Name() string { return "hybrid" }
 
-// HomeWorkersRequested reports whether this cell expects home-lab worker nodes.
-// The orchestrator's home-worker-join phase keys off this: only a hybrid cell that
+// CiliumAddonPath is this cell's own artifact. It carries the standalone
+// cilium-envoy DaemonSet (ADR-046 addendum 10) and the hostNetwork mangle guard
+// (addenda 8 and 27), which its config base requires and the shared template does
+// not ship.
+func (d *HybridDriver) CiliumAddonPath() string {
+	return "manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml"
+}
+
+// OnPremRequested reports whether this cell expects home-lab worker nodes.
+// The orchestrator's on-prem-join phase keys off this: only a hybrid cell that
 // asked for home workers has one to wait for. Hetzner cells do not implement it.
-func (d *HybridDriver) HomeWorkersRequested() bool { return d.HomeWorkerEnabled }
-func (d *HybridDriver) OSType() string             { return d.Driver.OSType() }
+func (d *HybridDriver) OnPremRequested() bool { return d.OnPremEnabled }
+func (d *HybridDriver) OSType() string        { return d.Driver.OSType() }
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
 // Reuse Hetzner preflight (token, region, SSH key). Tailscale connectivity
@@ -94,7 +102,7 @@ func (d *HybridDriver) OnCAPIInit(ctx context.Context, kubeconfig, kubeContext, 
 	// kubelet --node-ip from it, but it reads the credentials from this Secret —
 	// which must therefore exist in the BOOTSTRAP cluster before the hub Cluster is
 	// created. That is why this runs at capi-init rather than post-bootstrap.
-	if !d.HomeWorkerEnabled {
+	if !d.OnPremEnabled {
 		fmt.Println("[capi-init] Home workers disabled — leaving tailscale credentials empty")
 		return nil
 	}
@@ -194,8 +202,8 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	// Zero Hetzner workers means SOMETHING else has to be able to run the platform,
 	// or every workload sits Pending and the bootstrap hangs.
 	//
-	// With --home-worker-enabled the home-lab nodes are that something: the
-	// home-worker-join phase brings one up before boundary-01, and the control
+	// With --on-prem the home-lab nodes are that something: the
+	// on-prem-join phase brings one up before boundary-01, and the control
 	// plane keeps its taint exactly as ADR-046 §11 / ADR-014 require ("every
 	// stateful workload runs on worker nodes only, control-plane nodes keep
 	// control-plane:NoSchedule"). Untainting it here would re-create the failure
@@ -205,7 +213,7 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	// Without home workers there is no other node at all, so the control plane has
 	// to carry the platform and is registered without the taint.
 	cfg.WorkerReplicas = 0
-	cfg.ControlPlaneSchedulable = !d.HomeWorkerEnabled
+	cfg.ControlPlaneSchedulable = !d.OnPremEnabled
 
 	// The cilium operator declares hostPorts, so its two replicas cannot share one
 	// node; on a single-node hub the second would sit Pending forever and register
@@ -225,7 +233,7 @@ func (d *HybridDriver) PopulateClusterConfig(cfg *cluster.Config) {
 
 	// Wire home-worker config into cluster.Config (read by hub-operator: WS4).
 	cfg.HomeWorker = cluster.HomeWorkerConfig{
-		Enabled:     d.HomeWorkerEnabled,
+		Enabled:     d.OnPremEnabled,
 		TTL:         d.HomeWorkerTTL,
 		TailnetName: d.TailnetName,
 	}

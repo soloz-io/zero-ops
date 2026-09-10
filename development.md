@@ -40,7 +40,7 @@ a failure points at an Application rather than at a named phase.
 
 ## Release
 
-- gh release create v0.1.12 --generate-notes
+- gh release create v0.1.14 --generate-notes
 - gh run watch
 
 - ./bin/soloz reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \

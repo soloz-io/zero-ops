@@ -95,7 +95,7 @@ func runConfigureTailscale(cmd *cobra.Command, authkey, hostname, kubeconfig str
 	fmt.Println("1. hub-operator uploads tailscale-hybrid-psk to Infisical on next reconcile")
 	fmt.Println("2. ESO syncs it back (tailscale-authkey / tailscale-hostname)")
 	fmt.Println("3. Delete any stuck hybrid spoke so CAPI recreates the CP with the pre-kubeadm join")
-	fmt.Println("4. Run home-worker-join.sh on home nodes once the spoke CP is Ready")
+	fmt.Println("4. Run on-prem-join.sh on home nodes once the spoke CP is Ready")
 
 	return nil
 }

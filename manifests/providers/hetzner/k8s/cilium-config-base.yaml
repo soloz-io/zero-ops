@@ -76,7 +76,18 @@ data:
   tunnel-protocol: vxlan
   tunnel-source-port-range: 0-0
   service-no-backend-response: reject
-  mtu: '1230'
+  # 1200, not Cilium's stock 1230, on every box regardless of provider (ADR-075).
+  #
+  # 1230 + 50B VXLAN is a 1280-byte outer packet -- exactly tailscale0's MTU, with
+  # zero headroom, which is what ADR-046 §6 recorded before dropping to 1200 for
+  # the hybrid cell. 1200 gives 1250 and fits strictly inside.
+  #
+  # It is set here even where no node reaches the tailnet today, because MTU is the
+  # one datapath setting that cannot change on a live cluster without restarting
+  # every agent. Fixing it at the value that works everywhere is what lets a tenant
+  # enable on-prem nodes later without a maintenance window; the cost is ~2.4% of
+  # payload on a box that never does.
+  mtu: '1200'
   enable-l7-proxy: 'true'
   enable-ipv4-masquerade: 'true'
   enable-ipv4-big-tcp: 'false'
@@ -91,7 +102,11 @@ data:
   auto-direct-node-routes: 'false'
   direct-routing-skip-unreachable: 'false'
   enable-local-redirect-policy: 'false'
-  enable-runtime-device-detection: 'true'
+  # Named rather than detected, and tailscale0 is listed whether or not it exists
+  # (ADR-075). A wildcard that matches nothing costs nothing, and an agent will not
+  # use an interface that appeared after it started -- so a box that gains an
+  # on-prem node later would otherwise need every agent restarted to see it.
+  devices: eth+ enp+ tailscale0
   kube-proxy-replacement: 'true'
   kube-proxy-replacement-healthz-bind-address: ''
   bpf-lb-sock: 'false'

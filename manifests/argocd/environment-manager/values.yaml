@@ -48,6 +48,18 @@ platformRepoURL: "https://github.com/soloz-io/zero-ops"
 # forbids. Day-0 supplies it from the repository it runs inside (ADR-072).
 instanceRepoURL: ""
 
+# On-prem nodes (ADR-075): machines on the tenant's own premises, joining over
+# their tailnet. A selectable capability (ADR-066), not a property of the
+# provider, and revisable at any point in a cluster's life -- the datapath every
+# box runs is already sized for it (mtu 1200, tailscale0 named in devices), so
+# enabling it changes nothing cluster-wide.
+#
+# The tenant supplies these in their cluster's values file. Default off, because
+# a box with no machines of its own has nothing to join.
+onPrem:
+  enabled: false
+  tailnet: ""
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public ingress address (ADR-046 §25.3)
 # ──────────────────────────────────────────────────────────────────────────────

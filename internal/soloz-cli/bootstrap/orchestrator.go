@@ -234,7 +234,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// itself, in the same ClusterResourceSet addon (ADR-041), so the operator
 	// settles and this node reaches Ready without anything having to be installed
 	// on the cluster first.
-	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseHomeWorkerJoin, "home-worker-join",
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseOnPremJoin, "on-prem-join",
 		"Joining home-lab worker(s) to the hub...",
 		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
 		nil,
@@ -713,7 +713,7 @@ func (o *Orchestrator) persistTenantState(ctx context.Context, label string) err
 // hubKubeconfigFromBootstrap persists the hub's admin kubeconfig by reading the
 // CAPI-generated Secret out of the bootstrap cluster.
 //
-// Needed because home-worker-join runs BEFORE pivot-move, and pivot-move is what
+// Needed because on-prem-join runs BEFORE pivot-move, and pivot-move is what
 // normally writes this file. The control plane is up by this point, so the Secret
 // already exists.
 //
@@ -783,21 +783,21 @@ func (o *Orchestrator) checkPlacementCapacityRequested() error {
 	if o.providerName() != "hybrid" {
 		return nil
 	}
-	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
-	if ok && hw.HomeWorkersRequested() {
+	hw, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if ok && hw.OnPremRequested() {
 		return nil
 	}
 	return fmt.Errorf(
 		"provider is hybrid but home workers were not requested, and this cell's\n" +
 			"platform-data pins workload-location=home; nothing would ever schedule it.\n" +
-			"Re-run with --home-worker-enabled --tailnet-name=<tailnet>, or bootstrap\n" +
+			"Re-run with --on-prem --tailnet-name=<tailnet>, or bootstrap\n" +
 			"with --provider=hetzner, whose manifests pin workload-location=hetzner")
 }
 
 func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) error {
-	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
-	if !ok || !hw.HomeWorkersRequested() {
-		fmt.Println("[home-worker-join] Not a home-worker cell — skipping")
+	hw, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if !ok || !hw.OnPremRequested() {
+		fmt.Println("[on-prem-join] Not a home-worker cell — skipping")
 		return nil
 	}
 
@@ -809,7 +809,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed
 	// bootstrap must not pay that again for a node that is already serving.
 	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
-		fmt.Printf("[home-worker-join] ✓ %s already Ready — skipping provisioning\n", name)
+		fmt.Printf("[on-prem-join] ✓ %s already Ready — skipping provisioning\n", name)
 		return nil
 	}
 
@@ -820,8 +820,8 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 			"    ./scripts/hybrid/provision-flatcar-worker.sh --cluster hub", script)
 	}
 
-	fmt.Println("[home-worker-join] Running provision-flatcar-worker.sh --cluster hub")
-	fmt.Println("[home-worker-join] (Hyper-V VM creation over SSH — this takes several minutes)")
+	fmt.Println("[on-prem-join] Running provision-flatcar-worker.sh --cluster hub")
+	fmt.Println("[on-prem-join] (Hyper-V VM creation over SSH — this takes several minutes)")
 
 	cmd := exec.CommandContext(ctx, "bash", script, "--cluster", "hub")
 	cmd.Stdout = os.Stdout
@@ -837,7 +837,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	// The script has its own Ready gate, but the cluster's view is what the next
 	// phase depends on, so confirm it here too.
 	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
-		fmt.Printf("[home-worker-join] ✓ %s Ready\n", name)
+		fmt.Printf("[on-prem-join] ✓ %s Ready\n", name)
 		return nil
 	}
 	return fmt.Errorf("provisioning reported success but no Ready node carries %s;\n"+
@@ -1014,7 +1014,7 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // to sync via ArgoCD before the Cilium operator init container times out.
 //
 // Uses the hub kubeconfig extracted from the bootstrap cluster's CAPI secret
-// (same mechanism as home-worker-join). The hub API is already up after
+// (same mechanism as on-prem-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
 	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
@@ -1062,7 +1062,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	// in Phase 5a (installArgoCDAndSeed). This phase waits for the operators
 	// that boundary 01 delivers to become ready — webhooks, CRDs, and pods.
 	// Those operators may need the worker to be Ready, which is why this runs
-	// after home-worker-join.
+	// after on-prem-join.
 
 	// ADR-061: boundary 01 was ACTIVATED in Phase 5a, but nothing has yet
 	// confirmed it produced anything. This is the first point where that can be

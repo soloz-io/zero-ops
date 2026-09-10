@@ -27,3 +27,20 @@ instanceRepoURL: <GITOPS_REPO_URL>
 cells: []
 
 workloads: {}
+# On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
+# over your Tailscale tailnet.
+#
+# A capability, not a property of the provider: enable it whenever you want the
+# capacity, disable it when you do not. The datapath every box runs is already
+# sized for it, so turning it on costs no cluster-wide change.
+#
+# Two things to know before enabling on a cluster that already exists. Nodes join
+# the tailnet when they join the cluster, so existing nodes keep the addresses
+# they registered with -- completing the arrangement means replacing the control
+# plane. And the platform cannot see the other half: a machine on your premises,
+# running the join. This value says the cluster will accept them.
+onPrem:
+  enabled: false
+  # Your tailnet, e.g. acme.ts.net. Required when enabled.
+  tailnet: ""
+

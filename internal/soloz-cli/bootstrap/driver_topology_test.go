@@ -12,8 +12,8 @@ import (
 // single Hetzner control-plane node and nothing else.
 func TestHybridDriverProducesSingleNodeHub(t *testing.T) {
 	d := &HybridDriver{
-		Driver:            &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
-		HomeWorkerEnabled: true,
+		Driver:        &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
+		OnPremEnabled: true,
 	}
 
 	var cfg cluster.Config
@@ -23,7 +23,7 @@ func TestHybridDriverProducesSingleNodeHub(t *testing.T) {
 		t.Errorf("WorkerReplicas = %d, want 0 (hybrid hub workers are home-lab nodes)", cfg.WorkerReplicas)
 	}
 	// With home workers the control plane KEEPS its taint: ADR-046 §11 places every
-	// platform workload on worker nodes, and the home-worker-join phase guarantees
+	// platform workload on worker nodes, and the on-prem-join phase guarantees
 	// one exists before boundary-01.
 	if cfg.ControlPlaneSchedulable {
 		t.Error("ControlPlaneSchedulable = true with home workers enabled: the control plane must keep its ADR-014 taint")
@@ -60,8 +60,8 @@ func TestZeroWorkersImpliesSchedulableControlPlane(t *testing.T) {
 		PopulateClusterConfig(*cluster.Config)
 	}{
 		"hybrid": &HybridDriver{
-			Driver:            &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
-			HomeWorkerEnabled: true,
+			Driver:        &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
+			OnPremEnabled: true,
 		},
 		"hetzner": &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
 	} {
@@ -77,8 +77,8 @@ func TestZeroWorkersImpliesSchedulableControlPlane(t *testing.T) {
 // plane has to carry the platform.
 func TestHybridWithoutHomeWorkersUntaintsControlPlane(t *testing.T) {
 	d := &HybridDriver{
-		Driver:            &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
-		HomeWorkerEnabled: false,
+		Driver:        &HetznerDriver{Region: "hel1", OS: "ubuntu", NetworkCIDR: "10.0.0.0/16"},
+		OnPremEnabled: false,
 	}
 
 	var cfg cluster.Config

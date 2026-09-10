@@ -36,9 +36,9 @@ var (
 	gating            string
 
 	// Hybrid-provider flags (ADR-046 §WS4)
-	homeWorkerEnabled bool
-	homeWorkerTTL     string
-	tailnetName       string
+	onPremEnabled bool
+	onPremJoinTTL string
+	tailnetName   string
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -78,9 +78,9 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 
 	// Hybrid-provider flags (ADR-046 §WS4)
-	cmd.Flags().BoolVar(&homeWorkerEnabled, "home-worker-enabled", false, "Enable home-lab WSL2 worker join flow (hybrid only)")
-	cmd.Flags().StringVar(&homeWorkerTTL, "home-worker-ttl", "24h", "kubeadm bootstrap-token TTL for home workers (hybrid only)")
-	cmd.Flags().StringVar(&tailnetName, "tailnet-name", "", "Tailscale tailnet name for MagicDNS spoke endpoint (hybrid only)")
+	cmd.Flags().BoolVar(&onPremEnabled, "on-prem", false, "accept nodes on the tenant's own premises, joining this cluster over their tailnet (ADR-075)")
+	cmd.Flags().StringVar(&onPremJoinTTL, "on-prem-join-ttl", "24h", "kubeadm bootstrap-token TTL for on-prem nodes")
+	cmd.Flags().StringVar(&tailnetName, "tailnet-name", "", "the tenant's Tailscale tailnet, e.g. acme.ts.net. Required with --on-prem")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("name")
@@ -153,7 +153,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   Network CIDR: %s\n", networkCIDR)
 	}
 	if provider == "hybrid" {
-		fmt.Printf("   Home Workers: %v\n", homeWorkerEnabled)
+		fmt.Printf("   On-prem nodes: %v\n", onPremEnabled)
 		fmt.Printf("   Tailnet: %s\n", tailnetName)
 	}
 
@@ -189,11 +189,11 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			BuildFlatcarImage: buildFlatcarImage,
 		}
 		hybridDriver := &bootstrap.HybridDriver{
-			Driver:            driver,
-			TailnetName:       tailnetName,
-			HomeWorkerEnabled: homeWorkerEnabled,
-			HomeWorkerTTL:     homeWorkerTTL,
-			ClusterName:       clusterName,
+			Driver:        driver,
+			TailnetName:   tailnetName,
+			OnPremEnabled: onPremEnabled,
+			HomeWorkerTTL: onPremJoinTTL,
+			ClusterName:   clusterName,
 		}
 		bp = bootstrap.NewCloudProvider(hybridDriver, clusterName, debug)
 	default:
