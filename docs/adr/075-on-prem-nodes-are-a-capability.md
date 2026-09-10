@@ -118,6 +118,59 @@ and this ADR does not pretend otherwise.
 
 Stateless workloads have no such constraint and may follow placement freely.
 
+### Cloud worker capacity is a file in the tenant's repository, changed by hand
+
+The machines a box runs on are recorded at `clusters/<name>/generated/hub-cluster.yaml`
+-- the CAPI Cluster, written by Day-0 and reconciled by the box's own control plane
+(ADR-045, ADR-072). Changing `replicas` there and committing is how cloud workers
+are added and removed.
+
+Before this, the topology existed only in the API server: rendered from Go at
+Day-0, skipped entirely on any later run once the cluster reported `Provisioned`,
+and reconciled by nothing. Changing capacity meant an out-of-band `kubectl edit`
+that no file recorded and nothing would restore.
+
+**Nothing scales it automatically, and that is the decision rather than a gap.**
+The obvious alternative is cluster-autoscaler owning the field, which the spoke
+already does. It is rejected here for two reasons. CAPI refuses a topology carrying
+both `replicas` and the autoscaler's bounds annotations, and the refusal wedges the
+object so that every later change to that cluster blocks behind it -- which is not
+hypothetical, it is what commit `bac465a9` did to a spoke until it was reverted.
+And a node that is unreachable for ninety seconds is not a node that has left: a
+platform that provisioned cloud machines on that evidence would answer a flapping
+tailnet with a bill.
+
+So the response to losing on-prem capacity is a person deciding to replace it. The
+sync policy makes that decision authoritative: `selfHeal` is on, so a `kubectl edit`
+of the topology is reverted to what Git says and capacity has exactly one source.
+
+`prune` is off, and only for this. The directory holds a CAPI Cluster, and pruning
+one destroys every node it describes including the control plane -- so a deleted
+file, a bad rebase or a renamed directory would take out the estate. What is given
+up is that a generated artifact removed from Git lingers in the cluster, which is a
+stale ConfigMap rather than an estate.
+
+### Development boxes run no cloud workers
+
+A `dev` box provisions zero Hetzner workers, on the hub and on its spokes.
+Non-production capacity is the clearest case for hardware someone already owns, and
+ADR-070 bounds what a box costs -- idle cloud workers in an environment that exists
+to be thrown away are the easiest thing in that budget to stop paying for.
+
+This makes the capability **required** in dev rather than optional. A box with no
+cloud workers and no on-prem nodes has no worker capacity at all, and every platform
+workload pins `node-role.kubernetes.io/worker` (ADR-014) which a control plane does
+not carry. Such a box bootstraps, reports its control plane Ready, and then stalls
+with everything Pending.
+
+The pre-flight refusal that already guards this for the hybrid provider therefore
+stops being about the provider and becomes about capacity: a box that will have no
+worker capacity is refused before it is built, whichever provider it names.
+
+Production and staging are unchanged. They keep cloud workers, because the argument
+above is about what a disposable environment is worth, not about where production
+data should live.
+
 ### Losing an on-prem node is a restore, not a failover
 
 An on-prem node can leave at any time -- someone's power, someone's network, a
@@ -172,6 +225,7 @@ This is stated rather than solved. The capability is available at any time; on a
 | Cilium datapath settings | `zero-ops` | Platform | hub-operator | Every node | Day-1+ |
 | `onPrem` selection | `<tenant>-gitops` | Tenant | ArgoCD | Tailscale Secret | Day-1+ |
 | `placement.class` selection | `<tenant>-gitops` | Tenant | ArgoCD | provider overlay | Day-1+ |
+| Cloud worker count | `<tenant>-gitops` | Tenant | ArgoCD | CAPI | Day-1+ |
 | Tailnet auth key | tenant's secret store | Tenant | ESO | ClusterClass pre-kubeadm hook | Day-0 and after |
 | On-prem node membership | the node itself | Tenant | — | kubeadm join | any |
 | On-prem node lifecycle | — | Tenant | — | — | any |
@@ -202,6 +256,10 @@ Two providers describe one arrangement until the exit condition above is met, so
 
 A tenant can now enable a capability whose other half -- an actual machine on their own premises, running the join -- the platform cannot see or verify. A box can report the capability enabled and have nothing joined.
 
+A dev box cannot be built without on-prem hardware. Making the capability required where cloud workers are zero turns an optional capability into a precondition for one environment, and a tenant with no machines of their own has no dev box until they have one or set a worker count themselves.
+
+Replacing lost capacity is manual, so a box whose on-prem node dies at night stays degraded until someone edits a file. That is the cost of refusing to let a flapping network provision servers, and it is paid in recovery time.
+
 Capacity and use are two declarations, so a box can also have on-prem nodes joined and idle: enabling the capability places nothing, and `placement.class` is a second, deliberate edit. That is the correct shape -- moving stateful data is a restore and must not happen because a node appeared -- but it means "I joined a machine and nothing changed" is a supported state rather than a fault.
 
 Nodes the platform cannot roll are nodes the platform cannot patch. An unmanaged join buys the ability to add capacity at any time and gives up CAPI's remediation for it, so keeping those machines current is the tenant's, on hardware the platform never sees.
@@ -212,7 +270,8 @@ Nodes the platform cannot roll are nodes the platform cannot patch. An unmanaged
 - **Amends ADR-066.** On-prem nodes are named as a selectable capability, and the boundary between cluster machinery and tenant selection is where this decision is drawn.
 - **Confirms ADR-063.** Selection is a value, never a version.
 - **Amends the support matrix.** `dev+hetzner` becomes supported, with a spoke-pool source created for it: a dev environment could not previously run on the provider this decision expects to survive, and the CLI's own scaffold defaults produced exactly that combination. `stg` remains hybrid-only until a source exists for it. The `hybrid` entries stay until the exit condition is met, and are withdrawn with the provider.
-- **Confirms ADR-014.** Stateful workloads run on worker nodes and never on the control plane, in every class. An on-prem node is worker capacity by construction, and enabling this capability does not untaint a control plane.
+- **Confirms ADR-014.** Stateful workloads run on worker nodes and never on the control plane, in every class. An on-prem node is worker capacity by construction, and enabling this capability does not untaint a control plane. It is also why a box with no worker capacity stalls rather than degrading: a control plane carries no `node-role.kubernetes.io/worker` label for those workloads to select.
+- **Confirms ADR-070.** Zero cloud workers in development is a cost decision taken where the topology allows it, not a supported topology weakened to reach a number. Production and staging keep theirs.
 - No change to ADR-072: the capability is declared in the tenant's repository and reconciled by the tenant's control plane, like everything else there.
 
 ## References

@@ -37,9 +37,22 @@ var (
 
 	// Hybrid-provider flags (ADR-046 §WS4)
 	onPremEnabled bool
-	onPremJoinTTL string
-	tailnetName   string
+	// -1 rather than 0: zero workers is a real answer, and the default depends on
+	// the environment, which is not known when flags are declared.
+	workerReplicas int
+	onPremJoinTTL  string
+	tailnetName    string
 )
+
+// workerReplicasOverride is the --workers value, or nil when it was not passed.
+// Zero is a real count, so the flag uses a negative sentinel and this converts it.
+func workerReplicasOverride() *int {
+	if workerReplicas < 0 {
+		return nil
+	}
+	n := workerReplicas
+	return &n
+}
 
 func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -74,6 +87,9 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
+	cmd.Flags().IntVar(&workerReplicas, "workers", -1,
+		"cloud worker nodes to provision (default: 0 in dev, 2 elsewhere). A dev box "+
+			"defaults to none because its capacity is meant to come from on-prem nodes (ADR-075)")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 
@@ -173,6 +189,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Debug:             debug,
 			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
+			Environment:       environment,
+			OnPremEnabled:     onPremEnabled,
+			WorkerReplicas:    workerReplicasOverride(),
 		}
 		bp = bootstrap.NewCloudProvider(driver, clusterName, debug)
 	case "hybrid":
@@ -187,6 +206,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Debug:             debug,
 			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
+			Environment:       environment,
+			OnPremEnabled:     onPremEnabled,
+			WorkerReplicas:    workerReplicasOverride(),
 		}
 		hybridDriver := &bootstrap.HybridDriver{
 			Driver:        driver,

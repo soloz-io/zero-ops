@@ -36,6 +36,14 @@ on:
         required: false
         type: string
         default: sequenced
+      workers:
+        description: >-
+          Cloud worker nodes to provision. A development box defaults to none,
+          because that environment's capacity is meant to come from nodes on the
+          tenant's own premises (ADR-075); pass a count where there are none.
+        required: false
+        type: string
+        default: ''
       on-prem:
         description: >-
           Whether this cluster accepts nodes on the tenant's own premises,
@@ -171,6 +179,13 @@ jobs:
             onprem=(--on-prem --tailnet-name "${{ inputs.tailnet }}")
           fi
 
+          # Empty means "let the CLI decide from the environment", which is what a
+          # caller scaffolded before this input existed sends.
+          workers=()
+          if [[ -n "${{ inputs.workers }}" ]]; then
+            workers=(--workers "${{ inputs.workers }}")
+          fi
+
           ./soloz bootstrap \
             --name "${{ inputs.cluster }}" \
             --provider "${{ inputs.provider }}" \
@@ -178,6 +193,7 @@ jobs:
             --environment "${{ inputs.environment }}" \
             --gating "${{ inputs.gating }}" \
             "${onprem[@]}" \
+            "${workers[@]}" \
             --gitops-dir . \
             --debug
 

@@ -54,6 +54,10 @@ func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *Cloud
 // ── Identity ────────────────────────────────────────────────────────────────
 
 func (p *CloudProvider) Name() string { return p.driver.Name() }
+
+// PlannedWorkerReplicas is how many cloud workers this box will start with, read
+// by the pre-flight capacity check before anything is provisioned.
+func (p *CloudProvider) PlannedWorkerReplicas() int { return p.driver.PlannedWorkerReplicas() }
 func (p *CloudProvider) KindConfigPath() string {
 	// Cloud providers use default kind config (no custom config needed).
 	return ""
@@ -93,6 +97,7 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// Fill shared fields known to CloudProvider
 	clusterCfg.ClusterName = p.clusterName
 	clusterCfg.Namespace = constants.NamespaceCAPI
+	clusterCfg.GitopsDir = cfg.GitopsDir
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
 	//
@@ -359,6 +364,11 @@ type CloudDriver interface {
 
 	// OSType returns the OS type for CAPI provisioning ("ubuntu" or "talos").
 	OSType() string
+
+	// PlannedWorkerReplicas is how many cloud workers this driver will provision.
+	// Zero is legitimate -- a development box, or a hybrid cell -- and is what the
+	// pre-flight capacity check exists to pair against on-prem capacity.
+	PlannedWorkerReplicas() int
 
 	// CiliumAddonPath is the repository-relative path to the rendered Cilium
 	// workloads this driver's hub installs.

@@ -17,6 +17,18 @@ environmentRevision: <BUNDLE_VERSION>
 # yields an ApplicationSet that applies cleanly and a child Application that
 # cannot render, which ArgoCD reports as Healthy while managing nothing.
 publicTlsIssuer: <PUBLIC_TLS_ISSUER>
+# Cloud worker nodes this cluster runs.
+#
+# Zero in development by default: that environment's capacity is meant to come
+# from nodes on your own premises (ADR-075). Raise it if you have none, or to add
+# cloud capacity when an on-prem node leaves.
+#
+# Changing this here is the supported way to scale. Nothing does it for you: a
+# node briefly unreachable should not answer with a bill. Day-0 records the full
+# topology at clusters/<name>/generated/hub-cluster.yaml and your own control
+# plane reconciles it.
+workers: <WORKER_COUNT>
+
 
 
 platformRepoURL: <PLATFORM_REPO_URL>

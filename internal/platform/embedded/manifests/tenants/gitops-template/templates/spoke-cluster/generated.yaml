@@ -36,7 +36,10 @@ spec:
     namespace: platform-ops
   syncPolicy:
     automated:
-      prune: true
+      # prune is OFF for the same reason as the control plane's: this directory
+      # can hold a CAPI Cluster, and pruning one destroys the machines it
+      # describes. A stale generated artifact is the cheaper failure.
+      prune: false
       selfHeal: true
     syncOptions:
       - ServerSideApply=true

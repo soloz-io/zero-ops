@@ -31,6 +31,10 @@ on:
       environment:
         required: true
         default: <ENVIRONMENT>
+      workers:
+        description: Cloud worker nodes to provision. Defaults to this cluster's values.yaml.
+        required: false
+        default: '<WORKER_COUNT>'
       on-prem:
         description: Accept nodes on your own premises, joining over your tailnet.
         required: false
@@ -66,6 +70,7 @@ jobs:
       region: ${{ inputs.region }}
       environment: ${{ inputs.environment }}
       bundle-version: <BUNDLE_VERSION>
+      workers: ${{ inputs.workers }}
       on-prem: ${{ inputs.on-prem }}
       tailnet: ${{ inputs.tailnet }}
     secrets:

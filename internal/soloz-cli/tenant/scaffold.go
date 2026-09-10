@@ -11,6 +11,7 @@ package tenant
 import (
 	"io/fs"
 	"sort"
+	"strconv"
 
 	"bytes"
 	"context"
@@ -37,6 +38,13 @@ type Spec struct {
 	Provider    string
 	Region      string
 	Environment string
+	// Workers is how many cloud workers this box starts with.
+	//
+	// A pointer so "not given" is distinguishable from "zero". Zero is a real
+	// answer -- a development box whose capacity comes from the tenant's own
+	// hardware (ADR-075) -- and defaulting an unset flag to it would silently
+	// strip workers from a box that needs them.
+	Workers *int
 	// ClusterName is the tenant's control plane, the first cluster in the box.
 	ClusterName string
 	// BundleVersion is the platform version this box starts on.
@@ -183,11 +191,56 @@ func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
 		"<BUNDLE_VERSION>":    s.BundleVersion,
 		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
+		"<WORKER_COUNT>":      strconv.Itoa(s.workerCount()),
 		"<CLUSTER_NAME>":      s.ClusterName,
 		"<ENVIRONMENT>":       s.Environment,
 		"<CLOUD_PROVIDER>":    s.Provider,
 		"<CLOUD_REGION>":      s.Region,
 	}
+}
+
+// workerCount is how many cloud workers this box starts with.
+//
+// Zero in development, because that environment's capacity is meant to come from
+// the tenant's own hardware and a box built to be thrown away should not hold idle
+// cloud machines (ADR-075, ADR-070). Two elsewhere.
+//
+// A tenant with no hardware of their own passes --workers explicitly and gets a
+// dev box that runs on cloud capacity like any other. The default expresses what
+// the platform would prefer; it does not decide for a tenant whose situation it
+// cannot see.
+func (s Spec) workerCount() int {
+	if s.Workers != nil {
+		return *s.Workers
+	}
+	if s.Environment == "dev" {
+		return 0
+	}
+	return 2
+}
+
+// CapacityWarning reports that this box, as scaffolded, has nowhere to run
+// anything -- or returns "" when it does.
+//
+// A box needs worker capacity from somewhere: cloud workers, or nodes on the
+// tenant's own premises. A development box defaults to no cloud workers, so one
+// scaffolded without on-prem details has neither. Its bootstrap is refused at
+// pre-flight, which is the correct place to stop but the wrong place to find out:
+// by then a repository exists, secrets are set, and someone is watching a workflow.
+//
+// Said here instead, in the output of the command that made the choice.
+func (s Spec) CapacityWarning() string {
+	if s.workerCount() > 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"This box has no worker capacity: %s provisions no cloud workers, so its\n"+
+			"capacity must come from nodes on your own premises.\n\n"+
+			"  Bootstrap it with on-prem nodes:  dispatch with on-prem=true and your tailnet\n"+
+			"  Or give it cloud workers instead: re-scaffold with --workers 2,\n"+
+			"                                    or edit workers in clusters/%s/values.yaml\n\n"+
+			"Without one of those the bootstrap is refused before anything is built.",
+		s.Environment, s.ClusterName)
 }
 
 // publicTLSIssuer is the ACME issuer this environment's public certificates come

@@ -20,7 +20,10 @@ var (
 	scaffoldProviderToken string
 	scaffoldGitopsToken   string
 	scaffoldTailscaleKey  string
-	scaffoldNoPrompt      bool
+	// -1 rather than 0, because 0 is a real worker count and the default depends
+	// on the environment, which is not known when flags are declared.
+	scaffoldWorkers  int
+	scaffoldNoPrompt bool
 )
 
 func newTenantCmd() *cobra.Command {
@@ -57,6 +60,10 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.Provider, "provider", "hetzner", "cloud provider")
 	f.StringVar(&scaffoldSpec.Region, "region", "hel1", "cloud region")
 	f.StringVar(&scaffoldSpec.Environment, "environment", "dev", "environment slug")
+	f.IntVar(&scaffoldWorkers, "workers", -1,
+		"cloud worker nodes this box starts with (default: 0 in dev, 2 elsewhere). "+
+			"A dev box defaults to none because its capacity is meant to come from "+
+			"nodes on your own premises; pass a count if you have none (ADR-075)")
 	f.StringVar(&scaffoldSpec.ClusterName, "cluster", "", "control plane cluster name (default <tenant>-hub)")
 	// Defaults to the version this binary carries (ADR-068). "main" was the old
 	// default and is a branch name where a chart version belongs: a repository
@@ -105,6 +112,11 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	if scaffoldSpec.ClusterName == "" && scaffoldSpec.TenantID != "" {
 		scaffoldSpec.ClusterName = scaffoldSpec.TenantID + "-hub"
 	}
+	// Only when actually passed. The sentinel keeps "zero workers" distinguishable
+	// from "no opinion", so the environment's own default survives.
+	if scaffoldWorkers >= 0 {
+		scaffoldSpec.Workers = &scaffoldWorkers
+	}
 
 	dir := scaffoldOut
 	if dir == "" {
@@ -124,6 +136,12 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	fmt.Printf("[scaffold] rendered %s into %s\n", scaffoldSpec.RepoName(), dir)
+
+	// Before the dry-run return, so the run that exists to show what would be
+	// created also shows that it could not bootstrap.
+	if w := scaffoldSpec.CapacityWarning(); w != "" {
+		fmt.Printf("\n[scaffold] ⚠  %s\n\n", w)
+	}
 
 	if scaffoldDryRun {
 		fmt.Println("[scaffold] dry run: no repository created, nothing pushed")

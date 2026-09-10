@@ -32,9 +32,13 @@ spec:
       provider: hetzner
   region: hel1
   nodePool:
-    # Real workers, unlike the hybrid cell's burst pool at 0: on this cell there
-    # are no on-prem nodes to carry the default load unless the tenant enables
-    # the capability and joins some (ADR-075).
-    count: 2
+    # Zero, like the hybrid cell's burst pool and for the same reason (ADR-075):
+    # a development spoke's capacity comes from the tenant's own hardware, and a
+    # cluster built to be thrown away should not hold idle cloud machines.
+    #
+    # This is a floor, not a ceiling. Raising it is an edit to this file -- which
+    # is how cloud capacity is added anywhere in this platform, deliberately, so
+    # that a briefly unreachable node cannot answer with a bill.
+    count: 0
     instanceType: cx33
   maxTenantCapacity: 20

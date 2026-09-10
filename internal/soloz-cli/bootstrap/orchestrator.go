@@ -204,6 +204,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapKubeconfig: kubeconfig,
 		BootstrapContext:    bootstrapCtx,
 		Debug:               o.Debug,
+		GitopsDir:           o.GitopsDir,
 	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
 		"",
@@ -780,18 +781,27 @@ const hubWorkerSelector = "hub-role=worker"
 // its pod is Pending against a single control-plane node. The message names
 // CNPG, the failure is scheduling, and the cause is a flag that was not passed.
 func (o *Orchestrator) checkPlacementCapacityRequested() error {
-	if o.providerName() != "hybrid" {
+	// On-prem nodes are capacity, whatever the provider.
+	if hw, ok := o.Provider.(interface{ OnPremRequested() bool }); ok && hw.OnPremRequested() {
 		return nil
 	}
-	hw, ok := o.Provider.(interface{ OnPremRequested() bool })
-	if ok && hw.OnPremRequested() {
+	// So are cloud workers. A box with either can schedule; a box with neither
+	// cannot, and the control plane does not make up the difference -- it keeps
+	// its taint, and every platform workload pins node-role.kubernetes.io/worker,
+	// which a control-plane node does not carry (ADR-014).
+	if wr, ok := o.Provider.(interface{ PlannedWorkerReplicas() int }); ok && wr.PlannedWorkerReplicas() > 0 {
 		return nil
 	}
 	return fmt.Errorf(
-		"provider is hybrid but home workers were not requested, and this cell's\n" +
-			"platform-data pins workload-location=on-prem; nothing would ever schedule it.\n" +
-			"Re-run with --on-prem --tailnet-name=<tailnet>, or bootstrap\n" +
-			"with --provider=hetzner, whose manifests pin workload-location=hetzner")
+		"this box would have no worker capacity: %s in %s provisions no cloud\n"+
+			"workers, and on-prem nodes were not requested.\n\n"+
+			"Every platform workload pins node-role.kubernetes.io/worker, which a\n"+
+			"control-plane node does not carry, so the cluster would come up with its\n"+
+			"control plane Ready and everything else Pending -- roughly ninety minutes\n"+
+			"in, at a CNPG cluster that never finishes setting up its primary.\n\n"+
+			"Re-run with --on-prem --tailnet-name=<tailnet>, or use an environment\n"+
+			"that provisions cloud workers (stg, prod).",
+		o.providerName(), o.EnvironmentSlug)
 }
 
 func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) error {

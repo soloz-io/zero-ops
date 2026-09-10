@@ -27,6 +27,49 @@ type HetznerDriver struct {
 	Debug             bool
 	BuildTalosImage   bool
 	BuildFlatcarImage bool
+
+	// Environment decides whether this box provisions cloud workers at all
+	// (ADR-075). Development runs none: non-production capacity is the clearest
+	// case for hardware the tenant already owns, and idle cloud workers in an
+	// environment built to be thrown away are the easiest cost in ADR-070's
+	// budget to stop paying.
+	Environment string
+
+	// OnPremEnabled reports whether this box accepts nodes on the tenant's own
+	// premises. Read here only to decide worker capacity: a development box runs
+	// no cloud workers, so its on-prem nodes are the only capacity it has.
+	OnPremEnabled bool
+
+	// WorkerReplicas overrides the count the environment would choose.
+	//
+	// A pointer because zero is a real answer -- a development box whose capacity
+	// comes from the tenant's own hardware -- so it cannot double as "not given".
+	// An int sentinel was tried and was wrong in the quietest possible way: Go's
+	// zero value made every driver built without the field claim an explicit zero,
+	// and every environment provisioned no workers.
+	WorkerReplicas *int
+}
+
+// workerReplicas is how many cloud workers this box starts with.
+//
+// Zero in development (ADR-075): that environment's capacity comes from the
+// tenant's own hardware, and a box built to be thrown away should not hold idle
+// cloud machines. Staging and production keep theirs, because the argument is
+// about what a disposable environment is worth rather than about where production
+// data belongs.
+//
+// The count is a starting value, not a fixed one. Day-0 records the topology at
+// clusters/<name>/generated/hub-cluster.yaml and the tenant's own control plane
+// reconciles it, so adding cloud workers later -- when an on-prem node leaves, for
+// instance -- is an edit to that file.
+func (d *HetznerDriver) PlannedWorkerReplicas() int {
+	if d.WorkerReplicas != nil {
+		return *d.WorkerReplicas
+	}
+	if d.Environment == "dev" {
+		return 0
+	}
+	return 2
 }
 
 // ── CloudDriver interface ──────────────────────────────────────────────────
@@ -271,7 +314,7 @@ func (d *HetznerDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	cfg.ControlPlaneMachineType = "cx33"
 	cfg.WorkerMachineType = "cx33"
 	cfg.ControlPlaneReplicas = 1
-	cfg.WorkerReplicas = 2
+	cfg.WorkerReplicas = d.PlannedWorkerReplicas()
 	cfg.HCloudToken = d.Token
 
 	// SSH key name for rescue/emergency access. Defaults to the key present in

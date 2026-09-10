@@ -50,6 +50,10 @@ type HybridDriver struct {
 
 func (d *HybridDriver) Name() string { return "hybrid" }
 
+// PlannedWorkerReplicas is zero for every hybrid box regardless of environment:
+// the cell exists so worker capacity comes from the tenant's own hardware.
+func (d *HybridDriver) PlannedWorkerReplicas() int { return 0 }
+
 // CiliumAddonPath is this cell's own artifact. It carries the standalone
 // cilium-envoy DaemonSet (ADR-046 addendum 10) and the hostNetwork mangle guard
 // (addenda 8 and 27), which its config base requires and the shared template does

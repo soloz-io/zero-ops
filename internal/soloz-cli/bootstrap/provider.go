@@ -99,6 +99,11 @@ type ProvisionConfig struct {
 	BootstrapKubeconfig string
 	BootstrapContext    string
 	Debug               bool
+
+	// GitopsDir is a checkout of the tenant's own repository when Day-0 runs from
+	// one (ADR-072), so the topology it provisions can be recorded there and
+	// changed afterwards. Empty for the platform's own box.
+	GitopsDir string
 }
 
 // PivotConfig carries state from the orchestrator into Phase 6.
