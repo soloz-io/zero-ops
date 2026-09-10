@@ -80,6 +80,93 @@ and a tenant turns on what it runs. A capability left off is still maintained:
 it advances with every bundle, and turning it on later needs no action by
 Zero-Ops.
 
+## Getting a box
+
+### What a tenant needs first
+
+- **A git organisation.** The platform creates one repository in it, `<tenant>-gitops`, and proposes changes to that repository afterwards. Nothing else in the organisation is touched.
+- **A cloud account.** Clusters are created in it, on the tenant's bill. Hetzner today.
+- **Two credentials**, both the tenant's and neither held by Zero-Ops:
+  - the cloud API token clusters are created with — `HCLOUD_TOKEN` for Hetzner;
+  - a token with write access to `<tenant>-gitops`, so Day-0 can commit what it generates there.
+
+### Scaffold
+
+Download the CLI from a release and run it once:
+
+```
+# the latest release, for this machine
+gh release download --repo soloz-io/zero-ops \
+  --pattern "soloz-$(uname -s | tr 'A-Z' 'a-z')-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
+  --output soloz && chmod +x soloz
+
+./soloz tenant scaffold \
+  --tenant acme --org acme-inc --domain acme.example
+```
+
+The version a box starts on is the version of the binary that scaffolded it, so
+downloading the latest release is how a tenant starts current. `soloz
+bundle-version` says which one a binary carries.
+
+Three inputs. The platform version comes from the binary, the control plane is named for the tenant, and the rest is defaulted — `--help` lists what can be overridden.
+
+It creates `acme-inc/acme-gitops`, asks for the two credentials, sets them as secrets on that repository, and starts the bootstrap. Pass `--provider-token` and `--gitops-token` to skip the prompts, or supply neither and the run stops after creating the repository and prints what remains.
+
+Use a released binary. A build from source carries no published version to pin, and refuses rather than scaffolding a repository that cannot bootstrap.
+
+### What runs, and where
+
+Bootstrapping happens in a GitHub Actions workflow **in the tenant's repository**, under the tenant's own secrets. It takes a few hours and can be re-run: its state lives in the repository, so a resumed run skips what already completed.
+
+```
+gh run watch --repo acme-inc/acme-gitops
+```
+
+Zero-Ops runs nothing during this and holds no credential involved in it.
+
+### What the tenant is left holding
+
+```
+acme-gitops
+├── clusters/acme-hub/
+│   ├── bundle.yaml            the platform version this cluster runs
+│   ├── values.yaml            what differs from the bundle's defaults
+│   └── generated.yaml         applies what Day-0 writes, once it has
+├── templates/spoke-cluster/   the mould for the next cluster
+├── renovate.json              how upgrade proposals arrive
+├── TOKENS.md                  what the template's placeholders mean
+└── .github/workflows/         how a cluster is bootstrapped
+```
+
+Bootstrapping adds `clusters/acme-hub/generated/` and commits it: the facts that
+do not exist until Day-0 runs — the Infisical coordinates, the control-plane
+address. They belong to the tenant, so they live here rather than with the
+platform.
+
+`bundle.yaml` names a chart, a registry and a version. The bundle's content is pulled from the registry rather than copied here, so an upgrade is a change to one field.
+
+## Running a box
+
+### Upgrades arrive as pull requests
+
+When a version is published, a pull request appears against `<tenant>-gitops` changing the pinned version. Merging it moves the cluster; closing it declines the upgrade. Nothing is applied by Zero-Ops.
+
+Each release records what taking it means — the versions it spans, the security fixes among them, whether the predecessor is restorable from it, and the minimum version it may be taken from. Declining is not a breach of support: support follows the version, and one outside its window is a version the platform stops promising maintenance for rather than one it forces.
+
+A tenant that wants the fast path enables auto-merge on that repository.
+
+### Adding a cluster
+
+A spoke is a declaration, not a command. Copy `templates/spoke-cluster/` into `clusters/<name>/`, fill in its values, and commit. The control plane already running in the box provisions it and keeps it in that state.
+
+There is no second mechanism for this: the thing that keeps a cluster in its desired state is the thing that creates it.
+
+### Choosing what runs
+
+Every capability the bundle provides ships to every tenant. A tenant turns on what it runs by enabling it in `values.yaml`.
+
+A capability left off is still maintained — it advances with every bundle, and turning it on later needs no action by Zero-Ops and no proposal.
+
 ## Exit
 
 The software is open source, the control plane is already in the tenant's
@@ -90,7 +177,7 @@ nothing was held.
 ## Repository layout
 
 ```
-cmd/                 hub, kube-sbt, auth-proxy, mcp-server
+cmd/                 soloz, kube-sbt, auth-proxy, mcp-server
 internal/            private packages behind those binaries
 manifests/           the platform: boundaries, components, compositions, charts
 docs/adr/            architecture decision records
@@ -116,12 +203,21 @@ Contributions must hold to these:
 
 ## Where to start
 
-- `docs/adr/` — the architecture, decision by decision. ADR-062 through ADR-071
+**To use the platform**, read *Getting a box* above. Nothing in this repository
+is needed for that: the CLI carries what it needs, and a tenant's box reconciles
+from the tenant's own repository.
+
+**To work on the platform:**
+
+- `docs/adr/` — the architecture, decision by decision. ADR-062 through ADR-072
   define the tenant model, the bundle and its version, promotion, the platform
-  boundary, the basis of support, the maintenance promise, and how this platform
-  differs from kubefirst.
-- `docs/runbooks/bootstrap-and-binaries.md` — bootstrapping a hub, the binaries,
-  teardown and state management.
+  boundary, the basis of support, the maintenance promise, how this platform
+  differs from kubefirst, and where Day-0 runs.
+- `docs/runbooks/bootstrap-and-binaries.md` — the binaries, teardown and state
+  management.
+- `make build` builds `soloz`. A build from source reports its version as
+  `development` and reads platform content from the working tree; a released
+  build carries both (ADR-068).
 
 ## License
 

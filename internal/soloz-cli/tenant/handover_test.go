@@ -1,0 +1,84 @@
+package tenant
+
+import (
+	"bufio"
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestProviderCredentialIsTheProvidersOwnName(t *testing.T) {
+	// A tenant reading its repository secrets should see a name it recognises
+	// from the provider's documentation rather than one invented here.
+	for _, p := range []string{"hetzner", "hybrid"} {
+		got, err := ProviderCredential(p)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+		if got != "HCLOUD_TOKEN" {
+			t.Errorf("%s: got %q, want HCLOUD_TOKEN", p, got)
+		}
+	}
+
+	// An unknown provider is named rather than guessed at: a wrong secret name
+	// produces a workflow that fails on a missing credential the tenant did set.
+	if _, err := ProviderCredential("gcp"); err == nil {
+		t.Error("an unknown provider must be reported, not given a default secret name")
+	}
+}
+
+// Both or neither. A repository with one secret fails at the workflow step that
+// needs the other, after the tenant was told setup succeeded.
+func TestSecretsAreCompleteOnlyWithBoth(t *testing.T) {
+	cases := []struct {
+		name string
+		s    Secrets
+		want bool
+	}{
+		{"neither", Secrets{}, false},
+		{"provider only", Secrets{ProviderToken: "x"}, false},
+		{"gitops only", Secrets{GitopsToken: "y"}, false},
+		{"both", Secrets{ProviderToken: "x", GitopsToken: "y"}, true},
+		{"whitespace is not a value", Secrets{ProviderToken: "  ", GitopsToken: "y"}, false},
+	}
+	for _, c := range cases {
+		if got := c.s.Complete(); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Scaffolding has already created a repository by the time secrets are wanted,
+// so a missing one cannot simply fail. What is owed is where it stopped and what
+// completes it.
+func TestHandoverSaysWhatIsMissingAndHowToFinish(t *testing.T) {
+	spec := Spec{
+		TenantID: "acme", GitOrg: "acme-inc", Provider: "hetzner",
+		ClusterName: "acme-hub", BundleVersion: "0.1.9",
+	}
+
+	var buf bytes.Buffer
+	HandoverInstructions(spec, Secrets{}, bufio.NewWriter(&buf))
+	out := buf.String()
+
+	for _, want := range []string{
+		"acme-inc/acme-gitops",              // the repository that now exists
+		"0.1.9",                             // what it is pinned to
+		"HCLOUD_TOKEN",                      // the provider's own secret name
+		"GITOPS_TOKEN",                      // and the other one
+		"gh workflow run bootstrap-cluster", // what completes it
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the handover does not mention %q:\n%s", want, out)
+		}
+	}
+
+	// With one secret present it must say which is missing rather than repeat the
+	// generic case: a tenant that set one and is told "neither is set" will look
+	// in the wrong place.
+	buf.Reset()
+	HandoverInstructions(spec, Secrets{ProviderToken: "set"}, bufio.NewWriter(&buf))
+	if !strings.Contains(buf.String(), "GITOPS_TOKEN is not set") {
+		t.Errorf("the handover must name the one that is missing:\n%s", buf.String())
+	}
+}

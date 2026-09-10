@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"os"
@@ -12,10 +13,13 @@ import (
 )
 
 var (
-	scaffoldSpec     tenant.Spec
-	scaffoldTemplate string
-	scaffoldOut      string
-	scaffoldDryRun   bool
+	scaffoldSpec          tenant.Spec
+	scaffoldTemplate      string
+	scaffoldOut           string
+	scaffoldDryRun        bool
+	scaffoldProviderToken string
+	scaffoldGitopsToken   string
+	scaffoldNoPrompt      bool
 )
 
 func newTenantCmd() *cobra.Command {
@@ -69,6 +73,20 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts",
 		"registry published bundles are pulled from (no scheme)")
 	f.BoolVar(&scaffoldSpec.Private, "private", true, "create the repository private")
+	// The tenant's own credentials. Flags so automation can supply them; prompted
+	// when a terminal is present and they are absent; and when neither, the run
+	// stops after creating the repository and says what remains.
+	//
+	// Never defaulted from the platform's environment. A token this machine
+	// happens to hold is the platform's, and writing it into a tenant's
+	// repository would make the platform's access the tenant's access.
+	f.StringVar(&scaffoldProviderToken, "provider-token", "",
+		"the tenant's cloud API token; their clusters are created with it")
+	f.StringVar(&scaffoldGitopsToken, "gitops-token", "",
+		"write access to the tenant's repository, so Day-0 can commit what it generates")
+	f.BoolVar(&scaffoldNoPrompt, "no-prompt", false,
+		"never prompt; stop after creating the repository if a secret is missing")
+
 	f.StringVar(&scaffoldTemplate, "template", "manifests/tenants/gitops-template", "template to render")
 
 	for _, hidden := range []string{"platform-repo", "bundle-registry", "template"} {
@@ -141,6 +159,39 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	fmt.Printf("[scaffold] pushed to %s\n", "https://github.com/"+scaffoldSpec.GitOrg+"/"+scaffoldSpec.RepoName())
+
+	// The repository can bootstrap itself, but only with the tenant's own
+	// secrets: the workflow runs under them and the platform holds neither
+	// (ADR-065, ADR-072). Asked for here rather than left as a follow-up, because
+	// a scaffolded repository that cannot bootstrap looks finished.
+	secrets := tenant.Secrets{ProviderToken: scaffoldProviderToken, GitopsToken: scaffoldGitopsToken}
+	if !scaffoldNoPrompt {
+		var err error
+		if secrets, err = secrets.Prompt(scaffoldSpec.Provider); err != nil {
+			return err
+		}
+	}
+
+	w := bufio.NewWriter(os.Stdout)
+	if !secrets.Complete() {
+		// Not an error. A repository exists at this point, so what is owed is an
+		// accurate account of where this stopped and what completes it.
+		tenant.HandoverInstructions(scaffoldSpec, secrets, w)
+		return nil
+	}
+
+	if err := tenant.SetSecrets(ctx, scaffoldSpec, secrets); err != nil {
+		return err
+	}
+	if err := tenant.Dispatch(ctx, scaffoldSpec); err != nil {
+		return err
+	}
+
+	repo := scaffoldSpec.GitOrg + "/" + scaffoldSpec.RepoName()
+	fmt.Printf("\n[scaffold] bootstrap dispatched on %s\n", repo)
+	fmt.Printf("  https://github.com/%s/actions/workflows/bootstrap-cluster.yml\n\n", repo)
+	fmt.Printf("It runs for a few hours. Follow it with:\n")
+	fmt.Printf("  gh run watch --repo %s\n", repo)
 	return nil
 }
 
