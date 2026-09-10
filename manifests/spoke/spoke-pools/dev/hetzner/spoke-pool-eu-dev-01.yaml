@@ -1,0 +1,40 @@
+---
+# SpokePool claim for the hetzner dev environment.
+#
+# The dev counterpart of prod/hetzner, and the reason it exists: the supported
+# matrix offered dev only on hybrid, so a box on the provider ADR-075 expects to
+# survive could not run a dev environment at all. A tenant scaffolded with the
+# CLI's own defaults (dev + hetzner) produced a repository whose chart refused to
+# render -- "no spoke-pool source is defined for this combination" -- and the
+# bootstrap discovered it ten minutes into boundary-01, after three servers were
+# already provisioned.
+#
+# Sized for dev rather than copied from prod: one control-plane node (prod runs
+# the same, ADR-046's topology table) and a smaller worker pool and tenant
+# ceiling, matching what dev/hybrid claims for its own environment.
+apiVersion: nutgraf.in/v1alpha1
+kind: SpokePool
+metadata:
+  name: spoke-pool-eu-dev-01
+  namespace: platform-ops
+  labels:
+    spoke-type: pool
+    environment: development
+    region: eu-central
+    provider: hetzner
+  annotations:
+    # Control-plane topology (patched into CAPI Cluster topology.controlPlane.replicas).
+    control-plane-replicas: "1"
+spec:
+  provider: hetzner
+  compositionSelector:
+    matchLabels:
+      provider: hetzner
+  region: hel1
+  nodePool:
+    # Real workers, unlike the hybrid cell's burst pool at 0: on this cell there
+    # are no on-prem nodes to carry the default load unless the tenant enables
+    # the capability and joins some (ADR-075).
+    count: 2
+    instanceType: cx33
+  maxTenantCapacity: 20

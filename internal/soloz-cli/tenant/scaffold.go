@@ -10,6 +10,7 @@ package tenant
 
 import (
 	"io/fs"
+	"sort"
 
 	"bytes"
 	"context"
@@ -90,7 +91,70 @@ func (s Spec) validate() error {
 		}
 		return fmt.Errorf("missing required values: %s", strings.Join(missing, ", "))
 	}
-	return nil
+	return supportedCombination(s.Environment, s.Provider)
+}
+
+// supportedMatrix is the environment/provider combinations the platform ships a
+// spoke-pool source for. It mirrors `supportedMatrix` in the environment-manager
+// chart's values.yaml, which is the authority.
+//
+// Duplicated deliberately rather than read from the chart: this runs before any
+// repository exists, on a CLI that may be released and carrying an embedded chart
+// it must not have to render to answer a question about its own flags. The
+// duplication is asserted by TestScaffoldMatrixMatchesTheChart.
+var supportedMatrix = map[string][]string{
+	"dev":  {"hetzner", "hybrid"},
+	"stg":  {"hybrid"},
+	"prod": {"hetzner"},
+}
+
+// supportedCombination refuses a combination the chart will refuse later.
+//
+// Later is the problem. The chart's own assertSupported fails at render time,
+// inside ArgoCD, after scaffolding has created a repository, set two secrets,
+// dispatched a workflow and provisioned three servers -- and it surfaces as a
+// boundary whose ApplicationSets never appear, which the bootstrap waits ten
+// minutes for before timing out. Every input needed to answer the question was
+// present before any of that existed.
+func supportedCombination(environment, provider string) error {
+	providers, ok := supportedMatrix[environment]
+	if !ok {
+		return fmt.Errorf("unsupported environment %q. The platform ships spoke-pool "+
+			"sources for: %s", environment, strings.Join(sortedEnvironments(), ", "))
+	}
+	for _, p := range providers {
+		if p == provider {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s on %s is not a supported combination.\n\n"+
+		"The platform ships no spoke-pool source for it, so the bundle chart refuses\n"+
+		"to render and the cluster's boundaries never appear -- ten minutes into a\n"+
+		"bootstrap, after the servers exist.\n\n"+
+		"Supported: %s\n\n"+
+		"Pass --environment or --provider to choose one.",
+		environment, provider, strings.Join(supportedCombinations(), ", "))
+}
+
+func sortedEnvironments() []string {
+	out := make([]string, 0, len(supportedMatrix))
+	for env := range supportedMatrix {
+		out = append(out, env)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func supportedCombinations() []string {
+	var out []string
+	for _, env := range sortedEnvironments() {
+		providers := append([]string(nil), supportedMatrix[env]...)
+		sort.Strings(providers)
+		for _, p := range providers {
+			out = append(out, env+"+"+p)
+		}
+	}
+	return out
 }
 
 // tenantTokens are facts about the tenant, true of every cluster in its box.
@@ -117,12 +181,39 @@ func (s Spec) tenantTokens() map[string]string {
 // set of resources.
 func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
-		"<BUNDLE_VERSION>": s.BundleVersion,
-		"<CLUSTER_NAME>":   s.ClusterName,
-		"<ENVIRONMENT>":    s.Environment,
-		"<CLOUD_PROVIDER>": s.Provider,
-		"<CLOUD_REGION>":   s.Region,
+		"<BUNDLE_VERSION>":    s.BundleVersion,
+		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
+		"<CLUSTER_NAME>":      s.ClusterName,
+		"<ENVIRONMENT>":       s.Environment,
+		"<CLOUD_PROVIDER>":    s.Provider,
+		"<CLOUD_REGION>":      s.Region,
 	}
+}
+
+// publicTLSIssuer is the ACME issuer this environment's public certificates come
+// from.
+//
+// Written into the values file at scaffold time because the chart refuses to
+// default it, and refuses for a good reason: an empty issuer produces an
+// ApplicationSet that applies cleanly and a child Application that cannot render,
+// which ArgoCD reports as Healthy while managing nothing -- leaving whatever
+// certificate was issued last in place, including a staging one no browser
+// trusts. The chart's message says the environment bootstrap owns this policy.
+//
+// For a tenant box, scaffolding IS that bootstrap: it is where the environment is
+// chosen, and the tenant's seed passes a values file and no parameters, so a value
+// the chart requires and scaffolding does not write is a value nothing supplies.
+// That gap stalled a real bootstrap at boundary-01 for ten minutes with the seed
+// rendering no ApplicationSets at all.
+func publicTLSIssuer(environment string) string {
+	if environment == "ephemeral" {
+		// Ephemeral environments are created and destroyed per pull request, and
+		// Let's Encrypt rate-limits issuance per registered domain. Staging is
+		// untrusted by browsers and unlimited, which is the correct trade for a
+		// certificate that outlives its cluster by minutes.
+		return "letsencrypt-staging"
+	}
+	return "letsencrypt-prod"
 }
 
 func (s Spec) allTokens() map[string]string {

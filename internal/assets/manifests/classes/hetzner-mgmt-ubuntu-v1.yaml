@@ -589,6 +589,21 @@ spec:
             cloud-provider: external
             max-pods: "220"
             resolv-conf: /etc/kubernetes/resolv.conf
+            # workload-location is half of the ADR-046 §11 placement class, and it
+            # was missing here while every hub overlay selected on it.
+            #
+            # manifests/hub-core-services/providers/hetzner/{database,redis,nats}
+            # pin `workload-location: hetzner`, and no hub node carried the label --
+            # so on a pure-Hetzner hub platform-db selected a label nothing had and
+            # stayed Pending. The spoke ClusterClass has always set it
+            # (spokepool-clusterclass-v1.yaml); the hub class never did, and the
+            # assumption is written down in the CSI manifest: "No-op on a
+            # pure-Hetzner hub, where no node carries workload-location."
+            #
+            # node-role.kubernetes.io/worker is NOT set here: NodeRestriction
+            # forbids a kubelet self-registering a node-role label. It arrives from
+            # the node-labeler DaemonSet instead (internal/assets/manifests/addons).
+            node-labels: "workload-location=hetzner"
       files:
         - path: /etc/sysctl.d/99-cilium.conf
           owner: "root:root"

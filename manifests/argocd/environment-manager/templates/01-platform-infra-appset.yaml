@@ -62,18 +62,23 @@ spec:
 
     # These two are NOT descriptors because neither is the same in every
     # environment, established by rendering all sixteen parameter combinations:
-    # platform-storage exists only on a hybrid hub, and platform-external-secrets
-    # carries different Helm values there. A descriptor states one fixed form and
-    # cannot express either.
+    # platform-storage exists only where the box has on-prem nodes, and
+    # platform-external-secrets carries different Helm values on a hybrid hub. A
+    # descriptor states one fixed form and cannot express either.
     - list:
         elements:
-          {{- if eq .Values.provider "hybrid" }}
-          # HYBRID ONLY — the entry below exists because the hub has home-lab
-          # workers. A pure-Hetzner hub has none, and shipping it there is
-          # actively harmful: the provisioner requires workload-location=home,
-          # so on Hetzner the DaemonSet schedules zero pods and leaves a
-          # local-path StorageClass with nothing behind it — any PVC naming it
-          # would hang for ever with no obvious cause.
+          {{- if include "environment-manager.onPremCapable" . }}
+          # ON-PREM ONLY — the entry below exists because the box has nodes on the
+          # tenant's own premises. A box with none has nothing to run it on, and
+          # shipping it there is actively harmful: the provisioner requires
+          # workload-location=home, so the DaemonSet schedules zero pods and
+          # leaves a local-path StorageClass with nothing behind it — any PVC
+          # naming it would hang for ever with no obvious cause.
+          #
+          # Gated on the capability rather than the provider (ADR-075): a hetzner
+          # box that has joined on-prem nodes needs this, and used not to get it,
+          # which made the on-prem placement class unusable on the only provider
+          # ADR-075 expects to survive.
           #
           # There is deliberately NO platform-tailscale entry. tailscaled runs on
           # the hub control plane NATIVELY, from the ClusterClass preKubeadmCommands

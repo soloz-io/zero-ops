@@ -70,6 +70,54 @@ So both exist for now. `hetzner` gains the capability; `hybrid` keeps working an
 
 Naming the condition is the point. A transitional state with no stated end is indistinguishable from a decision nobody made, and this repository already carries one of those -- a chart default that outlived the ADR justifying it by four released versions, because the comment beside it still cited the superseded decision as live.
 
+### Joining a node is a separate act from enabling the capability
+
+Enabling says the cluster will accept on-prem nodes. It does not create one. A
+machine joins by a plain `kubeadm join` against a bootstrap token, outside CAPI --
+no Machine, no MachineDeployment, and a `providerID` of `unmanaged://<name>`.
+
+That it is unmanaged is what makes joining *later* work at all. The hub's token is
+minted from the hub's own kubeconfig and carries no expiry, so a node may join
+minutes or months after Day-0 and depends on nothing the bootstrap installed. It is
+also why the platform cannot roll, upgrade or remediate these nodes: CAPI did not
+create them, so readiness is measured on Nodes and never on Machines.
+
+Two consequences follow and are accepted:
+
+**The cloud controller cannot see them.** An `unmanaged://` providerID is one the
+Hetzner CCM refuses -- `failed to convert provider id to server id` -- so an
+on-prem node can never be a backend for a CCM-managed LoadBalancer. Public entry
+stays on cloud nodes regardless of where the workload behind it runs.
+
+**A joined node carries capacity, not workloads.** It arrives labelled
+`workload-location=home` and `node-role.kubernetes.io/worker=`, untainted and
+schedulable, and nothing moves onto it. What a box runs where is the placement
+class below, which is a second decision the tenant makes deliberately.
+
+### Placement is a separate declaration, and moving a stateful service is a restore
+
+The capability says a cluster may have on-prem nodes. `placement.class` says
+whether its platform data runs on them:
+
+```yaml
+placement:
+  class: hybrid        # the on-prem class; empty means this box's provider
+```
+
+A placement class is a pair -- a `workload-location` nodeSelector and the storage
+class provisionable on nodes carrying it (ADR-046 §11) -- and it is selected as one
+name because §11 forbids the halves drifting apart. Two values, one picking the
+location and one the storage, would be that drift.
+
+**Changing it is not a reschedule.** The on-prem class stores on `local-path`,
+which is node-pinned to the exact machine, has no snapshot support, and is
+destroyed when that machine is re-provisioned. A stateful service moving between
+classes is therefore recreated and restored from object storage, not moved. That is
+an operation with a runbook, not an edit that takes effect on the next reconcile,
+and this ADR does not pretend otherwise.
+
+Stateless workloads have no such constraint and may follow placement freely.
+
 ### What this does not make instantaneous
 
 **Nodes already joined do not gain a tailnet address.** `preKubeadmCommands` runs once, at join. Enabling the capability enrols every node that joins afterwards; existing nodes keep the addresses they registered with. Where that matters is the control plane: ADR-046 §21 requires the hub CP on the tailnet for cross-node pod traffic to on-prem nodes, so a box enabling this after its control plane exists must replace those nodes to complete the arrangement.
@@ -94,10 +142,14 @@ This is stated rather than solved. The capability is available at any time; on a
 |---|---|---|---|---|---|
 | Cilium datapath settings | `zero-ops` | Platform | hub-operator | Every node | Day-1+ |
 | `onPrem` selection | `<tenant>-gitops` | Tenant | ArgoCD | Tailscale Secret | Day-1+ |
+| `placement.class` selection | `<tenant>-gitops` | Tenant | ArgoCD | provider overlay | Day-1+ |
 | Tailnet auth key | tenant's secret store | Tenant | ESO | ClusterClass pre-kubeadm hook | Day-0 and after |
-| Home node membership | the node itself | Tenant | — | kubeadm join | any |
+| On-prem node membership | the node itself | Tenant | — | kubeadm join | any |
+| On-prem node lifecycle | — | Tenant | — | — | any |
 
-See ADR-039 for the complete ownership matrix.
+The empty reconciler on the last row is the decision, not an omission: an on-prem
+node is joined outside CAPI, so nothing on the platform's side rolls, upgrades or
+remediates it. See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 
@@ -121,16 +173,22 @@ Two providers describe one arrangement until the exit condition above is met, so
 
 A tenant can now enable a capability whose other half -- an actual machine on their own premises, running the join -- the platform cannot see or verify. A box can report the capability enabled and have nothing joined.
 
+Capacity and use are two declarations, so a box can also have on-prem nodes joined and idle: enabling the capability places nothing, and `placement.class` is a second, deliberate edit. That is the correct shape -- moving stateful data is a restore and must not happen because a node appeared -- but it means "I joined a machine and nothing changed" is a supported state rather than a fault.
+
+Nodes the platform cannot roll are nodes the platform cannot patch. An unmanaged join buys the ability to add capacity at any time and gives up CAPI's remediation for it, so keeping those machines current is the tenant's, on hardware the platform never sees.
+
 ## Impact
 
-- **Amends ADR-046.** `hybrid` is withdrawn as a provider; the arrangement it named becomes `provider: hetzner` with the `onPrem` capability enabled. The datapath settings it specifies per-provider become platform-wide. Its invariants are unchanged: invariant 6 still requires a tailnet address on every node carrying pod traffic, and §21 still puts the control plane on the tailnet.
+- **Amends ADR-046.** `hybrid` is withdrawn as a provider in principle and retained in code until the exit condition above is met; the arrangement it named becomes `provider: hetzner` with the `onPrem` capability enabled. Two of the datapath settings it specifies per-provider become platform-wide -- `mtu` and `devices` -- and the rest do not. Its invariants are unchanged: invariant 6 still requires a tailnet address on every node carrying pod traffic, §21 still puts the control plane on the tailnet, and §11's placement classes are still pairs.
 - **Amends ADR-066.** On-prem nodes are named as a selectable capability, and the boundary between cluster machinery and tenant selection is where this decision is drawn.
 - **Confirms ADR-063.** Selection is a value, never a version.
-- **Amends the support matrix.** `hetzner` becomes supportable in every environment. The `hybrid` entries stay until the exit condition is met, and are withdrawn with the provider.
+- **Amends the support matrix.** `dev+hetzner` becomes supported, with a spoke-pool source created for it: a dev environment could not previously run on the provider this decision expects to survive, and the CLI's own scaffold defaults produced exactly that combination. `stg` remains hybrid-only until a source exists for it. The `hybrid` entries stay until the exit condition is met, and are withdrawn with the provider.
+- **Confirms ADR-014.** Stateful workloads run on worker nodes and never on the control plane, in every class. An on-prem node is worker capacity by construction, and enabling this capability does not untaint a control plane.
 - No change to ADR-072: the capability is declared in the tenant's repository and reconciled by the tenant's control plane, like everything else there.
 
 ## References
 
+- ADR-014: Platform-Owned Stateful Infrastructure
 - ADR-039: Platform Ownership Model
 - ADR-046: Hybrid Provider Cell (Hetzner Control Plane + On-Prem Workers)
 - ADR-063: The Platform Bundle and its Version

@@ -11,6 +11,13 @@ environmentSlug: <ENVIRONMENT>
 provider: <CLOUD_PROVIDER>
 region: <CLOUD_REGION>
 environmentRevision: <BUNDLE_VERSION>
+# The ACME issuer this environment's public certificates come from.
+#
+# Written by scaffolding rather than defaulted by the chart: an empty issuer
+# yields an ApplicationSet that applies cleanly and a child Application that
+# cannot render, which ArgoCD reports as Healthy while managing nothing.
+publicTlsIssuer: <PUBLIC_TLS_ISSUER>
+
 
 platformRepoURL: <PLATFORM_REPO_URL>
 
@@ -27,6 +34,24 @@ instanceRepoURL: <GITOPS_REPO_URL>
 cells: []
 
 workloads: {}
+# Where this cluster's stateful services run (ADR-046 §11, ADR-075).
+#
+# A placement class is a pair -- a `workload-location` nodeSelector and the
+# storage class provisionable on nodes carrying it -- selected as one name so the
+# two cannot drift:
+#
+#   hetzner  cloud nodes,   hcloud-volumes
+#   hybrid   on-prem nodes, local-path
+#
+# Empty means this cluster's provider. Set `hybrid` once you have joined on-prem
+# nodes and want your platform data on them.
+#
+# This is NOT a reschedule. local-path is node-pinned and has no snapshots, so a
+# stateful service changing class is recreated and restored from backup. Read the
+# migration runbook before editing this on a cluster that holds data.
+placement:
+  class: ""
+
 # On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
 # over your Tailscale tailnet.
 #

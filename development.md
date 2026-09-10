@@ -44,7 +44,7 @@ a failure points at an Application rather than at a named phase.
 - gh run watch
 
 - ./bin/soloz reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
-  --bundle-version 0.1.12     
+  --bundle-version 0.1.14     
 
 - KUBECONFIG=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \                   
   kubectl get app platform-database -n platform-ops \
