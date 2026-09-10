@@ -126,14 +126,30 @@ func (d *HybridDriver) hubTailnetHostname() string {
 	return "hub-cp"
 }
 
-// readTailscaleAuthkey loads the tailnet auth key from the same on-disk location
-// the home-worker provisioning script uses, so both sides of the tailnet are
-// enrolled from one credential.
+// readTailscaleAuthkey loads the tailnet auth key.
+//
+// The environment comes first, the on-disk path second. That order is the whole
+// point: the file is `k8-secrets/`, which is the platform operator's own
+// gitignored directory on their own laptop. Day-0 now runs in the tenant's CI
+// under the tenant's secrets (ADR-072), where that directory does not exist and
+// never will -- so a tenant bootstrapping a hybrid box got the warning below,
+// built a control plane that never joined the tailnet, and discovered it when
+// pod traffic to their home workers died in one direction (ADR-046 invariant 6).
+//
+// The file is retained because the home-worker provisioning script reads the same
+// path, so an operator running both halves from one machine still enrols both
+// sides of the tailnet from one credential.
 func readTailscaleAuthkey() (string, error) {
+	if key := strings.TrimSpace(os.Getenv("TS_AUTHKEY")); key != "" {
+		return key, nil
+	}
+	if key := strings.TrimSpace(os.Getenv("TAILSCALE_AUTHKEY")); key != "" {
+		return key, nil
+	}
 	const path = "k8-secrets/tailscale/authkey"
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("tailscale authkey not readable at %s: %w", path, err)
+		return "", fmt.Errorf("no tailnet auth key: TS_AUTHKEY is unset and %s is not readable: %w", path, err)
 	}
 	key := strings.TrimSpace(string(raw))
 	if key == "" {

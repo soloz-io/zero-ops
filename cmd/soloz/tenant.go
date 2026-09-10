@@ -19,6 +19,7 @@ var (
 	scaffoldDryRun        bool
 	scaffoldProviderToken string
 	scaffoldGitopsToken   string
+	scaffoldTailscaleKey  string
 	scaffoldNoPrompt      bool
 )
 
@@ -82,6 +83,8 @@ what a tenant would receive before any repository exists.`,
 	// repository would make the platform's access the tenant's access.
 	f.StringVar(&scaffoldProviderToken, "provider-token", "",
 		"the tenant's cloud API token; their clusters are created with it")
+	f.StringVar(&scaffoldTailscaleKey, "tailscale-authkey", "",
+		"a Tailscale auth key; the hybrid provider's control plane and home workers join the tenant's tailnet with it (ADR-046)")
 	f.StringVar(&scaffoldGitopsToken, "gitops-token", "",
 		"write access to the tenant's repository, so Day-0 can commit what it generates")
 	f.BoolVar(&scaffoldNoPrompt, "no-prompt", false,
@@ -165,7 +168,11 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	// secrets: the workflow runs under them and the platform holds neither
 	// (ADR-065, ADR-072). Asked for here rather than left as a follow-up, because
 	// a scaffolded repository that cannot bootstrap looks finished.
-	secrets := tenant.Secrets{ProviderToken: scaffoldProviderToken, GitopsToken: scaffoldGitopsToken}
+	secrets := tenant.Secrets{
+		ProviderToken:    scaffoldProviderToken,
+		GitopsToken:      scaffoldGitopsToken,
+		TailscaleAuthkey: scaffoldTailscaleKey,
+	}
 	if !scaffoldNoPrompt {
 		var err error
 		if secrets, err = secrets.Prompt(scaffoldSpec.Provider); err != nil {
@@ -174,7 +181,9 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := bufio.NewWriter(os.Stdout)
-	if !secrets.Complete() {
+	// Provider-aware: a hybrid box also needs a tailnet key, and dispatching
+	// without one starts a run the workflow refuses on purpose.
+	if !secrets.CompleteFor(scaffoldSpec.Provider) {
 		// Not an error. A repository exists at this point, so what is owed is an
 		// accurate account of where this stopped and what completes it.
 		tenant.HandoverInstructions(scaffoldSpec, secrets, w)

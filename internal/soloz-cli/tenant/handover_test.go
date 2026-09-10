@@ -82,3 +82,35 @@ func TestHandoverSaysWhatIsMissingAndHowToFinish(t *testing.T) {
 		t.Errorf("the handover must name the one that is missing:\n%s", buf.String())
 	}
 }
+
+// A hybrid box needs a third secret, and the handover has to say so. Hetzner must
+// not be told about it: naming a credential nothing on that box reads sends the
+// tenant to obtain something they will never use.
+func TestHandoverNamesTheTailnetKeyOnlyWhereItIsRead(t *testing.T) {
+	hybrid := Spec{TenantID: "acme", GitOrg: "acme-inc", Provider: "hybrid", BundleVersion: "0.1.9"}
+	hetzner := Spec{TenantID: "acme", GitOrg: "acme-inc", Provider: "hetzner", BundleVersion: "0.1.9"}
+	both := Secrets{ProviderToken: "set", GitopsToken: "set"}
+
+	var buf bytes.Buffer
+	HandoverInstructions(hybrid, both, bufio.NewWriter(&buf))
+	if !strings.Contains(buf.String(), "TS_AUTHKEY") {
+		t.Errorf("a hybrid box with no tailnet key must be told which one is missing:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	HandoverInstructions(hetzner, both, bufio.NewWriter(&buf))
+	if strings.Contains(buf.String(), "TS_AUTHKEY") {
+		t.Errorf("hetzner reads no tailnet key and must not be asked for one:\n%s", buf.String())
+	}
+
+	// And with everything a hybrid box needs, it is dispatchable.
+	if !(Secrets{ProviderToken: "a", GitopsToken: "b", TailscaleAuthkey: "c"}).CompleteFor("hybrid") {
+		t.Error("a hybrid box with all three secrets must be dispatchable")
+	}
+	if (Secrets{ProviderToken: "a", GitopsToken: "b"}).CompleteFor("hybrid") {
+		t.Error("a hybrid box without a tailnet key must not be dispatchable")
+	}
+	if !(Secrets{ProviderToken: "a", GitopsToken: "b"}).CompleteFor("hetzner") {
+		t.Error("hetzner needs only two secrets")
+	}
+}

@@ -31,6 +31,10 @@ on:
       environment:
         required: true
         default: <ENVIRONMENT>
+      tailnet:
+        description: Your Tailscale tailnet, e.g. acme.ts.net. Hybrid only.
+        required: false
+        default: ''
 
 # Dispatch only. A cluster is not created because a file changed: creating one
 # costs money and takes hours, and a push that triggered it would make an
@@ -57,6 +61,11 @@ jobs:
       region: ${{ inputs.region }}
       environment: ${{ inputs.environment }}
       bundle-version: <BUNDLE_VERSION>
+      tailnet: ${{ inputs.tailnet }}
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+      # Only the hybrid provider reads this. Set it on this repository if your
+      # clusters run home-lab workers: the control plane and those workers join
+      # your tailnet from this one key (ADR-046).
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
