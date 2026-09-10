@@ -643,7 +643,66 @@ func (o *Orchestrator) runPhase(
 		Seconds:     elapsed.Round(time.Millisecond).Seconds(),
 	})
 	o.markPhaseComplete(bs, phase)
-	return stateMgr.Save(bs)
+	if err := stateMgr.Save(bs); err != nil {
+		return err
+	}
+	return o.persistTenantState(ctx, label)
+}
+
+// persistTenantState pushes the bootstrap state to the tenant's repository after
+// a phase completes.
+//
+// Every phase, not once at the end. The state file already updates on disk at
+// this cadence; on a CI runner that disk is discarded when the job ends, so a
+// state committed only after the last phase would leave a run that failed at
+// cluster-provision restarting from nothing -- and provisioning a cluster twice
+// is fifteen minutes and a second set of nodes.
+//
+// Failure is reported and does not stop the bootstrap. A phase that succeeded
+// has succeeded, and abandoning the run because its bookkeeping could not be
+// pushed would turn a recoverable state into a lost one. What it costs is that
+// the next run repeats from the last phase that did persist, which is the
+// behaviour without this at all.
+func (o *Orchestrator) persistTenantState(ctx context.Context, label string) error {
+	if o.GitopsDir == "" {
+		return nil
+	}
+
+	git := func(args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = o.GitopsDir
+		return cmd.CombinedOutput()
+	}
+
+	if out, err := git("add", state.TenantStateDir); err != nil {
+		fmt.Printf("[%s] ⚠️  could not stage bootstrap state: %v\n%s\n", label, err, out)
+		return nil
+	}
+
+	// Nothing to commit is the normal case for a phase that changed no state,
+	// and `git commit` treats it as an error.
+	if out, err := git("diff", "--cached", "--quiet"); err == nil {
+		_ = out
+		return nil
+	}
+
+	if out, err := git("commit", "-m",
+		fmt.Sprintf("chore(bootstrap): %s [skip ci]", label)); err != nil {
+		fmt.Printf("[%s] ⚠️  could not commit bootstrap state: %v\n%s\n", label, err, out)
+		return nil
+	}
+
+	// Rebase before pushing: a promotion pull request may have merged while this
+	// bootstrap was running, and a rejected push would silently stop persisting
+	// state for the rest of the run.
+	if out, err := git("pull", "--rebase", "--autostash"); err != nil {
+		fmt.Printf("[%s] ⚠️  could not rebase before pushing state: %v\n%s\n", label, err, out)
+		return nil
+	}
+	if out, err := git("push"); err != nil {
+		fmt.Printf("[%s] ⚠️  could not push bootstrap state: %v\n%s\n", label, err, out)
+	}
+	return nil
 }
 
 // hubKubeconfigFromBootstrap persists the hub's admin kubeconfig by reading the

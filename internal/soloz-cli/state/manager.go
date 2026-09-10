@@ -120,10 +120,18 @@ func NewStateManager(clusterName string) *StateManager {
 // useful to a tenant asking how far its bootstrap got.
 func NewTenantStateManager(gitopsDir, clusterName string) *StateManager {
 	return &StateManager{
-		statePath: filepath.Join(gitopsDir, "clusters", clusterName,
-			"generated", "bootstrap-state.json"),
+		statePath: filepath.Join(gitopsDir, TenantStateDir, clusterName+".json"),
 	}
 }
+
+// TenantStateDir is where a tenant's repository keeps the state of what the
+// platform's commands have done to it, namespaced by the command that writes it.
+//
+// Outside clusters/<name>/generated/ deliberately. That directory is reconciled
+// by an Application of its own, so its contract is "objects to apply"; a state
+// file there would be handed to ArgoCD, and the next thing put beside it might
+// not be as harmlessly ignored.
+const TenantStateDir = ".state/bootstrap"
 
 // Save persists the bootstrap state to disk using atomic write
 func (m *StateManager) Save(state *BootstrapState) error {
