@@ -1,4 +1,4 @@
-# Vendored from helm chart kyverno v3.2.6 (https://kyverno.github.io/kyverno)
+# Vendored from helm chart kyverno v3.9.1 (https://kyverno.github.io/kyverno)
 # CRDs applied at sync-wave -5 so ArgoCD establishes them before
 # operators/resources that depend on them (ADR-023).
 # sha256: 22a584fcfc2bdf371687085d995e5afd6e26e25e464b5856d606dd9601e8ae8d
