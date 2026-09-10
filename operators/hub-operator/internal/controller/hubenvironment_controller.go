@@ -26,8 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	awsclient "github.com/soloz-io/zero-ops/internal/hub-cli/aws"
 	"github.com/soloz-io/zero-ops/internal/pki"
+	awsclient "github.com/soloz-io/zero-ops/internal/soloz-cli/aws"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"

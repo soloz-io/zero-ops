@@ -4,7 +4,7 @@
 AUTH_PROXY_BINARY=auth-proxy
 MCP_SERVER_BINARY=mcp-server
 KUBE_SBT_API_BINARY=kube-sbt
-HUB_BINARY=hub
+SOLOZ_BINARY=soloz
 BUILD_DIR=bin
 GO=go
 DATABASE_URL?=postgres://localhost:5432/zeroops?sslmode=disable
@@ -16,15 +16,15 @@ build-all:
 	$(GO) build -o $(BUILD_DIR)/$(AUTH_PROXY_BINARY) ./cmd/auth-proxy
 	$(GO) build -o $(BUILD_DIR)/$(MCP_SERVER_BINARY) ./cmd/mcp-server
 	$(GO) build -o $(BUILD_DIR)/$(KUBE_SBT_API_BINARY) ./cmd/kube-sbt
-	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
+	$(GO) build -o $(BUILD_DIR)/$(SOLOZ_BINARY) ./cmd/soloz
 	@echo "✓ All builds complete"
 
 # Build the hub binary (main CLI)
 build:
-	@echo "Building $(HUB_BINARY)..."
+	@echo "Building $(SOLOZ_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
-	@echo "✓ Build complete: $(BUILD_DIR)/$(HUB_BINARY)"
+	$(GO) build -o $(BUILD_DIR)/$(SOLOZ_BINARY) ./cmd/soloz
+	@echo "✓ Build complete: $(BUILD_DIR)/$(SOLOZ_BINARY)"
 
 # Build the auth-proxy binary
 build-auth-proxy:
@@ -49,10 +49,10 @@ build-kube-sbt:
 
 # Build the hub binary
 build-hub:
-	@echo "Building $(HUB_BINARY)..."
+	@echo "Building $(SOLOZ_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/$(HUB_BINARY) ./cmd/hub
-	@echo "✓ Build complete: $(BUILD_DIR)/$(HUB_BINARY)"
+	$(GO) build -o $(BUILD_DIR)/$(SOLOZ_BINARY) ./cmd/soloz
+	@echo "✓ Build complete: $(BUILD_DIR)/$(SOLOZ_BINARY)"
 
 # Clean build artifacts
 clean:

@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ZERO_OPS_DIR="$PROJECT_ROOT"
 LOG_DIR="$ZERO_OPS_DIR/.zero-ops"
-HUB_BINARY="$ZERO_OPS_DIR/bin/hub"
+SOLOZ_BINARY="$ZERO_OPS_DIR/bin/soloz"
 BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
 
 # Defaults (overridable via flags)
@@ -544,12 +544,12 @@ check_prerequisites() {
     # this build path with the version set.
     local ldflags=""
     if [[ -n "$BUNDLE_VERSION" ]]; then
-        ldflags="-X github.com/soloz-io/zero-ops/internal/hub-cli/versions.BundleVersion=${BUNDLE_VERSION}"
+        ldflags="-X github.com/soloz-io/zero-ops/internal/soloz-cli/versions.BundleVersion=${BUNDLE_VERSION}"
         log "Building hub binary for bundle ${BUNDLE_VERSION}..."
     else
         log "Building hub binary..."
     fi
-    if (cd "$ZERO_OPS_DIR" && go build -mod=mod -ldflags "$ldflags" -o bin/hub ./cmd/hub 2>&1); then
+    if (cd "$ZERO_OPS_DIR" && go build -mod=mod -ldflags "$ldflags" -o bin/soloz ./cmd/soloz 2>&1); then
         log "  ✓ hub binary built"
         if [[ -n "$BUNDLE_VERSION" ]]; then
             # The binary must request what was asked for. A build that still
@@ -557,7 +557,7 @@ check_prerequisites() {
             # on every cluster it bootstrapped, which is the failure this flag
             # exists to avoid rather than introduce.
             local got
-            got=$("$ZERO_OPS_DIR/bin/hub" bundle-version 2>/dev/null || true)
+            got=$("$ZERO_OPS_DIR/bin/soloz" bundle-version 2>/dev/null || true)
             if [[ "$got" != "$BUNDLE_VERSION" ]]; then
                 log "ERROR: built CLI reports '${got}', expected '${BUNDLE_VERSION}'"
                 failed=1
@@ -630,7 +630,7 @@ step1_bootstrap_hub() {
     # the fresh bootstrap still proceeds from scratch.
     if [[ "$TEARDOWN" == "true" ]]; then
         log "TEARDOWN=true — tearing down existing cluster '${CLUSTER_NAME}' (forceful)..."
-        "$HUB_BINARY" teardown --name="${CLUSTER_NAME}" --confirm --force 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
+        "$SOLOZ_BINARY" teardown --name="${CLUSTER_NAME}" --confirm --force 2>&1 || log "WARNING: Teardown returned non-zero — cluster may not exist, continuing..."
 
         log "Pre-flight: cleaning up any leftover kind clusters (bootstrap kind, prior runs)..."
         # hub teardown only knows about the named hub cluster. The kind
@@ -740,8 +740,8 @@ step1_bootstrap_hub() {
         if [[ -n "${TAILNET_NAME:-}" ]]; then
             hybrid_flags="$hybrid_flags --tailnet-name=$TAILNET_NAME"
         fi
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $gating_flag $hybrid_flags --debug"
-        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+        log "Running: $SOLOZ_BINARY bootstrap --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $gating_flag $hybrid_flags --debug"
+        (cd "$ZERO_OPS_DIR" && "$SOLOZ_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --provider=hybrid \
             --region="${REGION}" \
@@ -751,8 +751,8 @@ step1_bootstrap_hub() {
             $hybrid_flags \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
-        log "Running: $HUB_BINARY bootstrap --name=${CLUSTER_NAME} --region=${REGION} $env_flag $gating_flag --debug"
-        (cd "$ZERO_OPS_DIR" && "$HUB_BINARY" bootstrap \
+        log "Running: $SOLOZ_BINARY bootstrap --name=${CLUSTER_NAME} --region=${REGION} $env_flag $gating_flag --debug"
+        (cd "$ZERO_OPS_DIR" && "$SOLOZ_BINARY" bootstrap \
             --name="${CLUSTER_NAME}" \
             --region="${REGION}" \
             $env_flag \
@@ -795,7 +795,7 @@ step1c_configure_tailscale() {
     fi
 
     log "Step 1c: Configuring Tailscale credentials..."
-    "$HUB_BINARY" configure-tailscale \
+    "$SOLOZ_BINARY" configure-tailscale \
         --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-tailscale failed"
 
     # No tailscale-node-authkey Secret is created here any more. It fed a
@@ -841,7 +841,7 @@ step2_configure_aws_secrets() {
 
             # Try to use existing keys first
             log "Attempting to use existing access keys..."
-            if "$HUB_BINARY" configure-aws-secrets-manager \
+            if "$SOLOZ_BINARY" configure-aws-secrets-manager \
                 --environment=development \
                 --aws-region=ap-south-1 \
                 --kubeconfig="$KUBECONFIG_PATH" 2>&1 | grep -q "already exists"; then
@@ -855,7 +855,7 @@ step2_configure_aws_secrets() {
 
                 # Retry configuration after deleting keys
                 log "Retrying AWS Secrets Manager configuration after deleting keys..."
-                "$HUB_BINARY" configure-aws-secrets-manager \
+                "$SOLOZ_BINARY" configure-aws-secrets-manager \
                     --environment=development \
                     --aws-region=ap-south-1 \
                     --kubeconfig="$KUBECONFIG_PATH"
@@ -868,8 +868,8 @@ step2_configure_aws_secrets() {
     fi
 
     # If no existing keys or user doesn't exist, proceed normally
-    log "Running: $HUB_BINARY configure-aws-secrets-manager --environment=development --aws-region=ap-south-1"
-    "$HUB_BINARY" configure-aws-secrets-manager \
+    log "Running: $SOLOZ_BINARY configure-aws-secrets-manager --environment=development --aws-region=ap-south-1"
+    "$SOLOZ_BINARY" configure-aws-secrets-manager \
         --environment=development \
         --aws-region=ap-south-1 \
         --kubeconfig="$KUBECONFIG_PATH"
@@ -895,8 +895,8 @@ step3_configure_github() {
 
     export GITHUB_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/github/github-pat-token")
 
-    log "Running: $HUB_BINARY configure-github-access --ghcr-pat=\$GITHUB_TOKEN"
-    "$HUB_BINARY" configure-github-access \
+    log "Running: $SOLOZ_BINARY configure-github-access --ghcr-pat=\$GITHUB_TOKEN"
+    "$SOLOZ_BINARY" configure-github-access \
         --ghcr-pat="$GITHUB_TOKEN" \
         --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-github-access failed"
 
@@ -1766,7 +1766,7 @@ main() {
         error_exit "Invalid provider: $PROVIDER (must be 'hetzner' or 'hybrid')"
     fi
 
-    # An empty --environment is not a no-op: cmd/hub/bootstrap.go coerces "" to
+    # An empty --environment is not a no-op: cmd/soloz/bootstrap.go coerces "" to
     # "prod", which makes the spoke AppSet path spoke-pools/prod/... — a path that
     # does not exist — so the spoke silently never provisions. Refuse it here,
     # where the message can say so, rather than debugging a missing spoke later.

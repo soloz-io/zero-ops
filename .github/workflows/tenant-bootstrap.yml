@@ -70,14 +70,14 @@ jobs:
           # nothing here checks out the platform's repository.
           gh release download "v${{ inputs.bundle-version }}" \
             --repo soloz-io/zero-ops \
-            --pattern 'hub-linux-amd64' --output hub --clobber
-          chmod +x hub
+            --pattern 'soloz-linux-amd64' --output soloz --clobber
+          chmod +x soloz
 
           # It must be the version the cluster is being bootstrapped on. A binary
           # reporting something else would seed a version this repository does
           # not pin, and the disagreement would surface as a cluster running
           # content its own declaration does not name.
-          got=$(./hub bundle-version)
+          got=$(./soloz bundle-version)
           if [[ "$got" != "${{ inputs.bundle-version }}" ]]; then
             echo "::error::the downloaded CLI reports '$got', expected '${{ inputs.bundle-version }}'"
             exit 1
@@ -110,7 +110,7 @@ jobs:
           git config user.name "soloz-platform[bot]"
           git config user.email "platform@soloz.io"
 
-          ./hub bootstrap \
+          ./soloz bootstrap \
             --name "${{ inputs.cluster }}" \
             --provider "${{ inputs.provider }}" \
             --region "${{ inputs.region }}" \

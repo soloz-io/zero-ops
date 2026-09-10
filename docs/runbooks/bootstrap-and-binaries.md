@@ -13,7 +13,7 @@ Bootstrap and manage Hub (Management) Clusters on Hetzner Cloud using Cluster AP
 ```bash
 make build-hub
 # or
-go build -o bin/hub ./cmd/hub
+go build -o bin/soloz ./cmd/hub
 ```
 
 **Usage:**
@@ -22,7 +22,7 @@ go build -o bin/hub ./cmd/hub
 
 # Legacy way
 # export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token)
-# ./bin/hub bootstrap \
+# ./bin/soloz bootstrap \
 #   --name=hub \
 #   --region=hel1 \
 #   --debug 2>&1 | tee .zero-ops/bootstrap-hub.log
@@ -38,7 +38,7 @@ go build -o bin/hub ./cmd/hub
 # 2. Create IAM policy with Secrets Manager permissions
 # 3. Generate access keys and inject into Kubernetes secret
 export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permissions
-./bin/hub configure-aws-secrets-manager \
+./bin/soloz configure-aws-secrets-manager \
   --environment=development \
   --aws-region=ap-south-1 \
   --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
@@ -54,7 +54,7 @@ export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permis
 # - Any other repositories in the soloz-io organization
 # CRITICAL: Must run BEFORE init-secrets so platform-data namespace exists
 export GITHUB_TOKEN=$(cat k8-secrets/github/github-pat-token)
-./bin/hub configure-github-access \
+./bin/soloz configure-github-access \
   --ghcr-pat=$GITHUB_TOKEN \
   --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
@@ -74,7 +74,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/platform-data \
 # TLS is enabled from Day 0 - no upgrade step needed
 # Step 3.5 automatically bootstraps Infisical (Org, Project, Machine Identity)
 # No port-forward needed - the CLI uses pod exec + REST API internally
-INFISICAL_API_URL=http://localhost:8080 ./bin/hub init-secrets --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
+INFISICAL_API_URL=http://localhost:8080 ./bin/soloz init-secrets --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
 
 # Step 6: Wait for ArgoCD to sync and deploy database
 kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
@@ -85,16 +85,16 @@ kubectl wait --for=condition=ready pod -l cnpg.io/cluster=platform-db \
 # The deprecated `hub configure-eso` has been replaced by automatic bootstrapping.
 
 # Teardown Hub cluster
-./bin/hub teardown --name=hub
+./bin/soloz teardown --name=hub
 
 # Only use if local kind cluster does not exist and already pivoted
-export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub teardown --name=hub --force --confirm 2>&1 | tee .zero-ops/teardown-hub.log
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/soloz teardown --name=hub --force --confirm 2>&1 | tee .zero-ops/teardown-hub.log
 
 # Teardown spoke clusters (independent of hub)
-export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub spoke teardown --force 2>&1 | tee .zero-ops/teardown-spoke.log
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/soloz spoke teardown --force 2>&1 | tee .zero-ops/teardown-spoke.log
 
 # Teardown specific spoke cluster
-export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/hub spoke teardown --name=spoke-pool-eu-prod-01 --force 2>&1 | tee .zero-ops/teardown-spoke.log
+export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/soloz spoke teardown --name=spoke-pool-eu-prod-01 --force 2>&1 | tee .zero-ops/teardown-spoke.log
 
 ```
 
@@ -221,7 +221,7 @@ Hub bootstrap state is tracked in `.zero-ops/state/<cluster-name>.json`. Bootstr
 # Clear state for specific cluster
 rm -f .zero-ops/state/<cluster-name>.json
 
-# Example: clear state for 'hub' cluster
+# Example: clear state for 'soloz' cluster
 rm -f .zero-ops/state/hub.json
 
 # View bootstrap logs

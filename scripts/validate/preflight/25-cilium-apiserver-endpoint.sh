@@ -229,7 +229,7 @@ PY
     # 6. The hub is not a spoke: it has no SpokePool and no renderer, and it keeps
     #    kube-proxy. It therefore installs the base verbatim, joined back on at Day-0.
     #    If that concatenation is dropped the hub boots with no cilium-config at all.
-    local day0="$VALIDATE_ROOT/internal/hub-cli/bootstrap/provider_cloud.go"
+    local day0="$VALIDATE_ROOT/internal/soloz-cli/bootstrap/provider_cloud.go"
     if grep -q 'cilium-config-base.yaml' "$day0" 2>/dev/null; then
         pass "hub Day-0 install recomposes the addon with the cilium-config base"
     else

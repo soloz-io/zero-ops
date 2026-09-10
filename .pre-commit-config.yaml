@@ -25,7 +25,7 @@ repos:
         entry: scripts/validate-argocd-seed-parity.sh
         language: system
         pass_filenames: false
-        files: '(manifests/argocd/environment-manager/.*|internal/hub-cli/(components/installer\.go|versions/versions\.go))'
+        files: '(manifests/argocd/environment-manager/.*|internal/soloz-cli/(components/installer\.go|versions/versions\.go))'
       - id: component-descriptors
         name: Component Descriptors
         entry: scripts/validate-component-descriptors.sh

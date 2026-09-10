@@ -219,14 +219,14 @@ jobs:
             for arch in amd64 arm64; do
               CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
                 -ldflags "-s -w -X ${pkg}.BundleVersion=${{ steps.v.outputs.version }}" \
-                -o "dist/bin/hub-${os}-${arch}" ./cmd/hub
+                -o "dist/bin/soloz-${os}-${arch}" ./cmd/soloz
             done
           done
           # The binary must request what was just published. A build that
           # reported "development" here would silently source from a working
           # tree on every cluster it bootstrapped.
           got=$(go run -ldflags "-X ${pkg}.BundleVersion=${{ steps.v.outputs.version }}" \
-                ./cmd/hub bundle-version 2>/dev/null || true)
+                ./cmd/soloz bundle-version 2>/dev/null || true)
           [ "$got" = "${{ steps.v.outputs.version }}" ] || {
             echo "::error::built CLI reports '$got', expected '${{ steps.v.outputs.version }}'"; exit 1; }
 

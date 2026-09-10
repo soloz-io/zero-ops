@@ -19,7 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/soloz-io/zero-ops/internal/hub-cli/versions"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"github.com/soloz-io/zero-ops/internal/platform/embedded"
 )
 
