@@ -44,7 +44,7 @@ a failure points at an Application rather than at a named phase.
 - gh run watch
 
 - ./bin/soloz reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
-  --bundle-version 0.1.6     
+  --bundle-version 0.1.12     
 
 - KUBECONFIG=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \                   
   kubectl get app platform-database -n platform-ops \
@@ -62,14 +62,16 @@ a failure points at an Application rather than at a named phase.
 
 ## Download the released CLI
 
-gh release download v0.1.11 --pattern 'soloz-darwin-arm64' --output soloz --clobber
+gh release download v0.1.12 --pattern 'soloz-darwin-arm64' --output soloz --clobber
 chmod +x soloz
 
 ## Scaffold a real tenant repo 
 
 cd /Users/arun_subramanian/Projects/soloz-io/zero-ops
 ./soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
+
 Or from your current directory:
+
 /Users/arun_subramanian/Projects/soloz-io/zero-ops/soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
 
 ### Interactive
