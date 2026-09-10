@@ -60,12 +60,14 @@ a failure points at an Application rather than at a named phase.
 
 - Make the GHCR packages public — ADR-063 requires a tenant to mirror without asking permission, and ArgoCD has no OCI credential.
 
+## Download the released CLI
+
+gh release download v0.1.9 --pattern 'soloz-darwin-arm64' --output soloz --clobber
+chmod +x soloz
+
 ## Scaffold a real tenant repo 
 
-./bin/hub tenant scaffold \                        
-  --tenant tenant --org soloz-io --domain tenant.nutgraf.in \
-  --cluster tenant-hub --environment dev --provider hetzner \
-  --bundle-version 0.1.8
+./soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.in
 
 ## Boundary activation
 
