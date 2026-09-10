@@ -172,7 +172,7 @@ spec:
             isPlatformOwned: 'false'
             syncWave: '-1'
             repoURL: 'https://kyverno.github.io/kyverno'
-            targetRevision: '3.2.6'
+            targetRevision: '3.9.1'
             path: ''
             chart: 'kyverno'
             directoryRecurse: ''
