@@ -67,7 +67,18 @@ chmod +x soloz
 
 ## Scaffold a real tenant repo 
 
-./soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.in
+### Interactive
+
+soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.in
+
+Prompts for the two secrets (no echo), sets them on the tenant's repo, dispatches the bootstrap, prints the Actions URL.
+
+### Non-interactive:
+
+soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.in \
+  --provider-token "$HCLOUD_TOKEN" --gitops-token "$GITOPS_PAT"
+
+No secrets → repository is created, then handover instructions with the exact commands. Not an error, since the repo exists by then.
 
 ## Boundary activation
 
