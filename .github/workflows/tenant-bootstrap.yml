@@ -1,0 +1,137 @@
+# Bootstrap a tenant's cluster, called from the tenant's own repository.
+#
+# ADR-072: Day-0 executes under tenant control and produces tenant-owned desired
+# state. This is the execution logic, maintained here and called by a thin
+# workflow in the tenant's repository pinned to a released tag -- so the logic is
+# fixed once for every tenant, and a tenant's bootstrap does not change under it
+# without the tenant moving the pin.
+#
+# It runs in the TENANT's context. The repository checked out is the caller's,
+# the secrets are the caller's, and the platform holds none of them (ADR-065).
+name: Bootstrap a tenant cluster
+
+on:
+  workflow_call:
+    inputs:
+      cluster:
+        description: The cluster to bootstrap, as declared under clusters/ in this repository
+        required: true
+        type: string
+      provider:
+        description: hetzner or hybrid
+        required: true
+        type: string
+      region:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      bundle-version:
+        description: The platform version to bootstrap on. Must match the pin in the cluster's bundle.yaml.
+        required: true
+        type: string
+      gating:
+        description: sequenced or converged (ADR-055)
+        required: false
+        type: string
+        default: sequenced
+    secrets:
+      HCLOUD_TOKEN:
+        description: The tenant's Hetzner API token. Never leaves the tenant's account.
+        required: true
+      GITOPS_TOKEN:
+        description: Write access to this repository, so Day-0 can commit the artifacts it generates.
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    # Cluster creation is a multi-hour sequence. GitHub-hosted runners cap a job
+    # at six hours; a self-hosted runner does not, and this workflow does not
+    # depend on either -- a run that exceeds the cap is resumed by re-running,
+    # because the state lives in this repository rather than on the runner.
+    timeout-minutes: 350
+    steps:
+      - name: Check out the tenant's repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITOPS_TOKEN }}
+
+      - name: Fetch the released platform CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The binary carries the platform content Day-0 needs (ADR-063), so
+          # nothing here checks out the platform's repository.
+          gh release download "v${{ inputs.bundle-version }}" \
+            --repo soloz-io/zero-ops \
+            --pattern 'hub-linux-amd64' --output hub --clobber
+          chmod +x hub
+
+          # It must be the version the cluster is being bootstrapped on. A binary
+          # reporting something else would seed a version this repository does
+          # not pin, and the disagreement would surface as a cluster running
+          # content its own declaration does not name.
+          got=$(./hub bundle-version)
+          if [[ "$got" != "${{ inputs.bundle-version }}" ]]; then
+            echo "::error::the downloaded CLI reports '$got', expected '${{ inputs.bundle-version }}'"
+            exit 1
+          fi
+
+      - name: Check the declaration before acting on it
+        run: |
+          set -euo pipefail
+          f="clusters/${{ inputs.cluster }}/bundle.yaml"
+          if [[ ! -f "$f" ]]; then
+            echo "::error::$f does not exist. A cluster is bootstrapped from the"
+            echo "::error::declaration this repository holds; scaffold it first."
+            exit 1
+          fi
+          pinned=$(grep -A2 'chart: environment-manager' "$f" | grep targetRevision | awk '{print $2}')
+          if [[ "$pinned" != "${{ inputs.bundle-version }}" ]]; then
+            echo "::error::$f pins $pinned but this run was given ${{ inputs.bundle-version }}."
+            echo "::error::The declaration is authoritative; change it, or run the version it names."
+            exit 1
+          fi
+
+      - name: Bootstrap
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Day-0 commits the artifacts it generates into this repository, so it
+          # needs an identity to commit as (ADR-072).
+          git config user.name "soloz-platform[bot]"
+          git config user.email "platform@soloz.io"
+
+          ./hub bootstrap \
+            --name "${{ inputs.cluster }}" \
+            --provider "${{ inputs.provider }}" \
+            --region "${{ inputs.region }}" \
+            --environment "${{ inputs.environment }}" \
+            --gating "${{ inputs.gating }}" \
+            --bundle-version "${{ inputs.bundle-version }}" \
+            --gitops-dir . \
+            --debug
+
+      - name: Report where the bootstrap reached
+        # Always, because the state is most useful when the run failed: it says
+        # which phase stopped it and what a re-run will skip.
+        if: always()
+        run: |
+          f="clusters/${{ inputs.cluster }}/generated/bootstrap-state.json"
+          if [[ -f "$f" ]]; then
+            {
+              echo "### Bootstrap state"
+              echo
+              echo '```json'
+              cat "$f"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

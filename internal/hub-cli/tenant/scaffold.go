@@ -163,13 +163,26 @@ func Render(templateDir, dst string, s Spec) error {
 		return fmt.Errorf("remove consumed template: %w", err)
 	}
 
-	// Tenant facts everywhere; cluster facts only in the instance. Only the
-	// instance is checked for leftovers, because a retained template is supposed
-	// to still contain them.
+	// Tenant facts everywhere; cluster facts only where a cluster is named. Only
+	// those places are checked for leftovers, because a retained template is
+	// supposed to still contain them.
 	if err := substitute(dst, s.tenantTokens(), false); err != nil {
 		return err
 	}
-	return substitute(filepath.Join(dst, "clusters", s.ClusterName), s.clusterTokens(), true)
+	if err := substitute(filepath.Join(dst, "clusters", s.ClusterName), s.clusterTokens(), true); err != nil {
+		return err
+	}
+
+	// The workflows too. They carry the first cluster's facts as dispatch
+	// defaults, and the bundle version as the pin on the platform workflow they
+	// call -- an unsubstituted pin is a workflow reference to a tag named
+	// "v<BUNDLE_VERSION>", which GitHub reports as a missing workflow rather than
+	// as a scaffolding fault.
+	workflows := filepath.Join(dst, ".github", "workflows")
+	if _, err := os.Stat(workflows); err == nil {
+		return substitute(workflows, s.clusterTokens(), true)
+	}
+	return nil
 }
 
 // copyTree copies the template, resolved through the platform package so a

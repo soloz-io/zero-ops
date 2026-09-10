@@ -107,6 +107,24 @@ func NewStateManager(clusterName string) *StateManager {
 	}
 }
 
+// NewTenantStateManager keeps a cluster's bootstrap state in the tenant's own
+// repository.
+//
+// The default path is relative to the working directory, which on a CI runner is
+// a checkout discarded when the job ends. A bootstrap that took two hours and
+// failed at the last phase would restart from nothing, which is the behaviour
+// modular execution exists to avoid (ADR-072).
+//
+// It sits beside the cluster's generated artifacts because it is the same kind
+// of thing: instance data produced by Day-0, belonging to one cluster, and
+// useful to a tenant asking how far its bootstrap got.
+func NewTenantStateManager(gitopsDir, clusterName string) *StateManager {
+	return &StateManager{
+		statePath: filepath.Join(gitopsDir, "clusters", clusterName,
+			"generated", "bootstrap-state.json"),
+	}
+}
+
 // Save persists the bootstrap state to disk using atomic write
 func (m *StateManager) Save(state *BootstrapState) error {
 	// Timestamp used to be written only by the recovery paths, so a state file

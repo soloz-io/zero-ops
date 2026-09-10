@@ -274,3 +274,44 @@ func TestRender_RenovateManagerMatchesTheBundleItProposesAgainst(t *testing.T) {
 			v, testSpec().BundleVersion)
 	}
 }
+
+// The scaffolded repository must be able to bootstrap itself (ADR-072). The
+// failure this guards is one GitHub reports as a missing workflow rather than as
+// a scaffolding fault: a pin left as @v<BUNDLE_VERSION> is a reference to a tag
+// by that literal name.
+func TestRender_BootstrapWorkflowIsPinnedAndSubstituted(t *testing.T) {
+	dir := t.TempDir()
+	if err := Render("../../../manifests/tenants/gitops-template", dir, testSpec()); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	path := filepath.Join(dir, ".github", "workflows", "bootstrap-cluster.yml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("a scaffolded repository must carry the workflow that bootstraps "+
+			"it, or Day-0 is a manual step run from somewhere else (ADR-072): %v", err)
+	}
+	body := string(raw)
+
+	if strings.Contains(body, "<") && regexp.MustCompile(`<[A-Z_]{3,}>`).MatchString(body) {
+		t.Errorf("the workflow still carries placeholders:\n%s",
+			strings.Join(regexp.MustCompile(`<[A-Z_]{3,}>`).FindAllString(body, -1), " "))
+	}
+
+	// Pinned to a released tag, not a branch. The execution logic is then fixed
+	// for this repository until someone here moves the pin, so a change to the
+	// platform's workflow cannot alter how this repository bootstraps.
+	pin := regexp.MustCompile(`uses:\s+\S+/\.github/workflows/\S+@(\S+)`).FindStringSubmatch(body)
+	if pin == nil {
+		t.Fatal("the workflow does not call the platform's reusable workflow")
+	}
+	if pin[1] == "main" || pin[1] == "master" || strings.HasPrefix(pin[1], "refs/heads/") {
+		t.Errorf("the platform workflow is pinned to a branch (%s); it must be a "+
+			"released tag, or this repository's bootstrap changes without anyone "+
+			"here deciding it should", pin[1])
+	}
+	if want := "v" + testSpec().BundleVersion; pin[1] != want {
+		t.Errorf("pinned to %s, expected %s -- the workflow and the bundle a "+
+			"cluster runs are the same release", pin[1], want)
+	}
+}

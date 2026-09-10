@@ -109,7 +109,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.Provider.Name(), o.ClusterName)
 	}
 
+	// A tenant's bootstrap keeps its state in the tenant's repository, so a run
+	// resumed on a fresh runner picks up where the last one stopped (ADR-072).
 	stateMgr := state.NewStateManager(o.ClusterName)
+	if o.GitopsDir != "" {
+		stateMgr = state.NewTenantStateManager(o.GitopsDir, o.ClusterName)
+	}
 	bs, err := stateMgr.Load()
 	if err == nil && bs != nil {
 		return o.handleExistingState(ctx, stateMgr, bs)

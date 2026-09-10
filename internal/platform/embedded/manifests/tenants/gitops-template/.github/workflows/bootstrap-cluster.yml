@@ -1,0 +1,50 @@
+# Bootstrap a cluster this repository declares.
+#
+# The work is done by a workflow the platform maintains, pinned below to the
+# bundle version this repository was scaffolded on. Pinned rather than tracking a
+# branch: the execution logic is then fixed for this repository until someone
+# here changes the pin, and a change to the platform's workflow cannot alter how
+# this repository bootstraps without that decision being made (ADR-072).
+#
+# It runs under this repository's own secrets, in this organisation's own
+# runners. The platform holds neither (ADR-065).
+#
+# Required secrets:
+#   HCLOUD_TOKEN   the cloud API token clusters are created with
+#   GITOPS_TOKEN   write access to this repository, so Day-0 can commit the
+#                  artifacts it generates for the cluster it creates
+name: Bootstrap cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster:
+        description: The cluster to bootstrap, as named under clusters/
+        required: true
+        default: <CLUSTER_NAME>
+      provider:
+        required: true
+        default: <CLOUD_PROVIDER>
+      region:
+        required: true
+        default: <CLOUD_REGION>
+      environment:
+        required: true
+        default: <ENVIRONMENT>
+
+# Dispatch only. A cluster is not created because a file changed: creating one
+# costs money and takes hours, and a push that triggered it would make an
+# editing mistake into an infrastructure bill. Changing a cluster after it
+# exists is reconciled by the control plane rather than by this workflow.
+jobs:
+  bootstrap:
+    uses: soloz-io/zero-ops/.github/workflows/tenant-bootstrap.yml@v<BUNDLE_VERSION>
+    with:
+      cluster: ${{ inputs.cluster }}
+      provider: ${{ inputs.provider }}
+      region: ${{ inputs.region }}
+      environment: ${{ inputs.environment }}
+      bundle-version: <BUNDLE_VERSION>
+    secrets:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
