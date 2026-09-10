@@ -48,8 +48,18 @@ import (
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
 type Orchestrator struct {
-	Provider         Provider
-	ClusterName      string
+	Provider    Provider
+	ClusterName string
+
+	// GitopsDir is a checkout of the tenant's own repository.
+	//
+	// Set, the cluster is seeded with the Application that repository declares
+	// (ADR-072), and the tenant's values are what the cluster runs on. Empty, the
+	// CLI renders a seed itself, which is the platform's own development path and
+	// the reason ADR-062's claim that the tenant owns its values was untrue in
+	// practice: two seeds install the same bundle and disagree about who supplies
+	// its configuration.
+	GitopsDir        string
 	BootstrapContext string
 	KeepBootstrap    bool
 	MergeKubeconfig  bool

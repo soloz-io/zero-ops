@@ -14,6 +14,7 @@ import (
 var (
 	// Required flags
 	clusterName string
+	gitopsDir   string
 	region      string
 	imageID     string
 
@@ -52,6 +53,8 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 
 	// Required flags
 	cmd.Flags().StringVar(&clusterName, "name", "", "Hub Cluster name (alphanumeric + hyphens)")
+	cmd.Flags().StringVar(&gitopsDir, "gitops-dir", "",
+		"a checkout of the tenant's own repository; the cluster is seeded with the declaration it holds (ADR-072)")
 	cmd.Flags().StringVar(&provider, "provider", "hetzner", "Infrastructure provider: hetzner (default) or hybrid (home-lab)")
 
 	// Hetzner-specific flags (required when provider=hetzner)
@@ -238,6 +241,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		EnvironmentSlug:  envSlug,
 		Topology:         topology,
 		Gating:           gatingMode,
+		GitopsDir:        gitopsDir,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {

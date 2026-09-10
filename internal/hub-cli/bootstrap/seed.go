@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -424,6 +427,16 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		fmt.Println("[seed] warning: infisical-auth unreadable; the security boundary will refuse to render until it is")
 	}
 
+	// A tenant's cluster is seeded with the Application its own repository
+	// declares, not one rendered here (ADR-072). The chart, the version and the
+	// values all come from that repository, which is what makes it authoritative
+	// rather than merely present -- and what makes ADR-064's promotion take
+	// effect, since the field a proposal changes is then the field the cluster
+	// reads.
+	if o.GitopsDir != "" {
+		return o.applyTenantSeed(ctx, kubeconfig)
+	}
+
 	seed := renderSeedApplication(envRevision, o.EnvironmentSlug, o.providerName(),
 		o.Topology, hubIngressAddress, publicTlsIssuer, oidcIssuer, oidcJwksURL,
 		infisicalProjectID, infisicalClientID, bundleVersion, oidcScopes)
@@ -432,6 +445,47 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	}
 	return nil
 }
+
+// applyTenantSeed applies the Application a tenant's repository declares for
+// this cluster.
+//
+// Nothing is rendered and nothing is substituted. What the repository says is
+// what the cluster gets, because a seed the platform adjusted on the way through
+// would leave the repository describing something other than what runs.
+func (o *Orchestrator) applyTenantSeed(ctx context.Context, kubeconfig string) error {
+	if o.ClusterName == "" {
+		return fmt.Errorf("cannot seed from %s: no cluster name, so there is no "+
+			"declaration to choose", o.GitopsDir)
+	}
+
+	path := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, "bundle.yaml")
+	seed, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("the tenant repository declares no cluster %q: %w.\n"+
+			"A cluster is bootstrapped from the declaration its own repository "+
+			"holds (ADR-072); scaffold it there before bootstrapping it",
+			o.ClusterName, err)
+	}
+
+	if bytes.Contains(seed, []byte("<")) && bytes.Contains(seed, []byte(">")) {
+		if m := unsubstituted.Find(seed); m != nil {
+			return fmt.Errorf("%s still carries the placeholder %s: it is a "+
+				"template rather than a hydrated cluster, and applying it would "+
+				"create an Application naming nothing", path, m)
+		}
+	}
+
+	fmt.Printf("[seed] applying the declaration in %s\n", path)
+	if err := kubectlApplyStdin(ctx, kubeconfig, string(seed)); err != nil {
+		return fmt.Errorf("failed to apply the tenant's seed Application: %w", err)
+	}
+	return nil
+}
+
+// unsubstituted matches a scaffolding placeholder. A template copied into
+// clusters/ without hydration renders an Application whose source names a
+// literal <BUNDLE_VERSION>, which ArgoCD accepts and then cannot resolve.
+var unsubstituted = regexp.MustCompile(`<[A-Z_]{3,}>`)
 
 // ReapplySeed brings an existing cluster's seed Application to what the
 // renderer above defines.
