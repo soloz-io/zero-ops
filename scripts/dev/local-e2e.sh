@@ -244,7 +244,7 @@ do_clean() {
         echo "  removed $WORKSPACE/$repo"
     fi
 
-    if ! gh repo view "$GIT_ORG/$repo" --json name >/dev/null 2>&1; then
+    if ! env -u GITHUB_TOKEN -u GH_TOKEN gh repo view "$GIT_ORG/$repo" --json name >/dev/null 2>&1; then
         echo "  no repository $GIT_ORG/$repo"
         return 0
     fi
@@ -252,8 +252,16 @@ do_clean() {
     # phase here would leave the caller believing none of it did -- while the
     # only thing left is a repository name that the next scaffold will collide
     # with, which it says so about clearly.
+    # Without GITHUB_TOKEN, deliberately.
+    #
+    # load_credentials exports it from k8-secrets so scaffolding can create the
+    # repository, and gh prefers that variable over its own keyring token. The
+    # PAT carries repo/workflow/write:packages and not delete_repo, so every
+    # delete here failed with "Must have admin rights" while the same command in
+    # a plain shell succeeded -- the message named a scope the operator had
+    # already added, to a token gh was not using.
     local out
-    if out=$(gh repo delete "$GIT_ORG/$repo" --yes 2>&1); then
+    if out=$(env -u GITHUB_TOKEN -u GH_TOKEN gh repo delete "$GIT_ORG/$repo" --yes 2>&1); then
         echo "  deleted $GIT_ORG/$repo"
         return 0
     fi

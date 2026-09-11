@@ -1,0 +1,54 @@
+# What reconciles this cluster's platform declaration.
+#
+# Day-0 applies this once and then stops being involved. From here ArgoCD reads
+# bundle.yaml out of this repository, so merging a promotion is what moves the
+# cluster -- which is what ADR-064 says a promotion is, and what it was not:
+# the platform Application was applied once by the CLI and owned by nothing, so
+# a merged Renovate pull request changed the declaration and no cluster noticed
+# until someone re-ran Day-0 by hand. Propagation is the service (ADR-069), and
+# it stopped at git.
+#
+# This object is the single Day-0 exception. It is applied imperatively because
+# something has to be, and it is kept small and stable for that reason: a
+# repository, a path, and a sync policy. Changing it means re-running Day-0;
+# nothing else here does.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: <CLUSTER_NAME>-root
+  namespace: platform-ops
+spec:
+  project: default
+  source:
+    repoURL: <GITOPS_REPO_URL>
+    targetRevision: main
+    path: clusters/<CLUSTER_NAME>
+    directory:
+      # bundle.yaml alone, and this is the ownership boundary.
+      #
+      # Not the directory: values.yaml is a values file that the platform
+      # Application reads through $values and is not an object to apply;
+      # generated/ has its own Application (ADR-045); and this file sits here
+      # too, so an unfiltered include would make the root manage itself. A root
+      # that manages itself can delete itself from a bad merge, and then nothing
+      # reconciles anything.
+      include: bundle.yaml
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-ops
+  syncPolicy:
+    automated:
+      # Corrects a hand-edited platform Application back to what this repository
+      # declares. That is the property that makes the declaration authoritative
+      # rather than merely initial.
+      selfHeal: true
+      # NOT true, deliberately. Pruning here means a bundle.yaml that disappears
+      # from git -- a bad merge, a mis-resolved conflict, a branch pushed from
+      # the wrong place -- deletes the platform Application, and its
+      # resources-finalizer then takes every workload on the box with it. The
+      # blast radius of a pruning root is the cluster; the cost of not pruning
+      # is an Application that outlives its declaration and is removed by hand.
+      prune: false
+    syncOptions:
+      - ServerSideApply=true

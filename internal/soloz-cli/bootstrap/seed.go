@@ -475,26 +475,49 @@ func (o *Orchestrator) applyTenantSeed(ctx context.Context, kubeconfig string) e
 			"declaration to choose", o.GitopsDir)
 	}
 
-	path := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, "bundle.yaml")
-	seed, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("the tenant repository declares no cluster %q: %w.\n"+
-			"A cluster is bootstrapped from the declaration its own repository "+
-			"holds (ADR-072); scaffold it there before bootstrapping it",
-			o.ClusterName, err)
-	}
-
-	if bytes.Contains(seed, []byte("<")) && bytes.Contains(seed, []byte(">")) {
-		if m := unsubstituted.Find(seed); m != nil {
-			return fmt.Errorf("%s still carries the placeholder %s: it is a "+
-				"template rather than a hydrated cluster, and applying it would "+
-				"create an Application naming nothing", path, m)
+	// Both, and in this order.
+	//
+	// bundle.yaml first so the platform Application exists immediately and the
+	// boundary phases below have something to wait on -- routing it through
+	// ArgoCD first would mean waiting for a sync before Day-0 could continue.
+	//
+	// root.yaml second, and it is the point: it makes ArgoCD the owner of
+	// bundle.yaml from here on, so a merged promotion moves the cluster. Without
+	// it the platform Application was applied once and reconciled by nothing, and
+	// ADR-064's promotion stopped at the pull request. Applying both is safe --
+	// the root adopts the Application the first apply just created, because they
+	// name the same object.
+	for _, f := range []string{"bundle.yaml", "root.yaml"} {
+		path := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, f)
+		seed, err := os.ReadFile(path)
+		if err != nil {
+			// root.yaml postdates the repositories scaffolded before it. A box
+			// without one still reconciles what it has; it just does not pick up
+			// promotions until it is re-scaffolded, which is what it had before.
+			if f == "root.yaml" && os.IsNotExist(err) {
+				fmt.Printf("[seed] %s has no root.yaml: promotions will not reconcile "+
+					"on their own until this repository is re-scaffolded (ADR-064)\n",
+					o.GitopsDir)
+				continue
+			}
+			return fmt.Errorf("the tenant repository declares no cluster %q: %w.\n"+
+				"A cluster is bootstrapped from the declaration its own repository "+
+				"holds (ADR-072); scaffold it there before bootstrapping it",
+				o.ClusterName, err)
 		}
-	}
 
-	fmt.Printf("[seed] applying the declaration in %s\n", path)
-	if err := kubectlApplyStdin(ctx, kubeconfig, string(seed)); err != nil {
-		return fmt.Errorf("failed to apply the tenant's seed Application: %w", err)
+		if bytes.Contains(seed, []byte("<")) && bytes.Contains(seed, []byte(">")) {
+			if m := unsubstituted.Find(seed); m != nil {
+				return fmt.Errorf("%s still carries the placeholder %s: it is a "+
+					"template rather than a hydrated cluster, and applying it would "+
+					"create an Application naming nothing", path, m)
+			}
+		}
+
+		fmt.Printf("[seed] applying the declaration in %s\n", path)
+		if err := kubectlApplyStdin(ctx, kubeconfig, string(seed)); err != nil {
+			return fmt.Errorf("failed to apply %s: %w", path, err)
+		}
 	}
 	return nil
 }
