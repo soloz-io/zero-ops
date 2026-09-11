@@ -1,4 +1,4 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean e2e-verify
 
 # Build variables
 AUTH_PROXY_BINARY=auth-proxy
@@ -69,7 +69,13 @@ e2e:
 # so is the confirmation; nothing about `make e2e` should be able to reach it.
 e2e-fresh:
 	@test -n "$(VERSION)" || { echo "usage: make e2e-fresh VERSION=0.1.16-rc.4"; exit 1; }
-	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli scaffold bootstrap
+	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli scaffold bootstrap verify
+
+# Watch the running hub until it converges, or until the deadline.
+# VERIFY_DEADLINE=<duration> overrides the default 15m, e.g. VERIFY_DEADLINE=5m.
+e2e-verify:
+	@test -n "$(VERSION)" || { echo "usage: make e2e-verify VERSION=0.1.16-rc.5 [VERIFY_DEADLINE=5m]"; exit 1; }
+	./scripts/dev/local-e2e.sh "$(VERSION)" verify
 
 # Tear the last run down and stop: cloud cluster, kind cluster, clone, repo.
 # VERSION is not used for anything destructive -- it only satisfies the script's

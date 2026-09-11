@@ -65,7 +65,18 @@ ENVIRONMENT="${ENVIRONMENT:-dev}"
 # other environment is prefixed. Must stay in lockstep with the --domain-filter
 # expression in 03-platform-services-appset.yaml, which is what actually scopes
 # what a spoke may write.
-if [[ "$ENVIRONMENT" == "prod" ]]; then
+# HUB_DOMAIN first: a tenant's box publishes on the tenant's domain, and probing
+# the platform's hostnames from it proves nothing about either. The literals
+# below are the platform's OWN box, kept as the fallback so running this in this
+# checkout needs no arguments -- the same reason the manifests carried them, and
+# they were wrong there for the same reason.
+#
+# ADR-051 makes the base domain the authority every public host derives from, and
+# hubDomain is that value: environment-prefixed except in prod, which uses the
+# apex. So it is used as-is rather than re-prefixed here.
+if [[ -n "${HUB_DOMAIN:-}" ]]; then
+    ENV_ZONE="$HUB_DOMAIN"
+elif [[ "$ENVIRONMENT" == "prod" ]]; then
     ENV_ZONE="nutgraf.in"
 else
     ENV_ZONE="${ENVIRONMENT}.nutgraf.in"

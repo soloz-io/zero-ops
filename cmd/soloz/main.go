@@ -28,6 +28,7 @@ func main() {
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
 	rootCmd.AddCommand(newReseedCmd())
+	rootCmd.AddCommand(newVerifyCmd())
 	rootCmd.AddCommand(newKubeconfigCmd())
 	rootCmd.AddCommand(newTenantCmd())
 	rootCmd.AddCommand(newBundleVersionCmd())

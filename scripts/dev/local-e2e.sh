@@ -13,8 +13,8 @@
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean           # tear the last run down
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean publish cli scaffold bootstrap
 #
-# Phases: clean  publish  cli  scaffold  bootstrap
-#         (default: the last four. `clean` is opt-in: it destroys a running
+# Phases: clean  publish  cli  scaffold  bootstrap  verify
+#         (default: the last five. `clean` is opt-in: it destroys a running
 #          cluster and deletes a GitHub repository, so it is never implied.)
 #
 # Credentials are read from k8-secrets/, one file per credential, never prompted
@@ -58,12 +58,12 @@ phases=()
 for arg in "$@"; do
     case "$arg" in
         --dry|--skip-push) DRY=1 ;;
-        clean|publish|cli|scaffold|bootstrap) phases+=("$arg") ;;
+        clean|publish|cli|scaffold|bootstrap|verify) phases+=("$arg") ;;
         -h|--help) usage 0 ;;
         *) echo "unknown argument: $arg" >&2; usage 1 ;;
     esac
 done
-[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap)
+[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap verify)
 
 wants() { printf '%s\n' "${phases[@]}" | grep -qx "$1"; }
 say()   { printf '\n\033[1m[local-e2e] %s\033[0m\n' "$*"; }
@@ -434,6 +434,25 @@ do_bootstrap() {
         --environment "$ENVIRONMENT" --gitops-dir . )
 }
 
+# Bootstrap returning success means every phase completed, not that the platform
+# is serving: ArgoCD is still pulling charts and ESO is still waiting on a secret
+# store another controller is writing. Bounded rather than open-ended, so "not
+# converged" is an answer -- and long enough that normal settling is not reported
+# as failure. VERIFY_DEADLINE overrides it.
+do_verify() {
+    local repo="$TENANT-gitops"
+    local kc="$WORKSPACE/$repo/k8-secrets/kubeconfig/$CLUSTER.kubeconfig"
+    [ -r "$kc" ] || {
+        echo "local-e2e: no kubeconfig at $kc; bootstrap has not produced one" >&2
+        return 1
+    }
+    say "verifying $CLUSTER converges"
+    # The same command the tenant's workflow runs, not a local re-implementation.
+    # A second implementation would be a second thing to keep true, and the whole
+    # point of this loop is that local and CI take one path.
+    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-15m}"
+}
+
 # ── Run ─────────────────────────────────────────────────────────────────────
 
 if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
@@ -492,7 +511,7 @@ preflight() {
     # bootstrap arm and demanded a clone that the very same run was about to make.
     if wants scaffold; then
         wants clean || workspace_is_clear
-    elif wants bootstrap; then
+    elif wants bootstrap || wants verify; then
         [ -d "$WORKSPACE/$TENANT-gitops" ] || {
             echo "local-e2e: $WORKSPACE/$TENANT-gitops does not exist; run the scaffold phase first" >&2
             return 1
@@ -507,7 +526,7 @@ preflight() {
 
 preflight
 
-for p in clean publish cli scaffold bootstrap; do
+for p in clean publish cli scaffold bootstrap verify; do
     wants "$p" && "do_$p"
 done
 
