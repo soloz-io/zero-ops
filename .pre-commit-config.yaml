@@ -88,4 +88,12 @@ repos:
         entry: bash -c 't=$(mktemp -d); trap "rm -rf $t" EXIT; ./scripts/package/embed-platform-assets.sh "$t/embedded" >/dev/null && diff -r -x embed.go internal/platform/embedded "$t/embedded" >/dev/null || { echo "internal/platform/embedded is stale; run scripts/package/embed-platform-assets.sh and commit the result"; exit 1; }'
         language: system
         pass_filenames: false
-        files: '(manifests/(environments|providers|argocd/components|tenants/gitops-template)/.*|manifests/generated/artifacts\.yaml|internal/platform/embedded/.*)'
+        # Any manifest, not the embed set restated. The set lives in
+        # scripts/package/embed-platform-assets.sh and has changed since; the
+        # narrower pattern this replaces named four directories and omitted
+        # manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml, which IS
+        # embedded -- so editing the Cilium artifact that carries the ADR-075
+        # mtu and devices values triggered nothing and the embedded copy went
+        # stale in silence. A superset cannot under-trigger, and the check costs
+        # a quarter of a second, so over-triggering is the cheaper mistake.
+        files: '^(manifests/.*|internal/platform/embedded/.*)'

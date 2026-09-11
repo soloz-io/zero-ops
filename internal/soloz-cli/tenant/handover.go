@@ -387,6 +387,10 @@ func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
 
 	fmt.Fprintf(w, "\n[scaffold] cloned %s into ./%s\n\n", s.RepoName(), dir)
 	fmt.Fprintf(w, "Bootstrap it from here, not from a workflow:\n\n")
+	// The token is exported rather than left to the file fallback: that file
+	// lives in the platform checkout, and the command below runs from the
+	// tenant's clone.
+	fmt.Fprintf(w, "  export HCLOUD_TOKEN=$(cat <your checkout>/k8-secrets/hetzner/token)\n")
 	fmt.Fprintf(w, "  cd %s\n", dir)
 	fmt.Fprintf(w, "  %s bootstrap \\\n", "soloz")
 	fmt.Fprintf(w, "    --name %s \\\n", s.ClusterName)
@@ -401,6 +405,18 @@ func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
 		fmt.Fprintf(w, "change you are testing must be pushed to that branch before the\n")
 		fmt.Fprintf(w, "cluster can reconcile it. The CLI reads your working tree; ArgoCD\n")
 		fmt.Fprintf(w, "does not.\n\n")
+		fmt.Fprintf(w, "This is NOT the path a tenant runs. To test that one, publish a\n")
+		fmt.Fprintf(w, "prerelease and scaffold against it -- see\n")
+		fmt.Fprintf(w, "docs/runbooks/local-release-path-testing.md.\n\n")
+		return nil
 	}
+
+	// Worth saying out loud on the released path: the cluster reconciles what was
+	// published, so an unpublished edit to the working tree changes nothing here
+	// and the run looks normal while testing the wrong content.
+	fmt.Fprintf(w, "This box pins %s and pulls its charts from %s.\n",
+		s.BundleVersion, s.BundleRegistry)
+	fmt.Fprintf(w, "That is the path a tenant runs. Your working tree is not in it:\n")
+	fmt.Fprintf(w, "changing a manifest means publishing the next prerelease.\n\n")
 	return nil
 }

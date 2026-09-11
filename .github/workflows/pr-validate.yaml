@@ -3,8 +3,61 @@ on:
   pull_request:
     paths:
       - 'manifests/**'
+      # The CLI decides what a released box reads and what bundle it renders, so
+      # a change to it can break a tenant's Day-0 without touching a manifest.
+      # Until this was added, no workflow ran the CLI's tests at all: both Go
+      # workflows are scoped to their own operator directory, and every guard in
+      # internal/soloz-cli was enforced on a laptop and nowhere else.
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/**'
+      - '.pre-commit-config.yaml'
+      # The workflow watches its own definition, for the reason
+      # ephemeral-vm-provisioner.yml gives: a fix to CI that CI never runs is
+      # validated whenever someone next touches something else.
+      - '.github/workflows/pr-validate.yaml'
 
 jobs:
+  # The CLI's own guards. bundle_version_test.go pins both shapes chartSource
+  # renders, and embedded_assets_test.go asserts a released binary carries every
+  # path Day-0 reads -- the check that turns "works locally, fails for a tenant"
+  # into a red pull request.
+  #
+  # A package list rather than ./... : cmd/mcp-server and
+  # internal/kube-sbt/providers do not currently build, and sweeping them in
+  # would make this job red for reasons unrelated to the change under review.
+  validate-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test the CLI and the platform content it carries
+        run: go test ./internal/soloz-cli/... ./internal/platform/... ./cmd/soloz/...
+
+  # internal/platform/embedded is a generated copy of the manifests a released
+  # CLI carries. It was guarded only by a pre-commit hook, which means it was
+  # guarded on one machine: a commit made with --no-verify, or by anyone who had
+  # not installed the hooks, shipped a binary carrying content the repository no
+  # longer has, and nothing said so until a tenant bootstrapped from it.
+  #
+  # This one hook rather than `pre-commit run --all-files`: the others shell out
+  # to helm, kubeconform, kubectl, yamllint and a full hub-operator build, so
+  # running the set here is its own piece of work. This one needs bash and the
+  # checkout, and it is the hook this release path depends on.
+  validate-embedded-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Refuse an embedded tree that has drifted from its source
+        run: |
+          pip install pre-commit
+          pre-commit run embedded-platform-assets --all-files --show-diff-on-failure
+
   validate-manifests:
     runs-on: ubuntu-latest
     steps:

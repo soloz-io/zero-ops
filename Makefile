@@ -1,4 +1,4 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch
 
 # Build variables
 AUTH_PROXY_BINARY=auth-proxy
@@ -53,6 +53,59 @@ build-hub:
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build -o $(BUILD_DIR)/$(SOLOZ_BINARY) ./cmd/soloz
 	@echo "✓ Build complete: $(BUILD_DIR)/$(SOLOZ_BINARY)"
+
+# Build the CLI in its RELEASED shape, at VERSION.
+#
+# `build` above produces a development binary: ADR-068 makes it read platform
+# manifests from the working directory and makes `tenant scaffold` render a
+# bundle that points ArgoCD at this repository at a branch. A tenant runs neither.
+# This target produces what a tenant runs -- platform content embedded, bundle
+# pointing at the published OCI chart -- so an end-to-end test locally exercises
+# the path that ships.
+#
+# VERSION must already be published by the release workflow, because the bundle
+# this binary renders names a chart by version and ArgoCD pulls it from GHCR:
+#
+#   gh workflow run publish-platform-charts.yml -f version=0.1.16-rc.1
+#
+# A prerelease suffix keeps the real version free -- ADR-063 consumes a version
+# by publishing it, so testing on 0.1.16-rc.1 leaves 0.1.16 available.
+# See docs/runbooks/local-release-path-testing.md.
+cli-release:
+	@test -n "$(VERSION)" || { echo "usage: make cli-release VERSION=0.1.16-rc.1"; exit 1; }
+	TARGETS=host ./scripts/package/build-cli.sh "$(VERSION)" $(BUILD_DIR)
+	@cp $(BUILD_DIR)/soloz-$$($(GO) env GOOS)-$$($(GO) env GOARCH) $(BUILD_DIR)/$(SOLOZ_BINARY)
+	@echo "✓ $(BUILD_DIR)/$(SOLOZ_BINARY) declares $(VERSION)"
+
+# Fetch the exact binary CI built for VERSION, rather than rebuilding it.
+#
+# Use this when what you are testing is the charts or the manifests: it removes
+# the local toolchain from the question entirely, so a failure is the platform's
+# and not the laptop's. Use cli-release instead when the change under test is in
+# the CLI itself.
+# RUN=<id> overrides which run to take it from. Without a run id `gh run
+# download` looks only at the most recent run, which is the wrong one as soon as
+# anything else has been pushed since -- so the run is resolved by asking which
+# completed publish run carries this version's artifact.
+cli-fetch:
+	@test -n "$(VERSION)" || { echo "usage: make cli-fetch VERSION=0.1.16-rc.1 [RUN=<id>]"; exit 1; }
+	@mkdir -p $(BUILD_DIR)
+	@run="$(RUN)"; \
+	if [ -z "$$run" ]; then \
+	  run=$$(gh run list --workflow=publish-platform-charts.yml --status=success \
+	          --limit 30 --json databaseId --jq '.[].databaseId' \
+	        | while read -r id; do \
+	            if gh api "repos/{owner}/{repo}/actions/runs/$$id/artifacts" \
+	                 --jq '.artifacts[].name' 2>/dev/null \
+	               | grep -qx "soloz-$(VERSION)"; then echo "$$id"; break; fi; \
+	          done); \
+	fi; \
+	test -n "$$run" || { echo "no successful publish run carries soloz-$(VERSION); pass RUN=<id>"; exit 1; }; \
+	echo "fetching soloz-$(VERSION) from run $$run"; \
+	gh run download "$$run" --name "soloz-$(VERSION)" --dir $(BUILD_DIR)
+	@cp $(BUILD_DIR)/soloz-$$($(GO) env GOOS)-$$($(GO) env GOARCH) $(BUILD_DIR)/$(SOLOZ_BINARY)
+	@chmod +x $(BUILD_DIR)/$(SOLOZ_BINARY)
+	@echo "✓ $(BUILD_DIR)/$(SOLOZ_BINARY) is the CI build of $(VERSION)"
 
 # Clean build artifacts
 clean:

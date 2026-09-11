@@ -103,6 +103,50 @@ Two sources of platform content exist and must stay equivalent: the repository a
 - **Amends ADR-064.** The bundle version a cluster runs is written by Day-0 from the build's own version, so a promotion changes the version a cluster requests, not the source each component names.
 - **Confirms ADR-040.** Day-0 continues to select the bundle version exactly once and carries no further authority.
 
+## Addendum 1: A prerelease version is how the released path is exercised (2026-09-11)
+
+The Negative section above names the cost of the sentinel plainly: *"An unreleased
+build does not exercise the published path, and the two paths are not the same
+mechanism."* It then rests on the packaging checks to hold the two equivalent. That
+was not enough, and this records what closes the gap.
+
+Two defects reached clusters through it. The `bundleVersion` parameter that a
+released chart needs and a repository path does not was absent, and every boundary
+rendered `0 of 3 Applications` on a released box while a development box was healthy.
+Separately, the content a released binary carries is an allowlist
+(`scripts/package/embed-platform-assets.sh`), and a development build never consults
+it — so a Day-0 read of a manifest outside that set works everywhere it is tested and
+fails at a tenant's first bootstrap, naming a file the repository visibly contains.
+
+Neither is an equivalence the packaging checks can assert. They compare a packaged
+component against the repository path it came from; these are properties of the
+*delivery*, and only running the delivered thing shows them.
+
+**A prerelease version is a third build mode, and it is how the platform tests
+itself.** `0.1.16-rc.1` is injected exactly as a release version is, so the binary
+reads its embedded content and renders the published-chart shape — the tenant's path
+in every respect. It is published by the same workflow through `workflow_dispatch`.
+And it does not consume the release: ADR-063 consumes a version by publishing it, and
+`0.1.16-rc.1` is a distinct version from `0.1.16`, so the release number stays free
+for the set that is actually released.
+
+This does not weaken the reason the sentinel exists. Requiring a tag to test still
+makes tagging routine, and the development build remains the default for ordinary
+work. What changes is that the released path stops being first exercised by a tenant.
+
+Two guards make the older failure mode visible earlier rather than relying on anyone
+running the loop:
+
+- The embedded tree is asserted to carry every path Day-0 reads, per provider,
+  environment and boundary, enumerated from the working tree so a new one is covered
+  by the commit that adds it (`internal/soloz-cli/bootstrap/embedded_assets_test.go`).
+- The check that the embedded tree matches its source runs in CI, not only in a
+  pre-commit hook on one machine, and triggers on any manifest rather than on a
+  restatement of the embed set — the narrower pattern it replaces omitted the Cilium
+  artifact carrying ADR-075's `mtu` and `devices` values.
+
+See `docs/runbooks/local-release-path-testing.md`.
+
 ## References
 
 - ADR-039: Platform Ownership Model

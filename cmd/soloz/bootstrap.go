@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -69,25 +70,60 @@ func resolveHCloudToken() error {
 	if os.Getenv("HCLOUD_TOKEN") != "" {
 		return nil
 	}
-	const path = "k8-secrets/hetzner/token"
-	raw, err := os.ReadFile(path)
-	if err == nil {
-		if token := strings.TrimSpace(string(raw)); token != "" {
-			// Set rather than returned: the readers downstream take it from the
-			// environment, and passing it explicitly would mean changing all of them.
-			if err := os.Setenv("HCLOUD_TOKEN", token); err != nil {
-				return fmt.Errorf("could not make the Hetzner token available: %w", err)
-			}
-			fmt.Printf("[bootstrap] using the Hetzner token from %s\n", path)
-			return nil
+	const rel = "k8-secrets/hetzner/token"
+	for _, path := range hcloudTokenPaths(rel) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
 		}
+		token := strings.TrimSpace(string(raw))
+		if token == "" {
+			continue
+		}
+		// Set rather than returned: the readers downstream take it from the
+		// environment, and passing it explicitly would mean changing all of them.
+		if err := os.Setenv("HCLOUD_TOKEN", token); err != nil {
+			return fmt.Errorf("could not make the Hetzner token available: %w", err)
+		}
+		fmt.Printf("[bootstrap] using the Hetzner token from %s\n", path)
+		return nil
 	}
 	return fmt.Errorf("no Hetzner API token.\n\n"+
 		"Clusters are created with it, so bootstrap needs one of:\n\n"+
 		"  HCLOUD_TOKEN   exported in this shell\n"+
-		"  %s   the same token, read from disk\n\n"+
+		"  %s   the same token, relative to this checkout\n\n"+
 		"Create one at https://console.hetzner.cloud/ under Security > API tokens,\n"+
-		"with Read & Write permission.", path)
+		"with Read & Write permission.", rel)
+}
+
+// hcloudTokenPaths lists where the token file may be, nearest first.
+//
+// The working directory is no longer where the operator's checkout is. A released
+// binary carries its platform content (ADR-063), so bootstrap is run FROM the
+// tenant's repository -- and the tenant's repository has no k8-secrets/. The
+// fallback is therefore resolved against the checkout rather than the cwd, which
+// is what it always meant: k8-secrets/ is the operator's own gitignored directory,
+// and reading it from wherever bootstrap happens to be run was an accident of the
+// two being the same place.
+//
+// ZERO_OPS_DIR first because a developer can say where the checkout is; the
+// executable's directory second because `bin/soloz` and `./soloz` both sit in one.
+func hcloudTokenPaths(rel string) []string {
+	paths := []string{rel}
+	if root := strings.TrimSpace(os.Getenv("ZERO_OPS_DIR")); root != "" {
+		paths = append(paths, filepath.Join(root, rel))
+	}
+	if exe, err := os.Executable(); err == nil {
+		if exe, err = filepath.EvalSymlinks(exe); err == nil {
+			dir := filepath.Dir(exe)
+			// Both layouts the repository produces: `./soloz` at the root, and
+			// `bin/soloz` from the Makefile.
+			paths = append(paths,
+				filepath.Join(dir, rel),
+				filepath.Join(filepath.Dir(dir), rel))
+		}
+	}
+	return paths
 }
 
 func newBootstrapCmd() *cobra.Command {
