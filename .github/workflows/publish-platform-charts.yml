@@ -63,147 +63,19 @@ jobs:
           curl -sSLo /tmp/k.tgz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.0/kustomize_v5.8.0_linux_amd64.tar.gz
           tar -xzf /tmp/k.tgz -C /usr/local/bin kustomize
 
-      - name: Package every platform-owned component
-        run: |
-          set -euo pipefail
-          mkdir -p dist/charts
-          published=0 refused=0 broken=0
-          for d in manifests/argocd/components/*/*.yaml; do
-            rc=0
-            ./scripts/package/component-chart.sh "$d" "${{ steps.v.outputs.version }}" dist/charts || rc=$?
-            case "$rc" in
-              0) published=$((published+1)) ;;
-              # component-chart.sh exits 3 when a component's source reaches into
-              # a generated/ directory. That is per-cluster instance data, and
-              # publishing it would hand every cluster one cluster's values, so
-              # the build fails rather than shipping it.
-              3) refused=$((refused+1)) ;;
-              # Anything else is a component that did not build. This used to be
-              # counted as neither published nor refused, so the step reported
-              # success having silently dropped it: the distribution shipped
-              # without a component the boundaries enable, and the first thing to
-              # notice was the release gate two steps later -- or nothing at all,
-              # for a component no boundary happens to enable.
-              *) echo "::error::$d failed to package (exit $rc)"; broken=$((broken+1)) ;;
-            esac
-          done
-          echo "packaged=$published refused=$refused broken=$broken"
-          [ "$refused" -eq 0 ] || { echo "::error::$refused component(s) carry per-cluster data and cannot be published"; exit 1; }
-          [ "$broken" -eq 0 ]  || { echo "::error::$broken component(s) failed to build; the distribution would be incomplete"; exit 1; }
-
-      - name: Package the provider overlays and the bundle chart
-        run: |
-          set -euo pipefail
-          # Boundary 02's components are provider overlays, not descriptors
-          # (ADR-061), and the bundle chart carries the boundaries themselves
-          # plus the descriptors copied in at package time. Without these a
-          # released cluster reaches back into this repository for content it
-          # should have received in the bundle.
-          ./scripts/package/provider-charts.sh            "${{ steps.v.outputs.version }}" dist/charts
-          ./scripts/package/tenant-and-catalog-charts.sh  "${{ steps.v.outputs.version }}" dist/charts
-          ./scripts/package/inline-charts.sh              "${{ steps.v.outputs.version }}" dist/charts
-
-          # ADR-063: one published artefact. The per-component charts above are
-          # internal structure and are folded in here; only the distribution and
-          # the bundle are pushed.
-          python3 scripts/package/distribution.py "${{ steps.v.outputs.version }}" dist/charts dist/dist
-          python3 scripts/package/verify-distribution.py dist/dist/platform dist/charts
-          cp -R dist/charts/universal-tenant dist/charts/tenant-public-tls dist/dist/
-          rm -rf dist/charts && mv dist/dist dist/charts
-          ./scripts/package/bundle-chart.sh               "${{ steps.v.outputs.version }}" dist/charts
-
-      # A release invariant, not a report. ADR-063 makes mirroring a condition of
-      # a supported runtime, so a bundle that reaches back into this repository
-      # cannot be mirrored -- and shipping it would make the custody claim false
-      # for every tenant that received it.
-      - name: Refuse a bundle that still fetches from this repository
-        run: ./scripts/validate/bundle-portability.sh "${{ steps.v.outputs.version }}"
-
-      - name: Verify each chart renders what the cluster applies today
-        run: |
-          set -euo pipefail
-          # The gate on the conversion, not a convenience: a published chart that
-          # renders different objects is a silent change to every cluster that
-          # pulls it.
-          for d in manifests/argocd/components/*/*.yaml; do
-            app=$(grep -m1 '^appName:' "$d" | sed 's/appName: *//')
-            [ -d "dist/charts/$app" ] || continue
-            ./scripts/package/verify-equivalence.py "$d" "dist/charts/$app"
-          done
-
-      # Asserts the whole support matrix, both halves. Every environment crossed
-      # with every provider: a supported combination must render and must name
-      # only charts this release publishes; an unsupported one must be refused
-      # by name.
+      # Packaging, the gates, and the push -- one script, so that a developer
+      # testing the released path locally runs exactly what a release runs
+      # (docs/runbooks/local-release-path-testing.md). It was inline here, which
+      # made CI the only place the bundle could be built correctly and a ~9m30s
+      # dispatch the only way to exercise the path a tenant takes.
       #
-      # Both halves, because either alone drifts. Checking only that supported
-      # combinations render would let someone declare a combination supported,
-      # see the release stay green, and believe it -- while no sources exist
-      # behind it. v0.1.1 shipped green with six Applications resolving charts
-      # nothing published, and the check that would have caught it was scoped to
-      # the one combination already known to work.
-      # Rendering is not deploying. Three defects reached published releases
-      # through that gap -- Applications naming charts no release published, a
-      # chart carrying one cluster's Infisical project IDs, and an Application
-      # naming a Helm chart and a Kustomize block together, which ArgoCD refuses
-      # outright. Each rendered perfectly.
-      - name: Refuse a bundle whose Applications cannot be deployed
-        run: |
-          set -euo pipefail
-          for combo in "dev hybrid" "stg hybrid" "prod hetzner"; do
-            set -- $combo
-            echo "  $1+$2"
-            helm template platform-bundle dist/charts/platform-bundle \
-              --set environmentSlug="$1" --set provider="$2" \
-              --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
-              --set instanceRepoURL=https://github.com/example-org/example-gitops \
-              --set bundleVersion="${{ steps.v.outputs.version }}" \
-            | python3 scripts/validate/application-specs.py dist/charts
-          done
-
-      - name: Assert the supported platform matrix
-        run: ./scripts/validate/support-matrix.sh dist/charts/platform-bundle "${{ steps.v.outputs.version }}" dist/charts
-
-      - name: Push to GHCR
+      # The login stays here and not in the script: the credential belongs to the
+      # caller, and a script that logged in would need one to run at all.
+      - name: Package, gate and publish the bundle
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for c in dist/charts/*/; do
-            helm package "$c" -d dist/pkg >/dev/null
-          done
-          # ADR-063: a version is consumed by any release that begins
-          # publishing it, so re-running one that already put charts in the
-          # registry would re-point tags that already resolve. Publishing is not
-          # atomic -- charts push one at a time -- so a failure part-way leaves
-          # exactly this state, and the next attempt must take the next version.
-          #
-          # Every chart is probed, not just one: which charts a partial run left
-          # behind depends on where it stopped, and the set changes between
-          # releases, so there is no single name whose absence proves the
-          # version is free.
-          existing=""
-          for pkg in dist/pkg/*.tgz; do
-            name=$(basename "$pkg" "-${{ steps.v.outputs.version }}.tgz")
-            ref="oci://ghcr.io/${{ github.repository_owner }}/charts/${name}"
-            if err=$(helm show chart "$ref" --version "${{ steps.v.outputs.version }}" 2>&1 >/dev/null); then
-              existing="${existing}  ${name}"$'\n'
-            elif ! grep -qiE ': not found$|manifest unknown|NAME_UNKNOWN' <<<"$err"; then
-              # Anything other than a clean absence is unknown, not free. Treating
-              # a network or auth failure as "nothing is there" would let a
-              # re-publish through at exactly the moment the check stopped working.
-              echo "::error::could not determine whether ${name} is already published: ${err}"
-              exit 1
-            fi
-          done
-          if [ -n "$existing" ]; then
-            echo "::error::version ${{ steps.v.outputs.version }} is already published; a version is consumed by any release that begins publishing it (ADR-063). Release the next version instead."
-            printf 'already in the registry at this version:\n%s' "$existing"
-            exit 1
-          fi
-
-          for pkg in dist/pkg/*.tgz; do
-            helm push "$pkg" "oci://ghcr.io/${{ github.repository_owner }}/charts"
-          done
+          ./scripts/package/publish.sh "${{ steps.v.outputs.version }}" "${{ github.repository_owner }}"
 
       # ADR-068: one run publishes the bundle and produces the build that
       # requests it. A release that shipped charts and no binary would leave the

@@ -1,4 +1,4 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local
 
 # Build variables
 AUTH_PROXY_BINARY=auth-proxy
@@ -53,6 +53,28 @@ build-hub:
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build -o $(BUILD_DIR)/$(SOLOZ_BINARY) ./cmd/soloz
 	@echo "✓ Build complete: $(BUILD_DIR)/$(SOLOZ_BINARY)"
+
+# Package, gate and publish the bundle from here, at VERSION.
+#
+# The same script the release workflow runs (scripts/package/publish.sh), so what
+# this puts in the registry went through the same gates as a release. What it
+# avoids is the ~9m30s a dispatch costs, nearly all of which is a cold runner
+# refetching third-party charts this machine already has cached.
+#
+# OWNER is the GHCR namespace; it must be the one a scaffolded bundle names, or
+# the cluster will resolve charts from somewhere this did not publish to.
+#
+# Requires an authenticated helm -- the script does not log in, because the
+# credential belongs to whoever is running it:
+#
+#   echo $$GITHUB_TOKEN | helm registry login ghcr.io -u <you> --password-stdin
+#
+# SKIP_PUSH=1 packages and gates without publishing, which spends no version.
+# Use it to find a packaging mistake before committing to an -rc number.
+OWNER ?= soloz-io
+publish-local:
+	@test -n "$(VERSION)" || { echo "usage: make publish-local VERSION=0.1.16-rc.1 [OWNER=soloz-io] [SKIP_PUSH=1]"; exit 1; }
+	SKIP_PUSH=$(SKIP_PUSH) ./scripts/package/publish.sh "$(VERSION)" "$(OWNER)"
 
 # Build the CLI in its RELEASED shape, at VERSION.
 #

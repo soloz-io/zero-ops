@@ -16,39 +16,69 @@ a change touches what a released binary carries or what `tenant scaffold` render
 
 ## 1. Publish a prerelease
 
+Authenticate helm once per session — the script does not log in, because the
+credential is yours:
+
 ```bash
-gh workflow run publish-platform-charts.yml -f version=0.1.16-rc.1
-gh run watch
+echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u <your-gh-user> --password-stdin
 ```
 
-The `-rc.N` suffix is what keeps this cheap. ADR-063 consumes a version by publishing
-it, so a version used for testing can never be released; `0.1.16-rc.1` is a distinct
-version, so `0.1.16` stays free for the set you actually release. Iterate with
-`-rc.2`, `-rc.3`.
+Then package, gate and publish:
 
-Charts land in `oci://ghcr.io/soloz-io/charts` — the same registry a release uses, so
-the `repoURL` your test renders is identical to a tenant's.
+```bash
+make publish-local VERSION=0.1.16-rc.1
+```
+
+This runs `scripts/package/publish.sh` — the same script the release workflow
+runs, so what lands in the registry passed the same gates a release passes:
+bundle portability, chart-renders-what-the-cluster-applies, Applications
+deployable, and the support matrix.
+
+The `-rc.N` suffix is what keeps this cheap. ADR-063 consumes a version by
+publishing it, so a version used for testing can never be released; `0.1.16-rc.1`
+is a distinct version, so `0.1.16` stays free for the set you actually release.
+Iterate with `-rc.2`, `-rc.3`.
+
+Charts land in `oci://ghcr.io/soloz-io/charts` — the same registry a release uses,
+so the `repoURL` your test renders is identical to a tenant's. `OWNER=` overrides
+the namespace, but it must match what the scaffolded bundle names.
+
+**To check packaging without spending a version:**
+
+```bash
+make publish-local VERSION=0.1.16-rc.1 SKIP_PUSH=1
+```
+
+Everything runs except the push. This is how you find a packaging mistake before
+committing to an `-rc` number.
+
+**When to use CI instead.** `gh workflow run publish-platform-charts.yml -f
+version=0.1.16-rc.1` does the same thing on a clean runner, from the pushed ref
+rather than your working tree. It takes about 9m30s. Prefer it when you want to
+confirm the change works from what is actually committed — and always for a real
+release, which is a tag, not a dispatch.
 
 ## 2. Get a binary that declares that version
 
 Either works. Pick by what you are testing.
 
 **Testing manifests or charts** — take the bytes CI built, so a failure cannot be
-your toolchain:
+your toolchain (requires a CI run, not a local publish):
 
 ```bash
 make cli-fetch VERSION=0.1.16-rc.1
 ```
 
-**Testing a change to the CLI itself** — build it, same recipe CI uses
-(`scripts/package/build-cli.sh`):
+**Testing a change to the CLI itself, or pairing with a local publish** — build it,
+same recipe CI uses (`scripts/package/build-cli.sh`):
 
 ```bash
 make cli-release VERSION=0.1.16-rc.1
 ```
 
-Either way, confirm before going further. A binary reporting `development` here puts
-you back on the path you are trying to leave, and nothing downstream will say so:
+Either way, confirm before going further. A binary reporting `development` here
+puts you back on the path you are trying to leave, and nothing downstream will say
+so:
 
 ```bash
 bin/soloz bundle-version   # must print 0.1.16-rc.1
@@ -126,6 +156,14 @@ the run looks entirely normal while testing the previous content. Publish `-rc.2
 
 A change to the **CLI** does not — rebuild with `make cli-release` at the same version
 and re-run. The CLI and the charts are separate artifacts.
+
+Roughly, per iteration:
+
+| change | what to re-run |
+|---|---|
+| CLI code | `make cli-release VERSION=<same rc>` |
+| manifest / chart | `make publish-local VERSION=<next rc>` then `make cli-release` |
+| neither, re-testing | nothing; re-run step 4 |
 
 This is the trade. The development build exists because requiring a publish per
 iteration makes iteration slow; this path exists because the development build does
