@@ -1,0 +1,6 @@
+# auth-proxy fronts Zitadel, so every URL it holds is a hub hostname (ADR-051).
+# They were literals, so a tenant's auth-proxy validated tokens against the
+# PLATFORM's issuer -- the dependency ADR-065 exists to prevent.
+- kind: Deployment
+  name: auth-proxy
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]

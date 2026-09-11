@@ -1,0 +1,8 @@
+# Headlamp's OIDC issuer and callback, and the DNS record it publishes. A
+# callback URL on the platform's domain is one no tenant's browser returns to.
+- kind: Deployment
+  name: headlamp
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: DNSEndpoint
+  name: dashboard
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]

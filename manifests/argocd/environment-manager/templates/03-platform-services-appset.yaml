@@ -109,12 +109,11 @@ spec:
                 enabled: true
                 externalDns:
                   target: {{ .Values.hubIngressAddress | quote }}
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
-                provider: {{ $.Values.provider | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- else }}
               externalDns:
                 target: {{ .Values.hubIngressAddress | quote }}
+              {{- include "environment-manager.globalValues" . | nindent 14 }}
               {{- end }}
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
@@ -134,9 +133,7 @@ spec:
               {{- if $released }}
               hub-environment:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
-                provider: {{ $.Values.provider | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- else }}
               {{- end }}
             helmReleaseName: ''
@@ -156,9 +153,7 @@ spec:
               {{- if $released }}
               infrastructure-provider:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
-                provider: {{ $.Values.provider | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- else }}
               {{- end }}
             helmReleaseName: ''
@@ -178,9 +173,7 @@ spec:
               {{- if $released }}
               platform-spoke-pools:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
-                provider: {{ $.Values.provider | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- else }}
               {{- end }}
             helmReleaseName: ''
@@ -469,9 +462,7 @@ spec:
             platform-spoke-catalog:
               enabled: true
               spokeName: '{{"{{"}}.name{{"}}"}}'
-            global:
-              environmentSlug: {{ .Values.environmentSlug | quote }}
-              provider: {{ .Values.provider | quote }}
+            {{- include "environment-manager.globalValues" . | nindent 12 }}
 {{- else }}
         kustomize:
           patches:
@@ -560,7 +551,9 @@ spec:
               patch: |
                 - op: replace
                   path: /spec/template/spec/containers/0/args/0
-                  value: '--domain-filter={{ if eq .Values.environmentSlug "prod" }}nutgraf.in{{ else }}{{ .Values.environmentSlug }}.nutgraf.in{{ end }}'
+                  # hubDomain already is the env-prefixed zone, or the apex in
+                  # prod, so the conditional this replaces is now the value.
+                  value: '--domain-filter={{ include "environment-manager.hubDomain" $ }}'
                 - op: replace
                   path: /spec/template/spec/containers/0/args/1
                   value: '--txt-owner-id={{"{{"}}.name{{"}}"}}'

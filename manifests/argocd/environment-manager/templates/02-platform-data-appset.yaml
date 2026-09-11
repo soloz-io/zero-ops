@@ -37,8 +37,7 @@ spec:
               # nothing and reports the Application healthy.
               platform-database:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
                 # The variant selector inside the distribution: the subchart
                 # resolves files/<env>-<provider>, then files/<env>, then
                 # files/<provider>. For these three that lookup must follow the
@@ -82,8 +81,7 @@ spec:
               # nothing and reports the Application healthy.
               platform-nats:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
                 # The variant selector inside the distribution: the subchart
                 # resolves files/<env>-<provider>, then files/<env>, then
                 # files/<provider>. For these three that lookup must follow the
@@ -115,8 +113,7 @@ spec:
               # nothing and reports the Application healthy.
               platform-redis:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
                 # The variant selector inside the distribution: the subchart
                 # resolves files/<env>-<provider>, then files/<env>, then
                 # files/<provider>. For these three that lookup must follow the

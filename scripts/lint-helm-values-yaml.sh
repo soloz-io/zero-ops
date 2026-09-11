@@ -46,7 +46,7 @@ echo "Checking chart renders successfully..."
 lint_values=(--set environmentRevision=dry-run --set environmentSlug=prod \
              --set provider=hetzner --set topology=single \
              --set publicTlsIssuer=letsencrypt-prod \
-             --set instanceRepoURL=https://github.com/example-org/example-gitops)
+             --set instanceRepoURL=https://github.com/example-org/example-gitops --set hubDomain=dev.example.test)
 
 if ! rendered=$(helm template environment-manager "$chart_dir" "${lint_values[@]}" 2>&1); then
     echo "❌ helm template failed — chart has a template-level YAML error."

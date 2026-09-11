@@ -438,7 +438,15 @@ func (i *OperatorInstaller) applyWithWebhookRetry(ctx context.Context, name stri
 }
 
 func (i *OperatorInstaller) applyProviders(ctx context.Context) error {
-	if err := i.waitForCRDs(ctx, 2*time.Minute); err != nil {
+	// Five minutes, not two. This waits for the cluster-api-operator to pull its
+	// image and register four CRDs, and the bound was set close enough to the
+	// observed time that a slow pull failed the run: a successful bootstrap
+	// recorded capi-init at 174.9s against a 180s phase, and the next one timed
+	// out. The wait returns the moment the CRDs appear, so a generous bound
+	// costs a healthy run nothing and spares an unhealthy one a false negative
+	// -- which here means a published version and three servers spent on a
+	// timeout that was never about the cluster.
+	if err := i.waitForCRDs(ctx, 5*time.Minute); err != nil {
 		return err
 	}
 
@@ -479,7 +487,17 @@ func (i *OperatorInstaller) waitForCRDs(ctx context.Context, timeout time.Durati
 				return ctx.Err()
 			case <-ticker.C:
 				if time.Now().After(deadline) {
-					return fmt.Errorf("timeout waiting for CRD %s", crd)
+					// Names where to look. The CRD is registered by the
+					// operator, so its absence is almost always the operator
+					// pod not running -- an image it could not pull, or a
+					// cert-manager webhook it is still waiting on -- and none
+					// of that is visible in a message about a CRD.
+					return fmt.Errorf("timeout waiting for CRD %s.\n\n"+
+						"The cluster-api-operator registers it, so check the pod rather than the CRD:\n"+
+						"  kubectl --kubeconfig %s get pods -n capi-operator-system\n"+
+						"  kubectl --kubeconfig %s describe pod -n capi-operator-system\n\n"+
+						"An image it cannot pull and a cert-manager webhook not yet serving both look like this",
+						crd, i.Kubeconfig, i.Kubeconfig)
 				}
 
 				cmd := exec.CommandContext(ctx, "kubectl", i.kubectlArgs("get", "crd", crd)...)

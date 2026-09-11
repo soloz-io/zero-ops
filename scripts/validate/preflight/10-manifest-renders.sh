@@ -34,7 +34,7 @@ validate_manifest_renders() {
     local em_values=(--set environmentSlug=prod --set provider=hetzner
                      --set topology=single --set publicTlsIssuer=letsencrypt-prod
                      --set environmentRevision=main \
-                     --set instanceRepoURL=https://github.com/example-org/example-gitops)
+                     --set instanceRepoURL=https://github.com/example-org/example-gitops --set hubDomain=dev.example.test)
 
     local chart
     for chart in manifests/argocd/environment-manager manifests/tenants/charts/universal-tenant internal/kube-sbt/providers/gitops/helm-chart; do

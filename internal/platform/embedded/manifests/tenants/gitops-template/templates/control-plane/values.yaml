@@ -21,11 +21,26 @@ environmentRevision: <BUNDLE_VERSION>
 # yields an ApplicationSet that applies cleanly and a child Application that
 # cannot render, which ArgoCD reports as Healthy while managing nothing.
 publicTlsIssuer: <PUBLIC_TLS_ISSUER>
+
+# The base domain this box publishes on, and the authority every public host
+# derives from (ADR-051): id., api., infisical., argocd.
+#
+# Environment-prefixed except in production, which uses the apex. Written by
+# scaffolding rather than defaulted by the chart: every box has its own, and the
+# default a published chart carried would be some other box's -- which is what
+# happened, leaving each tenant's gateway trusting the PLATFORM's identity
+# provider (ADR-065).
+#
+# Change it only alongside the DNS that serves it; the certificates, the OIDC
+# issuer and the JWKS URL all follow this value.
+hubDomain: <HUB_DOMAIN>
 # Cloud worker nodes this cluster runs.
 #
-# Zero in development by default: that environment's capacity is meant to come
-# from nodes on your own premises (ADR-075). Raise it if you have none, or to add
-# cloud capacity when an on-prem node leaves.
+# Two by default in every environment. A development box briefly defaulted to
+# zero on the reasoning that its capacity should come from your own hardware
+# (ADR-075) -- the right end state, and the wrong default to reach it by, because
+# it made on-prem hardware a precondition for the simplest box the platform can
+# build. Set 0 to run on on-prem capacity alone, or raise it for more cloud.
 #
 # Changing this here is the supported way to scale. Nothing does it for you: a
 # node briefly unreachable should not answer with a bill. Day-0 records the full

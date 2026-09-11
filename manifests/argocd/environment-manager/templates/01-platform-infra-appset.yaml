@@ -117,9 +117,7 @@ spec:
               # Application healthy.
               platform-storage:
                 enabled: true
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
-                provider: {{ $.Values.provider | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- end }}
             helmReleaseName: ''
           {{- end }}
@@ -158,9 +156,7 @@ spec:
                   signing:
                     projectId: {{ .Values.infisical.signing.projectId | quote }}
                     clientId: {{ .Values.infisical.signing.clientId | quote }}
-              global:
-                environmentSlug: {{ $.Values.environmentSlug | quote }}
-                provider: {{ $.Values.provider | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- else }}
               infisical:
                 fleet:

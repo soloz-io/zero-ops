@@ -1,3 +1,12 @@
+# The base domain every hub hostname derives from (ADR-051).
+#
+# Empty here and supplied by the environment-manager, which takes it from the
+# cluster's own values. The hostnames below were literals -- api.dev.nutgraf.in
+# and the rest -- so a box built from a released bundle claimed the PLATFORM's
+# hostnames on its own Gateway and asked cert-manager to issue for them.
+global:
+  hubDomain: ""
+
 externalDns:
   # The address external-dns publishes every hub hostname at.
   #

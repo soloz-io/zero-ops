@@ -223,6 +223,7 @@ func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
 		"<BUNDLE_VERSION>":    s.BundleVersion,
 		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
+		"<HUB_DOMAIN>":        hubDomain(s.Environment, s.Domain),
 		"<CHART_SOURCE>":      s.chartSource(),
 		"<WORKER_COUNT>":      strconv.Itoa(s.workerCount()),
 		"<CLUSTER_NAME>":      s.ClusterName,
@@ -357,6 +358,26 @@ func publicTLSIssuer(environment string) string {
 		return "letsencrypt-staging"
 	}
 	return "letsencrypt-prod"
+}
+
+// hubDomain is the base domain this box publishes on, and the authority every
+// public host derives from (ADR-051): id., api., infisical., argocd.
+//
+// Environment-prefixed except in production, which uses the apex -- the same
+// convention ReadHubZone documents for the platform's own overlays, where "a
+// production overlay deliberately does not patch spec.domain".
+//
+// Written by scaffolding because the chart cannot default it. It travelled as the
+// platform's own literal inside agentgateway's config until this existed, so a
+// tenant's gateway trusted the PLATFORM's Zitadel as its OIDC issuer and fetched
+// signing keys from it -- broken, and the runtime dependency on the vendor that
+// ADR-065 and ADR-066 exist to prevent.
+func hubDomain(environment, domain string) string {
+	domain = strings.TrimSpace(strings.TrimSuffix(domain, "."))
+	if environment == "" || environment == "prod" {
+		return domain
+	}
+	return environment + "." + domain
 }
 
 func (s Spec) allTokens() map[string]string {

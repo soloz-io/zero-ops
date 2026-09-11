@@ -1,0 +1,14 @@
+# The platform-admin binding names Zitadel's default-organisation admin, whose
+# username is zitadel.id.<zone> -- the ZitadelOrg that DeriveHubEndpoints
+# derives, not a name anyone chose. It was the platform's, so a tenant's cluster
+# granted cluster-admin to a subject in the PLATFORM's Zitadel and to no one in
+# its own.
+#
+# The two ExternalSecrets alongside it carry no domain: they name Infisical keys,
+# which the hub-operator produces per box.
+- kind: ClusterRoleBinding
+  name: platform-admin-oidc
+  fields:
+    - replaceAll:
+        from: dev.nutgraf.in
+        with: '{{ .Values.global.hubDomain }}'

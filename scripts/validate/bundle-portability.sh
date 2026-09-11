@@ -22,5 +22,6 @@ scripts/package/bundle-chart.sh "$VERSION" "$(dirname "$CHART")" >/dev/null
 helm template platform-bundle "$CHART" \
     --set environmentSlug=dev --set provider=hybrid \
     --set instanceRepoURL=https://github.com/example-org/example-gitops \
+    --set hubDomain=dev.example.test \
     --set publicTlsIssuer=letsencrypt-prod --set bundleVersion="$VERSION" 2>/dev/null \
 | python3 scripts/validate/bundle-portability.py

@@ -65,11 +65,40 @@ package_path() {
         for f in "$src"/*.yaml; do
             [[ -e "$f" ]] || continue
             [[ "$(basename "$f")" == kustomization.yaml ]] && continue
+            case "$(basename "$f")" in templated-fields*.yaml) continue ;; esac
             cp "$f" "$chart/files/"; found=1
         done
         if [[ "$found" -eq 0 ]]; then
             echo "$name: no manifests at $src; refusing" >&2
             rm -rf "$chart"; exit 1
+        fi
+    fi
+
+    # Objects whose content depends on the box become templates, exactly as
+    # component-chart.sh does. This was absent here, so anything packaged by this
+    # script kept its literals however carefully the declaration was written --
+    # which is how the environment overlay went on shipping the platform's own
+    # domain to every tenant while hub-core-services had been fixed.
+    local decl="$src/templated-fields.${name}.yaml"
+    [[ -f "$decl" ]] || decl="$src/templated-fields.yaml"
+    if [[ -f "$decl" ]]; then
+        local tf=("$chart"/files/*.yaml)
+        if [[ -e "${tf[0]}" ]]; then
+            if ! scripts/package/templated-fields.py "$decl" "$chart" "${tf[@]}"; then
+                rm -rf "$chart"; exit 1
+            fi
+            # The templated objects read .Values.global.*, and a chart with no
+            # default for it renders nothing at all: `global` is absent, so the
+            # lookup is a nil map and helm fails the whole render. emit_chart
+            # reads that as a component that produces no objects and refuses it,
+            # which names the wrong cause.
+            cat > "$chart/values.yaml" <<'VALS'
+# Supplied by the environment-manager from the cluster's own values. Empty here
+# so the chart renders without one; a box that means to publish on a domain
+# supplies it, and one that does not is refused upstream by the hubDomain helper.
+global:
+  hubDomain: ""
+VALS
         fi
     fi
     emit_chart "$name" "$chart"

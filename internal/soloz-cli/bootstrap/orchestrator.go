@@ -993,9 +993,24 @@ func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.Bootstra
 
 	bs.BootstrapContext = "kind-" + o.ClusterName
 
+	kubeconfig := defaultKubeconfigPath()
+
+	// The cluster exists; its context must now be resolvable in the file every
+	// later phase reads. When it is not, nothing here fails -- kubeconfigPaths
+	// returns the unpinned path, kubectl resolves no cluster and falls back to
+	// localhost:8080, and the run dies three phases later on a connection
+	// refused that names neither the file nor the reason. Checked once, here,
+	// where the cause is still visible.
+	if _, err := pinKubeconfig(kubeconfig, bs.BootstrapContext); err != nil {
+		return fmt.Errorf("the bootstrap cluster was created but context %q is not "+
+			"in %s.\n\nkind writes to $KUBECONFIG when it is set, so an exported "+
+			"KUBECONFIG pointing somewhere else puts the context there while every "+
+			"kubectl call below reads this file. Unset it and re-run, or export the "+
+			"file kind actually wrote to: %w",
+			bs.BootstrapContext, kubeconfig, err)
+	}
+
 	// Create platform-capi namespace
-	homeDir, _ := os.UserHomeDir()
-	kubeconfig := filepath.Join(homeDir, ".kube", "config")
 	nsMgr := &NamespaceManager{
 		Kubeconfig: kubeconfig,
 		Context:    bs.BootstrapContext,
@@ -1293,6 +1308,31 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
 
+// defaultKubeconfigPath is where kubectl and kind agree the kubeconfig lives.
+//
+// $KUBECONFIG first, because kind honours it and this did not. An operator with
+// it exported -- watching a previous cluster, say -- got a bootstrap in which
+// `kind create cluster` wrote the new context into that file while every kubectl
+// call here looked for it in ~/.kube/config. The context was therefore never
+// found, kubeconfigPaths fell back to the unpinned path, and kubectl resolved
+// nothing and tried localhost:8080. The run failed three phases later with
+// `dial tcp [::1]:8080: connect: connection refused`, which names neither the
+// file nor the variable and reads like a broken cluster.
+//
+// The FIRST entry of the list, which is the rule kubectl uses for writes and
+// therefore where kind put it. Later entries are merged for reads only, so a
+// context written to the first and looked for in a later one is the same bug
+// again.
+func defaultKubeconfigPath() string {
+	if env := strings.TrimSpace(os.Getenv("KUBECONFIG")); env != "" {
+		if first := strings.Split(env, string(os.PathListSeparator))[0]; first != "" {
+			return first
+		}
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".kube", "config")
+}
+
 // kubeconfigPaths returns the bootstrap cluster's kubeconfig and context.
 //
 // The kubeconfig is pinned to that context: ~/.kube/config holds every cluster
@@ -1307,8 +1347,7 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 // one cluster cannot be used against another, while a --context argument has to
 // be remembered twenty-three times and is silently absent when it is not.
 func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string) {
-	homeDir, _ := os.UserHomeDir()
-	kubeconfig := filepath.Join(homeDir, ".kube", "config")
+	kubeconfig := defaultKubeconfigPath()
 	ctx := bs.BootstrapContext
 	if ctx == "" {
 		ctx = o.BootstrapContext

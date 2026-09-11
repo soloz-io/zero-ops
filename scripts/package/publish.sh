@@ -110,6 +110,7 @@ for combo in "dev hybrid" "stg hybrid" "prod hetzner"; do
         --set environmentSlug="$1" --set provider="$2" \
         --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
         --set instanceRepoURL=https://github.com/example-org/example-gitops \
+        --set hubDomain=dev.example.test \
         --set bundleVersion="$VERSION" \
     | python3 scripts/validate/application-specs.py dist/charts
 done

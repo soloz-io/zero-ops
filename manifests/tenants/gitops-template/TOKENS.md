@@ -19,3 +19,4 @@ in this template's history. A renderer that is handed one should refuse it.
 | `<CLOUD_PROVIDER>` | provider the cluster is provisioned on |
 | `<CLOUD_REGION>` | region the cluster runs in |
 | `<DOMAIN_NAME>` | the tenant's base domain |
+| `<HUB_DOMAIN>` | the base domain a cluster publishes on: `<env>.<domain>`, or the apex in prod (ADR-051) |

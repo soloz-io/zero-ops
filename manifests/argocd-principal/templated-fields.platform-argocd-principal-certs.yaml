@@ -1,0 +1,19 @@
+# The argocd-agent principal's server certificates.
+#
+# Spokes dial the principal by name -- the NATS leaf node and the agent both
+# reach argocd-principal.<zone>:7422 -- so these names must be the box's own.
+# They were the platform's, which asked a tenant's cert-manager to issue for a
+# hostname in the platform's zone: DNS-01 fails outright, and had it succeeded
+# the certificate would have been valid for a host the tenant does not own.
+#
+# Two of the four carry no hostname. argocd-agent-jwt is a signing key and
+# argocd-agent-resource-proxy-tls is addressed in-cluster, so naming them here
+# would be a declaration the packager refuses for content it cannot find.
+- kind: Certificate
+  name: argocd-agent-principal-tls
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+- kind: Certificate
+  name: argocd-principal-internal-tls
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}

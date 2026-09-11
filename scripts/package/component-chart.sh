@@ -92,6 +92,11 @@ else
     depth=(); [[ "$RECURSE" == "true" ]] || depth=(-maxdepth 1)
     found=0
     while IFS= read -r f; do
+        # The declaration describes the content; it is not content. Without this
+        # it matched *.yaml like anything else and was copied in as a manifest,
+        # so a component rendered by file copy shipped its own packaging
+        # instructions to the cluster.
+        case "$(basename "$f")" in templated-fields*.yaml) continue ;; esac
         cp "$f" "$CHART/files/$(echo "${f#$SRC/}" | tr '/' '_')"; found=1
     done < <(find "$SRC" ${depth[@]+"${depth[@]}"} -type f -name "$pattern" 2>/dev/null | sort)
     [[ $found -eq 1 ]] || { echo "$APP: no files matched '$pattern' under $SRC" >&2; exit 1; }
@@ -114,13 +119,27 @@ TMPL
 # Objects whose content depends on the cluster become templates. As a Kustomize
 # source these were patches on the Application; a Helm source cannot carry them,
 # because ArgoCD permits one source type per source (ADR-063).
-if [[ -f "$SRC/templated-fields.yaml" ]]; then
-    for f in "$CHART"/files/*.yaml; do
-        [[ -e "$f" ]] || continue
-        if ! scripts/package/templated-fields.py "$f" "$SRC/templated-fields.yaml" "$CHART"; then
+# Per component first, then per directory. Two components can share a source
+# directory and select different files from it -- platform-appproject-infrastructure
+# and platform-argocd-principal-certs both read manifests/argocd-principal, one
+# taking the AppProject and the other the certificates -- so a directory-level
+# declaration names objects the other component legitimately does not render, and
+# the packager refuses it. Correctly: the declaration is about content, and they
+# do not share content.
+DECL="$SRC/templated-fields.${APP}.yaml"
+[[ -f "$DECL" ]] || DECL="$SRC/templated-fields.yaml"
+if [[ -f "$DECL" ]]; then
+    # Every rendered file in one call. Per file, a declaration had to name
+    # objects that live in a different file, so any component rendering into
+    # more than one failed on its first entry -- reported as content the
+    # component does not render, which is the opposite of what was wrong.
+    tf_files=("$CHART"/files/*.yaml)
+    if [[ -e "${tf_files[0]}" ]]; then
+        if ! scripts/package/templated-fields.py \
+             "$DECL" "$CHART" "${tf_files[@]}"; then
             rm -rf "$CHART"; exit 1
         fi
-    done
+    fi
 fi
 
 # A chart that renders no objects is never what was intended, and it is the one

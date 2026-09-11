@@ -1,0 +1,34 @@
+# Fields of the burst-capacity autoscaler that depend on which spoke it watches.
+#
+# The clusterapi provider names its workload cluster explicitly -- it cannot
+# discover it -- so the spoke appears in the Deployment's name, its labels, its
+# selector, its --node-group-auto-discovery argument and the kubeconfig secret it
+# mounts. All five carried spoke-pool-hybrid-dev-01 as a literal, which shipped
+# to every box: a hetzner box ran an autoscaler waiting forever on a kubeconfig
+# for a hybrid spoke it never provisioned.
+#
+# The Deployment's own name is left alone deliberately. Renaming an object by
+# value makes the resource ArgoCD prunes depend on a value, and a changed value
+# then deletes and recreates rather than updates. The name stays fixed; what it
+# WATCHES is what varies.
+- kind: Deployment
+  name: cluster-autoscaler-spoke-pool-hybrid-dev-01
+  fields:
+    - path: [metadata, labels, zero-ops.io/workload-cluster]
+      value: '{{ .Values.global.burstSpokePool }}'
+    - path: [spec, selector, matchLabels, zero-ops.io/workload-cluster]
+      value: '{{ .Values.global.burstSpokePool }}'
+    - path: [spec, template, metadata, labels, zero-ops.io/workload-cluster]
+      value: '{{ .Values.global.burstSpokePool }}'
+    # The provider's discovery argument. A substitution rather than an assignment
+    # so the rest of the flag -- the clusterapi prefix and the namespace -- stays
+    # in the manifest where it is reviewed, instead of being restated here.
+    - path: [spec, template, spec, containers, 0, args, 1]
+      replace:
+        from: spoke-pool-hybrid-dev-01
+        with: '{{ .Values.global.burstSpokePool }}'
+    # CAPI publishes each workload cluster's kubeconfig as <cluster>-kubeconfig
+    # beside the Cluster it belongs to, which is why this Deployment runs in
+    # platform-capi at all.
+    - path: [spec, template, spec, volumes, 0, secret, secretName]
+      value: '{{ .Values.global.burstSpokePool }}-kubeconfig'

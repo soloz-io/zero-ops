@@ -48,6 +48,18 @@ platformRepoURL: "https://github.com/soloz-io/zero-ops"
 # forbids. Day-0 supplies it from the repository it runs inside (ADR-072).
 instanceRepoURL: ""
 
+# The base domain this box publishes on: dev.acme.example, acme.example, etc.
+#
+# ADR-051 makes this the authority every public host derives from -- id., api.,
+# infisical., argocd. Required, and deliberately without a default, for the same
+# reason as instanceRepoURL above: every box has its own, and a default would
+# travel to every cluster installing the published bundle. It travelled as the
+# platform's own literal inside agentgateway's config until this existed, which
+# pointed each tenant's gateway at the PLATFORM's identity provider (ADR-065).
+#
+# Day-0 supplies it: scaffolding is given the tenant's domain.
+hubDomain: ""
+
 # Where this box's stateful services run (ADR-046 §11, ADR-075).
 #
 # A placement class is a pair -- a `workload-location` nodeSelector and the
@@ -232,6 +244,28 @@ infisical:
 # renders, and asserts every other combination is refused. Adding a combination
 # here without the sources behind it therefore fails the release rather than
 # shipping a topology that cannot converge.
+# The spoke pool each supported combination provisions, and therefore the one the
+# burst-capacity autoscaler watches.
+#
+# Declared here rather than derived, because the names do not follow a rule the
+# chart could apply: a dev box on hetzner provisions spoke-pool-eu-dev-01 and the
+# same environment on hybrid provisions spoke-pool-hybrid-dev-01. Kept beside
+# supportedMatrix because the two must agree -- a combination supported there and
+# absent here renders an autoscaler for a cluster that will never exist.
+#
+# That is not hypothetical. The autoscaler's Deployment carried
+# spoke-pool-hybrid-dev-01 as a literal, so a hetzner box ran an autoscaler
+# waiting forever on a kubeconfig for a hybrid spoke it never provisioned, while
+# the pool it did provision had none.
+burstSpokePool:
+  dev:
+    hetzner: spoke-pool-eu-dev-01
+    hybrid: spoke-pool-hybrid-dev-01
+  stg:
+    hybrid: spoke-pool-hybrid-stg-01
+  prod:
+    hetzner: spoke-pool-eu-prod-01
+
 supportedMatrix:
   dev:
     # hetzner is listed because a spoke-pool source now exists for it

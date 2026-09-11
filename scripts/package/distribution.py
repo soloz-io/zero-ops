@@ -221,10 +221,22 @@ def main() -> int:
                         continue
                     with open(os.path.join(directory, "templates", name)) as handle:
                         body = handle.read()
-                    guard = ('{{- if eq (printf "%s-%s" '
+                    # A variant is not always environment-and-provider. The
+                    # spoke catalogue varies by both and its variants read
+                    # "dev-hetzner"; hub-environment varies by environment alone
+                    # and reads "dev"; a provider overlay reads "hetzner". Tested
+                    # against the env-provider pair only, the second and third
+                    # never matched, so the object was carried into the
+                    # distribution and emitted by nothing -- the component
+                    # rendered one object where standalone it rendered two, which
+                    # is what verify-distribution.py caught.
+                    guard = ('{{- $v := printf "%s-%s" '
                              '(.Values.global.environmentSlug | default "") '
-                             '(.Values.global.provider | default "")) '
-                             f'"{variant}" }}}}\n')
+                             '(.Values.global.provider | default "") }}\n'
+                             '{{- if or '
+                             f'(eq $v "{variant}") '
+                             f'(eq (.Values.global.environmentSlug | default "") "{variant}") '
+                             f'(eq (.Values.global.provider | default "") "{variant}") }}}}\n')
                     target = os.path.join(sub, "templates", f"{variant}-{name}")
                     with open(target, "w") as handle:
                         handle.write(guard + body + "\n{{- end }}\n")

@@ -32,7 +32,15 @@ spec:
 {{ $.Files.Get "values/zitadel.yaml" | indent 14 }}
 {{- end }}
             helmReleaseName: ''
-            extraManifestsPath: 'manifests/hub-core-services/identity/zitadel'
+            # Empty, deliberately. These manifests are now the zitadel-credentials
+            # component (manifests/argocd/components/04/zitadel-credentials.yaml).
+            #
+            # extraManifestsPath is only ever consumed by the templatePatch below,
+            # which is gated `if not $released` -- so a released cluster set this
+            # path and then dropped the manifests it named, leaving zitadel unable
+            # to start on a missing zitadel-masterkey. A component is carried in
+            # the published bundle, so both builds deliver the same objects.
+            extraManifestsPath: ''
             ignoreDifferencesExtSecrets: 'true'
   template:
     metadata:
@@ -55,6 +63,25 @@ spec:
         helm:
           releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
           values: '{{"{{"}} .valuesInline {{"}}"}}'
+          # The three values that name this box's own identity host. ADR-051
+          # derives it from the base domain; the chart's values file carried
+          # id.dev.nutgraf.in as a literal, so a tenant's Zitadel announced the
+          # PLATFORM's domain as its ExternalDomain -- which is the OIDC issuer
+          # clients compare byte-for-byte, so every token it minted was rejected.
+          #
+          # Parameters rather than values, because the two build modes deliver
+          # the values file differently -- inlined from the bundle when released,
+          # read from the repository when not -- and a parameter overrides a path
+          # in either. A values file cannot carry Helm syntax: ArgoCD hands it to
+          # helm as data, and `{{ "{{" }} .Values.hubDomain {{ "}}" }}` would
+          # reach Zitadel's config verbatim.
+          parameters:
+            - name: zitadel.configmapConfig.ExternalDomain
+              value: 'id.{{ include "environment-manager.hubDomain" $ }}'
+            - name: gateway.httpRoute.hostnames[0]
+              value: 'id.{{ include "environment-manager.hubDomain" $ }}'
+            - name: login.gateway.httpRoute.hostnames[0]
+              value: 'id.{{ include "environment-manager.hubDomain" $ }}'
 {{- else }}
       sources:
         - repoURL: '{{"{{"}} .repoURL {{"}}"}}'
@@ -64,6 +91,25 @@ spec:
             releaseName: '{{"{{"}} .helmReleaseName {{"}}"}}'
             valueFiles:
               - $values/{{"{{"}} .valueFilesPath {{"}}"}}
+            # The three values that name this box's own identity host. ADR-051
+            # derives it from the base domain; the chart's values file carried
+            # id.dev.nutgraf.in as a literal, so a tenant's Zitadel announced the
+            # PLATFORM's domain as its ExternalDomain -- which is the OIDC issuer
+            # clients compare byte-for-byte, so every token it minted was rejected.
+            #
+            # Parameters rather than values, because the two build modes deliver
+            # the values file differently -- inlined from the bundle when released,
+            # read from the repository when not -- and a parameter overrides a path
+            # in either. A values file cannot carry Helm syntax: ArgoCD hands it to
+            # helm as data, and `{{ "{{" }} .Values.hubDomain {{ "}}" }}` would
+            # reach Zitadel's config verbatim.
+            parameters:
+              - name: zitadel.configmapConfig.ExternalDomain
+                value: 'id.{{ include "environment-manager.hubDomain" $ }}'
+              - name: gateway.httpRoute.hostnames[0]
+                value: 'id.{{ include "environment-manager.hubDomain" $ }}'
+              - name: login.gateway.httpRoute.hostnames[0]
+                value: 'id.{{ include "environment-manager.hubDomain" $ }}'
         - repoURL: {{ .Values.platformRepoURL | quote }}
           targetRevision: '{{ .Values.environmentRevision }}'
           ref: values

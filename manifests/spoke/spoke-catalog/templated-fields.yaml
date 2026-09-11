@@ -74,7 +74,7 @@
   # precisely so appended flags cannot shift the index.
   fields:
     - path: [spec, template, spec, containers, 0, args, 0]
-      value: '--domain-filter={{ if eq .Values.global.environmentSlug "prod" }}nutgraf.in{{ else }}{{ .Values.global.environmentSlug }}.nutgraf.in{{ end }}'
+      value: '--domain-filter={{ .Values.global.hubDomain }}'
     - path: [spec, template, spec, containers, 0, args, 1]
       value: '--txt-owner-id={{ .Values.spokeName }}'
 
@@ -86,3 +86,60 @@
   fields:
     - path: [spec, provider, infisical, secretsScope, environmentSlug]
       value: '{{ .Values.global.environmentSlug }}'
+
+# ── The hub this spoke belongs to (ADR-051) ────────────────────────────────
+#
+# A spoke reaches its own hub, and every address below was the PLATFORM's: the
+# NATS leaf node dialled the platform's argocd-principal, the secret store read
+# the platform's Infisical, and the ACME issuer requested certificates in the
+# platform's zone with the platform's account. ADR-065 and ADR-066 make that a
+# boundary violation rather than a misconfiguration -- a tenant's spoke must not
+# depend on the vendor at runtime.
+#
+# NOT the API groups. compute.nutgraf.in, tenantdatabases.nutgraf.in and
+# nutgraf.in/v1alpha1 identify the platform's CRDs, in the same sense as
+# cluster.x-k8s.io, and are the same on every box by design.
+
+- kind: ConfigMap
+  name: nats-config
+  # tls://argocd-principal.<zone>:7422 -- the leaf node's remote.
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
+- kind: ClusterSecretStore
+  name: infisical-backend
+  # The spoke's credentials live in ITS hub's Infisical.
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
+- kind: ClusterIssuer
+  name: letsencrypt-prod
+  # Set rather than substituted: the zone list named all three of the
+  # platform's environments, and a box has exactly one.
+  fields:
+    - path: [spec, acme, email]
+      value: 'platform@{{ .Values.global.hubDomain }}'
+    - path: [spec, acme, solvers, 0, selector, dnsZones]
+      value:
+        - '{{ .Values.global.hubDomain }}'
+
+- kind: ClusterIssuer
+  name: letsencrypt-staging
+  # The staging issuer alongside the production one. Declared separately rather
+  # than by kind: an unlisted object is left verbatim, so a second issuer that
+  # nobody named kept the platform's account and zones while its sibling was
+  # corrected -- which is the silent half of this failure.
+  fields:
+    - path: [spec, acme, email]
+      value: 'platform@{{ .Values.global.hubDomain }}'
+    - path: [spec, acme, solvers, 0, selector, dnsZones]
+      value:
+        - '{{ .Values.global.hubDomain }}'
+
+- kind: Gateway
+  name: tenant-gateway
+  # The wildcard a spoke terminates tenant traffic on: *.<zone>. On the
+  # platform's zone it matches nothing a tenant's DNS resolves to, so every
+  # workload route on the spoke is dead.
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}

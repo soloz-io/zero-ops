@@ -1,0 +1,51 @@
+# Fields of the hub's public TLS that depend on which box is reconciling it.
+#
+# Every hostname here derives from the base domain ADR-051 makes authoritative,
+# and every one of them was a literal: a box built from a released bundle asked
+# cert-manager to issue certificates for the PLATFORM's hostnames, with the
+# platform's ACME account, against a DNS zone it has no right to write.
+#
+# NOT `acme.nutgraf.in`. That is the cert-manager webhook's API GROUP -- the
+# APIService is literally named v1alpha1.acme.nutgraf.in -- and it identifies the
+# solver, not a zone anyone resolves. Templating it would leave the ClusterIssuer
+# naming a webhook group that no APIService registers, and DNS-01 would fail with
+# no solver rather than with a wrong one. It is a platform identifier in the same
+# sense as cluster.x-k8s.io, and it stays.
+- kind: ClusterIssuer
+  name: letsencrypt-prod
+  fields:
+    # The ACME registration account. A tenant's issuance belongs to a tenant's
+    # account: rate limits, expiry notices and revocation authority all follow it.
+    - path: [spec, acme, email]
+      value: 'platform@{{ .Values.global.hubDomain }}'
+    # The zones the DNS-01 solver may write. Listed per environment by the
+    # platform; a box has exactly one.
+    - path: [spec, acme, solvers, 0, selector, dnsZones]
+      value:
+        - '{{ .Values.global.hubDomain }}'
+
+# The certificates themselves. Every dnsName is the same domain, so the object
+# and the literal are named rather than each index -- an index list goes stale
+# the moment a SAN is inserted, and a stale index is a certificate quietly issued
+# for someone else's hostname.
+- kind: Certificate
+  name: api-zero-ops-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: Certificate
+  name: auth-zero-ops-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: Certificate
+  name: console-zero-ops-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: Certificate
+  name: id-zero-ops-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: Certificate
+  name: argocd-server-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: Certificate
+  name: dashboard-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+- kind: Certificate
+  name: infisical-dev
+  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]

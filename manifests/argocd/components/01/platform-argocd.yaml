@@ -14,7 +14,10 @@ helmValues: |
   configs:
     cm:
       # Tell ArgoCD its external URL for OIDC/SSO callbacks and CLI usage
-      url: "https://argocd.dev.nutgraf.in"
+      # ADR-051: derived from the box's own base domain. A literal here told a
+      # tenant's ArgoCD that its external URL was the PLATFORM's, so every OIDC
+      # callback and every CLI login it printed pointed at the vendor.
+      url: "https://argocd.{{ .Values.hubDomain }}"
       admin.enabled: "true"
       application.instanceLabelKey: argocd.argoproj.io/instance
       exec.enabled: "false"

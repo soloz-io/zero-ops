@@ -1,0 +1,19 @@
+# The HubEnvironment this box declares.
+#
+# ADR-051 makes this object the system of record for the base domain, and every
+# public host derives from it. It carried the PLATFORM's domain, so the authority
+# itself was instance data shipping to every tenant -- the defect
+# embed-platform-assets.sh already names for generated/ directories: "a released
+# binary carrying one cluster's would hand it to every cluster".
+#
+# ADR-071 settles which way this goes. A tenant's repository holds one bundle
+# version and its VALUES, and scaffolding detokenizes the rest; the domain is a
+# value the tenant declares, not a pin it inherits.
+#
+# Longest literal first: replacing the apex before the prefixed form would
+# rewrite the middle of it and leave a domain nobody owns.
+- kind: HubEnvironment
+  name: hub-environment
+  fields:
+    - replaceAll: {from: stg.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+    - replaceAll: {from: nutgraf.in, with: '{{ .Values.global.hubDomain }}'}

@@ -58,7 +58,7 @@ spec:
     # document at startup. The Secrets below are now issued by
     # ingress/hub-public-certificates.yaml via DNS-01, so these refs resolve.
     - name: api
-      hostname: api.dev.nutgraf.in
+      hostname: api.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:
@@ -76,7 +76,7 @@ spec:
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
     - name: auth
-      hostname: auth.dev.nutgraf.in
+      hostname: auth.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:
@@ -98,7 +98,7 @@ spec:
     # hostname — a spike that could take auth.dev.nutgraf.in with it is not a
     # spike.
     - name: id
-      hostname: id.dev.nutgraf.in
+      hostname: id.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:
@@ -116,7 +116,7 @@ spec:
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
     - name: console
-      hostname: console.dev.nutgraf.in
+      hostname: console.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:
@@ -134,7 +134,7 @@ spec:
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
     - name: argocd
-      hostname: argocd.dev.nutgraf.in
+      hostname: argocd.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:
@@ -154,7 +154,7 @@ spec:
     # cert-manager created via ACME HTTP-01 challenge.
     # Cross-namespace reference is admitted by a ReferenceGrant in platform-security.
     - name: infisical
-      hostname: infisical.dev.nutgraf.in
+      hostname: infisical.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:
@@ -174,7 +174,7 @@ spec:
 
     # Headlamp Kubernetes dashboard. TLS cert issued by cert-manager via DNS-01.
     - name: dashboard
-      hostname: dashboard.dev.nutgraf.in
+      hostname: dashboard.{{ .Values.global.hubDomain }}
       port: 443
       protocol: HTTPS
       tls:

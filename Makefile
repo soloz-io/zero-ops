@@ -1,4 +1,4 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean
 
 # Build variables
 AUTH_PROXY_BINARY=auth-proxy
@@ -53,6 +53,30 @@ build-hub:
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build -o $(BUILD_DIR)/$(SOLOZ_BINARY) ./cmd/soloz
 	@echo "✓ Build complete: $(BUILD_DIR)/$(SOLOZ_BINARY)"
+
+# The whole released-path loop in one command: publish, build the CLI, scaffold a
+# tenant repository and bootstrap from it. Credentials come from k8-secrets/, so
+# nothing is prompted. Phases and settings:
+# scripts/dev/local-e2e.sh --help
+e2e:
+	@test -n "$(VERSION)" || { echo "usage: make e2e VERSION=0.1.16-rc.1 [DRY=1]"; exit 1; }
+	./scripts/dev/local-e2e.sh "$(VERSION)" $(if $(DRY),--dry,)
+
+# The whole loop, from a clean slate: tear the previous run down, then run it.
+#
+# Separate from `e2e` rather than a flag on it, because the first phase destroys
+# a running cluster and deletes a GitHub repository. Typing the target that says
+# so is the confirmation; nothing about `make e2e` should be able to reach it.
+e2e-fresh:
+	@test -n "$(VERSION)" || { echo "usage: make e2e-fresh VERSION=0.1.16-rc.4"; exit 1; }
+	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli scaffold bootstrap
+
+# Tear the last run down and stop: cloud cluster, kind cluster, clone, repo.
+# VERSION is not used for anything destructive -- it only satisfies the script's
+# argument -- but it is required so the command cannot be run by reflex.
+e2e-clean:
+	@test -n "$(VERSION)" || { echo "usage: make e2e-clean VERSION=0.1.16-rc.4"; exit 1; }
+	./scripts/dev/local-e2e.sh "$(VERSION)" clean
 
 # Package, gate and publish the bundle from here, at VERSION.
 #

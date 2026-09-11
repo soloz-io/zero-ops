@@ -14,6 +14,41 @@ a change touches what a released binary carries or what `tenant scaffold` render
 
 ---
 
+## The short version
+
+```bash
+make e2e VERSION=0.1.16-rc.1 DRY=1     # package and gate, publish nothing
+make e2e VERSION=0.1.16-rc.1           # the whole loop
+```
+
+`scripts/dev/local-e2e.sh` runs all four phases below and reads every credential
+from `k8-secrets/`, so nothing is prompted. Re-run one phase by naming it:
+
+```bash
+./scripts/dev/local-e2e.sh 0.1.16-rc.1 cli bootstrap
+```
+
+Settings are environment overrides — `TENANT`, `GIT_ORG`, `DOMAIN`, `CLUSTER`,
+`ENVIRONMENT`, `PROVIDER`, `REGION`, `OWNER`, `WORKSPACE`. The credentials it
+reads, one file per value:
+
+| file | used as |
+|---|---|
+| `k8-secrets/hetzner/token` | `--provider-token`, `HCLOUD_TOKEN` |
+| `k8-secrets/github/github-pat-token` | `--gitops-token` |
+| `k8-secrets/infisical/INFISICAL_ESCROW_PROJECT_ID` | `--escrow-project-id` |
+| `k8-secrets/infisical/INFISICAL_ESCROW_CLIENT_ID` | `--escrow-client-id` |
+| `k8-secrets/infisical/INFISICAL_ESCROW_CLIENT_SECRET` | `--escrow-client-secret` |
+| `k8-secrets/infisical/INFISICAL_ESCROW_URL` | `--escrow-url` (defaults to `https://app.infisical.com`) |
+| `k8-secrets/tailscale/authkey` | `--tailscale-authkey`, hybrid only |
+
+They are loaded before anything is published, so a missing one stops the run
+rather than spending a version on a run that cannot finish.
+
+The rest of this page is what those phases do, for when one of them fails.
+
+---
+
 ## 1. Publish a prerelease
 
 Authenticate helm once per session — the script does not log in, because the

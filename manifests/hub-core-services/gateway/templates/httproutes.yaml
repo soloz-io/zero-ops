@@ -31,7 +31,7 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: api
-  hostnames: ["api.dev.nutgraf.in"]
+  hostnames: ["api.{{ .Values.global.hubDomain }}"]
   rules:
     - matches:
         - path:
@@ -83,7 +83,7 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: auth
-  hostnames: ["auth.dev.nutgraf.in"]
+  hostnames: ["auth.{{ .Values.global.hubDomain }}"]
   rules:
     # Machine surfaces — must be SERVED, never redirected.
     - matches:
@@ -105,7 +105,7 @@ spec:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
-            hostname: id.dev.nutgraf.in
+            hostname: id.{{ .Values.global.hubDomain }}
             # ReplaceFullPath, not path preservation. The paths on this host are
             # Hydra's (/oauth2/auth, /login, /consent) and Zitadel serves none of
             # them — preserving the path would turn every redirect into a 404 on
@@ -136,7 +136,7 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: console
-  hostnames: ["console.dev.nutgraf.in"]
+  hostnames: ["console.{{ .Values.global.hubDomain }}"]
   rules:
     # This host served the Kratos self-service SPA and Kratos's own /self-service
     # and /sessions endpoints behind it. Both are gone with the Ory stack
@@ -154,7 +154,7 @@ spec:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
-            hostname: id.dev.nutgraf.in
+            hostname: id.{{ .Values.global.hubDomain }}
             # ReplaceFullPath for the same reason as the auth host above: the
             # paths here were the SPA's own routes and Zitadel serves none of
             # them, so preserving one would 404 on a host the user did not ask
@@ -179,7 +179,7 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: argocd
-  hostnames: ["argocd.dev.nutgraf.in"]
+  hostnames: ["argocd.{{ .Values.global.hubDomain }}"]
   rules:
     - matches:
         - path:
@@ -203,7 +203,7 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: infisical
-  hostnames: ["infisical.dev.nutgraf.in"]
+  hostnames: ["infisical.{{ .Values.global.hubDomain }}"]
   rules:
     - matches:
         - path:
@@ -228,7 +228,7 @@ spec:
     - name: hub-gateway
       namespace: platform-ops
       sectionName: dashboard
-  hostnames: ["dashboard.dev.nutgraf.in"]
+  hostnames: ["dashboard.{{ .Values.global.hubDomain }}"]
   rules:
     - matches:
         - path:

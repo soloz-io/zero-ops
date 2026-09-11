@@ -46,6 +46,7 @@ while read -r env; do
         rendered=$(helm template platform-bundle "$CHART" \
             --set environmentSlug="$env" --set provider="$provider" \
             --set instanceRepoURL=https://github.com/example-org/example-gitops \
+            --set hubDomain=dev.example.test \
             --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
             --set bundleVersion="$VERSION" 2>&1) && ok=0 || ok=1
 

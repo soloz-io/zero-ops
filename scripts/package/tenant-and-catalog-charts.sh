@@ -59,8 +59,9 @@ CHART
         # Objects whose content differs per spoke become chart templates; the
         # rest stays verbatim. As a Kustomize source these were patches on the
         # Application, and a Helm source cannot carry those (ADR-063).
-        if ! scripts/package/templated-fields.py "$chart/files/rendered.yaml" \
-             manifests/spoke/spoke-catalog/templated-fields.yaml "$chart"; then
+        if ! scripts/package/templated-fields.py \
+             manifests/spoke/spoke-catalog/templated-fields.yaml "$chart" \
+             "$chart/files/rendered.yaml"; then
             rm -rf "$chart"; exit 1
         fi
 

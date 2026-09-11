@@ -1,0 +1,8 @@
+# The zone external-dns may write.
+#
+# The apex, previously: a tenant's external-dns was authorised over the whole of
+# the platform's domain. Scoped to the box's own domain instead, which is both
+# correct and narrower -- a box publishes its own hostnames and no others.
+- kind: Deployment
+  name: external-dns
+  fields: [{replaceAll: {from: nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]

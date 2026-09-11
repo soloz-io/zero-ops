@@ -1,0 +1,30 @@
+# Fields of the api-gateway that depend on which hub is reconciling it.
+#
+# ADR-051 makes the environment overlay the system of record for the base
+# domain, and DeriveHubEndpoints (internal/soloz-cli/bootstrap/hubdomain.go)
+# derives every host from it -- id., api., infisical. and the rest. The
+# agentgateway config never took part in that: it carried the platform's own
+# `dev.nutgraf.in` as a literal, so every tenant's box was configured to trust
+# the PLATFORM's Zitadel as its OIDC issuer and to fetch signing keys from it.
+#
+# That is not only broken -- agentgateway fails with `failed to load JWKS: fetch
+# https://id.dev.nutgraf.in/oauth/v2/keys` on a box whose domain is something
+# else -- it is the runtime dependency on the vendor that ADR-065 and ADR-066
+# exist to prevent, in the component that fronts all tenant traffic.
+#
+# Kept as data rather than written into the packager, for the reason the spoke
+# catalogue's own declaration gives: this list is the contract, and reviewing it
+# is how the claim stays true. A field missing here is not a render failure --
+# it is a tenant authenticating against the platform's identity provider.
+- kind: ConfigMap
+  name: agentgateway-config
+  fields:
+    # One substitution, not three. The literal appears as the OIDC issuer, the
+    # required audience and the JWKS URL, all inside the single opaque
+    # `config.yaml` string that no path can address individually. The packager
+    # refuses a literal it cannot find, so a rename here fails the build rather
+    # than quietly leaving the platform's domain in place.
+    - path: [data, config.yaml]
+      replace:
+        from: dev.nutgraf.in
+        with: '{{ .Values.global.hubDomain }}'

@@ -68,9 +68,9 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.Region, "region", "hel1", "cloud region")
 	f.StringVar(&scaffoldSpec.Environment, "environment", "dev", "environment slug")
 	f.IntVar(&scaffoldWorkers, "workers", -1,
-		"cloud worker nodes this box starts with (default: 0 in dev, 2 elsewhere). "+
-			"A dev box defaults to none because its capacity is meant to come from "+
-			"nodes on your own premises; pass a count if you have none (ADR-075)")
+		"cloud worker nodes this box starts with (default: 2, every environment). "+
+			"Pass 0 to run on nodes on your own premises alone, which then have to "+
+			"be there (ADR-075)")
 	f.StringVar(&scaffoldSpec.ClusterName, "cluster", "", "control plane cluster name (default <tenant>-hub)")
 	// Defaults to the version this binary carries (ADR-068). "main" was the old
 	// default and is a branch name where a chart version belongs: a repository

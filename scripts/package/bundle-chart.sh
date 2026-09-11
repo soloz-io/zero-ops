@@ -48,6 +48,7 @@ PY
 if ! helm template platform-bundle "$CHART" \
         --set environmentSlug=dev --set provider=hybrid --set publicTlsIssuer=letsencrypt-prod \
         --set instanceRepoURL=https://github.com/example-org/example-gitops \
+        --set hubDomain=dev.example.test \
         --set bundleVersion="$VERSION" > /dev/null 2>"$CHART/.err"; then
     echo "platform-bundle: released render failed:" >&2; sed 's/^/  /' "$CHART/.err" >&2
     rm -rf "$CHART"; exit 1
