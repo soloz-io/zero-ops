@@ -11,6 +11,25 @@ environmentSlug: <ENVIRONMENT>
 provider: <CLOUD_PROVIDER>
 region: <CLOUD_REGION>
 environmentRevision: <BUNDLE_VERSION>
+# The ACME issuer this environment's public certificates come from.
+#
+# Written by scaffolding rather than defaulted by the chart: an empty issuer
+# yields an ApplicationSet that applies cleanly and a child Application that
+# cannot render, which ArgoCD reports as Healthy while managing nothing.
+publicTlsIssuer: <PUBLIC_TLS_ISSUER>
+# Cloud worker nodes this cluster runs.
+#
+# Zero in development by default: that environment's capacity is meant to come
+# from nodes on your own premises (ADR-075). Raise it if you have none, or to add
+# cloud capacity when an on-prem node leaves.
+#
+# Changing this here is the supported way to scale. Nothing does it for you: a
+# node briefly unreachable should not answer with a bill. Day-0 records the full
+# topology at clusters/<name>/generated/hub-cluster.yaml and your own control
+# plane reconciles it.
+workers: <WORKER_COUNT>
+
+
 
 platformRepoURL: <PLATFORM_REPO_URL>
 
@@ -27,3 +46,38 @@ instanceRepoURL: <GITOPS_REPO_URL>
 cells: []
 
 workloads: {}
+# Where this cluster's stateful services run (ADR-046 §11, ADR-075).
+#
+# A placement class is a pair -- a `workload-location` nodeSelector and the
+# storage class provisionable on nodes carrying it -- selected as one name so the
+# two cannot drift:
+#
+#   hetzner  cloud nodes,   hcloud-volumes
+#   hybrid   on-prem nodes, local-path
+#
+# Empty means this cluster's provider. Set `hybrid` once you have joined on-prem
+# nodes and want your platform data on them.
+#
+# This is NOT a reschedule. local-path is node-pinned and has no snapshots, so a
+# stateful service changing class is recreated and restored from backup. Read the
+# migration runbook before editing this on a cluster that holds data.
+placement:
+  class: ""
+
+# On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
+# over your Tailscale tailnet.
+#
+# A capability, not a property of the provider: enable it whenever you want the
+# capacity, disable it when you do not. The datapath every box runs is already
+# sized for it, so turning it on costs no cluster-wide change.
+#
+# Two things to know before enabling on a cluster that already exists. Nodes join
+# the tailnet when they join the cluster, so existing nodes keep the addresses
+# they registered with -- completing the arrangement means replacing the control
+# plane. And the platform cannot see the other half: a machine on your premises,
+# running the join. This value says the cluster will accept them.
+onPrem:
+  enabled: false
+  # Your tailnet, e.g. acme.ts.net. Required when enabled.
+  tailnet: ""
+

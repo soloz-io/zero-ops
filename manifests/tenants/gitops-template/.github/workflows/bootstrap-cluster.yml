@@ -31,11 +31,36 @@ on:
       environment:
         required: true
         default: <ENVIRONMENT>
+      workers:
+        description: Cloud worker nodes to provision. Defaults to this cluster's values.yaml.
+        required: false
+        default: '<WORKER_COUNT>'
+      on-prem:
+        description: Accept nodes on your own premises, joining over your tailnet.
+        required: false
+        type: boolean
+        default: false
+      tailnet:
+        description: Your Tailscale tailnet, e.g. acme.ts.net. Required with on-prem.
+        required: false
+        default: ''
 
 # Dispatch only. A cluster is not created because a file changed: creating one
 # costs money and takes hours, and a push that triggered it would make an
 # editing mistake into an infrastructure bill. Changing a cluster after it
 # exists is reconciled by the control plane rather than by this workflow.
+# Day-0 commits the artifacts it generates back into this repository, so the run
+# needs write access to it.
+#
+# Declared here and not only in the workflow this calls. A called workflow's
+# permissions may be the same or more restrictive than its caller's, never wider:
+# a caller that declares none inherits this repository's default, and where that
+# default is read-only the callee asking for `contents: write` exceeds it. GitHub
+# rejects that before the job starts, as a `startup_failure` after a few seconds
+# with no logs and no annotation naming the cause.
+permissions:
+  contents: write
+
 jobs:
   bootstrap:
     uses: soloz-io/zero-ops/.github/workflows/tenant-bootstrap.yml@v<BUNDLE_VERSION>
@@ -45,6 +70,13 @@ jobs:
       region: ${{ inputs.region }}
       environment: ${{ inputs.environment }}
       bundle-version: <BUNDLE_VERSION>
+      workers: ${{ inputs.workers }}
+      on-prem: ${{ inputs.on-prem }}
+      tailnet: ${{ inputs.tailnet }}
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+      # Read only when on-prem is enabled. Set it on this repository if this
+      # cluster accepts nodes on your own premises: the control plane and those
+      # nodes join your tailnet from this one key (ADR-046, ADR-075).
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}

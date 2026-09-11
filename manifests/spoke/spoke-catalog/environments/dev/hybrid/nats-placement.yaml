@@ -47,7 +47,7 @@ spec:
     spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
-        workload-location: home
+        workload-location: on-prem
   volumeClaimTemplates:
     - metadata:
         name: data

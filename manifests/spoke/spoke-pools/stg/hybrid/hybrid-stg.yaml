@@ -7,7 +7,7 @@
 #            same as hub/hetzner; hybrid adds nothing for the API path.
 #
 # Scheduling contract:
-#   Default: nodeSelector: workload-location: home
+#   Default: nodeSelector: workload-location: on-prem
 #   Burst:   nodeSelector: workload-location: hetzner (explicit)
 apiVersion: nutgraf.in/v1alpha1
 kind: SpokePool

@@ -4,6 +4,7 @@
 ## Cluster Teardown
 
 ./scripts/hub-bootstrap.sh dev --teardown --yes
+./soloz teardown --name test-tenant-hub --confirm
 
 ## Fresh Bootstrap
 
@@ -19,6 +20,17 @@ Sequenced (default) — boundaries activated one at a time in phase order:
   --home-worker-enabled \
   --tailnet-name taila4c44b.ts.net \
   --bundle-version 0.1.3
+
+---------------------------------
+
+./soloz bootstrap \
+  --name devbox \
+  --provider hetzner \
+  --environment dev \
+  --region hel1 \
+  --on-prem \
+  --tailnet-name taila4c44b.ts.net \
+  --debug
 
 Converged (ADR-055) — all boundaries reconcile at once, red-then-green:
 
@@ -40,11 +52,11 @@ a failure points at an Application rather than at a named phase.
 
 ## Release
 
-- gh release create v0.1.12 --generate-notes
+- gh release create v0.1.14 --generate-notes
 - gh run watch
 
 - ./bin/soloz reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
-  --bundle-version 0.1.12     
+  --bundle-version 0.1.14     
 
 - KUBECONFIG=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \                   
   kubectl get app platform-database -n platform-ops \
@@ -86,6 +98,10 @@ soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.i
   --provider-token "$HCLOUD_TOKEN" --gitops-token "$GITOPS_PAT"
 
 No secrets → repository is created, then handover instructions with the exact commands. Not an error, since the repo exists by then.
+
+## Delete
+
+gh repo delete soloz-io/test-tenant-gitops --yes
 
 ## Boundary activation
 

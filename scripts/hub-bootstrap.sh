@@ -1590,7 +1590,7 @@ spoke_home_worker_ready() {
     SPOKE_HOME_WORKERS_PENDING=""
 
     status_lines=$(kubectl --kubeconfig="$spoke_kc" get nodes \
-        -l 'workload-location=home,node-role.kubernetes.io/worker' \
+        -l 'workload-location=on-prem,node-role.kubernetes.io/worker' \
         -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null || true)
 
     expected="$(spoke_home_worker_registry)"

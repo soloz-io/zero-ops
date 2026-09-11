@@ -39,6 +39,21 @@ type Secrets struct {
 	ProviderToken string
 	// GitopsToken lets Day-0 commit the artifacts it generates (ADR-072).
 	GitopsToken string
+	// TailscaleAuthkey enrols this box's control plane and its home workers on
+	// the tenant's tailnet. Hybrid only: ADR-046 invariant 6 requires a routable
+	// tailnet IP on every node that carries pod traffic, and under §21 that
+	// includes the hub control plane. Empty for every other provider, where
+	// nothing reads it.
+	TailscaleAuthkey string
+}
+
+// needsTailscale reports whether a provider's clusters join a tailnet.
+//
+// Only hybrid does. Asking a hetzner tenant for a Tailscale key would be asking
+// for a credential nothing consumes, and skipping the question for a hybrid one
+// produces a box whose control plane silently never joins the tailnet.
+func needsTailscale(provider string) bool {
+	return strings.TrimSpace(provider) == "hybrid"
 }
 
 // Complete reports whether both are present. A repository is only dispatchable
@@ -48,6 +63,16 @@ func (s Secrets) Complete() bool {
 	return strings.TrimSpace(s.ProviderToken) != "" && strings.TrimSpace(s.GitopsToken) != ""
 }
 
+// CompleteFor is Complete plus whatever the provider additionally requires.
+// Dispatching a hybrid box without a tailnet key produces a control plane that
+// never joins the tailnet, which is not a failure the run reports.
+func (s Secrets) CompleteFor(provider string) bool {
+	if !s.Complete() {
+		return false
+	}
+	return !needsTailscale(provider) || strings.TrimSpace(s.TailscaleAuthkey) != ""
+}
+
 // Prompt asks for whichever secret is missing.
 //
 // Reads without echo, because a token typed into a terminal that echoes it is a
@@ -55,7 +80,7 @@ func (s Secrets) Complete() bool {
 // memory. Returns what it has when there is no terminal to ask -- a pipeline
 // gets the flags it passed and no prompt that would hang it.
 func (s Secrets) Prompt(provider string) (Secrets, error) {
-	if s.Complete() || !term.IsTerminal(int(os.Stdin.Fd())) {
+	if s.CompleteFor(provider) || !term.IsTerminal(int(os.Stdin.Fd())) {
 		return s, nil
 	}
 
@@ -79,6 +104,17 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 			return s, err
 		}
 		s.GitopsToken = v
+	}
+	// Hybrid only. Asked here rather than left for the tenant to discover,
+	// because a box that bootstraps without it reports success and then cannot
+	// pass pod traffic between its control plane and its home workers.
+	if needsTailscale(provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
+		v, err := readSecret(
+			"TS_AUTHKEY (a Tailscale auth key; the control plane and home workers join your tailnet with it): ")
+		if err != nil {
+			return s, err
+		}
+		s.TailscaleAuthkey = v
 	}
 	return s, nil
 }
@@ -105,10 +141,15 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 	}
 	repo := fmt.Sprintf("%s/%s", spec.GitOrg, spec.RepoName())
 
-	for name, value := range map[string]string{
+	values := map[string]string{
 		credName:       s.ProviderToken,
 		"GITOPS_TOKEN": s.GitopsToken,
-	} {
+	}
+	if v := strings.TrimSpace(s.TailscaleAuthkey); v != "" {
+		values["TS_AUTHKEY"] = v
+	}
+
+	for name, value := range values {
 		cmd := exec.CommandContext(ctx, "gh", "secret", "set", name, "--repo", repo)
 		cmd.Stdin = strings.NewReader(value)
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -150,11 +191,19 @@ func HandoverInstructions(spec Spec, s Secrets, w *bufio.Writer) {
 	fmt.Fprintf(w, "\n%s is scaffolded and pinned to %s.\n", repo, spec.BundleVersion)
 	fmt.Fprintf(w, "  https://github.com/%s\n\n", repo)
 
-	if !s.Complete() {
+	if !s.CompleteFor(spec.Provider) {
 		fmt.Fprintf(w, "It cannot bootstrap yet: the workflow it carries runs under the\n")
-		fmt.Fprintf(w, "tenant's own secrets, and %s.\n\n", missingWord(s, credName))
-		fmt.Fprintf(w, "  gh secret set %s --repo %s\n", credName, repo)
-		fmt.Fprintf(w, "  gh secret set GITOPS_TOKEN --repo %s\n\n", repo)
+		fmt.Fprintf(w, "tenant's own secrets, and %s.\n\n", missingWord(s, credName, spec.Provider))
+		if strings.TrimSpace(s.ProviderToken) == "" {
+			fmt.Fprintf(w, "  gh secret set %s --repo %s\n", credName, repo)
+		}
+		if strings.TrimSpace(s.GitopsToken) == "" {
+			fmt.Fprintf(w, "  gh secret set GITOPS_TOKEN --repo %s\n", repo)
+		}
+		if needsTailscale(spec.Provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
+			fmt.Fprintf(w, "  gh secret set TS_AUTHKEY --repo %s\n", repo)
+		}
+		fmt.Fprintln(w)
 	}
 
 	fmt.Fprintf(w, "Then bootstrap it, in the tenant's repository:\n\n")
@@ -162,13 +211,31 @@ func HandoverInstructions(spec Spec, s Secrets, w *bufio.Writer) {
 	fmt.Fprintf(w, "  https://github.com/%s/actions/workflows/bootstrap-cluster.yml\n", repo)
 }
 
-func missingWord(s Secrets, credName string) string {
-	switch {
-	case strings.TrimSpace(s.ProviderToken) == "" && strings.TrimSpace(s.GitopsToken) == "":
-		return "neither is set"
-	case strings.TrimSpace(s.ProviderToken) == "":
-		return credName + " is not set"
+// missingWord names what is absent. Built from the set rather than switched over
+// pairs: with a third secret the cases stop being enumerable, and a sentence
+// naming one missing secret while two are missing is worse than no sentence.
+func missingWord(s Secrets, credName, provider string) string {
+	var missing []string
+	if strings.TrimSpace(s.ProviderToken) == "" {
+		missing = append(missing, credName)
+	}
+	if strings.TrimSpace(s.GitopsToken) == "" {
+		missing = append(missing, "GITOPS_TOKEN")
+	}
+	// Only where something reads it. Naming TS_AUTHKEY to a hetzner tenant sends
+	// them to obtain a credential nothing on their box consumes.
+	if needsTailscale(provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
+		missing = append(missing, "TS_AUTHKEY")
+	}
+	switch len(missing) {
+	case 0:
+		return "everything it needs is set"
+	case 1:
+		return missing[0] + " is not set"
+	case 2:
+		return missing[0] + " and " + missing[1] + " are not set"
 	default:
-		return "GITOPS_TOKEN is not set"
+		return strings.Join(missing[:len(missing)-1], ", ") + " and " +
+			missing[len(missing)-1] + " are not set"
 	}
 }

@@ -75,7 +75,7 @@ spec:
     topologyKey: kubernetes.io/hostname
     nodeSelector:
       node-role.kubernetes.io/worker: ""
-      workload-location: home
+      workload-location: on-prem
 
   backup:
     barmanObjectStore:

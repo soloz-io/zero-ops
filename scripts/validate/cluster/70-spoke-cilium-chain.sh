@@ -102,10 +102,10 @@ validate_spoke_cilium_chain() {
         "control-plane Node not Ready — 'cni plugin not initialized' means link 5 has not taken effect"
 
     # ── Link 7: home worker Ready AND carrying the placement contract ────────
-    # Both labels, per ADR-014 + §11. A Ready node without workload-location=home
+    # Both labels, per ADR-014 + §11. A Ready node without workload-location=on-prem
     # satisfies nothing that is scheduled against it.
-    _chain_nodes_ready "home worker" 'workload-location=home,node-role.kubernetes.io/worker' \
-        "no Ready node carries workload-location=home + node-role.kubernetes.io/worker — Step 10e did not converge, and every stateful workload will sit Pending"
+    _chain_nodes_ready "home worker" 'workload-location=on-prem,node-role.kubernetes.io/worker' \
+        "no Ready node carries workload-location=on-prem + node-role.kubernetes.io/worker — Step 10e did not converge, and every stateful workload will sit Pending"
 
     # ── Link 8: argocd-agent Ready — the spoke's only GitOps path ────────────
     local agent
@@ -149,7 +149,7 @@ validate_spoke_cilium_chain() {
         [[ -z "$line" ]] && continue
         [[ "${line#*=}" == "true" ]] && continue    # cordoned
         eligible=$((eligible + 1))
-    done < <(kc_spoke get nodes -l 'workload-location=home,node-role.kubernetes.io/worker' \
+    done < <(kc_spoke get nodes -l 'workload-location=on-prem,node-role.kubernetes.io/worker' \
         -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.spec.unschedulable}{"\n"}{end}')
     if [[ "${eligible:-0}" -ge 1 ]]; then
         pass "CNPG placement satisfiable ($eligible schedulable home worker(s))"

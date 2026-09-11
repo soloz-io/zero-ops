@@ -160,8 +160,26 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "       Copy home-lab.env.example → home-lab.env and fill in real values." >&2
   exit 1
 fi
+# An explicit HUB_KUBECONFIG wins over the one the env file sets.
+#
+# home-lab.env assigns HUB_KUBECONFIG unconditionally, and it names ONE cluster's
+# kubeconfig. That is fine while there is one hub; it is wrong the moment a second
+# is built, because the caller's cluster is not the one the file names. The
+# bootstrap passes the path of the cluster it just created and the assignment threw
+# it away, so the join aborted with "HUB_KUBECONFIG not found" pointing at a
+# kubeconfig for a different, possibly long-deleted cluster.
+#
+# The fix lives here rather than in the env file because that file is gitignored:
+# it holds real values, so a correction there reaches nobody else.
+_caller_hub_kubeconfig="${HUB_KUBECONFIG:-}"
+
 # shellcheck source=/dev/null
 source "$ENV_FILE"
+
+if [[ -n "$_caller_hub_kubeconfig" ]]; then
+  HUB_KUBECONFIG="$_caller_hub_kubeconfig"
+fi
+unset _caller_hub_kubeconfig
 
 # Auto-fetch Tailscale authkey from k8-secrets if not passed via CLI
 DEFAULT_TS_AUTHKEY_FILE="${REPO_ROOT}/k8-secrets/tailscale/authkey"
@@ -171,7 +189,10 @@ fi
 
 if [[ ! -f "$HUB_KUBECONFIG" ]]; then
   echo "ERROR: HUB_KUBECONFIG not found: $HUB_KUBECONFIG" >&2
-  echo "       Check home-lab.env — the hub kubeconfig must exist on the Mac." >&2
+  echo "       The hub kubeconfig must exist on this machine." >&2
+  echo "       Set HUB_KUBECONFIG for the cluster you mean, or correct the value in" >&2
+  echo "       $ENV_FILE — note it names one cluster, so it is stale as soon as" >&2
+  echo "       a differently named hub is built." >&2
   exit 1
 fi
 
@@ -644,9 +665,9 @@ EOF
   TMP_DIR=$(mktemp -d /tmp/ignition-gen-XXXXXX)
   trap 'rm -rf "$TMP_DIR"' RETURN
 
-  local NODE_LABELS="workload-location=home,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
+  local NODE_LABELS="workload-location=on-prem,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
   if [[ "$CLUSTER_TARGET" == "hub" ]]; then
-    NODE_LABELS="workload-location=home,hub-role=worker,topology.kubernetes.io/zone=home,node.kubernetes.io/exclude-from-external-load-balancers=true"
+    NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
   fi
 
   local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64
@@ -1418,7 +1439,7 @@ phase_monitor_and_verify() {
       # Apply node-role labels from cluster side (idempotent with kubelet --node-labels)
       if [[ "$CLUSTER_TARGET" == "hub" ]]; then
         kubectl --kubeconfig="${HUB_KUBECONFIG}" label node "${HOSTNAME}" \
-          node-role.kubernetes.io/home= node-role.kubernetes.io/worker= hub-role=worker workload-location=home --overwrite >/dev/null 2>&1 || true
+          node-role.kubernetes.io/on-prem= node-role.kubernetes.io/worker= hub-role=worker workload-location=on-prem --overwrite >/dev/null 2>&1 || true
       else
         local SPOKE_KC
         SPOKE_KC=$(mktemp /tmp/hybrid-spoke-XXXXXX)
@@ -1427,7 +1448,7 @@ phase_monitor_and_verify() {
               -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
               | base64 -d > "$SPOKE_KC"; then
           kubectl --kubeconfig="$SPOKE_KC" label node "${HOSTNAME}" \
-            node-role.kubernetes.io/home= node-role.kubernetes.io/worker= workload-location=home --overwrite >/dev/null 2>&1 || true
+            node-role.kubernetes.io/on-prem= node-role.kubernetes.io/worker= workload-location=on-prem --overwrite >/dev/null 2>&1 || true
           rm -f "$SPOKE_KC"
         fi
       fi
@@ -1600,10 +1621,49 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   fi
 
   # [1/6] SSH reachability gate
+  #
+  # The error is captured and printed rather than discarded. It used to go to
+  # /dev/null and every cause was reported as "Windows host unreachable" -- a
+  # rejected key, a wrong username, a refused connection and a sleeping machine all
+  # produced that one line, and the message that would tell them apart was the one
+  # being thrown away. Diagnosing it meant re-running ssh by hand to see what the
+  # script had already been told.
   echo "    [1/6] SSH reachability gate..."
-  if ! ssh -n -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no \
-        "${SSH_TARGET}" "echo ok" 2>/dev/null; then
-    echo "    ✗ SSH to ${SSH_TARGET} failed — Windows host unreachable. Skipping." >&2
+  #
+  # Retried, because these are workstations rather than servers. A machine on a
+  # desk sleeps, and its wireless adapter powers down before it does: the first
+  # connection after an idle period gets "No route to host" and the one after it
+  # succeeds, because the attempt itself woke the host. A single attempt therefore
+  # failed the whole phase on a machine that was two seconds from being reachable.
+  #
+  # The retry does not paper over a host that is off -- that still fails, with the
+  # last error, after the window below.
+  _ssh_err=""
+  _ssh_ok=0
+  for _attempt in 1 2 3 4 5 6; do
+    if _ssh_err=$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no \
+          "${SSH_TARGET}" "echo ok" 2>&1 >/dev/null); then
+      _ssh_ok=1
+      break
+    fi
+    if [[ $_attempt -lt 6 ]]; then
+      echo "        attempt ${_attempt}/6 failed, retrying in 5s (${_ssh_err##*: })"
+      sleep 5
+    fi
+  done
+  if [[ $_ssh_ok -eq 0 ]]; then
+    echo "    ✗ SSH to ${SSH_TARGET} failed after 6 attempts over ~30s. Skipping." >&2
+    if [[ -n "$_ssh_err" ]]; then
+      # Indented so it reads as the cause of the line above rather than as a new
+      # failure of its own.
+      printf '      ssh: %s\n' "$_ssh_err" >&2
+    else
+      echo "      ssh exited non-zero with no message — most often a host that is" >&2
+      echo "      powered off or asleep, or a firewall dropping the connection." >&2
+    fi
+    echo "      A workstation that sleeps will do this. On the host: disable sleep" >&2
+    echo "      (powercfg /change standby-timeout-ac 0) and turn off power saving on" >&2
+    echo "      its network adapter, or the same window will reopen on the next run." >&2
     FAILED_NODES+=("${HOSTNAME}")
     continue
   fi

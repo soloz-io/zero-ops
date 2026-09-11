@@ -14,20 +14,20 @@ import (
 // Every provider implements the same interface. The orchestrator calls methods
 // in a fixed linear sequence with zero branching on provider type.
 //
-//  Phase   Method                        Cloud / Hybrid
-//  ─────   ──────                        ─────────────
-//  1       PreflightValidators()         cloud credentials (+kind for bootstrap)
-//  2       KindConfigPath()              "" (default)
-//  3       ProvisionDayZero()            secret+CSI+wait
-//  4       CAPIProviders()+OnCAPIInit()  cloud providers
-//  5       ProvisionManagementCluster()  provision VMs
-//  6       PivotMove()                   clusterctl pivot
-//  7       PivotReady()                  wait reconcile
-//  8       (orchestrator cleanup)        delete kind
-//  9       ClusterClassPaths()           cloud / hybrid clusterclass
-//  10      OnPlatformPreReqs()           no-op (reserved)
-//  11      (orchestrator ArgoCD+apps)    identical
-//  12      Finalize()                    extract CAPI secret
+//	Phase   Method                        Cloud / Hybrid
+//	─────   ──────                        ─────────────
+//	1       PreflightValidators()         cloud credentials (+kind for bootstrap)
+//	2       KindConfigPath()              "" (default)
+//	3       ProvisionDayZero()            secret+CSI+wait
+//	4       CAPIProviders()+OnCAPIInit()  cloud providers
+//	5       ProvisionManagementCluster()  provision VMs
+//	6       PivotMove()                   clusterctl pivot
+//	7       PivotReady()                  wait reconcile
+//	8       (orchestrator cleanup)        delete kind
+//	9       ClusterClassPaths()           cloud / hybrid clusterclass
+//	10      OnPlatformPreReqs()           no-op (reserved)
+//	11      (orchestrator ArgoCD+apps)    identical
+//	12      Finalize()                    extract CAPI secret
 //
 // The orchestrator is the single source of truth for phases 8 and 11 — these
 // are not provider methods because they are identical across all providers.
@@ -95,18 +95,23 @@ type Provider interface {
 
 // ProvisionConfig carries state from the orchestrator into Phase 5.
 type ProvisionConfig struct {
-	ClusterName      string
+	ClusterName         string
 	BootstrapKubeconfig string
-	BootstrapContext string
-	Debug            bool
+	BootstrapContext    string
+	Debug               bool
+
+	// GitopsDir is a checkout of the tenant's own repository when Day-0 runs from
+	// one (ADR-072), so the topology it provisions can be recorded there and
+	// changed afterwards. Empty for the platform's own box.
+	GitopsDir string
 }
 
 // PivotConfig carries state from the orchestrator into Phase 6.
 type PivotConfig struct {
-	ClusterName      string
+	ClusterName         string
 	BootstrapKubeconfig string
-	BootstrapContext string
-	Debug            bool
+	BootstrapContext    string
+	Debug               bool
 }
 
 // FinalizeConfig carries state from the orchestrator into Phase 12.

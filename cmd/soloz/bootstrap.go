@@ -36,10 +36,59 @@ var (
 	gating            string
 
 	// Hybrid-provider flags (ADR-046 §WS4)
-	homeWorkerEnabled bool
-	homeWorkerTTL     string
-	tailnetName       string
+	onPremEnabled bool
+	// -1 rather than 0: zero workers is a real answer, and the default depends on
+	// the environment, which is not known when flags are declared.
+	workerReplicas int
+	onPremJoinTTL  string
+	tailnetName    string
 )
+
+// workerReplicasOverride is the --workers value, or nil when it was not passed.
+// Zero is a real count, so the flag uses a negative sentinel and this converts it.
+func workerReplicasOverride() *int {
+	if workerReplicas < 0 {
+		return nil
+	}
+	n := workerReplicas
+	return &n
+}
+
+// resolveHCloudToken makes the Hetzner token available to everything that reads it.
+//
+// Five places in this CLI read HCLOUD_TOKEN from the environment -- bootstrap,
+// pivot twice, spoke and teardown -- so the token is resolved once, here, and put
+// back into the environment rather than threaded through each of them.
+//
+// The file fallback exists because teardown already had it and bootstrap did not:
+// the same credential, in the same file, worked for tearing a cluster down and not
+// for building one. k8-secrets/ is the operator's own gitignored directory, so this
+// helps someone working in a checkout and does nothing in CI, where the variable is
+// set from a secret.
+func resolveHCloudToken() error {
+	if os.Getenv("HCLOUD_TOKEN") != "" {
+		return nil
+	}
+	const path = "k8-secrets/hetzner/token"
+	raw, err := os.ReadFile(path)
+	if err == nil {
+		if token := strings.TrimSpace(string(raw)); token != "" {
+			// Set rather than returned: the readers downstream take it from the
+			// environment, and passing it explicitly would mean changing all of them.
+			if err := os.Setenv("HCLOUD_TOKEN", token); err != nil {
+				return fmt.Errorf("could not make the Hetzner token available: %w", err)
+			}
+			fmt.Printf("[bootstrap] using the Hetzner token from %s\n", path)
+			return nil
+		}
+	}
+	return fmt.Errorf("no Hetzner API token.\n\n"+
+		"Clusters are created with it, so bootstrap needs one of:\n\n"+
+		"  HCLOUD_TOKEN   exported in this shell\n"+
+		"  %s   the same token, read from disk\n\n"+
+		"Create one at https://console.hetzner.cloud/ under Security > API tokens,\n"+
+		"with Read & Write permission.", path)
+}
 
 func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -74,13 +123,16 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
+	cmd.Flags().IntVar(&workerReplicas, "workers", -1,
+		"cloud worker nodes to provision (default: 0 in dev, 2 elsewhere). A dev box "+
+			"defaults to none because its capacity is meant to come from on-prem nodes (ADR-075)")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 
 	// Hybrid-provider flags (ADR-046 §WS4)
-	cmd.Flags().BoolVar(&homeWorkerEnabled, "home-worker-enabled", false, "Enable home-lab WSL2 worker join flow (hybrid only)")
-	cmd.Flags().StringVar(&homeWorkerTTL, "home-worker-ttl", "24h", "kubeadm bootstrap-token TTL for home workers (hybrid only)")
-	cmd.Flags().StringVar(&tailnetName, "tailnet-name", "", "Tailscale tailnet name for MagicDNS spoke endpoint (hybrid only)")
+	cmd.Flags().BoolVar(&onPremEnabled, "on-prem", false, "accept nodes on the tenant's own premises, joining this cluster over their tailnet (ADR-075)")
+	cmd.Flags().StringVar(&onPremJoinTTL, "on-prem-join-ttl", "24h", "kubeadm bootstrap-token TTL for on-prem nodes")
+	cmd.Flags().StringVar(&tailnetName, "tailnet-name", "", "the tenant's Tailscale tailnet, e.g. acme.ts.net. Required with --on-prem")
 
 	// Mark required flags
 	cmd.MarkFlagRequired("name")
@@ -125,8 +177,8 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 		if osType == "talos" && imageID == "" && !buildTalosImage {
 			return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
 		}
-		if os.Getenv("HCLOUD_TOKEN") == "" {
-			return fmt.Errorf("HCLOUD_TOKEN environment variable is required for provider '%s'", provider)
+		if err := resolveHCloudToken(); err != nil {
+			return err
 		}
 	}
 
@@ -153,7 +205,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   Network CIDR: %s\n", networkCIDR)
 	}
 	if provider == "hybrid" {
-		fmt.Printf("   Home Workers: %v\n", homeWorkerEnabled)
+		fmt.Printf("   On-prem nodes: %v\n", onPremEnabled)
 		fmt.Printf("   Tailnet: %s\n", tailnetName)
 	}
 
@@ -173,6 +225,10 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Debug:             debug,
 			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
+			Environment:       environment,
+			OnPremEnabled:     onPremEnabled,
+			WorkerReplicas:    workerReplicasOverride(),
+			ClusterName:       clusterName,
 		}
 		bp = bootstrap.NewCloudProvider(driver, clusterName, debug)
 	case "hybrid":
@@ -187,13 +243,17 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Debug:             debug,
 			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
+			Environment:       environment,
+			OnPremEnabled:     onPremEnabled,
+			WorkerReplicas:    workerReplicasOverride(),
+			ClusterName:       clusterName,
 		}
 		hybridDriver := &bootstrap.HybridDriver{
-			Driver:            driver,
-			TailnetName:       tailnetName,
-			HomeWorkerEnabled: homeWorkerEnabled,
-			HomeWorkerTTL:     homeWorkerTTL,
-			ClusterName:       clusterName,
+			Driver:        driver,
+			TailnetName:   tailnetName,
+			OnPremEnabled: onPremEnabled,
+			HomeWorkerTTL: onPremJoinTTL,
+			ClusterName:   clusterName,
 		}
 		bp = bootstrap.NewCloudProvider(hybridDriver, clusterName, debug)
 	default:

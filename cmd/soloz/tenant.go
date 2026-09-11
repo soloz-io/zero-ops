@@ -19,7 +19,11 @@ var (
 	scaffoldDryRun        bool
 	scaffoldProviderToken string
 	scaffoldGitopsToken   string
-	scaffoldNoPrompt      bool
+	scaffoldTailscaleKey  string
+	// -1 rather than 0, because 0 is a real worker count and the default depends
+	// on the environment, which is not known when flags are declared.
+	scaffoldWorkers  int
+	scaffoldNoPrompt bool
 )
 
 func newTenantCmd() *cobra.Command {
@@ -56,6 +60,10 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.Provider, "provider", "hetzner", "cloud provider")
 	f.StringVar(&scaffoldSpec.Region, "region", "hel1", "cloud region")
 	f.StringVar(&scaffoldSpec.Environment, "environment", "dev", "environment slug")
+	f.IntVar(&scaffoldWorkers, "workers", -1,
+		"cloud worker nodes this box starts with (default: 0 in dev, 2 elsewhere). "+
+			"A dev box defaults to none because its capacity is meant to come from "+
+			"nodes on your own premises; pass a count if you have none (ADR-075)")
 	f.StringVar(&scaffoldSpec.ClusterName, "cluster", "", "control plane cluster name (default <tenant>-hub)")
 	// Defaults to the version this binary carries (ADR-068). "main" was the old
 	// default and is a branch name where a chart version belongs: a repository
@@ -82,6 +90,8 @@ what a tenant would receive before any repository exists.`,
 	// repository would make the platform's access the tenant's access.
 	f.StringVar(&scaffoldProviderToken, "provider-token", "",
 		"the tenant's cloud API token; their clusters are created with it")
+	f.StringVar(&scaffoldTailscaleKey, "tailscale-authkey", "",
+		"a Tailscale auth key; the hybrid provider's control plane and home workers join the tenant's tailnet with it (ADR-046)")
 	f.StringVar(&scaffoldGitopsToken, "gitops-token", "",
 		"write access to the tenant's repository, so Day-0 can commit what it generates")
 	f.BoolVar(&scaffoldNoPrompt, "no-prompt", false,
@@ -101,6 +111,11 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if scaffoldSpec.ClusterName == "" && scaffoldSpec.TenantID != "" {
 		scaffoldSpec.ClusterName = scaffoldSpec.TenantID + "-hub"
+	}
+	// Only when actually passed. The sentinel keeps "zero workers" distinguishable
+	// from "no opinion", so the environment's own default survives.
+	if scaffoldWorkers >= 0 {
+		scaffoldSpec.Workers = &scaffoldWorkers
 	}
 
 	dir := scaffoldOut
@@ -122,6 +137,12 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("[scaffold] rendered %s into %s\n", scaffoldSpec.RepoName(), dir)
 
+	// Before the dry-run return, so the run that exists to show what would be
+	// created also shows that it could not bootstrap.
+	if w := scaffoldSpec.CapacityWarning(); w != "" {
+		fmt.Printf("\n[scaffold] ⚠  %s\n\n", w)
+	}
+
 	if scaffoldDryRun {
 		fmt.Println("[scaffold] dry run: no repository created, nothing pushed")
 		return printTree(dir)
@@ -135,11 +156,12 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	kind := "personal access token"
-	if cred.IsApp {
-		kind = "app installation token"
-	}
-	fmt.Printf("[scaffold] authenticating with %s from %s\n", kind, cred.Source)
+	// Deliberately not announced. Naming the credential's source printed the
+	// filesystem path of a secret file to the terminal and to whatever collects
+	// it, for no decision the operator makes: the lines that follow say whether
+	// the repository was created and pushed, which is the only thing the
+	// authentication outcome affects. A failure still names the source, because
+	// there the path is the fix.
 
 	existed, err := tenant.CreateRepo(ctx, scaffoldSpec, cred)
 	if err != nil {
@@ -147,9 +169,9 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 	if existed {
 		// Resumable rather than fatal: a run that failed after creating the
-		// repository must be able to continue. Pushing into it is still refused
-		// below if it already has history, so this cannot overwrite a tenant's
-		// work.
+		// repository but before pushing must be able to continue. Publish refuses
+		// once the repository has commits, so a repository that was only created
+		// is resumed and one that was scaffolded is not overwritten.
 		fmt.Printf("[scaffold] %s/%s already exists; continuing\n", scaffoldSpec.GitOrg, scaffoldSpec.RepoName())
 	} else {
 		fmt.Printf("[scaffold] created %s/%s\n", scaffoldSpec.GitOrg, scaffoldSpec.RepoName())
@@ -164,7 +186,11 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	// secrets: the workflow runs under them and the platform holds neither
 	// (ADR-065, ADR-072). Asked for here rather than left as a follow-up, because
 	// a scaffolded repository that cannot bootstrap looks finished.
-	secrets := tenant.Secrets{ProviderToken: scaffoldProviderToken, GitopsToken: scaffoldGitopsToken}
+	secrets := tenant.Secrets{
+		ProviderToken:    scaffoldProviderToken,
+		GitopsToken:      scaffoldGitopsToken,
+		TailscaleAuthkey: scaffoldTailscaleKey,
+	}
 	if !scaffoldNoPrompt {
 		var err error
 		if secrets, err = secrets.Prompt(scaffoldSpec.Provider); err != nil {
@@ -173,7 +199,9 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := bufio.NewWriter(os.Stdout)
-	if !secrets.Complete() {
+	// Provider-aware: a hybrid box also needs a tailnet key, and dispatching
+	// without one starts a run the workflow refuses on purpose.
+	if !secrets.CompleteFor(scaffoldSpec.Provider) {
 		// Not an error. A repository exists at this point, so what is owed is an
 		// accurate account of where this stopped and what completes it.
 		tenant.HandoverInstructions(scaffoldSpec, secrets, w)

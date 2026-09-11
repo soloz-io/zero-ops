@@ -140,7 +140,7 @@ spec:
               - key: workload-location
                 operator: NotIn
                 values:
-                - home
+                - on-prem
       tolerations:
         - effect: NoExecute
           operator: Exists
@@ -250,7 +250,7 @@ spec:
               - key: workload-location
                 operator: NotIn
                 values:
-                - home
+                - on-prem
           preferredDuringSchedulingIgnoredDuringExecution:
           - preference:
               matchExpressions:

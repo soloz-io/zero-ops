@@ -27,11 +27,88 @@ type HetznerDriver struct {
 	Debug             bool
 	BuildTalosImage   bool
 	BuildFlatcarImage bool
+
+	// Environment decides whether this box provisions cloud workers at all
+	// (ADR-075). Development runs none: non-production capacity is the clearest
+	// case for hardware the tenant already owns, and idle cloud workers in an
+	// environment built to be thrown away are the easiest cost in ADR-070's
+	// budget to stop paying.
+	Environment string
+
+	// OnPremEnabled reports whether this box accepts nodes on the tenant's own
+	// premises. Read here only to decide worker capacity: a development box runs
+	// no cloud workers, so its on-prem nodes are the only capacity it has.
+	OnPremEnabled bool
+
+	// ClusterName names the control plane on the tailnet (<name>-cp). Only read
+	// when on-prem nodes are enabled.
+	ClusterName string
+
+	// WorkerReplicas overrides the count the environment would choose.
+	//
+	// A pointer because zero is a real answer -- a development box whose capacity
+	// comes from the tenant's own hardware -- so it cannot double as "not given".
+	// An int sentinel was tried and was wrong in the quietest possible way: Go's
+	// zero value made every driver built without the field claim an explicit zero,
+	// and every environment provisioned no workers.
+	WorkerReplicas *int
+}
+
+// PlannedWorkerReplicas is how many cloud workers this box starts with.
+//
+// Two in every environment, development included. Development briefly defaulted to
+// zero on the reasoning that its capacity should come from the tenant's own
+// hardware (ADR-075) -- which is the right end state and the wrong default to reach
+// it by: it made on-prem hardware a precondition for the simplest box the platform
+// can build, and `soloz tenant scaffold` with no arguments produced a repository
+// whose bootstrap was refused for having nowhere to schedule.
+//
+// A tenant who wants that arrangement asks for it with --workers 0, which is why
+// the override below distinguishes an explicit zero from an absent flag.
+//
+// The count is a starting value, not a fixed one. Day-0 records the topology at
+// clusters/<name>/generated/hub-cluster.yaml and the tenant's own control plane
+// reconciles it, so changing cloud capacity later -- adding workers when an on-prem
+// node leaves, or removing them once one arrives -- is an edit to that file.
+func (d *HetznerDriver) PlannedWorkerReplicas() int {
+	if d.WorkerReplicas != nil {
+		return *d.WorkerReplicas
+	}
+	return 2
 }
 
 // ── CloudDriver interface ──────────────────────────────────────────────────
 
-func (d *HetznerDriver) Name() string   { return "hetzner" }
+func (d *HetznerDriver) Name() string { return "hetzner" }
+
+// OnPremRequested reports whether this box accepts nodes on the tenant's own
+// premises (ADR-075).
+//
+// Declared here rather than only on the hybrid driver, which is what made
+// `--provider hetzner --on-prem` silently do nothing: the pre-flight capacity
+// check and the on-prem join phase both ask the provider this question, and a
+// driver that could not answer it was read as "no". A hetzner box therefore
+// staged empty tailnet credentials, joined no nodes, and -- once development
+// boxes stopped provisioning cloud workers -- was refused for having no capacity
+// while the flag that would have given it some was set.
+func (d *HetznerDriver) OnPremRequested() bool { return d.OnPremEnabled }
+
+// hubTailnetHostname is the name the control plane registers on the tailnet.
+func (d *HetznerDriver) hubTailnetHostname() string {
+	if d.ClusterName != "" {
+		return d.ClusterName + "-cp"
+	}
+	return "hub-cp"
+}
+
+// CiliumAddonPath is the shared spoke-bootstrap template: hetzner's hub installs
+// exactly what its spokes install. Its config base declares external-envoy-proxy
+// false and gateway-api-hostnetwork-enabled false, and this artifact ships only
+// the cilium DaemonSet -- no standalone cilium-envoy, no mangle guard. The two
+// agree, which is what the hybrid cell needed its own artifact to achieve.
+func (d *HetznerDriver) CiliumAddonPath() string {
+	return "manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml"
+}
 func (d *HetznerDriver) OSType() string { return d.OS }
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
@@ -233,13 +310,55 @@ func (d *HetznerDriver) OnCAPIInit(ctx context.Context, kubeconfig, context, nam
 
 	// The shared hub ClusterClass reads /etc/tailscale-{authkey,hostname} via
 	// contentFrom.secret, so the Secret must exist before the Cluster is created or
-	// the KubeadmConfig never renders. A pure-Hetzner hub has no tailnet, so it gets
-	// EMPTY values: every tailscale command in the ClusterClass is guarded on
-	// `[ -s /etc/tailscale-hostname ]` and becomes a no-op. HybridDriver overwrites
-	// this with real credentials.
-	if err := writeTailscaleSecret(ctx, kubeconfig, namespace, "", ""); err != nil {
-		return fmt.Errorf("failed to create placeholder tailscale secret: %w", err)
+	// the KubeadmConfig never renders. It is written here, at capi-init, because
+	// the ClusterClass reads it while the hub Cluster is being created.
+	//
+	// A box with no on-prem nodes gets EMPTY values: every tailscale command in the
+	// ClusterClass is guarded on `[ -s /etc/tailscale-hostname ]` and becomes a
+	// no-op.
+	return d.stageTailscaleCredentials(ctx, kubeconfig, namespace)
+}
+
+// stageTailscaleCredentials puts this box's control plane on the tenant's tailnet,
+// or leaves the credentials empty when it has no on-prem nodes.
+//
+// ADR-046 invariant 6: Cilium derives its VXLAN tunnel endpoint from a node's
+// InternalIP, and an on-prem node's only InternalIP is its tailnet address. Such a
+// node cannot route the hub control plane's Hetzner private IP, so unless the
+// control plane also advertises a tailnet address, cross-node pod traffic dies in
+// one direction while both nodes report Ready.
+//
+// Shared by both providers rather than overridden by the hybrid one. It used to
+// live only there, which is why a hetzner box with --on-prem staged nothing: the
+// flag was read, the capability was reported, and the credential the ClusterClass
+// needed was written empty anyway.
+func (d *HetznerDriver) stageTailscaleCredentials(ctx context.Context, kubeconfig, namespace string) error {
+	if !d.OnPremEnabled {
+		if err := writeTailscaleSecret(ctx, kubeconfig, namespace, "", ""); err != nil {
+			return fmt.Errorf("failed to create placeholder tailscale secret: %w", err)
+		}
+		return nil
 	}
+
+	authkey, err := readTailscaleAuthkey()
+	if err != nil {
+		// Not fatal: the cluster still builds, but on-prem nodes will not be able
+		// to exchange pod traffic with it. Said loudly here rather than failing
+		// later with an unexplained timeout.
+		fmt.Printf("[capi-init] ⚠️  %v\n", err)
+		fmt.Println("[capi-init] ⚠️  Control plane will NOT join the tailnet; cross-node pod traffic to")
+		fmt.Println("[capi-init]     on-prem nodes will fail (ADR-046 invariant 6).")
+		if err := writeTailscaleSecret(ctx, kubeconfig, namespace, "", ""); err != nil {
+			return fmt.Errorf("failed to create placeholder tailscale secret: %w", err)
+		}
+		return nil
+	}
+
+	hostname := d.hubTailnetHostname()
+	if err := writeTailscaleSecret(ctx, kubeconfig, namespace, authkey, hostname); err != nil {
+		return fmt.Errorf("failed to write tailscale credentials: %w", err)
+	}
+	fmt.Printf("[capi-init] ✓ Tailscale credentials staged for control plane (%s)\n", hostname)
 	return nil
 }
 
@@ -262,7 +381,7 @@ func (d *HetznerDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	cfg.ControlPlaneMachineType = "cx33"
 	cfg.WorkerMachineType = "cx33"
 	cfg.ControlPlaneReplicas = 1
-	cfg.WorkerReplicas = 2
+	cfg.WorkerReplicas = d.PlannedWorkerReplicas()
 	cfg.HCloudToken = d.Token
 
 	// SSH key name for rescue/emergency access. Defaults to the key present in

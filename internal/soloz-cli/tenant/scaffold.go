@@ -10,6 +10,8 @@ package tenant
 
 import (
 	"io/fs"
+	"sort"
+	"strconv"
 
 	"bytes"
 	"context"
@@ -36,6 +38,13 @@ type Spec struct {
 	Provider    string
 	Region      string
 	Environment string
+	// Workers is how many cloud workers this box starts with.
+	//
+	// A pointer so "not given" is distinguishable from "zero". Zero is a real
+	// answer -- a development box whose capacity comes from the tenant's own
+	// hardware (ADR-075) -- and defaulting an unset flag to it would silently
+	// strip workers from a box that needs them.
+	Workers *int
 	// ClusterName is the tenant's control plane, the first cluster in the box.
 	ClusterName string
 	// BundleVersion is the platform version this box starts on.
@@ -90,7 +99,70 @@ func (s Spec) validate() error {
 		}
 		return fmt.Errorf("missing required values: %s", strings.Join(missing, ", "))
 	}
-	return nil
+	return supportedCombination(s.Environment, s.Provider)
+}
+
+// supportedMatrix is the environment/provider combinations the platform ships a
+// spoke-pool source for. It mirrors `supportedMatrix` in the environment-manager
+// chart's values.yaml, which is the authority.
+//
+// Duplicated deliberately rather than read from the chart: this runs before any
+// repository exists, on a CLI that may be released and carrying an embedded chart
+// it must not have to render to answer a question about its own flags. The
+// duplication is asserted by TestScaffoldMatrixMatchesTheChart.
+var supportedMatrix = map[string][]string{
+	"dev":  {"hetzner", "hybrid"},
+	"stg":  {"hybrid"},
+	"prod": {"hetzner"},
+}
+
+// supportedCombination refuses a combination the chart will refuse later.
+//
+// Later is the problem. The chart's own assertSupported fails at render time,
+// inside ArgoCD, after scaffolding has created a repository, set two secrets,
+// dispatched a workflow and provisioned three servers -- and it surfaces as a
+// boundary whose ApplicationSets never appear, which the bootstrap waits ten
+// minutes for before timing out. Every input needed to answer the question was
+// present before any of that existed.
+func supportedCombination(environment, provider string) error {
+	providers, ok := supportedMatrix[environment]
+	if !ok {
+		return fmt.Errorf("unsupported environment %q. The platform ships spoke-pool "+
+			"sources for: %s", environment, strings.Join(sortedEnvironments(), ", "))
+	}
+	for _, p := range providers {
+		if p == provider {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s on %s is not a supported combination.\n\n"+
+		"The platform ships no spoke-pool source for it, so the bundle chart refuses\n"+
+		"to render and the cluster's boundaries never appear -- ten minutes into a\n"+
+		"bootstrap, after the servers exist.\n\n"+
+		"Supported: %s\n\n"+
+		"Pass --environment or --provider to choose one.",
+		environment, provider, strings.Join(supportedCombinations(), ", "))
+}
+
+func sortedEnvironments() []string {
+	out := make([]string, 0, len(supportedMatrix))
+	for env := range supportedMatrix {
+		out = append(out, env)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func supportedCombinations() []string {
+	var out []string
+	for _, env := range sortedEnvironments() {
+		providers := append([]string(nil), supportedMatrix[env]...)
+		sort.Strings(providers)
+		for _, p := range providers {
+			out = append(out, env+"+"+p)
+		}
+	}
+	return out
 }
 
 // tenantTokens are facts about the tenant, true of every cluster in its box.
@@ -117,12 +189,81 @@ func (s Spec) tenantTokens() map[string]string {
 // set of resources.
 func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
-		"<BUNDLE_VERSION>": s.BundleVersion,
-		"<CLUSTER_NAME>":   s.ClusterName,
-		"<ENVIRONMENT>":    s.Environment,
-		"<CLOUD_PROVIDER>": s.Provider,
-		"<CLOUD_REGION>":   s.Region,
+		"<BUNDLE_VERSION>":    s.BundleVersion,
+		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
+		"<WORKER_COUNT>":      strconv.Itoa(s.workerCount()),
+		"<CLUSTER_NAME>":      s.ClusterName,
+		"<ENVIRONMENT>":       s.Environment,
+		"<CLOUD_PROVIDER>":    s.Provider,
+		"<CLOUD_REGION>":      s.Region,
 	}
+}
+
+// workerCount is how many cloud workers this box starts with.
+//
+// Two in every environment. Development briefly defaulted to zero, so that its
+// capacity would come from the tenant's own hardware (ADR-075) -- the right end
+// state, reached the wrong way: it made on-prem hardware a precondition for the
+// simplest box the platform can build, and scaffolding with no arguments produced
+// a repository whose bootstrap was refused for having nowhere to schedule.
+//
+// A tenant who wants that arrangement asks for it with --workers 0, which is why
+// the pointer above distinguishes an explicit zero from an absent flag.
+func (s Spec) workerCount() int {
+	if s.Workers != nil {
+		return *s.Workers
+	}
+	return 2
+}
+
+// CapacityWarning reports that this box, as scaffolded, has nowhere to run
+// anything -- or returns "" when it does.
+//
+// A box needs worker capacity from somewhere: cloud workers, or nodes on the
+// tenant's own premises. A development box defaults to no cloud workers, so one
+// scaffolded without on-prem details has neither. Its bootstrap is refused at
+// pre-flight, which is the correct place to stop but the wrong place to find out:
+// by then a repository exists, secrets are set, and someone is watching a workflow.
+//
+// Said here instead, in the output of the command that made the choice.
+func (s Spec) CapacityWarning() string {
+	if s.workerCount() > 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"This box has no worker capacity: %s provisions no cloud workers, so its\n"+
+			"capacity must come from nodes on your own premises.\n\n"+
+			"  Bootstrap it with on-prem nodes:  dispatch with on-prem=true and your tailnet\n"+
+			"  Or give it cloud workers instead: re-scaffold with --workers 2,\n"+
+			"                                    or edit workers in clusters/%s/values.yaml\n\n"+
+			"Without one of those the bootstrap is refused before anything is built.",
+		s.Environment, s.ClusterName)
+}
+
+// publicTLSIssuer is the ACME issuer this environment's public certificates come
+// from.
+//
+// Written into the values file at scaffold time because the chart refuses to
+// default it, and refuses for a good reason: an empty issuer produces an
+// ApplicationSet that applies cleanly and a child Application that cannot render,
+// which ArgoCD reports as Healthy while managing nothing -- leaving whatever
+// certificate was issued last in place, including a staging one no browser
+// trusts. The chart's message says the environment bootstrap owns this policy.
+//
+// For a tenant box, scaffolding IS that bootstrap: it is where the environment is
+// chosen, and the tenant's seed passes a values file and no parameters, so a value
+// the chart requires and scaffolding does not write is a value nothing supplies.
+// That gap stalled a real bootstrap at boundary-01 for ten minutes with the seed
+// rendering no ApplicationSets at all.
+func publicTLSIssuer(environment string) string {
+	if environment == "ephemeral" {
+		// Ephemeral environments are created and destroyed per pull request, and
+		// Let's Encrypt rate-limits issuance per registered domain. Staging is
+		// untrusted by browsers and unlimited, which is the correct trade for a
+		// certificate that outlives its cluster by minutes.
+		return "letsencrypt-staging"
+	}
+	return "letsencrypt-prod"
 }
 
 func (s Spec) allTokens() map[string]string {
@@ -401,6 +542,36 @@ func authorize(r *http.Request, c Credential) {
 func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
 	remote := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git",
 		cred.Token, s.GitOrg, s.RepoName())
+
+	// A repository that already has history is not scaffolded over.
+	//
+	// This check used to be a claim: the caller said pushing was "refused below
+	// if it already has history", and nothing below refused it. What actually
+	// stopped it was GitHub rejecting a non-fast-forward push, which is a
+	// different thing -- it produced a raw git error advising `git pull`, which
+	// would merge a tenant's box into a freshly rendered template. Safe by
+	// accident, and unreadable.
+	//
+	// ADR-062: scaffolding happens once and the repository is a starting state
+	// rather than a fork. Re-rendering one that exists is not a resume, it is a
+	// second starting state for a box that already has one.
+	ls := exec.CommandContext(ctx, "git", "ls-remote", "--heads", remote)
+	out, err := ls.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git ls-remote: %w: %s", err,
+			strings.ReplaceAll(string(out), cred.Token, "***"))
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return fmt.Errorf("%s/%s already has commits, so it is not scaffolded again.\n"+
+			"Scaffolding produces a starting state, not a fork (ADR-062), and pushing\n"+
+			"this render over an existing box would replace declarations its clusters\n"+
+			"are reconciling.\n\n"+
+			"  To re-scaffold from scratch: delete the repository, then run this again.\n"+
+			"  To inspect what would be written: re-run with --dry-run --out <dir>.\n"+
+			"  To bootstrap the box that is already there: dispatch its own\n"+
+			"  bootstrap-cluster workflow rather than scaffolding.",
+			s.GitOrg, s.RepoName())
+	}
 
 	steps := [][]string{
 		{"init", "-q", "-b", "main"},

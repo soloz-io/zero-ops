@@ -2,7 +2,7 @@
 # ADR-046 §11 defines exactly two placement classes for stateful workloads, and
 # each pairs a location with the only storage its nodes can attach:
 #
-#   home     workload-location: home     -> local-path      (home-lab Flatcar nodes)
+#   on-prem  workload-location: on-prem     -> local-path      (nodes on the tenant's premises)
 #   hetzner  workload-location: hetzner  -> hcloud-volumes  (Hetzner nodes)
 #
 # Mixing them is BANNED. hcloud-volumes cannot be attached by a home VM, so the PVC
@@ -20,7 +20,7 @@ validate_placement_class() {
 import glob, os, subprocess, sys, yaml
 
 # The location a provider's workers live in, and the only class they can bind.
-EXPECTED = {"hybrid": ("home", "local-path"), "hetzner": ("hetzner", "hcloud-volumes")}
+EXPECTED = {"hybrid": ("on-prem", "local-path"), "hetzner": ("hetzner", "hcloud-volumes")}
 
 # Hub provider overlays AND spoke-catalog environment overlays. The spoke tree was
 # missing here, and that is the whole reason this check passed while every hybrid

@@ -3,6 +3,12 @@
 **Date:** 2026-09-07
 **Status:** Proposed
 
+*Amended by: ADR-075 (On-Prem Nodes are a Capability, Not a Provider)*
+
+> On-prem nodes are named as a selectable capability. The boundary this ADR draws
+> between the machinery every box runs and the capabilities a tenant selects is
+> where that decision is made.
+
 ## Context
 
 ADR-065 places a platform inside every tenant's box and makes maintaining it the service the platform sells. It does not say what "it" contains, and the platform currently draws no line: `manifests/hub-core-services/` holds thirty-one components reconciled uniformly, spanning cluster machinery, databases, an identity provider, a message bus, an analytics store, a mail server and a metering service.

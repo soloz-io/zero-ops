@@ -1,4 +1,4 @@
-# Zero-Ops — StartupOS
+# Zero-Ops — StartupOS- Enterprise infrastructure for growing companies.
 
 **We maintain the platform your team builds on.**
 
@@ -10,7 +10,13 @@ infrastructure instead of a hyperscaler.
 The software is free. What is sold is maintenance: keeping the stack current,
 patched and upgradeable without breaking what is running on it.
 
+## The Platform
+
+It helps small and medium scale brands to experience a enterprise grade platform which they cannot afford to have such huge investment for having a platform of their own to defining their working model that is unique for them to make a difference in their market. Save runway for startups, focus companies to build their capabilities inward within their org instead of relying on others. Giving them full control of their business. don’t separate software and scale as two separate concerns. Opensource has to move beyond, proving single tenant OSS open and gating the scale. We believe the diretcion of OSS must be improving the value it provides and not gating by scale..
+
 ## Who it is for
+
+"You shouldn't have to become large before you deserve a serious platform."
 
 Funded startups saving runway from hyperscaler pricing, who want a golden path
 defined and maintained for them, and cannot staff a platform engineering team to

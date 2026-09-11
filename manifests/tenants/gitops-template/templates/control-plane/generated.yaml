@@ -14,6 +14,11 @@
 # The directory is empty until Day-0 populates it. An Application over an empty
 # directory syncs nothing and reports healthy, which is correct here and is the
 # one place in this platform where that state is not a defect.
+#
+# After Day-0 it holds hub-cluster.yaml, the CAPI Cluster this box runs on. That
+# is what makes worker capacity editable: change `replicas` there, commit, and
+# this Application applies it. Nothing scales it automatically, by decision --
+# see the header of that file.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -36,7 +41,21 @@ spec:
     namespace: platform-ops
   syncPolicy:
     automated:
-      prune: true
+      # prune is OFF, and that is not an oversight.
+      #
+      # This directory holds hub-cluster.yaml: the CAPI Cluster describing the
+      # machines this box runs on. With prune enabled, deleting that file -- a bad
+      # rebase, a stray `git rm`, a directory renamed -- tells ArgoCD to delete the
+      # Cluster, and CAPI answers by destroying every node including the control
+      # plane. No other file in this repository can do that, so no other file
+      # justifies keeping prune on for this one.
+      #
+      # What is lost is small: a generated artifact removed from Git stays in the
+      # cluster until someone deletes it. That is a stale ConfigMap, not an estate.
+      prune: false
+      # selfHeal stays ON. It is what makes the file authoritative: a `kubectl
+      # edit` of the Cluster is reverted to what Git says, so worker capacity has
+      # exactly one source and drift is corrected rather than accumulated.
       selfHeal: true
     syncOptions:
       - ServerSideApply=true

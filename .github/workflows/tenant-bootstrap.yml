@@ -36,6 +36,31 @@ on:
         required: false
         type: string
         default: sequenced
+      workers:
+        description: >-
+          Cloud worker nodes to provision. A development box defaults to none,
+          because that environment's capacity is meant to come from nodes on the
+          tenant's own premises (ADR-075); pass a count where there are none.
+        required: false
+        type: string
+        default: ''
+      on-prem:
+        description: >-
+          Whether this cluster accepts nodes on the tenant's own premises,
+          joining over their tailnet (ADR-075). A capability, not a property of
+          the provider: the datapath every box runs is already sized for it.
+        required: false
+        type: boolean
+        default: false
+      tailnet:
+        description: >-
+          The tenant's Tailscale tailnet, e.g. acme.ts.net. Required when
+          on-prem is true. Under ADR-046 the control plane joins the tailnet
+          too: an on-prem node's only InternalIP is its tailnet address, and
+          Cilium derives its VXLAN endpoint from it.
+        required: false
+        type: string
+        default: ''
     secrets:
       HCLOUD_TOKEN:
         description: The tenant's Hetzner API token. Never leaves the tenant's account.
@@ -43,6 +68,13 @@ on:
       GITOPS_TOKEN:
         description: Write access to this repository, so Day-0 can commit the artifacts it generates.
         required: true
+      TS_AUTHKEY:
+        description: >-
+          A Tailscale auth key from the tenant's own tailnet. Required when
+          on-prem is true, unused otherwise. It enrols this box's control plane
+          and its on-prem nodes from one credential, and like every other secret
+          here it is the tenant's and stays in their account (ADR-065).
+        required: false
 
 permissions:
   contents: write
@@ -113,6 +145,10 @@ jobs:
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          # Read by the hybrid driver at capi-init, before the hub Cluster exists,
+          # because the ClusterClass reads the credential while that Cluster is
+          # being created. Empty under hetzner, where nothing reads it.
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
         run: |
           set -euo pipefail
           # Day-0 commits the artifacts it generates into this repository, so it
@@ -120,13 +156,44 @@ jobs:
           git config user.name "soloz-platform[bot]"
           git config user.email "platform@soloz.io"
 
+          # The on-prem capability, not the provider, decides these (ADR-075).
+          # Both are load-bearing: without --on-prem the driver skips staging the
+          # tailnet credential and says so in a warning nobody reads; without a
+          # tailnet name the endpoint has no MagicDNS name. A box that bootstraps
+          # without them looks healthy and cannot pass pod traffic to an on-prem
+          # node (ADR-046 invariant 6), which surfaces much later as
+          # one-directional packet loss nobody attributes to Day-0.
+          onprem=()
+          if [[ "${{ inputs.on-prem }}" == "true" ]]; then
+            if [[ -z "${{ inputs.tailnet }}" ]]; then
+              echo "::error::on-prem is enabled but no tailnet was given."
+              echo "::error::Pass tailnet: <your-tailnet>.ts.net from the caller."
+              exit 1
+            fi
+            if [[ -z "${TS_AUTHKEY:-}" ]]; then
+              echo "::error::on-prem is enabled but TS_AUTHKEY is not set on this repository."
+              echo "::error::Add a Tailscale auth key as a repository secret named TS_AUTHKEY;"
+              echo "::error::the control plane joins your tailnet with it (ADR-046 21)."
+              exit 1
+            fi
+            onprem=(--on-prem --tailnet-name "${{ inputs.tailnet }}")
+          fi
+
+          # Empty means "let the CLI decide from the environment", which is what a
+          # caller scaffolded before this input existed sends.
+          workers=()
+          if [[ -n "${{ inputs.workers }}" ]]; then
+            workers=(--workers "${{ inputs.workers }}")
+          fi
+
           ./soloz bootstrap \
             --name "${{ inputs.cluster }}" \
             --provider "${{ inputs.provider }}" \
             --region "${{ inputs.region }}" \
             --environment "${{ inputs.environment }}" \
             --gating "${{ inputs.gating }}" \
-            --bundle-version "${{ inputs.bundle-version }}" \
+            "${onprem[@]}" \
+            "${workers[@]}" \
             --gitops-dir . \
             --debug
 

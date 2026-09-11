@@ -54,6 +54,10 @@ func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *Cloud
 // ── Identity ────────────────────────────────────────────────────────────────
 
 func (p *CloudProvider) Name() string { return p.driver.Name() }
+
+// PlannedWorkerReplicas is how many cloud workers this box will start with, read
+// by the pre-flight capacity check before anything is provisioned.
+func (p *CloudProvider) PlannedWorkerReplicas() int { return p.driver.PlannedWorkerReplicas() }
 func (p *CloudProvider) KindConfigPath() string {
 	// Cloud providers use default kind config (no custom config needed).
 	return ""
@@ -93,6 +97,7 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// Fill shared fields known to CloudProvider
 	clusterCfg.ClusterName = p.clusterName
 	clusterCfg.Namespace = constants.NamespaceCAPI
+	clusterCfg.GitopsDir = cfg.GitopsDir
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
 	//
@@ -122,11 +127,12 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// the standalone cilium-envoy DaemonSet (addendum 10) and the mangle guard that
 	// keeps the host-bound listeners reachable (addendum 8, addendum 27). A hub that
 	// binds :80/:443 through Envoy needs both for the same reasons a spoke does.
-	ciliumAddonDir := filepath.Join("manifests", "providers", p.driver.Name(), "k8s") + string(filepath.Separator)
-	ciliumAddonFile := fmt.Sprintf("cilium-addon-%s.yaml", p.driver.Name())
-	ciliumRaw, err := readTemplateManifest(ciliumAddonDir, ciliumAddonFile, "cilium.yaml")
+	addonPath := p.driver.CiliumAddonPath()
+	ciliumRaw, err := readTemplateManifest(
+		filepath.Dir(addonPath)+string(filepath.Separator), filepath.Base(addonPath), "cilium.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to read cilium addon for provider %s: %w", p.driver.Name(), err)
+		return fmt.Errorf("failed to read cilium addon for provider %s at %s: %w",
+			p.driver.Name(), addonPath, err)
 	}
 	//
 	// Two things the base is NOT, and both were wrong here:
@@ -284,11 +290,11 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 
 // ── Phase 9: ClusterClass ───────────────────────────────────────────────────
 
-// HomeWorkersRequested forwards the driver's answer when it has one. Only the
+// OnPremRequested forwards the driver's answer when it has one. Only the
 // hybrid driver does; a Hetzner cell has no home workers and reports false.
-func (p *CloudProvider) HomeWorkersRequested() bool {
-	if hw, ok := p.driver.(interface{ HomeWorkersRequested() bool }); ok {
-		return hw.HomeWorkersRequested()
+func (p *CloudProvider) OnPremRequested() bool {
+	if hw, ok := p.driver.(interface{ OnPremRequested() bool }); ok {
+		return hw.OnPremRequested()
 	}
 	return false
 }
@@ -358,6 +364,23 @@ type CloudDriver interface {
 
 	// OSType returns the OS type for CAPI provisioning ("ubuntu" or "talos").
 	OSType() string
+
+	// PlannedWorkerReplicas is how many cloud workers this driver will provision.
+	// Zero is legitimate -- a development box, or a hybrid cell -- and is what the
+	// pre-flight capacity check exists to pair against on-prem capacity.
+	PlannedWorkerReplicas() int
+
+	// CiliumAddonPath is the repository-relative path to the rendered Cilium
+	// workloads this driver's hub installs.
+	//
+	// Declared per driver rather than derived from Name(), because the drivers do
+	// not have a file each. hetzner's hub and its spokes install the same
+	// artifact -- one copy, two consumers, deliberately: the comments on both warn
+	// that drift between them is a cluster booting with a datapath nobody
+	// intended. Deriving `cilium-addon-<name>.yaml` assumed a per-provider file
+	// that was only ever authored for hybrid, so a released hetzner build could
+	// not bootstrap at all.
+	CiliumAddonPath() string
 
 	// ── Phase 1: Preflight validators (docker, kind, cloud credentials) ───
 	PreflightValidators() []preflight.Validator

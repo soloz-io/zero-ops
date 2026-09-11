@@ -36,6 +36,18 @@ type Config struct {
 	// are home-lab Flatcar nodes that join after the bootstrap completes.
 	ControlPlaneSchedulable bool
 
+	// GitopsDir is a checkout of the tenant's own repository, when Day-0 is
+	// running from one (ADR-072). Empty for the platform's own box.
+	//
+	// When set, the rendered Cluster is written into clusters/<name>/generated/
+	// as well as applied, so the topology the cluster runs is a file the tenant
+	// can edit. Without it the Cluster exists only in the API server: the manifest
+	// is rendered from Go at Day-0, `Provision` is skipped entirely once the
+	// cluster reports Provisioned, and nothing reconciles the object afterwards --
+	// so changing worker capacity meant an out-of-band `kubectl edit` that nothing
+	// recorded and nothing would restore.
+	GitopsDir string
+
 	// CiliumOperatorReplicas overrides the replica count in the Cilium addon.
 	// Zero means "leave the manifest alone", which is what every multi-node hub
 	// does. A single-node hub sets 1, because the operator's hostPorts stop two
@@ -194,6 +206,59 @@ func (p *Provisioner) applyCluster(ctx context.Context) error {
 		return fmt.Errorf("failed to apply Cluster: %w\n%s", err, output)
 	}
 
+	// Applied first, then written. The apply is what creates the cluster; the file
+	// is what lets the tenant change it afterwards, and a file describing a cluster
+	// that failed to apply would be a topology nothing is running.
+	return p.writeClusterToRepo(rendered)
+}
+
+// writeClusterToRepo records the applied topology in the tenant's repository.
+//
+// This is what makes worker capacity a thing a tenant changes rather than a thing
+// fixed at Day-0. Editing `replicas` here and letting the tenant's own ArgoCD sync
+// it is the whole mechanism -- deliberately manual, because the alternative is
+// cluster-autoscaler owning the field, and CAPI rejects a topology that carries
+// both `replicas` and the autoscaler's bounds annotations. Setting both wedged a
+// spoke's Cluster at Synced=False until it was reverted (commit bac465a9), and a
+// wedged Object blocks every later update to that cluster.
+//
+// A no-op without a tenant repository: the platform's own box has no file to write
+// into, and Day-0 there is run by someone with the working tree in front of them.
+func (p *Provisioner) writeClusterToRepo(rendered string) error {
+	if p.Config.GitopsDir == "" {
+		return nil
+	}
+	if p.Config.ClusterName == "" {
+		return fmt.Errorf("cannot record the cluster topology: no cluster name, and " +
+			"this file describes one cluster rather than the repository")
+	}
+
+	dir := filepath.Join(p.Config.GitopsDir, "clusters", p.Config.ClusterName, "generated")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "hub-cluster.yaml")
+
+	header := `# The topology this cluster runs, written by Day-0 and reconciled by this
+# cluster's own control plane (ADR-045, ADR-072).
+#
+# TO CHANGE WORKER CAPACITY, edit replicas below and commit. That is the supported
+# way to add cloud workers -- when an on-prem node leaves, for instance -- and to
+# take them away again. It is deliberately manual: nothing scales this for you, so
+# a node that is briefly unreachable does not become a bill.
+#
+# Do NOT add cluster-api-autoscaler-node-group-* annotations while replicas is set.
+# CAPI rejects a topology carrying both, and the rejection is not soft: it wedges
+# this object and blocks every subsequent change to the cluster.
+#
+# Day-0 rewrites this file on a run that provisions. It does not run again once the
+# cluster reports Provisioned, so after that this file is yours.
+`
+	if err := os.WriteFile(path, []byte(header+rendered), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	fmt.Printf("[cluster-provision] ✓ topology recorded at clusters/%s/generated/hub-cluster.yaml\n",
+		p.Config.ClusterName)
 	return nil
 }
 

@@ -204,6 +204,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapKubeconfig: kubeconfig,
 		BootstrapContext:    bootstrapCtx,
 		Debug:               o.Debug,
+		GitopsDir:           o.GitopsDir,
 	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
 		"",
@@ -234,7 +235,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// itself, in the same ClusterResourceSet addon (ADR-041), so the operator
 	// settles and this node reaches Ready without anything having to be installed
 	// on the cluster first.
-	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseHomeWorkerJoin, "home-worker-join",
+	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseOnPremJoin, "on-prem-join",
 		"Joining home-lab worker(s) to the hub...",
 		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
 		nil,
@@ -713,16 +714,27 @@ func (o *Orchestrator) persistTenantState(ctx context.Context, label string) err
 // hubKubeconfigFromBootstrap persists the hub's admin kubeconfig by reading the
 // CAPI-generated Secret out of the bootstrap cluster.
 //
-// Needed because home-worker-join runs BEFORE pivot-move, and pivot-move is what
+// Needed because on-prem-join runs BEFORE pivot-move, and pivot-move is what
 // normally writes this file. The control plane is up by this point, so the Secret
 // already exists.
 //
-// It writes to the CANONICAL path, not a temp file. provision-flatcar-worker.sh
-// sources scripts/hybrid/home-lab.env, which sets HUB_KUBECONFIG to exactly this
-// location unconditionally — so passing a temp path through the environment is
-// silently overridden and the script aborts with "HUB_KUBECONFIG not found".
-// home-lab.env is gitignored (it holds real values), so the fix cannot live there.
-// pivot-move later rewrites the same file with the same content.
+// It writes to k8-secrets/kubeconfig/<cluster>.kubeconfig, not a temp file, and
+// the path is also passed to the script through HUB_KUBECONFIG.
+//
+// Both, because neither alone was enough. home-lab.env assigns HUB_KUBECONFIG
+// unconditionally, so the environment variable was discarded; and the value it
+// assigns names ONE cluster, so writing to "the canonical path" only agreed with
+// it while the hub happened to carry that name. A hub named anything else aborted
+// the join with "HUB_KUBECONFIG not found", pointing at a kubeconfig belonging to
+// a different and possibly deleted cluster.
+//
+// provision-flatcar-worker.sh now keeps an explicit HUB_KUBECONFIG across sourcing
+// that file, so the variable is what decides. The file write remains because
+// pivot-move later rewrites the same path, and because an operator running the
+// script by hand has something to point at.
+//
+// home-lab.env is gitignored (it holds real values), which is why the fix is in
+// the script rather than in the file that caused it.
 //
 // Returns "" if it cannot be read; joinHomeWorkers treats that as fatal rather
 // than silently skipping the join.
@@ -768,7 +780,7 @@ const hubWorkerSelector = "hub-role=worker"
 // for the home workers its own manifests require.
 //
 // The hybrid environment pins platform-data to nodes labelled
-// workload-location=home and node-role.kubernetes.io/worker (ADR-046 §11: both
+// workload-location=on-prem and node-role.kubernetes.io/worker (ADR-046 §11: both
 // selectors are mandatory), and only a home worker carries them. Home workers
 // are opt-in, and joinHomeWorkers returns success when they were not asked for,
 // so the two settings can disagree and nothing says so.
@@ -780,24 +792,33 @@ const hubWorkerSelector = "hub-role=worker"
 // its pod is Pending against a single control-plane node. The message names
 // CNPG, the failure is scheduling, and the cause is a flag that was not passed.
 func (o *Orchestrator) checkPlacementCapacityRequested() error {
-	if o.providerName() != "hybrid" {
+	// On-prem nodes are capacity, whatever the provider.
+	if hw, ok := o.Provider.(interface{ OnPremRequested() bool }); ok && hw.OnPremRequested() {
 		return nil
 	}
-	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
-	if ok && hw.HomeWorkersRequested() {
+	// So are cloud workers. A box with either can schedule; a box with neither
+	// cannot, and the control plane does not make up the difference -- it keeps
+	// its taint, and every platform workload pins node-role.kubernetes.io/worker,
+	// which a control-plane node does not carry (ADR-014).
+	if wr, ok := o.Provider.(interface{ PlannedWorkerReplicas() int }); ok && wr.PlannedWorkerReplicas() > 0 {
 		return nil
 	}
 	return fmt.Errorf(
-		"provider is hybrid but home workers were not requested, and this cell's\n" +
-			"platform-data pins workload-location=home; nothing would ever schedule it.\n" +
-			"Re-run with --home-worker-enabled --tailnet-name=<tailnet>, or bootstrap\n" +
-			"with --provider=hetzner, whose manifests pin workload-location=hetzner")
+		"this box would have no worker capacity: %s in %s provisions no cloud\n"+
+			"workers, and on-prem nodes were not requested.\n\n"+
+			"Every platform workload pins node-role.kubernetes.io/worker, which a\n"+
+			"control-plane node does not carry, so the cluster would come up with its\n"+
+			"control plane Ready and everything else Pending -- roughly ninety minutes\n"+
+			"in, at a CNPG cluster that never finishes setting up its primary.\n\n"+
+			"Re-run with --on-prem --tailnet-name=<tailnet>, or use an environment\n"+
+			"that provisions cloud workers (stg, prod).",
+		o.providerName(), o.EnvironmentSlug)
 }
 
 func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) error {
-	hw, ok := o.Provider.(interface{ HomeWorkersRequested() bool })
-	if !ok || !hw.HomeWorkersRequested() {
-		fmt.Println("[home-worker-join] Not a home-worker cell — skipping")
+	hw, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if !ok || !hw.OnPremRequested() {
+		fmt.Println("[on-prem-join] Not a home-worker cell — skipping")
 		return nil
 	}
 
@@ -809,7 +830,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed
 	// bootstrap must not pay that again for a node that is already serving.
 	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
-		fmt.Printf("[home-worker-join] ✓ %s already Ready — skipping provisioning\n", name)
+		fmt.Printf("[on-prem-join] ✓ %s already Ready — skipping provisioning\n", name)
 		return nil
 	}
 
@@ -820,8 +841,8 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 			"    ./scripts/hybrid/provision-flatcar-worker.sh --cluster hub", script)
 	}
 
-	fmt.Println("[home-worker-join] Running provision-flatcar-worker.sh --cluster hub")
-	fmt.Println("[home-worker-join] (Hyper-V VM creation over SSH — this takes several minutes)")
+	fmt.Println("[on-prem-join] Running provision-flatcar-worker.sh --cluster hub")
+	fmt.Println("[on-prem-join] (Hyper-V VM creation over SSH — this takes several minutes)")
 
 	cmd := exec.CommandContext(ctx, "bash", script, "--cluster", "hub")
 	cmd.Stdout = os.Stdout
@@ -837,7 +858,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	// The script has its own Ready gate, but the cluster's view is what the next
 	// phase depends on, so confirm it here too.
 	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
-		fmt.Printf("[home-worker-join] ✓ %s Ready\n", name)
+		fmt.Printf("[on-prem-join] ✓ %s Ready\n", name)
 		return nil
 	}
 	return fmt.Errorf("provisioning reported success but no Ready node carries %s;\n"+
@@ -1014,7 +1035,7 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // to sync via ArgoCD before the Cilium operator init container times out.
 //
 // Uses the hub kubeconfig extracted from the bootstrap cluster's CAPI secret
-// (same mechanism as home-worker-join). The hub API is already up after
+// (same mechanism as on-prem-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
 	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
@@ -1062,7 +1083,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 	// in Phase 5a (installArgoCDAndSeed). This phase waits for the operators
 	// that boundary 01 delivers to become ready — webhooks, CRDs, and pods.
 	// Those operators may need the worker to be Ready, which is why this runs
-	// after home-worker-join.
+	// after on-prem-join.
 
 	// ADR-061: boundary 01 was ACTIVATED in Phase 5a, but nothing has yet
 	// confirmed it produced anything. This is the first point where that can be
@@ -1420,6 +1441,15 @@ func (o *Orchestrator) ensureArgoCDGitHubAuth(ctx context.Context, kubeconfig, o
 	return nil
 }
 
+// platformBoxInstanceRepo is the instance repository for the platform's OWN box.
+//
+// ADR-062 gives every box its own `<tenant>-gitops` repository and keeps this name
+// for the platform's. It lives in the CLI rather than as a chart default on
+// purpose: a chart default travels to every cluster that installs the published
+// bundle, which is how one box's identity once became the fallback for all of them.
+// Nothing reaches this but a run with no tenant repository to read.
+const platformBoxInstanceRepo = "https://github.com/soloz-io/fleet-registry"
+
 // instanceRepoURL returns this box's instance repository (ADR-062).
 //
 // The source is the gitops repository Day-0 is running inside, which is what
@@ -1432,10 +1462,16 @@ func (o *Orchestrator) instanceRepoURL() (string, error) {
 		return o.InstanceRepoURL, nil
 	}
 	if o.GitopsDir == "" {
-		return "", fmt.Errorf("this box declares no instance repository: no " +
-			"--gitops-dir and none configured. It holds the cluster and tenant " +
-			"declarations boundaries 05 and 06 reconcile (ADR-062), and there is " +
-			"no default because a default would be another box's repository")
+		// The platform's own box, bootstrapped from a checkout of this repository
+		// rather than from a tenant's (ADR-072). ADR-062 keeps the name
+		// `fleet-registry` for exactly this one instance repository, so it is not a
+		// default in the sense ADR-075 refuses -- it is this box's own name for
+		// itself, and it is reached only when there is no tenant repository to ask.
+		//
+		// Removing it entirely made every non-tenant bootstrap fail before the seed
+		// was applied: boundaries 05 and 06 never rendered, and boundary 01 waited
+		// ten minutes for ApplicationSets that could not appear.
+		return platformBoxInstanceRepo, nil
 	}
 	out, err := exec.Command("git", "-C", o.GitopsDir, "remote", "get-url", "origin").Output()
 	if err != nil {

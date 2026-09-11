@@ -82,3 +82,6 @@ bin/
 # the two would drift the way every other duplicated list here has.
 manifests/argocd/environment-manager/descriptors/
 soloz
+# Scaffolded tenant repositories created during local testing. They are their own
+# git repositories and belong to the tenant, not to the platform.
+*-gitops/
