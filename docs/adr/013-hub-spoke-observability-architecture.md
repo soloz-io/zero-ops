@@ -1,10 +1,18 @@
 # ADR 013: Hub-Spoke Observability Architecture with Dual Collection Patterns
 
 **Date:** 2026-05-01  
-**Status:** Accepted  
+**Status:** Superseded by ADR-078 (The Observability Capability)  
 **Authors:** Platform Engineering Team  
 
 *Constrained by: ADR-066 (The Platform Boundary)*
+
+> **Superseded.** ADR-078 replaces the architecture below. Most of what this ADR
+> names was never built: VictoriaMetrics and its alert rules exist in the
+> repository but no component deploys them; Loki, the OpenTelemetry Collector
+> gateway, the MetricCollector sidecars and the NATS JetStream billing buffer do
+> not exist at all. The three telemetry domains this ADR distinguishes, and its
+> separation of operational observability from financial metering, survive in
+> ADR-078. Read ADR-078 for what ships.
 
 > What the platform observes is bounded by the boundary ADR-066 draws. ADR-067
 > records the egress-only telemetry a box exports.

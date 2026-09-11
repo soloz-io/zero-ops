@@ -16,13 +16,15 @@ That silence has already cost something. Scaffolding was built to collect a tena
 
 Three things are distinct and were not being kept apart:
 
-**Platform telemetry** is what the tenant's own observability stack collects and ships wherever the tenant chooses. It requires no relationship with the platform and is none of the platform's business.
+**Platform telemetry** is what the tenant's own observability stack collects and ships wherever the tenant chooses — Grafana Cloud, a self-hosted backend, or nowhere. It is a complete capability every tenant receives whether or not they ever buy support, it requires no relationship with the platform, and it is none of the platform's business.
 
 **Support telemetry** is the evidence a maintenance obligation is reasoned from. It flows to the platform and requires enrolment.
 
 **Licensing** does not exist. No capability is withheld, no runtime code asks whether a tenant is entitled to anything, and the platform never refuses to run.
 
 Collapsing any two of those produces the defect above. This ADR keeps them apart by naming the mechanism for the second one.
+
+They are two independent outbound relationships, and neither is a precondition of the other. A tenant may export their own telemetry and buy no support; may buy support and export nothing of their own; may do both, to different places; or neither. The Support Agent is not the tenant's observability tool, and the tenant's observability stack is not the platform's evidence channel.
 
 The comparison set is instructive rather than theoretical. OpenShift's `telemeter` ships a bounded metric subset from a customer cluster to Red Hat; its ClusterRole grants `create` on `tokenreviews` and `subjectaccessreviews` and read access to nothing, and its scope is two hundred and fifteen explicit selectors in a ConfigMap the customer can read. Red Hat's `insights-client` lets a customer subtract from collection and inspect the exact archive before it is sent. Canonical's `landscape-client` enrols with one credential against one destination. Each of those is a decision this ADR takes.
 
@@ -46,7 +48,13 @@ This is stated as a prohibition because the pressure to relax it is predictable.
 
 The term matters. "Metrics reader" describes what the first collector does and would be quietly false the moment a second one reads certificate expiry or backup state from somewhere that is not a metrics endpoint — and someone will add one, correctly, and the description will no longer bound anything. What bounds the agent is the category of evidence it may gather and the allowlist of fields it may emit, not the transport any one collector happens to use.
 
-Its ClusterRole grants nothing but what its authenticating proxy requires. It holds no `get`, `list` or `watch` on any resource, in any namespace, and no write verb anywhere. It reads the metrics endpoint its own cluster already exposes, and on a hub the ADR-045 artefacts already on disk.
+**The agent collects explicitly defined control-plane evidence from platform-owned interfaces and artefacts. It does not depend on the tenant's observability backend.**
+
+Its collectors read platform health endpoints, platform component metrics endpoints, platform-generated artefacts, certificate state, backup state, and whatever else this ADR's categories admit and the allowlist names. What it must not do is depend on where the tenant sends their own telemetry.
+
+That independence is the point, and an earlier draft got it wrong by saying the agent "reads the metrics endpoint its own cluster already exposes". Read literally that makes support telemetry contingent on the tenant having deployed a metrics store, and it led directly to the conclusion that the platform must ship one before support could work. It must not: a tenant's observability stack and its destination are theirs to choose or decline (ADR-066), and a support channel that breaks when they choose differently is a support channel coupled to something it has no business in.
+
+Its ClusterRole grants nothing but what its authenticating proxy requires. It holds no `get`, `list` or `watch` on any resource, in any namespace, and no write verb anywhere.
 
 This is the form the claim has to take. "The agent is not a control-plane backdoor" is a sentence in a document; a ClusterRole that grants no read access is a fact a tenant's security review confirms in ten seconds, and a release gate asserts it against the rendered manifest rather than against anyone's memory.
 
@@ -115,6 +123,17 @@ A tenant whose certificate expires, whose network partitions, or who never enrol
 ### Nothing reaches inward
 
 The agent has no Service, no Ingress and no ingress rule, and its egress is restricted to the support endpoint and DNS. No platform component opens a connection into a tenant's cluster, holds a credential for one, or queries it — ADR-067's rule, made a property of the manifests rather than of the agent's behaviour.
+
+## Components
+
+```architecture
+components:
+  - support-agent
+```
+
+Registered in `manifests/architecture/components.yaml`. The manifests, RBAC and
+allowlist exist and are gated; the agent and its component descriptor do not, so
+the entry is `planned` and this ADR stays Proposed until they do.
 
 ## Provenance
 
