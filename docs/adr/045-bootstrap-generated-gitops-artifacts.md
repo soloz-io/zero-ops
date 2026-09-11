@@ -9,6 +9,13 @@
 > reconciling it requires, so artifacts are read through the bundle rather than
 > from this repository at runtime.
 
+*Amended by: ADR-076 (Reaching a Box You Own)*
+
+> The admin kubeconfig is a bootstrap-generated artefact whose destination is an
+> escrow rather than the repository. The registry's artefacts are configuration;
+> this one is a credential, and committing it -- encrypted or not -- leaves
+> ciphertext in history long after the credential it protects has expired.
+
 ## Context
 
 The platform's GitOps model requires all resources to be defined in manifests committed to Git. However, some resources require values that are only known at Day-0 runtime — after the CLI has bootstrapped Infisical, created Machine Identities, and established the PKI hierarchy.

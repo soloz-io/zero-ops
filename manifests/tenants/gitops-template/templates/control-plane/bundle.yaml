@@ -26,16 +26,15 @@ metadata:
 spec:
   project: default
   sources:
-    # The published distribution (ADR-063). No scheme: ArgoCD pulls a
-    # scheme-less registry host as an OCI artefact and passes anything else to
-    # `helm pull --repo`, which is the classic chart protocol and does not speak
-    # OCI.
-    - repoURL: <BUNDLE_REGISTRY>
-      chart: environment-manager
-      targetRevision: <BUNDLE_VERSION>
-      helm:
-        valueFiles:
-          - $values/clusters/<CLUSTER_NAME>/values.yaml
+    # Where this cluster's platform content comes from. Rendered by scaffolding
+    # rather than fixed here, because a box has two legitimate answers and the
+    # difference is not a value inside the block -- it is the shape of the block.
+    #
+    # A released box names a published chart in the registry (ADR-063). A box
+    # pinned to "development" names the platform's own repository at a branch,
+    # which is how the platform is tested end to end without consuming a version
+    # (ADR-068). The second is never what a tenant runs.
+    - <CHART_SOURCE>
     # This repository, referenced so the values file above resolves. It is the
     # tenant's own, so nothing here reaches the platform at runtime and revoking
     # the platform's access stops proposals without stopping reconciliation

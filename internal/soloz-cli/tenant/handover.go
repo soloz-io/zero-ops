@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -45,6 +47,35 @@ type Secrets struct {
 	// includes the hub control plane. Empty for every other provider, where
 	// nothing reads it.
 	TailscaleAuthkey string
+
+	// EscrowURL, EscrowClientID, EscrowClientSecret and EscrowProjectID reach an
+	// Infisical the TENANT controls and this box does not host -- Infisical Cloud,
+	// or one they run elsewhere.
+	//
+	// It holds the box's Infisical master keys: the root secret without which the
+	// box's own secret store cannot be decrypted, and every credential the platform
+	// manages is lost with the cluster (ADR-076).
+	//
+	// It cannot be the box's own Infisical, which is the thing those keys unlock and
+	// is unreachable exactly when they are needed. And it is the tenant's rather
+	// than the platform's, because ADR-065 says the platform holds no secret
+	// credential belonging to a tenant -- least of all the one that unlocks the rest.
+	EscrowURL          string
+	EscrowClientID     string
+	EscrowClientSecret string
+	EscrowProjectID    string
+}
+
+// hasEscrow reports whether a complete escrow credential was supplied.
+//
+// Complete or absent, never partial: hub-operator reads all four from one Secret,
+// and three of four produces an operator that attempts a backup on every reconcile
+// and fails -- an escrow that appears to exist and does not work.
+func (s Secrets) hasEscrow() bool {
+	return strings.TrimSpace(s.EscrowURL) != "" &&
+		strings.TrimSpace(s.EscrowClientID) != "" &&
+		strings.TrimSpace(s.EscrowClientSecret) != "" &&
+		strings.TrimSpace(s.EscrowProjectID) != ""
 }
 
 // needsTailscale reports whether a provider's clusters join a tailnet.
@@ -124,6 +155,53 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 		}
 		s.TailscaleAuthkey = v
 	}
+
+	// The escrow. Asked for every box, because what it protects is not
+	// provider-specific: lose the cluster and you lose its Infisical master keys
+	// and its admin kubeconfig with it, and Infisical cannot hold either -- it
+	// runs inside the box it would be protecting.
+	//
+	// Skippable, and skipping it is answered rather than ignored: an empty first
+	// answer ends the question and the handover says what the box gives up.
+	// The escrow. Required, not offered: a box without one keeps its Infisical
+	// master keys only inside the cluster those keys decrypt, so losing the
+	// cluster loses every secret the platform manages for that tenant. The cost of
+	// skipping is paid entirely later, by someone who did not make the choice.
+	if !s.hasEscrow() {
+		fmt.Println("\nAn escrow, on an Infisical you control and this box does not host.")
+		fmt.Println("Infisical Cloud (https://app.infisical.com) is the usual answer.")
+		fmt.Println("It holds this box's master keys, which cannot be kept inside the box")
+		fmt.Println("they decrypt. Without it, losing the cluster loses its secrets.")
+
+		var err error
+		if strings.TrimSpace(s.EscrowURL) == "" {
+			if s.EscrowURL, err = readSecret(
+				"INFISICAL_ESCROW_URL [https://app.infisical.com]: "); err != nil {
+				return s, err
+			}
+			if strings.TrimSpace(s.EscrowURL) == "" {
+				// The common case typed as an empty line rather than a URL.
+				s.EscrowURL = "https://app.infisical.com"
+			}
+		}
+		if strings.TrimSpace(s.EscrowProjectID) == "" {
+			if s.EscrowProjectID, err = readSecret(
+				"INFISICAL_ESCROW_PROJECT_ID (the project the backup is written to): "); err != nil {
+				return s, err
+			}
+		}
+		if strings.TrimSpace(s.EscrowClientID) == "" {
+			if s.EscrowClientID, err = readSecret(
+				"INFISICAL_ESCROW_CLIENT_ID (a machine identity with write access to it): "); err != nil {
+				return s, err
+			}
+		}
+		if strings.TrimSpace(s.EscrowClientSecret) == "" {
+			if s.EscrowClientSecret, err = readSecret("INFISICAL_ESCROW_CLIENT_SECRET: "); err != nil {
+				return s, err
+			}
+		}
+	}
 	return s, nil
 }
 
@@ -155,6 +233,14 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 	}
 	if v := strings.TrimSpace(s.TailscaleAuthkey); v != "" {
 		values["TS_AUTHKEY"] = v
+	}
+	// All three or none: a partial set produces a box that believes it has an
+	// escrow and cannot reach it, which is worse than having none.
+	if s.hasEscrow() {
+		values["INFISICAL_ESCROW_URL"] = strings.TrimSpace(s.EscrowURL)
+		values["INFISICAL_ESCROW_CLIENT_ID"] = strings.TrimSpace(s.EscrowClientID)
+		values["INFISICAL_ESCROW_CLIENT_SECRET"] = strings.TrimSpace(s.EscrowClientSecret)
+		values["INFISICAL_ESCROW_PROJECT_ID"] = strings.TrimSpace(s.EscrowProjectID)
 	}
 
 	for name, value := range values {
@@ -214,6 +300,28 @@ func HandoverInstructions(spec Spec, s Secrets, w *bufio.Writer) {
 		fmt.Fprintln(w)
 	}
 
+	// Said whether or not anything else is missing: a box without an escrow
+	// bootstraps and runs, so nothing else will ever mention it, and the moment it
+	// matters is the moment it cannot be added.
+	if !s.hasEscrow() {
+		fmt.Fprintf(w, "This box has no escrow.\n\n")
+		fmt.Fprintf(w, "hub-operator copies this box's Infisical master keys -- the root secret\n")
+		fmt.Fprintf(w, "without which its secret store cannot be decrypted -- to an Infisical you\n")
+		fmt.Fprintf(w, "control. The box's own Infisical cannot hold them: they are the keys that\n")
+		fmt.Fprintf(w, "decrypt it, and it is unreachable exactly when they are needed.\n\n")
+		fmt.Fprintf(w, "Without it, losing this cluster loses every secret the platform manages\n")
+		fmt.Fprintf(w, "for it, and the escrow cannot be added after the fact.\n\n")
+		for _, name := range []string{
+			"INFISICAL_ESCROW_URL",
+			"INFISICAL_ESCROW_PROJECT_ID",
+			"INFISICAL_ESCROW_CLIENT_ID",
+			"INFISICAL_ESCROW_CLIENT_SECRET",
+		} {
+			fmt.Fprintf(w, "  gh secret set %s --repo %s\n", name, repo)
+		}
+		fmt.Fprintln(w)
+	}
+
 	fmt.Fprintf(w, "Then bootstrap it, in the tenant's repository:\n\n")
 	fmt.Fprintf(w, "  gh workflow run bootstrap-cluster.yml --repo %s\n", repo)
 	fmt.Fprintf(w, "  https://github.com/%s/actions/workflows/bootstrap-cluster.yml\n", repo)
@@ -246,4 +354,53 @@ func missingWord(s Secrets, credName, provider string) string {
 		return strings.Join(missing[:len(missing)-1], ", ") + " and " +
 			missing[len(missing)-1] + " are not set"
 	}
+}
+
+// LocalHandover clones the repository and prints the bootstrap to run against it.
+//
+// The dispatch path runs Day-0 on a runner, from a released binary, against a
+// checkout the runner makes. This runs the same Day-0 from the working tree,
+// against a clone on this machine. Everything the cluster reconciles is the same:
+// the repository is the same repository, the values are the same values, and the
+// seed is the same declaration.
+//
+// What it buys is not having to publish. A version is consumed by any release that
+// begins publishing it (ADR-063), so testing a change through the dispatch path
+// spends a version number on every iteration.
+func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
+	dir := s.RepoName()
+	if _, err := os.Stat(dir); err == nil {
+		return fmt.Errorf("%s already exists here.\n\n"+
+			"Remove it or run from elsewhere: a stale clone would be bootstrapped "+
+			"instead of the repository just created, and the difference is not "+
+			"visible in the output", dir)
+	}
+
+	// Cloned rather than rendered in place: Day-0 commits the artifacts it
+	// generates and pushes them (ADR-045, ADR-072), so it needs a working tree
+	// with a remote, not a directory of files.
+	clone := exec.CommandContext(ctx, "git", "clone", "-q",
+		"https://github.com/"+s.GitOrg+"/"+s.RepoName()+".git", dir)
+	if out, err := clone.CombinedOutput(); err != nil {
+		return fmt.Errorf("clone %s: %w\n%s", s.RepoName(), err, out)
+	}
+
+	fmt.Fprintf(w, "\n[scaffold] cloned %s into ./%s\n\n", s.RepoName(), dir)
+	fmt.Fprintf(w, "Bootstrap it from here, not from a workflow:\n\n")
+	fmt.Fprintf(w, "  cd %s\n", dir)
+	fmt.Fprintf(w, "  %s bootstrap \\\n", "soloz")
+	fmt.Fprintf(w, "    --name %s \\\n", s.ClusterName)
+	fmt.Fprintf(w, "    --provider %s \\\n", s.Provider)
+	fmt.Fprintf(w, "    --region %s \\\n", s.Region)
+	fmt.Fprintf(w, "    --environment %s \\\n", s.Environment)
+	fmt.Fprintf(w, "    --gitops-dir .\n\n")
+
+	if s.BundleVersion == versions.DevelopmentBundle {
+		fmt.Fprintf(w, "This box reads its platform chart from %s at %q, so the\n",
+			s.PlatformRepoURL, s.developmentRevision())
+		fmt.Fprintf(w, "change you are testing must be pushed to that branch before the\n")
+		fmt.Fprintf(w, "cluster can reconcile it. The CLI reads your working tree; ArgoCD\n")
+		fmt.Fprintf(w, "does not.\n\n")
+	}
+	return nil
 }

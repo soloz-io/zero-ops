@@ -68,6 +68,23 @@ on:
       GITOPS_TOKEN:
         description: Write access to this repository, so Day-0 can commit the artifacts it generates.
         required: true
+      INFISICAL_ESCROW_URL:
+        description: >-
+          An Infisical the TENANT controls and this box does not host -- usually
+          Infisical Cloud. hub-operator escrows this box's Infisical master keys
+          there: the root secret without which its own secret store cannot be
+          decrypted. The box's Infisical cannot hold them, being the thing they
+          unlock, and the platform must not (ADR-065, ADR-076).
+        required: false
+      INFISICAL_ESCROW_PROJECT_ID:
+        description: The project in that Infisical the backup is written to.
+        required: false
+      INFISICAL_ESCROW_CLIENT_ID:
+        description: A machine identity with write access to that project.
+        required: false
+      INFISICAL_ESCROW_CLIENT_SECRET:
+        description: The matching machine identity client secret.
+        required: false
       TS_AUTHKEY:
         description: >-
           A Tailscale auth key from the tenant's own tailnet. Required when
@@ -149,6 +166,13 @@ jobs:
           # because the ClusterClass reads the credential while that Cluster is
           # being created. Empty under hetzner, where nothing reads it.
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          # Read by hub-operator through the Secret Day-0 creates from them. Empty
+          # is a box whose master keys exist only inside it, which the bootstrap
+          # says out loud rather than passing over.
+          INFISICAL_ESCROW_URL: ${{ secrets.INFISICAL_ESCROW_URL }}
+          INFISICAL_ESCROW_PROJECT_ID: ${{ secrets.INFISICAL_ESCROW_PROJECT_ID }}
+          INFISICAL_ESCROW_CLIENT_ID: ${{ secrets.INFISICAL_ESCROW_CLIENT_ID }}
+          INFISICAL_ESCROW_CLIENT_SECRET: ${{ secrets.INFISICAL_ESCROW_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           # Day-0 commits the artifacts it generates into this repository, so it

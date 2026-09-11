@@ -113,22 +113,33 @@ spec:
             configMapKeyRef:
               name: hub-bootstrap-config
               key: INFISICAL_ENVIRONMENT_SLUG
-        # AWS Credentials for Infisical backup/restore (REQ-11)
-        - name: AWS_ACCESS_KEY_ID
+        # The escrow holding this box's Infisical master keys, outside the box
+        # (ADR-076). optional throughout: a box may be built without one, and the
+        # operator reports that rather than crash-looping on a missing Secret.
+        - name: INFISICAL_ESCROW_URL
           valueFrom:
             secretKeyRef:
-              name: hub-operator-aws-credentials
-              key: AWS_ACCESS_KEY_ID
-        - name: AWS_SECRET_ACCESS_KEY
+              name: hub-operator-escrow-credentials
+              key: INFISICAL_ESCROW_URL
+              optional: true
+        - name: INFISICAL_ESCROW_PROJECT_ID
           valueFrom:
             secretKeyRef:
-              name: hub-operator-aws-credentials
-              key: AWS_SECRET_ACCESS_KEY
-        - name: AWS_REGION
+              name: hub-operator-escrow-credentials
+              key: INFISICAL_ESCROW_PROJECT_ID
+              optional: true
+        - name: INFISICAL_ESCROW_CLIENT_ID
           valueFrom:
             secretKeyRef:
-              name: hub-operator-aws-credentials
-              key: AWS_REGION
+              name: hub-operator-escrow-credentials
+              key: INFISICAL_ESCROW_CLIENT_ID
+              optional: true
+        - name: INFISICAL_ESCROW_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: hub-operator-escrow-credentials
+              key: INFISICAL_ESCROW_CLIENT_SECRET
+              optional: true
         volumeMounts: []
       volumes: []
       serviceAccountName: hub-operator

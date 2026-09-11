@@ -23,12 +23,12 @@ func main() {
 	rootCmd.AddCommand(newBootstrapCmd())
 	rootCmd.AddCommand(newTeardownCmd())
 	rootCmd.AddCommand(newSpokeCmd())
-	rootCmd.AddCommand(newConfigureAWSSecretsManagerCmd())
 	rootCmd.AddCommand(newConfigureGitHubAccessCmd())
 	rootCmd.AddCommand(newConfigureTailscaleCmd())
 	rootCmd.AddCommand(newInitSecretsCmd())
 	rootCmd.AddCommand(newConfigureESOCmd())
 	rootCmd.AddCommand(newReseedCmd())
+	rootCmd.AddCommand(newKubeconfigCmd())
 	rootCmd.AddCommand(newTenantCmd())
 	rootCmd.AddCommand(newBundleVersionCmd())
 

@@ -10,6 +10,14 @@
 > version and values (ADR-073), which resolves the tension between the workload
 > separation asserted here and ADR-047's rejection restated here.
 
+*Amended by: ADR-076 (Reaching a Box You Own)*
+
+> Onboarding now produces a box the tenant can reach. Day-0 generated an admin
+> kubeconfig and discarded it with the runner, so a tenant finished onboarding
+> owning a cluster they held no credential for. Access is OIDC through the
+> tenant's own identity provider; the admin credential is escrowed outside the
+> box, in an account the tenant controls.
+
 ## Context
 
 ADR-004 establishes a dual-repository contract: platform code in `zero-ops`, tenant runtime state in `fleet-registry`. ADR-007 defines the fleet-registry spoke flow. ADR-047 defines the tenant deployment contract and rejects fleets authoring external workload repositories.

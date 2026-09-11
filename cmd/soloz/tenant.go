@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -13,13 +15,18 @@ import (
 )
 
 var (
-	scaffoldSpec          tenant.Spec
-	scaffoldTemplate      string
-	scaffoldOut           string
-	scaffoldDryRun        bool
-	scaffoldProviderToken string
-	scaffoldGitopsToken   string
-	scaffoldTailscaleKey  string
+	scaffoldSpec            tenant.Spec
+	scaffoldTemplate        string
+	scaffoldOut             string
+	scaffoldDryRun          bool
+	scaffoldProviderToken   string
+	scaffoldGitopsToken     string
+	scaffoldTailscaleKey    string
+	scaffoldEscrowURL       string
+	scaffoldEscrowClientID  string
+	scaffoldEscrowSecret    string
+	scaffoldEscrowProjectID string
+	scaffoldLocal           bool
 	// -1 rather than 0, because 0 is a real worker count and the default depends
 	// on the environment, which is not known when flags are declared.
 	scaffoldWorkers  int
@@ -78,6 +85,10 @@ what a tenant would receive before any repository exists.`,
 	// flags because a platform developer testing against a fork needs them, and
 	// removing them would mean editing the source to do that.
 	f.StringVar(&scaffoldSpec.PlatformRepoURL, "platform-repo", "https://github.com/soloz-io/zero-ops", "where the bundle is sourced from")
+	f.StringVar(&scaffoldSpec.PlatformRevision, "platform-revision", "",
+		"the platform branch a development box reads its chart from (default: the branch you are on). Ignored by a released box")
+	f.BoolVar(&scaffoldLocal, "local", false,
+		"clone the repository and print the bootstrap command instead of dispatching a workflow. For testing the platform end to end without a release")
 	f.StringVar(&scaffoldSpec.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts",
 		"registry published bundles are pulled from (no scheme)")
 	f.BoolVar(&scaffoldSpec.Private, "private", true, "create the repository private")
@@ -90,6 +101,11 @@ what a tenant would receive before any repository exists.`,
 	// repository would make the platform's access the tenant's access.
 	f.StringVar(&scaffoldProviderToken, "provider-token", "",
 		"the tenant's cloud API token; their clusters are created with it")
+	f.StringVar(&scaffoldEscrowURL, "escrow-url", "",
+		"an Infisical the TENANT controls and this box does not host, holding its master keys (ADR-076). Usually https://app.infisical.com")
+	f.StringVar(&scaffoldEscrowProjectID, "escrow-project-id", "", "the project in that Infisical the backup is written to")
+	f.StringVar(&scaffoldEscrowClientID, "escrow-client-id", "", "a machine identity with write access to that project")
+	f.StringVar(&scaffoldEscrowSecret, "escrow-client-secret", "", "the matching machine identity client secret")
 	f.StringVar(&scaffoldTailscaleKey, "tailscale-authkey", "",
 		"a Tailscale auth key; the hybrid provider's control plane and home workers join the tenant's tailnet with it (ADR-046)")
 	f.StringVar(&scaffoldGitopsToken, "gitops-token", "",
@@ -109,6 +125,19 @@ what a tenant would receive before any repository exists.`,
 
 func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
+
+	// A development box reads the platform chart from the branch under test, so
+	// the change being tested is the change the cluster reconciles. Resolved here
+	// rather than in the renderer: this is the only place that knows a working
+	// tree is present, and a released scaffold ignores it entirely.
+	if scaffoldSpec.PlatformRevision == "" {
+		if out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+			if b := strings.TrimSpace(string(out)); b != "" && b != "HEAD" {
+				scaffoldSpec.PlatformRevision = b
+			}
+		}
+	}
+
 	if scaffoldSpec.ClusterName == "" && scaffoldSpec.TenantID != "" {
 		scaffoldSpec.ClusterName = scaffoldSpec.TenantID + "-hub"
 	}
@@ -195,9 +224,13 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	// (ADR-065, ADR-072). Asked for here rather than left as a follow-up, because
 	// a scaffolded repository that cannot bootstrap looks finished.
 	secrets := tenant.Secrets{
-		ProviderToken:    scaffoldProviderToken,
-		GitopsToken:      scaffoldGitopsToken,
-		TailscaleAuthkey: scaffoldTailscaleKey,
+		ProviderToken:      scaffoldProviderToken,
+		GitopsToken:        scaffoldGitopsToken,
+		TailscaleAuthkey:   scaffoldTailscaleKey,
+		EscrowURL:          scaffoldEscrowURL,
+		EscrowClientID:     scaffoldEscrowClientID,
+		EscrowClientSecret: scaffoldEscrowSecret,
+		EscrowProjectID:    scaffoldEscrowProjectID,
 	}
 	if !scaffoldNoPrompt {
 		var err error
@@ -207,6 +240,15 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := bufio.NewWriter(os.Stdout)
+	// The escrow is required (ADR-076), and its absence is reported before the
+	// dispatch decision so a tenant sees one account of what is missing rather
+	// than discovering the second thing after fixing the first.
+	if err := secrets.RequireEscrow(); err != nil {
+		tenant.HandoverInstructions(scaffoldSpec, secrets, w)
+		w.Flush()
+		return err
+	}
+
 	// Provider-aware: a hybrid box also needs a tailnet key, and dispatching
 	// without one starts a run the workflow refuses on purpose.
 	if !secrets.CompleteFor(scaffoldSpec.Provider) {
@@ -219,6 +261,19 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	if err := tenant.SetSecrets(ctx, scaffoldSpec, secrets); err != nil {
 		return err
 	}
+
+	// --local stops here and hands the operator the bootstrap instead of running
+	// it in the tenant's CI. The repository, its secrets and its contents are
+	// identical either way -- what differs is only where Day-0 executes, so what
+	// is tested locally is the same box a workflow would build (ADR-072).
+	//
+	// This exists because the alternative is a published release per change: a
+	// version is consumed by any release that begins publishing it (ADR-063), so
+	// testing a one-line fix by the dispatch path burns a version number.
+	if scaffoldLocal {
+		return tenant.LocalHandover(ctx, scaffoldSpec, os.Stdout)
+	}
+
 	if err := tenant.Dispatch(ctx, scaffoldSpec); err != nil {
 		return err
 	}

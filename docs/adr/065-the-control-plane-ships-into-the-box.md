@@ -9,6 +9,14 @@
 > What ships into the box is defined by ADR-066; the floor beneath which a box is
 > not supported is ADR-070.
 
+*Amended by: ADR-076 (Reaching a Box You Own)*
+
+> The claim that a tenant keeps a running control plane is now accompanied by the
+> means to enter it. The escrow holding a box's Infisical master keys and its
+> admin kubeconfig lives in the TENANT's cloud account, not the platform's:
+> those two credentials together are the box, and holding them would be exactly
+> the custody this ADR refuses.
+
 ## Context
 
 ADR-062 establishes that a tenant is a customer organisation holding one box, and that a spoke cluster belongs to exactly one tenant. It does not say where the control plane that reconciles those clusters runs, or who operates it.

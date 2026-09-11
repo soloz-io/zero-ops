@@ -1070,6 +1070,16 @@ func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig stri
 	if err := o.ensureArgoCDGitHubAuth(ctx, kubeconfig, orgURL); err != nil {
 		return fmt.Errorf("failed to configure ArgoCD GitHub access: %w", err)
 	}
+
+	// The escrow, before hub-operator starts reconciling. It reads
+	// these from a Secret at startup, and a Secret that appears later means every
+	// backup until then was skipped -- including the first, which is the one
+	// covering the window where the box is least recoverable.
+	escrow := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug,
+		GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
+	if err := escrow.InstallEscrowCredentials(ctx); err != nil {
+		return err
+	}
 	fmt.Println("[argocd-install] ✓ ArgoCD configured + seed established")
 	return nil
 }

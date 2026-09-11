@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -218,13 +219,6 @@ func GenerateInfisicalDBCredentials(namespace string, owner metav1.OwnerReferenc
 	return secret, nil
 }
 
-// AWSSecretsManagerClient interface for backup/restore operations
-// This allows for dependency injection and testing
-type AWSSecretsManagerClient interface {
-	BackupMasterKeys(ctx context.Context, clusterID string, keys interface{}) error
-	RestoreMasterKeys(ctx context.Context, clusterID string) (interface{}, error)
-}
-
 // GenerateInfisicalSecretsResult contains both infisical-secrets and the extracted Redis password
 type GenerateInfisicalSecretsResult struct {
 	InfisicalSecrets *corev1.Secret
@@ -237,30 +231,30 @@ type GenerateInfisicalSecretsResult struct {
 // NOTE: This secret MUST be created in platform-security namespace where Infisical pods run
 //
 // Implements REQ-7: Backup/restore logic with bootstrap detection
-// - First-time bootstrap: Generate new keys, validate, backup to AWS
-// - Restore scenario: Restore from AWS, validate, reconstruct secret
+// - First-time bootstrap: Generate new keys, validate, backup to the escrow
+// - Restore scenario: Restore from the escrow, validate, reconstruct secret
 // - Error scenario: Fail if backup missing and cluster already bootstrapped
 //
 // Implements REQ-7.1: Secret reconstruction logic
 // - Reads existing Redis password from infisical-redis-credentials (if available)
 // - Reads CA certificate from platform-db-ca (passed as parameter)
 // - Reconstructs complete infisical-secrets with all 4 fields
-func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamespace string, caCert []byte, owner metav1.OwnerReference, isFirstTime bool, clusterID string, awsClient AWSSecretsManagerClient, existingRedisPassword string) (*GenerateInfisicalSecretsResult, error) {
+func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamespace string, caCert []byte, owner metav1.OwnerReference, isFirstTime bool, clusterID string, escrowClient escrow.EscrowClient, existingRedisPassword string) (*GenerateInfisicalSecretsResult, error) {
 	var encryptionKey, authSecret string
 	var err error
 
-	// Try to restore from AWS Secrets Manager first
+	// Try to restore from the escrow first
 	var backupData interface{}
-	if awsClient != nil {
-		backupData, err = awsClient.RestoreMasterKeys(ctx, clusterID)
+	if escrowClient != nil {
+		backupData, err = escrowClient.RestoreMasterKeys(ctx, clusterID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to restore from AWS: %w", err)
+			return nil, fmt.Errorf("failed to read the escrow: %w", err)
 		}
 	}
 
 	if backupData != nil {
 		// Backup exists - restore both keys
-		// Type assert to extract keys from backup (AWS client returns map[string]interface{})
+		// Type assert to extract keys from backup (the escrow returns map[string]interface{})
 		if backupMap, ok := backupData.(map[string]interface{}); ok {
 			if ek, ok := backupMap["encryptionKey"].(string); ok {
 				encryptionKey = ek
@@ -304,7 +298,7 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 		}
 
 		// Backup immediately if AWS client is available
-		if awsClient != nil {
+		if escrowClient != nil {
 			// Create backup data structure
 			backupKeys := map[string]interface{}{
 				"encryptionKey": encryptionKey,
@@ -313,7 +307,7 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 				"clusterId":     clusterID,
 				"version":       "1",
 			}
-			if err := awsClient.BackupMasterKeys(ctx, clusterID, backupKeys); err != nil {
+			if err := escrowClient.BackupMasterKeys(ctx, clusterID, backupKeys); err != nil {
 				return nil, fmt.Errorf("failed to backup master keys to AWS, cannot proceed: %w", err)
 			}
 		}
@@ -444,7 +438,7 @@ type BootstrapSecretsResult struct {
 // - Restores keys from AWS if backup exists
 // - Generates and backs up new keys on first-time bootstrap
 // - Fails gracefully if backup missing and cluster already bootstrapped
-func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamespace, dbHost string, owner metav1.OwnerReference, existingSecrets map[string]*corev1.Secret, isFirstTime bool, clusterID string, awsClient AWSSecretsManagerClient) (*BootstrapSecretsResult, error) {
+func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamespace, dbHost string, owner metav1.OwnerReference, existingSecrets map[string]*corev1.Secret, isFirstTime bool, clusterID string, escrowClient escrow.EscrowClient) (*BootstrapSecretsResult, error) {
 	result := &BootstrapSecretsResult{}
 
 	// Step 1: Read platform-db-ca CA certificate if available (in data namespace)
@@ -503,7 +497,7 @@ func GenerateBootstrapSecrets(ctx context.Context, dataNamespace, securityNamesp
 			existingRedisPassword = string(existing.Data["password"])
 		}
 
-		infisicalResult, err := GenerateInfisicalSecrets(ctx, securityNamespace, dataNamespace, caCert, owner, isFirstTime, clusterID, awsClient, existingRedisPassword)
+		infisicalResult, err := GenerateInfisicalSecrets(ctx, securityNamespace, dataNamespace, caCert, owner, isFirstTime, clusterID, escrowClient, existingRedisPassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate infisical-secrets: %w", err)
 		}

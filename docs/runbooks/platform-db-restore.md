@@ -12,6 +12,28 @@ something this procedure can recover.
 Do not run this to "refresh" a working database. `bootstrap` is read once, at
 Cluster creation, so this procedure necessarily destroys the Cluster object first.
 
+## Getting access
+
+Every command below needs cluster access. Authenticate as yourself through the
+box's identity provider (ADR-076); the admin kubeconfig is break-glass and lives in
+the escrow, not on anyone's laptop.
+
+If the cluster is unreachable — which is one of the cases this runbook is for —
+retrieve the escrowed kubeconfig:
+
+```
+export INFISICAL_ESCROW_URL=https://app.infisical.com
+export INFISICAL_ESCROW_PROJECT_ID=…
+export INFISICAL_ESCROW_CLIENT_ID=…
+export INFISICAL_ESCROW_CLIENT_SECRET=…
+
+soloz kubeconfig --cluster <name> --out ./break-glass.kubeconfig
+export KUBECONFIG=./break-glass.kubeconfig
+```
+
+That credential is cluster-admin and is not tied to a person. Use it, then remove
+it — and prefer the identity provider wherever it is working.
+
 ## Before you start
 
 1. **Confirm the data is actually gone.** A Pending pod is not a lost volume. If

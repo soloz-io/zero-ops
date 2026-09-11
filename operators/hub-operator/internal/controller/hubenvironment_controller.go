@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/soloz-io/zero-ops/internal/pki"
-	awsclient "github.com/soloz-io/zero-ops/internal/soloz-cli/aws"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	opsv1alpha1 "github.com/soloz-io/zero-ops/operators/hub-operator/api/v1alpha1"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/database"
@@ -209,32 +208,35 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		isFirstTime := !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation)
 		logger.Info("Bootstrap detection", "isFirstTime", isFirstTime, "infisicalSecretExists", infisicalSecretExists)
 
-		// REQ-7: Initialize AWS Secrets Manager client for backup/restore
-		var awsClient secrets.AWSSecretsManagerClient
-		awsRegion := "ap-south-1" // Default region, can be made configurable
-
-		// Try to initialize AWS client (optional - if credentials not available, backup/restore will be skipped)
-		awsClientImpl, err := r.initializeAWSClient(ctx, awsRegion)
+		// The escrow holds this box's Infisical master keys outside the box
+		// (ADR-076). Without it the keys exist only inside the cluster they
+		// decrypt, and losing the cluster loses every secret the platform manages.
+		var escrowClient escrow.EscrowClient
+		escrowImpl, err := escrow.NewEscrowClient(ctx, infisical.InfisicalBaseURL)
 		if err != nil {
-			logger.Info("AWS Secrets Manager not available, backup/restore disabled", "error", err.Error())
-			awsClient = nil
+			// Not fatal here. Whether a box may run without an escrow is decided at
+			// scaffold time, and by the time this reconciles the cluster exists --
+			// refusing now would leave it running and unmanaged rather than running
+			// and unprotected.
+			logger.Info("escrow unavailable; the Infisical master keys exist only in "+
+				"this cluster and will be lost with it", "reason", err.Error())
+			escrowClient = nil
 		} else {
-			awsClient = awsClientImpl
-			logger.Info("AWS Secrets Manager client initialized successfully", "region", awsRegion)
+			escrowClient = escrowImpl
 		}
 
-		// REQ-7: Use HubEnvironment name as cluster ID for AWS backup path
+		// REQ-7: the HubEnvironment name is the cluster ID the escrow is keyed by
 		clusterID := hubEnv.Name
-		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID, "awsEnabled", awsClient != nil)
+		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID, "escrowEnabled", escrowClient != nil)
 
 		// Generate Bootstrap Secrets with AWS backup/restore support
-		result, err := secrets.GenerateBootstrapSecrets(ctx, dataNamespace, securityNamespace, dbHost, owner, existingSecrets, isFirstTime, clusterID, awsClient)
+		result, err := secrets.GenerateBootstrapSecrets(ctx, dataNamespace, securityNamespace, dbHost, owner, existingSecrets, isFirstTime, clusterID, escrowClient)
 		if err != nil {
 			logger.Error(err, "Failed to generate Bootstrap Secrets")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		logger.Info("Bootstrap secrets generated successfully", "awsBackupEnabled", awsClient != nil)
+		logger.Info("Bootstrap secrets generated successfully", "escrowEnabled", escrowClient != nil)
 
 		// Create bootstrap secrets only
 		secretsToCreate := []*corev1.Secret{
@@ -259,13 +261,30 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			logger.Info("Created bootstrap secret", "secret", secret.Name, "namespace", secret.Namespace)
 		}
 
-		// Set status condition with appropriate message based on AWS backup status
-		statusMessage := "Bootstrap secrets generated successfully"
-		if awsClient != nil {
-			if isFirstTime {
-				statusMessage = "Bootstrap secrets generated and backed up to AWS Secrets Manager"
+		// The admin kubeconfig, escrowed beside the master keys (ADR-076).
+		//
+		// Every reconcile rather than once: the client certificate CAPI issues is on
+		// kubeadm's one-year default, and re-reading each pass means a rotated
+		// credential replaces a stale escrowed copy without anyone remembering to.
+		// A copy that silently expired is the failure this is guarding against.
+		if escrowClient != nil {
+			if err := r.escrowKubeconfig(ctx, escrowClient, clusterID); err != nil {
+				// Not fatal. The cluster is running and reconciling; refusing here
+				// would stop managing a box to protest that its break-glass copy is
+				// stale, which trades a working cluster for a backup.
+				logger.Info("could not escrow the admin kubeconfig; break-glass access "+
+					"may be stale or absent", "error", err.Error())
 			} else {
-				statusMessage = "Bootstrap secrets restored from AWS Secrets Manager backup"
+				logger.Info("admin kubeconfig escrowed", "clusterID", clusterID)
+			}
+		}
+
+		statusMessage := "Bootstrap secrets generated successfully"
+		if escrowClient != nil {
+			if isFirstTime {
+				statusMessage = "Bootstrap secrets generated and escrowed"
+			} else {
+				statusMessage = "Bootstrap secrets restored from the escrow"
 			}
 		}
 
@@ -281,7 +300,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 
-		logger.Info("Phase 1 complete: Bootstrap secrets generated", "awsBackup", awsClient != nil, "isFirstTime", isFirstTime)
+		logger.Info("Phase 1 complete: Bootstrap secrets generated", "escrow", escrowClient != nil, "isFirstTime", isFirstTime)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -882,36 +901,31 @@ func (r *HubEnvironmentReconciler) restartStatefulSet(ctx context.Context, name,
 	return r.Update(ctx, statefulSet)
 }
 
-// initializeAWSClient creates an AWS Secrets Manager client for backup/restore operations
-// REQ-11: AWS Secrets Manager integration with static IAM credentials
-// Returns nil if AWS credentials are not available (backup/restore will be disabled)
-func (r *HubEnvironmentReconciler) initializeAWSClient(ctx context.Context, region string) (*awsclient.SecretsManagerClient, error) {
-	logger := log.FromContext(ctx)
-
-	// Check if AWS credentials are available in environment variables
-	// These are injected from hub-operator-aws-credentials secret
-	accessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	awsRegion := os.Getenv("AWS_REGION")
-
-	if accessKeyID == "" || secretAccessKey == "" {
-		return nil, fmt.Errorf("AWS credentials not found in environment variables")
+// escrowKubeconfig copies this cluster's admin kubeconfig into the escrow.
+//
+// The source is the Secret CAPI maintains -- <cluster>-kubeconfig in platform-capi,
+// with the kubeconfig in .data.value. CAPI owns it and rotates it; this only ever
+// reads.
+//
+// It is the credential that reaches the API server when the identity provider
+// cannot be used (ADR-076). Day-0 wrote it to a runner that no longer exists, so
+// the copy inside the cluster is the only one -- which is no use for reaching a
+// cluster that is broken.
+func (r *HubEnvironmentReconciler) escrowKubeconfig(ctx context.Context, store escrow.EscrowClient, clusterID string) error {
+	var secret corev1.Secret
+	key := types.NamespacedName{Name: clusterID + "-kubeconfig", Namespace: "platform-capi"}
+	if err := r.Get(ctx, key, &secret); err != nil {
+		return fmt.Errorf("read %s: %w", key, err)
 	}
 
-	// Use provided region or fall back to environment variable
-	if awsRegion != "" {
-		region = awsRegion
+	// CAPI stores it under "value". An empty one is not a kubeconfig, and
+	// escrowing it would overwrite a good copy with nothing.
+	payload, ok := secret.Data["value"]
+	if !ok || len(payload) == 0 {
+		return fmt.Errorf("%s carries no kubeconfig under .data.value", key)
 	}
 
-	logger.Info("Initializing AWS Secrets Manager client", "region", region)
-
-	// Create AWS Secrets Manager client
-	client, err := awsclient.NewSecretsManagerClient(ctx, region)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS Secrets Manager client: %w", err)
-	}
-
-	return client, nil
+	return store.BackupArtifact(ctx, clusterID, escrow.ArtifactKubeconfig, string(payload))
 }
 
 // SetupWithManager sets up the controller with the Manager.

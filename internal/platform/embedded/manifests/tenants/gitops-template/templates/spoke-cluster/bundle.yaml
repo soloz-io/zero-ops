@@ -26,6 +26,17 @@ metadata:
 spec:
   project: default
   sources:
+    # The published distribution (ADR-063). Literal here, not rendered.
+    #
+    # The control plane's equivalent is written by scaffolding, because Day-0 can
+    # build a box against the platform's own repository to test a change without
+    # publishing one (ADR-068). A spoke is different: this file is yours to copy
+    # and hydrate by hand, so it stays a template with tokens you can fill in --
+    # a machine-rendered block would leave you nothing to substitute.
+    #
+    # A spoke is therefore always created from a published version, which is what
+    # a tenant has.
+    #
     # The published distribution (ADR-063). No scheme: ArgoCD pulls a
     # scheme-less registry host as an OCI artefact and passes anything else to
     # `helm pull --repo`, which is the classic chart protocol and does not speak
@@ -34,6 +45,26 @@ spec:
       chart: environment-manager
       targetRevision: <BUNDLE_VERSION>
       helm:
+        parameters:
+          # The same version as targetRevision above, and it must stay the same.
+          #
+          # targetRevision decides which chart is pulled; this tells that chart
+          # which version it is. The chart cannot work it out -- its own
+          # Chart.version is rewritten at package time and its default is
+          # "development" -- so a chart that is never told stays in development
+          # mode, sourcing every boundary from the platform's git repository
+          # instead of from the distribution it was published in.
+          #
+          # That is not a subtle degradation: the boundary ApplicationSets render
+          # a git generator against a repository the tenant cannot read, one
+          # failing generator takes the whole ApplicationSet with it, and the
+          # bootstrap stops at "0 of 3 Applications generated" ten minutes after
+          # the cluster was otherwise finished.
+          #
+          # Both lines carry <BUNDLE_VERSION>, so hydrating this template by hand
+          # moves them together, and Renovate rewrites them in one match.
+          - name: bundleVersion
+            value: "<BUNDLE_VERSION>"
         valueFiles:
           - $values/clusters/<CLUSTER_NAME>/values.yaml
     # This repository, referenced so the values file above resolves. It is the

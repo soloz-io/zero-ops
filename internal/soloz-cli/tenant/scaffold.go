@@ -9,6 +9,7 @@
 package tenant
 
 import (
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"io/fs"
 	"sort"
 	"strconv"
@@ -49,6 +50,9 @@ type Spec struct {
 	ClusterName string
 	// BundleVersion is the platform version this box starts on.
 	BundleVersion string
+	// PlatformRevision is the platform branch a development box reads its chart
+	// from. Ignored by a released box, which names a published chart instead.
+	PlatformRevision string
 	// PlatformRepoURL is the platform's repository. A scaffolded box does not
 	// resolve it at runtime (ADR-063); it is recorded so a tenant can find the
 	// source of what it runs.
@@ -93,13 +97,41 @@ func (s Spec) validate() error {
 					"that does not resolve bootstraps into an Application that cannot load its\n"+
 					"source.\n\n"+
 					"Pass --bundle-version with a published version, or use a released CLI.\n"+
-					"Published versions: https://github.com/soloz-io/zero-ops/releases%s",
+					"Published versions: https://github.com/soloz-io/zero-ops/releases\n\n"+
+					"To test a change to the platform without publishing anything, pass\n"+
+					"--bundle-version development: the box reads its chart from the branch\n"+
+					"you are on rather than from the registry, and is bootstrapped from a\n"+
+					"local clone instead of a workflow.%s",
 					otherMissing(missing))
 			}
 		}
 		return fmt.Errorf("missing required values: %s", strings.Join(missing, ", "))
 	}
 	return supportedCombination(s.Environment, s.Provider)
+}
+
+// RequireEscrow refuses a box that would have nowhere to keep its master keys.
+//
+// Checked after the repository is created rather than before: the repository is
+// not the thing at risk, and a tenant who has scaffolded and not yet obtained an
+// escrow should keep what they have rather than start again.
+//
+// Required rather than warned about because the cost of skipping lands entirely in
+// the future, on someone who did not make the choice. A box without an escrow
+// behaves identically for months; the difference appears on the day the cluster is
+// gone, and on that day the escrow can no longer be added (ADR-076).
+func (s Secrets) RequireEscrow() error {
+	if s.hasEscrow() {
+		return nil
+	}
+	return fmt.Errorf("this box has no escrow, and will not be dispatched without one.\n\n" +
+		"hub-operator copies its Infisical master keys -- the root secret without\n" +
+		"which its secret store cannot be decrypted -- to an Infisical you control.\n" +
+		"The box's own cannot hold them: they are the keys that decrypt it.\n\n" +
+		"Infisical Cloud is the usual answer: https://app.infisical.com\n" +
+		"Create a project, add a machine identity with write access to it, and pass\n" +
+		"--escrow-url, --escrow-project-id, --escrow-client-id and\n" +
+		"--escrow-client-secret, or answer the prompts.")
 }
 
 // supportedMatrix is the environment/provider combinations the platform ships a
@@ -191,6 +223,7 @@ func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
 		"<BUNDLE_VERSION>":    s.BundleVersion,
 		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
+		"<CHART_SOURCE>":      s.chartSource(),
 		"<WORKER_COUNT>":      strconv.Itoa(s.workerCount()),
 		"<CLUSTER_NAME>":      s.ClusterName,
 		"<ENVIRONMENT>":       s.Environment,
@@ -238,6 +271,66 @@ func (s Spec) CapacityWarning() string {
 			"                                    or edit workers in clusters/%s/values.yaml\n\n"+
 			"Without one of those the bootstrap is refused before anything is built.",
 		s.Environment, s.ClusterName)
+}
+
+// chartSource renders where this cluster's platform content comes from.
+//
+// Two shapes, not two values. A released box names a published chart in the
+// registry and tells that chart which version it is. A development box names the
+// platform's repository at a branch and a path, because there is no published
+// chart to name -- which is the same rule ADR-068 applies to the platform's own
+// seed, and the reason the platform can be tested end to end without consuming a
+// version (ADR-063: a version is consumed by any release that begins publishing it).
+//
+// A tenant never runs the development shape. It exists so that changing the
+// platform and testing the change do not require a release each time.
+func (s Spec) chartSource() string {
+	if s.BundleVersion == versions.DevelopmentBundle {
+		return `repoURL: ` + s.PlatformRepoURL + `
+      targetRevision: ` + s.developmentRevision() + `
+      path: manifests/argocd/environment-manager
+      helm:
+        valueFiles:
+          - $values/clusters/` + s.ClusterName + `/values.yaml`
+	}
+	return `repoURL: ` + s.BundleRegistry + `
+      chart: environment-manager
+      targetRevision: ` + s.BundleVersion + `
+      helm:
+        parameters:
+          # The same version as targetRevision above, and it must stay the same.
+          #
+          # targetRevision decides which chart is pulled; this tells that chart
+          # which version it is. The chart cannot work it out -- its own
+          # Chart.version is rewritten at package time and its default is
+          # "development" -- so a chart that is never told stays in development
+          # mode, sourcing every boundary from the platform's git repository
+          # instead of from the distribution it was published in.
+          #
+          # That is not a subtle degradation: the boundary ApplicationSets render
+          # a git generator against a repository the tenant cannot read, one
+          # failing generator takes the whole ApplicationSet with it, and the
+          # bootstrap stops at "0 of 3 Applications generated" ten minutes after
+          # the cluster was otherwise finished.
+          #
+          # Renovate rewrites both lines in one match (see renovate.json), so a
+          # promotion cannot move one and leave the other behind.
+          - name: bundleVersion
+            value: "` + s.BundleVersion + `"
+        valueFiles:
+          - $values/clusters/` + s.ClusterName + `/values.yaml`
+}
+
+// developmentRevision is the platform branch a development box reads.
+//
+// Whatever branch the operator is on, so a change under test is the change the
+// cluster reconciles. Defaults to main when it cannot be determined -- a detached
+// checkout, or a copy of the tree with no git.
+func (s Spec) developmentRevision() string {
+	if s.PlatformRevision != "" {
+		return s.PlatformRevision
+	}
+	return "main"
 }
 
 // publicTLSIssuer is the ACME issuer this environment's public certificates come

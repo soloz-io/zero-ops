@@ -176,8 +176,8 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# Note: AWS env vars (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
-# are already defined in config/manager/manager.yaml — not duplicated here.
+# Note: the escrow env vars (INFISICAL_ESCROW_*) are already defined in
+# config/manager/manager.yaml — not duplicated here.
 # [CUSTOM] Patch resource requests/limits for production
 - patch: |-
     - op: replace
