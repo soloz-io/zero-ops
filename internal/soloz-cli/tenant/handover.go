@@ -89,6 +89,14 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 		credName = "the provider's API token"
 	}
 
+	// Said before the first prompt, because the order otherwise reads backwards:
+	// the repository already exists by this point, created with the platform's own
+	// credential, and these are a different set entirely. They are stored on that
+	// repository for the workflow to use later -- nothing here authenticates with
+	// them, and the platform keeps no copy (ADR-065).
+	fmt.Println("\nThe tenant's own secrets, stored on their repository for Day-0 to use.")
+	fmt.Println("They are not used here, and the platform retains none of them.")
+
 	if strings.TrimSpace(s.ProviderToken) == "" {
 		v, err := readSecret(fmt.Sprintf(
 			"%s (creates the tenant's clusters; stays in their account): ", credName))

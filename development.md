@@ -74,7 +74,7 @@ a failure points at an Application rather than at a named phase.
 
 ## Download the released CLI
 
-gh release download v0.1.12 --pattern 'soloz-darwin-arm64' --output soloz --clobber
+gh release download v0.1.15 --pattern 'soloz-darwin-arm64' --output soloz --clobber
 chmod +x soloz
 
 ## Scaffold a real tenant repo 

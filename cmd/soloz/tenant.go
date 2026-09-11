@@ -156,12 +156,20 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	// Deliberately not announced. Naming the credential's source printed the
+	// The KIND of credential, never its source. Naming the source printed the
 	// filesystem path of a secret file to the terminal and to whatever collects
-	// it, for no decision the operator makes: the lines that follow say whether
-	// the repository was created and pushed, which is the only thing the
-	// authentication outcome affects. A failure still names the source, because
-	// there the path is the fix.
+	// it; naming nothing at all made the repository appear out of nowhere and the
+	// prompts that follow read as though they had authorised it. They had not:
+	// this is the platform's credential and it creates the repository, while the
+	// secrets asked for below are the tenant's and are only stored in it.
+	//
+	// A failure still names the path, because there it is the fix rather than an
+	// aside.
+	kind := "app installation token"
+	if !cred.IsApp {
+		kind = "personal access token"
+	}
+	fmt.Printf("[scaffold] authenticating as the platform (%s)\n", kind)
 
 	existed, err := tenant.CreateRepo(ctx, scaffoldSpec, cred)
 	if err != nil {
