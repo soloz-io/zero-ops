@@ -96,6 +96,30 @@ Pre-flight verdicts are produced by the tenant's own control plane, so the platf
 - **Constrains ADR-064.** A promotion proposal carries a pre-flight verdict from its target, or is marked unverified.
 - **Confirms ADR-066.** Control-plane observability is control plane; workload observability is a workload.
 
+## Addendum 1: the mechanism is the Support Agent, not the tenant's own export (2026-09-12)
+
+This decided what support telemetry is for and what it may carry, and left open how it travels. The Context above names ADR-013's Grafana Alloy `remote_write` as an export mechanism that already exists, and that sentence was read as settling the question. It does not.
+
+The cost of the ambiguity was real. Scaffolding was built to collect a tenant's own Grafana Cloud credentials and, finding none, to report that the tenant's maintenance was unsupported — so a tenant's private monitoring account had become a condition of being supported, in a product whose position is that the software is free and only the accountability is sold. Nothing in this ADR said that; nothing in it said otherwise either, and the nearest available channel was assumed to be the intended one.
+
+**ADR-077 names the mechanism: a proprietary agent, shipped inert to every box, enrolled by the tenant, reporting a bounded set of control-plane facts outbound to the platform.** ADR-013's export is the tenant's own observability and carries no support relationship.
+
+Three things this ADR touches are distinct, and collapsing any two produces the defect above:
+
+| | flows | requires |
+|---|---|---|
+| Platform telemetry | the platform's components to the tenant's own store | nothing; it is theirs |
+| Support telemetry | the Support Agent to the platform | enrolment |
+| Licensing | — | does not exist in the runtime |
+
+Two clauses above are refined by ADR-077 rather than replaced:
+
+**"The tenant holds the destination and the credential"** remains true and becomes specific. The destination is the platform's ingress; the credential is a one-time enrolment secret the tenant supplies, exchanged for a short-lived credential the agent renews. Revocation is at the platform's end, takes effect within one renewal, and stops the stream without stopping anything running.
+
+**"Bounded and its volume knowable in advance"** is achieved by an explicit field allowlist, not by anonymising an unbounded payload. Hashing a cluster name leaves identifying material in labels, image references, node names, annotations and error strings; the allowlist is the boundary and anonymisation is a control layered on top of it.
+
+Nothing in the original decision is withdrawn. Support obligations still follow the export and are still graded by it; what is now stated is which export.
+
 ## References
 
 - ADR-013: Hub-Spoke Observability Architecture with Dual Collection Patterns
@@ -104,3 +128,4 @@ Pre-flight verdicts are produced by the tenant's own control plane, so the platf
 - ADR-064: Bundle Promotion and Cell-Scoped Policy
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-066: The Platform Boundary
+- ADR-077: The Support Agent
