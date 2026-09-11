@@ -113,8 +113,13 @@ func TestBackupAndRestoreRoundTrip(t *testing.T) {
 }
 
 // fakeInfisical is the smallest server that behaves like the parts used here.
+//
+// It models the two refusals a real Infisical makes and a permissive fake would
+// hide: a write to a path no folder exists at is a 404, and a create over an
+// existing secret is a conflict.
 func fakeInfisical(t *testing.T, store map[string]string) *httptest.Server {
 	t.Helper()
+	folders := map[string]bool{"": true, "/": true}
 	key := func(r *http.Request) string {
 		return r.URL.Query().Get("secretPath") + "/" + strings.TrimPrefix(r.URL.Path, "/api/v3/secrets/raw/")
 	}
@@ -122,6 +127,24 @@ func fakeInfisical(t *testing.T, store map[string]string) *httptest.Server {
 		switch {
 		case r.URL.Path == pathLogin:
 			json.NewEncoder(w).Encode(map[string]string{"accessToken": "t"})
+
+		// Creating a folder fills in any missing parent of its path, and a folder
+		// that already exists comes back as a 400.
+		case r.URL.Path == pathFolders && r.Method == http.MethodPost:
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			full := strings.TrimSuffix(body["path"], "/") + "/" + body["name"]
+			if folders[full] {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			acc := ""
+			for _, seg := range strings.Split(strings.Trim(full, "/"), "/") {
+				acc += "/" + seg
+				folders[acc] = true
+			}
+			w.WriteHeader(http.StatusOK)
+
 		case r.Method == http.MethodGet:
 			v, ok := store[key(r)]
 			if !ok {
@@ -129,9 +152,15 @@ func fakeInfisical(t *testing.T, store map[string]string) *httptest.Server {
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]any{"secret": map[string]string{"secretValue": v}})
+
 		case r.Method == http.MethodPost, r.Method == http.MethodPatch:
 			var body map[string]string
 			json.NewDecoder(r.Body).Decode(&body)
+			// Infisical does not create a secret path on write.
+			if !folders[body["secretPath"]] {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			k := body["secretPath"] + "/" + strings.TrimPrefix(r.URL.Path, "/api/v3/secrets/raw/")
 			// Infisical refuses a create over an existing secret; the client is
 			// expected to fall back to a patch.
@@ -141,6 +170,7 @@ func fakeInfisical(t *testing.T, store map[string]string) *httptest.Server {
 			}
 			store[k] = body["secretValue"]
 			w.WriteHeader(http.StatusOK)
+
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}

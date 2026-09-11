@@ -1,0 +1,109 @@
+
+# Hub boostratp
+
+## Local Testing
+
+### Once, on a branch you've pushed (ArgoCD reads git, not your working tree)
+./soloz tenant scaffold --tenant local --org soloz-io --domain local.nutgraf.in \
+  --bundle-version development --local
+
+https://app.infisical.com/organizations/89f6d208-ea9b-4b6d-b4bd-a249f50ead8d/identities/671e356d-76ad-4886-8357-635abf19d435
+
+### It creates + pushes the repo, sets the secrets, clones locally, then stops:
+cd local-gitops
+
+export HCLOUD_TOKEN=$(cat /Users/arun_subramanian/Projects/soloz-io/ide/zero-ops/k8-secrets/hetzner/token)
+
+/Users/arun_subramanian/Projects/soloz-io/ide/zero-ops/soloz bootstrap --name local-hub --provider hetzner --region hel1 \
+  --environment dev --gitops-dir .
+
+## Cluster Teardown
+
+./soloz teardown --name test-hub --confirm
+
+## Fresh Bootstrap
+
+./soloz bootstrap \
+  --name devbox \
+  --provider hetzner \
+  --environment dev \
+  --region hel1 \
+  --on-prem \
+  --tailnet-name taila4c44b.ts.net \
+  --debug
+
+## Release
+
+- gh release create v0.1.14 --generate-notes
+- gh run watch
+
+- ./bin/soloz reseed --kubeconfig k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \
+  --bundle-version 0.1.14     
+
+- KUBECONFIG=k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig \                   
+  kubectl get app platform-database -n platform-ops \
+  -o jsonpath='{.spec.source.helm.values}{"\n"}'
+
+### What the run should do:
+
+1. Package 33 components, 5 provider charts, 8 tenant + catalogue charts, and the bundle chart — 42 total
+2. Refuse if any portability reference reappears (passes on main right now)
+3. Assert each chart renders exactly what ArgoCD applies today — 28 verified identical locally
+4. Build four CLI binaries with the version injected, and fail if the built CLI doesn't report 0.1.0
+5. Push to oci://ghcr.io/soloz-io/charts and attach the binaries to the release
+
+- Make the GHCR packages public — ADR-063 requires a tenant to mirror without asking permission, and ArgoCD has no OCI credential.
+
+## Download the released CLI
+
+gh release download v0.1.15 --pattern 'soloz-darwin-arm64' --output soloz --clobber
+chmod +x soloz
+
+## Scaffold a real tenant repo 
+
+cd /Users/arun_subramanian/Projects/soloz-io/zero-ops
+./soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
+
+Or from your current directory:
+
+/Users/arun_subramanian/Projects/soloz-io/zero-ops/soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
+
+### Interactive
+
+soloz tenant scaffold --tenant test-tenant --org soloz-io --domain test-tenant.nutgraf.in
+
+Prompts for the two secrets (no echo), sets them on the tenant's repo, dispatches the bootstrap, prints the Actions URL.
+
+### Non-interactive:
+
+soloz tenant scaffold --tenant tenant1 --org soloz-io --domain tenant1.nutgraf.in \
+  --provider-token "$HCLOUD_TOKEN" --gitops-token "$GITOPS_PAT"
+
+No secrets → repository is created, then handover instructions with the exact commands. Not an error, since the repo exists by then.
+
+## Delete
+
+gh repo delete soloz-io/test-tenant-gitops --yes
+
+## Boundary activation
+
+Which boundaries are open (activation is not reported as ArgoCD drift — a closed
+boundary looks idle, not failed):
+
+kubectl get appproject -n platform-ops -o custom-columns=\
+NAME:.metadata.name,INACTIVE:.spec.syncWindows | grep boundary-
+
+Open one by hand if a run was interrupted:
+
+kubectl patch appproject boundary-03 -n platform-ops \
+  --type merge -p '{"spec":{"syncWindows":null}}'
+
+# Provision workers
+
+## Dell Hub VM
+./scripts/hybrid/provision-flatcar-worker.sh --cluster hub
+./scripts/hybrid/provision-flatcar-worker.sh --node 1
+
+## Dell Spoke VM
+./scripts/hybrid/provision-flatcar-worker.sh --cluster spoke
+./scripts/hybrid/provision-flatcar-worker.sh --node 2

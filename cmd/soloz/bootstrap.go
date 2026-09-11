@@ -124,8 +124,8 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
 	cmd.Flags().IntVar(&workerReplicas, "workers", -1,
-		"cloud worker nodes to provision (default: 0 in dev, 2 elsewhere). A dev box "+
-			"defaults to none because its capacity is meant to come from on-prem nodes (ADR-075)")
+		"cloud worker nodes to provision (default: 2, every environment). Pass 0 to run "+
+			"on on-prem capacity alone, which then has to be there (ADR-075)")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 

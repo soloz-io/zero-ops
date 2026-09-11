@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 )
@@ -90,6 +91,7 @@ const environmentSlug = "prod"
 const (
 	pathLogin      = "/api/v1/auth/universal-auth/login"
 	pathSecretsRaw = "/api/v3/secrets/raw/%s"
+	pathFolders    = "/api/v1/folders"
 )
 
 // escrowSecretName is the single secret each cluster's master-key backup occupies.
@@ -201,11 +203,59 @@ func (e *infisicalEscrow) secretURL(clusterID, name string) string {
 		escrowPath(clusterID))
 }
 
+// ensurePath creates this cluster's escrow folder.
+//
+// Infisical does not create a secret path on write: a secret written to a path that
+// does not exist is a 404, not an implicit mkdir (secret-v2-bridge-service.ts
+// findBySecretPath -> NotFoundError). The folder API does fill in missing parents of
+// the path it is given, so one call creates both segments.
+//
+// Already-exists is the normal case -- every backup after the first -- and Infisical
+// reports it as a 400, so it is success here.
+func (e *infisicalEscrow) ensurePath(ctx context.Context, clusterID string) error {
+	parent, name := path.Split(escrowPath(clusterID))
+	body, _ := json.Marshal(map[string]string{
+		"workspaceId": e.projectID,
+		"environment": environmentSlug,
+		"path":        strings.TrimSuffix(parent, "/"),
+		"name":        name,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+pathFolders,
+		bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build escrow folder create: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+e.token)
+
+	resp, err := e.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("create the escrow folder: %w", err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		return nil
+	case resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusConflict:
+		return nil
+	default:
+		return fmt.Errorf("the escrow refused to create %s (%d): %s",
+			escrowPath(clusterID), resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+}
+
 // BackupArtifact writes one named artefact into this cluster's escrow.
 //
 // Create, then update on conflict. Infisical distinguishes the two and an escrow
 // must not care: the second backup of a cluster is the normal case.
 func (e *infisicalEscrow) BackupArtifact(ctx context.Context, clusterID, name, payload string) error {
+	if err := e.ensurePath(ctx, clusterID); err != nil {
+		return err
+	}
+
 	body, _ := json.Marshal(map[string]string{
 		"workspaceId": e.projectID,
 		"environment": environmentSlug,
