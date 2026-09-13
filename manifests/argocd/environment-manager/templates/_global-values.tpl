@@ -24,6 +24,14 @@ Derived from instanceRepoURL rather than carried separately: two values naming
 one organisation is two things to keep in step, and the one that drifts is the
 one nobody looks at.
 */}}
+{{/*
+The cluster this chart is rendering for. Used as the default external-dns TXT
+owner id, which must be unique per box.
+*/}}
+{{- define "environment-manager.clusterName" -}}
+{{- .Values.clusterName | default (printf "%s-%s" .Values.environmentSlug .Values.provider) -}}
+{{- end -}}
+
 {{- define "environment-manager.gitOrgURL" -}}
 {{- $repo := .Values.instanceRepoURL | default "" | trimSuffix ".git" -}}
 {{- if hasPrefix "git@" $repo -}}
@@ -46,4 +54,11 @@ global:
   provider: {{ .Values.provider | quote }}
   hubDomain: {{ include "environment-manager.hubDomain" . | quote }}
   gitOrgURL: {{ include "environment-manager.gitOrgURL" . | quote }}
+  dns:
+    provider: {{ .Values.dns.provider | default "hetzner" | quote }}
+    {{- /* The TXT ownership key. Defaults to the cluster name because
+           --policy=sync makes a shared key destructive: external-dns deletes
+           the records it believes it owns, so two boxes sharing one would
+           delete each other's. */}}
+    ownerId: {{ .Values.dns.ownerId | default (include "environment-manager.clusterName" .) | quote }}
 {{- end -}}

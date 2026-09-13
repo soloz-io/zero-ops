@@ -80,6 +80,36 @@ workloads: {}
 placement:
   class: ""
 
+# DNS for this box, and for the apps you run on it (ADR-051).
+#
+# Your domain is already yours -- scaffolding took it, and external-dns is
+# scoped to it, so this box writes its own hostnames and no others. This is the
+# separate question of WHO IS AUTHORITATIVE for that domain.
+#
+# The default is Hetzner DNS, and that is a real assumption rather than a
+# neutral one: your registrar can be anyone, but the zone's nameservers must be
+# delegated to Hetzner DNS, because that is where external-dns writes. Delegating
+# NS is a one-time change at your registrar.
+#
+# To use your own DNS instead, set `provider` to anything external-dns supports
+# natively -- cloudflare, aws, google, azure, digitalocean and the rest -- and
+# create a Secret named `external-dns-credentials` in platform-ops holding that
+# provider's credential under whatever key names the provider documents
+# (CF_API_TOKEN, AWS_ACCESS_KEY_ID, …). It is injected wholesale, so the platform
+# needs to know none of them and never sees the value.
+#
+# Your apps get DNS records by declaring an HTTPRoute or a DNSEndpoint; those are
+# the two sources external-dns watches. An Ingress or a Service annotation will
+# not produce a record.
+#
+# ownerId keys the TXT records external-dns uses to decide which records are ITS
+# to manage, and `--policy=sync` means it deletes the ones it believes it owns.
+# Two boxes sharing an ownerId against one zone delete each other's records.
+# Defaults to this cluster's name, which is unique; there is no reason to set it.
+dns:
+  provider: hetzner
+  ownerId: ""
+
 # Capability selection (ADR-066). "A tenant runs what it needs and does not carry
 # the rest."
 #

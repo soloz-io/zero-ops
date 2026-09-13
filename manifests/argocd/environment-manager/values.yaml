@@ -81,6 +81,42 @@ placement:
   class: ""
 
 # ──────────────────────────────────────────────────────────────────────────────
+# DNS
+# ──────────────────────────────────────────────────────────────────────────────
+# Which DNS service holds the zone this box publishes into, and the credential
+# that writes to it.
+#
+# The DOMAIN is already yours -- scaffolding takes it and external-dns is scoped
+# to it, so a box writes its own hostnames and no others. This is the separate
+# question of who is AUTHORITATIVE for that domain, which the platform used to
+# answer for you.
+#
+# Default `hetzner`, and that is a real assumption rather than a neutral one:
+# your registrar can be anyone -- the platform's own nutgraf.in is registered at
+# Hostinger -- but the zone's nameservers must be delegated to Hetzner DNS,
+# because that is what external-dns is configured to write to. Delegating NS is
+# a one-time change at the registrar and costs nothing afterwards.
+#
+# Set `provider` to anything external-dns supports natively (cloudflare, aws,
+# google, azure, digitalocean, …) to use your own DNS instead. Then:
+#   - create a Secret named `external-dns-credentials` in platform-ops holding
+#     that provider's credential, using whatever key names the provider
+#     documents -- CF_API_TOKEN, AWS_ACCESS_KEY_ID, and so on. It is injected
+#     wholesale, so the platform needs to know none of them. You create it; the
+#     platform never sees it.
+# The Hetzner webhook sidecar is only deployed for `hetzner`, so choosing another
+# provider removes it rather than leaving it running against nothing.
+#
+# ownerId keys the TXT records external-dns uses to decide which records are ITS
+# to manage -- and `--policy=sync` means it deletes the ones it believes it owns.
+# Two boxes sharing an ownerId against one zone will therefore delete each
+# other's records. Defaults to the cluster name, which is unique per box; there
+# is no reason to set it, and a reason not to.
+dns:
+  provider: hetzner
+  ownerId: ""
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Capability selection (ADR-066)
 # ──────────────────────────────────────────────────────────────────────────────
 # "A tenant runs what it needs and does not carry the rest." That sentence was

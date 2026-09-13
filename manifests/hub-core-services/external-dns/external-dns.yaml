@@ -103,6 +103,22 @@ spec:
             - --policy=sync
             - --interval=1m
             - --log-level=info
+          # The credential for whichever DNS service holds this zone.
+          #
+          # Optional and generic on purpose. external-dns reads every provider's
+          # credential from the environment and each provider expects its own
+          # names -- CF_API_TOKEN, AWS_ACCESS_KEY_ID,
+          # GOOGLE_APPLICATION_CREDENTIALS. Injecting a Secret wholesale means a
+          # tenant supplies exactly the names their provider documents and the
+          # platform needs to know none of them.
+          #
+          # Absent on a default (hetzner) box, where the sidecar below carries
+          # the credential instead -- which is why this is optional rather than a
+          # reference that would block every box that never creates it.
+          envFrom:
+            - secretRef:
+                name: external-dns-credentials
+                optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

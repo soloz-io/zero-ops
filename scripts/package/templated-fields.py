@@ -195,6 +195,32 @@ def _dump_all(docs, handle):
     yaml.dump_all(docs, handle, Dumper=_Dumper, sort_keys=False, width=10**6)
 
 
+
+# Every `.Values.global.*` the substituted values reference, as a nested default.
+#
+# A templated object that reads .Values.global.dns.ownerId renders NOTHING when
+# the chart carries no default for it: `global.dns` is a nil map and helm fails
+# the whole render, which component-chart.sh then reports as "packaged chart
+# renders no objects" -- naming the symptom and not the cause. That cost an hour
+# the first time and would cost it again for the next global anyone adds.
+#
+# Derived from what was actually emitted rather than listed by hand, so a new
+# global is defaulted by the commit that introduces it.
+def global_defaults(emitted):
+    root = {}
+    for text in emitted:
+        for path in re.findall(r"\.Values\.global\.([A-Za-z0-9_.]+)", text):
+            node = root
+            parts = path.split(".")
+            for key in parts[:-1]:
+                node = node.setdefault(key, {})
+                if not isinstance(node, dict):
+                    break
+            else:
+                node.setdefault(parts[-1], "")
+    return {"global": root} if root else {}
+
+
 def main() -> int:
     if len(sys.argv) < 4:
         print(__doc__)
@@ -284,6 +310,29 @@ def main() -> int:
     for rendered, keep in remaining.items():
         with open(rendered, "w") as handle:
             _dump_all(keep, handle)
+
+    # Defaults for every global the templated objects read, MERGED into whatever
+    # the chart already has. Without them the chart renders nothing at all, and
+    # the packager reports that as "renders no objects" -- the symptom, not the
+    # cause.
+    defaults = global_defaults(_dump(doc) for doc in templated)
+    if defaults:
+        values_path = os.path.join(chart, "values.yaml")
+        existing = {}
+        if os.path.exists(values_path):
+            with open(values_path) as handle:
+                existing = yaml.safe_load(handle) or {}
+        merged = dict(existing)
+        merged["global"] = {**defaults["global"], **(existing.get("global") or {})}
+        with open(values_path, "w") as handle:
+            handle.write(
+                "# Defaults for the globals this component's templated fields read.\n"
+                "# Written at package time from what was actually emitted, so a new\n"
+                "# global is defaulted by the commit that introduces it. A chart with\n"
+                "# no default renders nothing: the lookup hits a nil map and helm\n"
+                "# fails the whole render.\n"
+            )
+            yaml.safe_dump(merged, handle, sort_keys=False)
 
     print(f"  {len(templated)} object(s) templated, {len(verbatim)} verbatim")
     return 0
