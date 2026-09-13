@@ -23,6 +23,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -101,6 +102,10 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 	startedAt := time.Now()
 	total := len(w.Checkers)
 
+	// What each passing check cost, so a budget exhaustion can name where the
+	// time went instead of blaming whichever check happened to be running.
+	var spent []checkSpend
+
 	// Announce the whole plan up front. On a hybrid hub these checks routinely
 	// take 15+ minutes (images pull to a home-lab worker over a ~200ms link), and
 	// without knowing how many stages there are — and which one is current — a
@@ -119,8 +124,10 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 			fmt.Printf("   → [%d/%d] %s\n", i+1, total, checker.Name())
 		}
 
-		// Per-check deadline to keep error messages precise when Timeout
-		// is large. This is the remaining budget for THIS check onward.
+		// One budget, shared by every check, which is what a caller asks for
+		// when it says "converge within 15 minutes". The consequence is that a
+		// slow early check leaves little for the later ones, and the report has
+		// to say so -- see the deadline branch below.
 		checkStart := time.Now()
 		lastReason := ""
 		nextHeartbeat := checkStart.Add(heartbeatEvery)
@@ -133,6 +140,7 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 			err := checker.Check(ctx, kubeconfig)
 			if err == nil {
 				elapsed := time.Since(checkStart).Round(time.Second)
+				spent = append(spent, checkSpend{checker.Name(), elapsed})
 				if w.OnCheckPass != nil {
 					w.OnCheckPass(checker)
 				} else {
@@ -163,9 +171,31 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 			}
 
 			if time.Now().After(deadline) {
+				// Two different outcomes wear the same words unless they are
+				// separated here. A check that had most of the budget and still
+				// did not pass is a failing check. A check that got seconds
+				// because an earlier one consumed the budget has not been
+				// judged at all -- and reporting it as "failed after 1s" sent a
+				// reader looking at the wrong component. That happened: the
+				// ExternalSecrets check took 14m26s of a 15m budget and the
+				// Applications check was reported failed after one second.
+				had := time.Since(checkStart)
+				// Starved means TWO things, and requiring both is what keeps a
+				// genuinely failing check from being excused. It must have had a
+				// small share of the budget, AND an earlier check must have
+				// consumed the rest -- a sole check that used the whole budget
+				// and did not pass has been judged, however short the budget was.
+				if len(spent) > 0 && had < w.Timeout/4 {
+					return fmt.Errorf(
+						"ran out of time before %q could be judged: it had %v of a %v budget, "+
+							"spent by %s. It was still making progress -- last reason: %s. "+
+							"Raise the budget (--timeout) rather than reading this as a failure",
+						checker.Name(), had.Round(time.Millisecond), w.Timeout,
+						describeSpend(spent), reason)
+				}
 				return fmt.Errorf("health check %q failed after %v (was check %d/%d, total waited %v); last reason: %s",
-					checker.Name(), time.Since(checkStart).Round(time.Second),
-					i+1, total, time.Since(startedAt).Round(time.Second), reason)
+					checker.Name(), had.Round(time.Second), i+1, total,
+					time.Since(startedAt).Round(time.Second), reason)
 			}
 
 			select {
@@ -205,4 +235,28 @@ func condense(msg string) string {
 		return msg[:max] + "…"
 	}
 	return msg
+}
+
+// checkSpend is how long one check took to pass.
+type checkSpend struct {
+	name string
+	took time.Duration
+}
+
+// describeSpend names the checks that consumed the budget, largest first, so a
+// reader is pointed at what was actually slow.
+func describeSpend(spent []checkSpend) string {
+	if len(spent) == 0 {
+		return "no earlier check"
+	}
+	sorted := append([]checkSpend(nil), spent...)
+	sort.Slice(sorted, func(a, b int) bool { return sorted[a].took > sorted[b].took })
+	parts := make([]string, 0, 3)
+	for _, c := range sorted {
+		if len(parts) == 3 {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s (%v)", c.name, c.took))
+	}
+	return strings.Join(parts, ", ")
 }
