@@ -306,6 +306,13 @@ func (s Spec) chartSource() string {
       targetRevision: ` + s.developmentRevision() + `
       path: manifests/argocd/environment-manager
       helm:
+        # The generated values file does not exist until Day-0 writes it, and
+        # helm EXITS on a values file it cannot open -- so without this the seed
+        # Application cannot render at all and boundary 01 never appears. That
+        # is not a race that ordering fixes: the file is written by
+        # bootstrap-infisical-api, which runs after the boundaries it would
+        # unblock.
+        ignoreMissingValueFiles: true
         valueFiles:
           # Generated first, this cluster's own values second: Helm lets the
           # later file win, so a fact Day-0 recorded never silently beats
@@ -316,8 +323,7 @@ func (s Spec) chartSource() string {
           # and every certificate naming infisical-fleet-issuer stays pending --
           # NATS never starts, the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
-          # its enrolment. Written on the first bootstrap; ArgoCD tolerates its
-          # absence before then.
+          # its enrolment.
           - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
           - $values/clusters/` + s.ClusterName + `/values.yaml`
 	}
@@ -345,6 +351,13 @@ func (s Spec) chartSource() string {
           # promotion cannot move one and leave the other behind.
           - name: bundleVersion
             value: "` + s.BundleVersion + `"
+        # The generated values file does not exist until Day-0 writes it, and
+        # helm EXITS on a values file it cannot open -- so without this the seed
+        # Application cannot render at all and boundary 01 never appears. That
+        # is not a race that ordering fixes: the file is written by
+        # bootstrap-infisical-api, which runs after the boundaries it would
+        # unblock.
+        ignoreMissingValueFiles: true
         valueFiles:
           # Generated first, this cluster's own values second: Helm lets the
           # later file win, so a fact Day-0 recorded never silently beats
@@ -355,8 +368,7 @@ func (s Spec) chartSource() string {
           # and every certificate naming infisical-fleet-issuer stays pending --
           # NATS never starts, the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
-          # its enrolment. Written on the first bootstrap; ArgoCD tolerates its
-          # absence before then.
+          # its enrolment.
           - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
           - $values/clusters/` + s.ClusterName + `/values.yaml`
 }

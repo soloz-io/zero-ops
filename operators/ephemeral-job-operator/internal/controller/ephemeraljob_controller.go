@@ -166,6 +166,12 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if job == nil {
+		// A finished Job of the same name is being deleted so this request can
+		// have a fresh one. Creating it now would race the collection and hit
+		// AlreadyExists, so the work resumes on the next pass.
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+	}
 
 	// A Job whose pod cannot be admitted never produces a pod. The Job's own
 	// failure condition carries the reason, and a ResourceQuota rejection is
@@ -259,13 +265,60 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // structural. The predecessor implementation swept for orphaned compute on a
 // timer because it provisioned VMs that nothing owned; owner references remove
 // the need for that entirely.
+// jobIsFinished reports whether a Job has reached a terminal condition and can
+// therefore never run anything again.
+//
+// Conditions, not counters: `Succeeded`/`Failed` counts describe pods, and a
+// Job whose pods have all terminated may still be retried by the controller
+// while its backoff budget lasts. `JobComplete` and `JobFailed` are the two
+// states from which nothing further happens.
+func jobIsFinished(job *batchv1.Job) bool {
+	for _, c := range job.Status.Conditions {
+		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alpha1.EphemeralJob) (*batchv1.Job, error) {
 	name := jobNameFor(ej)
 
 	var existing batchv1.Job
 	err := r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
 	if err == nil {
-		return &existing, nil
+		// Reuse only a Job that can still do the work.
+		//
+		// The name is derived from the request, so a new EphemeralJob for the
+		// same logical work finds the PREVIOUS Job sitting there — and if that
+		// one is finished, adopting it hands back compute that has already
+		// exited. Observed live: a sandbox whose `agent-vault` container was
+		// OOM-killed two days earlier was adopted by a fresh request, the CR
+		// went `Failed` within seconds with "container agent-vault terminated",
+		// and every wake for that sandbox failed the same way until the Job was
+		// deleted by hand. The sandbox was unrecoverable through the product.
+		//
+		// Idempotency is still the point — a Job that is running or pending is
+		// returned untouched, so a retry never creates a second one. What
+		// changes is that "exists" is no longer mistaken for "usable".
+		if !jobIsFinished(&existing) {
+			return &existing, nil
+		}
+		log.FromContext(ctx).Info("replacing a finished Job for a new request",
+			"job", name, "succeeded", existing.Status.Succeeded, "failed", existing.Status.Failed)
+		// Foreground deletion, so the replacement is not created while the old
+		// pods are still being reaped — two Jobs with one name is not a state
+		// the API server allows, and a background delete makes the create race
+		// the collection.
+		policy := metav1.DeletePropagationForeground
+		if err := r.Delete(ctx, &existing, &client.DeleteOptions{PropagationPolicy: &policy}); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return nil, err
+			}
+		}
+		// Requeue rather than create now: deletion is not instantaneous, and a
+		// create against a name still held returns AlreadyExists.
+		return nil, nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return nil, err

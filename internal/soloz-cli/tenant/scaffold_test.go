@@ -315,3 +315,33 @@ func TestRender_BootstrapWorkflowIsPinnedAndSubstituted(t *testing.T) {
 			"cluster runs are the same release", pin[1], want)
 	}
 }
+
+// The generated values file does not exist until Day-0 writes it, and helm
+// EXITS on a values file it cannot open. Without ignoreMissingValueFiles the
+// seed Application cannot render at all, and the bootstrap dies at boundary 01
+// with "no ApplicationSet targets project boundary-01" -- naming the boundary
+// rather than the values file, which is why this is asserted rather than left
+// to be rediscovered.
+//
+// Ordering cannot fix it: the file is written by bootstrap-infisical-api, which
+// runs after the boundaries it would unblock.
+func TestBundleToleratesTheGeneratedValuesFileNotExistingYet(t *testing.T) {
+	for _, version := range []string{"0.1.16-rc.8", "development"} {
+		t.Run(version, func(t *testing.T) {
+			spec := Spec{
+				TenantID: "acme", GitOrg: "acme-io", Domain: "nutgraf.in",
+				ClusterName: "acme-hub", Environment: "dev", Provider: "hetzner",
+				BundleVersion: version, BundleRegistry: "ghcr.io/soloz-io/charts",
+				PlatformRepoURL: "https://github.com/soloz-io/zero-ops",
+			}
+			src := spec.chartSource()
+			if !strings.Contains(src, "generated/platform-pki-values.yaml") {
+				t.Fatal("the bundle does not read the generated PKI values at all")
+			}
+			if !strings.Contains(src, "ignoreMissingValueFiles: true") {
+				t.Error("the bundle reads a file Day-0 has not written yet without " +
+					"ignoreMissingValueFiles; the seed cannot render on a first bootstrap")
+			}
+		})
+	}
+}
