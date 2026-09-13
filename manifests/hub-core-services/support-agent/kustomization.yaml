@@ -6,17 +6,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - rbac.yaml
-  - network-policy.yaml
-  - allowlist.yaml
-  - certificate.yaml
-  - deployment.yaml
+- rbac.yaml
+- network-policy.yaml
+- allowlist.yaml
+- certificate.yaml
+- deployment.yaml
 
 # Written by .github/workflows/support-agent.yml on every build. The placeholder
 # below is not pullable on purpose: if the workflow has never run, the agent
 # fails to start visibly rather than silently running some other image that
 # happened to be tagged latest.
 images:
-  - name: support-agent
-    newName: ghcr.io/soloz-io/zero-ops/support-agent
-    newTag: unbuilt
+- digest: sha256:b0522975b8305072ef0a765329467c4f1719da4feba5b7151915c0147fb23541
+  name: support-agent
+  newName: ghcr.io/soloz-io/zero-ops/support-agent
