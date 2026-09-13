@@ -9,10 +9,33 @@
 # It runs under this repository's own secrets, in this organisation's own
 # runners. The platform holds neither (ADR-065).
 #
-# Required secrets:
-#   HCLOUD_TOKEN   the cloud API token clusters are created with
-#   GITOPS_TOKEN   write access to this repository, so Day-0 can commit the
-#                  artifacts it generates for the cluster it creates
+# Secrets this repository must hold. Set them under Settings -> Secrets and
+# variables -> Actions.
+#
+# REQUIRED -- Day-0 refuses without them, rather than building a box that looks
+# configured and is not:
+#   HCLOUD_TOKEN    the cloud API token clusters are created with
+#   GITOPS_TOKEN    write access to this repository, so Day-0 can commit the
+#                   artifacts it generates for the cluster it creates
+#   GHCR_USERNAME   your container registry, for pulling YOUR private images.
+#   GHCR_TOKEN      The platform's own images are public; your workloads are
+#                   yours (ADR-066) and this is what runs them.
+#
+# STRONGLY RECOMMENDED -- absent, the box bootstraps and runs, and says what it
+# is missing:
+#   INFISICAL_ESCROW_*   (4) where this box's master keys are kept. Without them,
+#                        losing this cluster loses every secret it manages.
+#   S3_ACCESS_KEY_ID     object storage for database backups. A production box
+#   S3_SECRET_ACCESS_KEY without these has no backups.
+#
+# OPTIONAL -- where this box ships YOUR OWN metrics and logs. Your account, your
+# data, and nothing to do with support: support telemetry is a separate channel
+# with its own enrolment (ADR-067, ADR-077). Leaving these unset costs you
+# nothing in support.
+#   GRAFANA_CLOUD_API_KEY, _PROMETHEUS_URL, _PROMETHEUS_USER,
+#   GRAFANA_CLOUD_LOKI_URL, _LOKI_USER
+#
+# TS_AUTHKEY is read only when this cluster accepts on-prem nodes (ADR-075).
 name: Bootstrap cluster
 
 on:
@@ -87,3 +110,21 @@ jobs:
       INFISICAL_ESCROW_PROJECT_ID: ${{ secrets.INFISICAL_ESCROW_PROJECT_ID }}
       INFISICAL_ESCROW_CLIENT_ID: ${{ secrets.INFISICAL_ESCROW_CLIENT_ID }}
       INFISICAL_ESCROW_CLIENT_SECRET: ${{ secrets.INFISICAL_ESCROW_CLIENT_SECRET }}
+      # Your container registry, for pulling your OWN private images. Required:
+      # the platform's images are public, but your workloads are yours (ADR-066)
+      # and the pull secret built from these is what runs them.
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      # Object storage for database backups. Optional, and a production box
+      # without it has no backups -- the bootstrap says so and continues.
+      S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+      S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+      # Where this box ships YOUR metrics and logs. Optional, your account, and
+      # unrelated to support: support telemetry is a separate channel with its
+      # own enrolment (ADR-067, ADR-077). Leaving these unset costs you nothing
+      # in support and means observability has no remote destination.
+      GRAFANA_CLOUD_API_KEY: ${{ secrets.GRAFANA_CLOUD_API_KEY }}
+      GRAFANA_CLOUD_PROMETHEUS_URL: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_URL }}
+      GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
+      GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}
+      GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}

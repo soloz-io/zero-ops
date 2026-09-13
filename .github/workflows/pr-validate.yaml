@@ -36,6 +36,15 @@ jobs:
       - name: Test the CLI and the platform content it carries
         run: go test ./internal/soloz-cli/... ./internal/platform/... ./cmd/soloz/...
 
+      # A reusable workflow that reads an undeclared secret gets the empty
+      # string, silently. That shipped: tenant-bootstrap.yml passed nine
+      # credentials to Day-0 and declared none, so a tenant with every secret
+      # set correctly got a box that could not pull their own images and had no
+      # database backups -- while the local loop worked, because it reads
+      # k8-secrets/ instead of repository secrets.
+      - name: Workflow secrets are declared, not just used
+        run: python3 scripts/validate/workflow-secrets.py .
+
   # internal/platform/embedded is a generated copy of the manifests a released
   # CLI carries. It was guarded only by a pre-commit hook, which means it was
   # guarded on one machine: a commit made with --no-verify, or by anyone who had

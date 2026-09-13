@@ -85,6 +85,49 @@ on:
       INFISICAL_ESCROW_CLIENT_SECRET:
         description: The matching machine identity client secret.
         required: false
+      GHCR_USERNAME:
+        description: >-
+          The tenant's container registry username, for pulling their own private
+          images. REQUIRED: ADR-066 makes workloads the tenant's, and
+          universal-tenant's pull-secret-es.yaml and the stateless-web rollout
+          both mount the Secret built from this, so a tenant keeping their
+          packages private cannot run them without it. Day-0 refuses rather than
+          producing a box that looks configured and cannot pull.
+        required: true
+      GHCR_TOKEN:
+        description: The matching token, scoped to read the tenant's own packages.
+        required: true
+      S3_ACCESS_KEY_ID:
+        description: >-
+          Object storage for CNPG Barman backups of the platform database. A
+          DESTINATION rather than a capability: absent, the box bootstraps and
+          runs with no backups and says so. Mandatory in practice for production
+          -- a backup has to go somewhere a lost node cannot take with it.
+        required: false
+      S3_SECRET_ACCESS_KEY:
+        description: The matching secret access key.
+        required: false
+      GRAFANA_CLOUD_API_KEY:
+        description: >-
+          Where this box ships its OWN metrics and logs: the tenant's account and
+          the tenant's data. Nothing to do with support -- ADR-067 makes support
+          telemetry a separate channel with its own enrolment (ADR-077), and
+          conflating the two is how a tenant's private monitoring account came to
+          look like a licence check. A destination: absent, observability still
+          runs and simply has no remote target.
+        required: false
+      GRAFANA_CLOUD_PROMETHEUS_URL:
+        description: The tenant's Prometheus remote-write endpoint.
+        required: false
+      GRAFANA_CLOUD_PROMETHEUS_USER:
+        description: The matching Prometheus user.
+        required: false
+      GRAFANA_CLOUD_LOKI_URL:
+        description: The tenant's Loki push endpoint.
+        required: false
+      GRAFANA_CLOUD_LOKI_USER:
+        description: The matching Loki user.
+        required: false
       TS_AUTHKEY:
         description: >-
           A Tailscale auth key from the tenant's own tailnet. Required when
