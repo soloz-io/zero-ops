@@ -463,6 +463,13 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// the committed file survived between runs: a fresh cluster reconciled the
 	// PREVIOUS cluster's project id until the phase above overwrote it, so the
 	// issuers existed early and were wrong rather than absent.
+	// The PKI coordinates reach the cluster through the tenant's declared state,
+	// not through the seed. Before the re-apply, so the same run that learns them
+	// records them.
+	if err := o.writeFleetPKIValues(ctx, mgmtKubeconfig); err != nil {
+		return err
+	}
+
 	if err := o.ReapplySeed(ctx, mgmtKubeconfig); err != nil {
 		return fmt.Errorf("re-apply seed with Infisical coordinates: %w", err)
 	}

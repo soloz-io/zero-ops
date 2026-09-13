@@ -307,6 +307,18 @@ func (s Spec) chartSource() string {
       path: manifests/argocd/environment-manager
       helm:
         valueFiles:
+          # Generated first, this cluster's own values second: Helm lets the
+          # later file win, so a fact Day-0 recorded never silently beats
+          # something the tenant wrote here deliberately.
+          #
+          # The generated file carries this box's Infisical PKI coordinates
+          # (ADR-045). Without them the security boundary emits no ClusterIssuer
+          # and every certificate naming infisical-fleet-issuer stays pending --
+          # NATS never starts, the argocd-agent mTLS identities never issue, and
+          # the Support Agent can never enrol, because its client certificate IS
+          # its enrolment. Written on the first bootstrap; ArgoCD tolerates its
+          # absence before then.
+          - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
           - $values/clusters/` + s.ClusterName + `/values.yaml`
 	}
 	return `repoURL: ` + s.BundleRegistry + `
@@ -334,6 +346,18 @@ func (s Spec) chartSource() string {
           - name: bundleVersion
             value: "` + s.BundleVersion + `"
         valueFiles:
+          # Generated first, this cluster's own values second: Helm lets the
+          # later file win, so a fact Day-0 recorded never silently beats
+          # something the tenant wrote here deliberately.
+          #
+          # The generated file carries this box's Infisical PKI coordinates
+          # (ADR-045). Without them the security boundary emits no ClusterIssuer
+          # and every certificate naming infisical-fleet-issuer stays pending --
+          # NATS never starts, the argocd-agent mTLS identities never issue, and
+          # the Support Agent can never enrol, because its client certificate IS
+          # its enrolment. Written on the first bootstrap; ArgoCD tolerates its
+          # absence before then.
+          - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
           - $values/clusters/` + s.ClusterName + `/values.yaml`
 }
 

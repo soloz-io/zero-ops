@@ -33,6 +33,28 @@ artifacts:
       - data.INFISICAL_SECRETS_PROJECT_ID
       - data.INFISICAL_SECRETS_PROJECT_SLUG
       - data.INFISICAL_ENVIRONMENT_SLUG
+  # This box's Infisical PKI coordinates, as chart values.
+  #
+  # The security boundary emits a ClusterIssuer only when fleet.projectId and
+  # fleet.clientId are both supplied, so without this file there is no issuer and
+  # every certificate naming infisical-fleet-issuer stays pending forever. On the
+  # box that found this, eleven were: the NATS leaf-node server cert (nats-0
+  # never left ContainerCreating), all three argocd-agent mTLS identities, and
+  # the Support Agent's client certificate -- which IS its enrolment (ADR-077).
+  #
+  # Written here rather than onto the seed Application because ADR-072 makes the
+  # tenant's repository authoritative: on a tenant's box the seed comes from
+  # bundle.yaml, and the root Application's selfHeal reverts anything set only on
+  # the cluster.
+  #
+  # Declared under manifests/ like every other artifact; the registry reader
+  # relocates it to clusters/<cluster>/generated/ when a tenant repository is
+  # present, which is where bundle.yaml's valueFiles reads it from.
+  - file: manifests/environments/{env}/generated/platform-pki-values.yaml
+    consumedBy: hub-environment
+    requiredFields:
+      - infisical.fleet.projectId
+      - infisical.fleet.clientId
   # The hub Gateway's external-dns target was generated here as a Kustomize
   # patch. It is per-cluster instance data, and the gateway component now takes
   # it as a chart value supplied from hubIngressAddress, so nothing is written
