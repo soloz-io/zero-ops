@@ -138,6 +138,36 @@ load_credentials() {
     fi
     export GHCR_USERNAME GHCR_TOKEN
 
+    # Destination credentials: where this box sends backups and telemetry.
+    #
+    # These are tierDestination, not tierCapability -- a box without them
+    # bootstraps and runs, it just has nowhere to put backups or metrics. That is
+    # the right behaviour and it is also why their absence is SILENT: the CLI
+    # reports it in one line among many and the run continues. Loading them here
+    # makes the run say up front what it will and will not configure, instead of
+    # leaving an operator to notice afterwards that this box has no backups.
+    #
+    # Exported rather than left to the CLI's own k8-secrets lookup. That lookup
+    # resolves against the platform checkout while Day-0 runs from the tenant's
+    # workspace, so it works by a path relationship rather than by anything this
+    # script states -- the same implicitness that let the registry credential go
+    # unnoticed until it failed mid-bootstrap.
+    local d
+    for d in "$SECRETS/s3:S3" "$SECRETS/grafana-cloud:GRAFANA_CLOUD"; do
+        local dir="${d%%:*}" prefix="${d##*:}" f key
+        if [ ! -d "$dir" ]; then
+            say "no ${dir}: this box will bootstrap without $( [ "$prefix" = S3 ] \
+                && echo "database backups" || echo "a telemetry destination" )"
+            continue
+        fi
+        for f in "$dir"/*; do
+            [ -f "$f" ] || continue
+            # access-key-id -> S3_ACCESS_KEY_ID, loki-url -> GRAFANA_CLOUD_LOKI_URL
+            key="${prefix}_$(basename "$f" | tr 'a-z-' 'A-Z_')"
+            export "$key=$(tr -d '\r\n' < "$f")"
+        done
+    done
+
     # Hybrid only. ADR-046 invariant 6 wants a tailnet IP on every node carrying
     # pod traffic; nothing reads this under any other provider.
     TAILSCALE_AUTHKEY=""
