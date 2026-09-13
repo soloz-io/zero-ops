@@ -145,6 +145,56 @@ def substitute(doc, path, literal, replacement):
     node[key] = text.replace(literal, replacement)
 
 
+
+# A value carrying a Go template is emitted double-quoted, always.
+#
+# The dumper cannot know what the template will render to, and PyYAML decides
+# quoting from the text it is given -- so `support-agent:{{ .Values.global.hubDomain }}`
+# looks like a legal plain scalar and is emitted bare. It renders to
+# `support-agent:` when the value is empty, which is a second colon on the line
+# and invalid YAML, and helm reports it as "mapping values are not allowed in
+# this context" pointing at a line that is fine.
+#
+# Quoting costs nothing anywhere else: helm substitutes inside the quotes, and a
+# quoted scalar is the same value.
+class _Dumper(yaml.SafeDumper):
+    pass
+
+
+def _templated_str(dumper, data):
+    # Single-line templated scalars only. A MULTI-LINE value carrying a template
+    # -- an embedded script, a patch body, a Composition's inline manifest --
+    # must keep block style: forcing it to a double-quoted scalar re-encodes
+    # every newline as \n, and what helm then renders is one long line that is
+    # no longer the YAML the component meant to emit. That broke
+    # platform-tenant-platform, whose Composition templates a hostAPI inside an
+    # inline manifest block.
+    # SINGLE quotes, not double. A templated value routinely contains double
+    # quotes of its own -- `{{ "{{" }}` is how a Helm template emits a literal
+    # Go-template brace, and the tenant-platform Composition does exactly that
+    # inside a redis URL. Double-quoting re-escapes those as \" and helm then
+    # fails to parse its own template with `unexpected "\\" in command`.
+    # Single-quoted YAML is verbatim apart from ' itself, which PyYAML doubles
+    # correctly.
+    #
+    # Multi-line values keep block style: a folded or quoted multi-line scalar
+    # re-encodes newlines and what helm renders is no longer the YAML the
+    # component meant to emit.
+    style = "'" if "{{" in data and "\n" not in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+
+_Dumper.add_representer(str, _templated_str)
+
+
+def _dump(doc):
+    return yaml.dump(doc, Dumper=_Dumper, sort_keys=False, width=10**6)
+
+
+def _dump_all(docs, handle):
+    yaml.dump_all(docs, handle, Dumper=_Dumper, sort_keys=False, width=10**6)
+
+
 def main() -> int:
     if len(sys.argv) < 4:
         print(__doc__)
@@ -229,11 +279,11 @@ def main() -> int:
             "*/ -}}\n"
         )
         for doc in templated:
-            handle.write("---\n" + yaml.safe_dump(doc, sort_keys=False, width=10**6))
+            handle.write("---\n" + _dump(doc))
 
     for rendered, keep in remaining.items():
         with open(rendered, "w") as handle:
-            yaml.safe_dump_all(keep, handle, sort_keys=False, width=10**6)
+            _dump_all(keep, handle)
 
     print(f"  {len(templated)} object(s) templated, {len(verbatim)} verbatim")
     return 0

@@ -69,7 +69,7 @@ manifests/argocd/environment-manager/
 ├── values.yaml                                          # environmentRevision: "main"
 ├── templates/
 │   ├── 01-platform-infra-appset.yaml                    # 17 elements (core operators, ArgoCD)
-│   ├── 02-platform-data-appset.yaml                     #  4 elements (CNPG, Redis, NATS, ClickHouse)
+│   ├── 02-platform-data-appset.yaml                     #  3 elements (CNPG, Redis, NATS)
 │   └── 03-platform-services-appset.yaml                 # 30 elements (APIs, spoke pools, identity)
 └── README.md
 ```

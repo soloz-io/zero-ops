@@ -7,6 +7,11 @@
 # predecessor is restorable from it, and the minimum version it may be taken
 # from.
 #
+# ADR-069 adds the support window to that list. It is declared when the version
+# is published and is a property of the version rather than of any tenant, so a
+# release that states none leaves every tenant running it unable to determine
+# what the platform still owes them.
+#
 # Checked because the generator that writes it can fail quietly. It appends to a
 # release body, and an append that produced nothing leaves a release that looks
 # complete -- a changelog is still there -- while a tenant deciding whether to
@@ -26,6 +31,11 @@ grep -q "Spans from" <<<"$body" || missing+=("the versions it spans from its pre
 grep -q "Minimum version this may be taken from" <<<"$body" || missing+=("the minimum version it may be taken from")
 grep -q "Predecessor restorable from this version" <<<"$body" || missing+=("whether the predecessor is restorable")
 grep -qE "Security fixes in this version|No security fixes are declared" <<<"$body" || missing+=("its security-fix position")
+# ADR-069. A version published without a window is one whose support nobody can
+# determine -- not the tenant deciding whether to move, and not the platform
+# being asked whether it still owes anything.
+grep -q "Supported until" <<<"$body" || missing+=("the date it is supported until (ADR-069)")
+grep -q "Then deprecated until" <<<"$body" || missing+=("the date its deprecation ends (ADR-069)")
 
 # "no earlier release" is true exactly once. Any later release claiming it means
 # the predecessor could not be resolved -- which v0.1.7 did, because

@@ -57,6 +57,15 @@ type Spec struct {
 	// resolve it at runtime (ADR-063); it is recorded so a tenant can find the
 	// source of what it runs.
 	PlatformRepoURL string
+	// PrivateRegistry says this tenant runs images the platform cannot pull
+	// anonymously, so a registry credential is part of what the box needs.
+	//
+	// Declared rather than inferred: a tenant running public images must never be
+	// asked for one, and the platform cannot tell from outside which they run.
+	// ADR-066 makes workloads the tenant's, and this is the one credential that
+	// is irreducibly theirs.
+	PrivateRegistry bool
+
 	// BundleRegistry is where published bundles are pulled from, without a
 	// scheme: ArgoCD pulls a scheme-less registry host as an OCI artefact and
 	// passes anything else to `helm pull --repo`, which does not speak OCI.
@@ -205,8 +214,14 @@ func (s Spec) tenantTokens() map[string]string {
 		"<GIT_ORG>":           s.GitOrg,
 		"<GITOPS_REPO_URL>":   s.repoURL(),
 		"<PLATFORM_REPO_URL>": s.PlatformRepoURL,
-		"<BUNDLE_REGISTRY>":   s.BundleRegistry,
-		"<DOMAIN_NAME>":       s.Domain,
+		// The same repository as an owner/name slug, which is what `gh` takes.
+		// Derived rather than carried as a second field: two fields naming one
+		// repository is two things to keep in step, and a pre-flight workflow
+		// pointed at a different platform than the bundle it judges would fetch
+		// a CLI and release notes belonging to something else.
+		"<PLATFORM_REPO_SLUG>": platformRepoSlug(s.PlatformRepoURL),
+		"<BUNDLE_REGISTRY>":    s.BundleRegistry,
+		"<DOMAIN_NAME>":        s.Domain,
 	}
 }
 
@@ -754,4 +769,23 @@ func otherMissing(missing []string) string {
 		return ""
 	}
 	return "\n\nAlso missing: " + strings.Join(rest, ", ")
+}
+
+// platformRepoSlug reduces a platform repository URL to the owner/name form the
+// GitHub CLI takes. An unrecognisable URL yields the empty string, so the
+// workflow step that uses it fails loudly rather than querying a default
+// repository that has nothing to do with this platform.
+func platformRepoSlug(repoURL string) string {
+	u := strings.TrimSuffix(strings.TrimSpace(repoURL), ".git")
+	u = strings.TrimSuffix(u, "/")
+	if i := strings.Index(u, "github.com"); i >= 0 {
+		u = strings.TrimLeft(u[i+len("github.com"):], ":/")
+	} else {
+		return ""
+	}
+	parts := strings.Split(u, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }

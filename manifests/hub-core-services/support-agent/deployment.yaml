@@ -1,0 +1,121 @@
+# The Support Agent.
+#
+# One replica, deliberately. This is a periodic sampler of control-plane state,
+# not a service: two replicas would double the evidence the platform receives
+# and halve nothing, and there is no availability requirement because a missed
+# cycle is answered by the next one.
+#
+# One agent per cluster, not one per fleet (ADR-077). A single hub-side collector
+# reaching into every spoke is the load and coupling argocd-agent exists to
+# remove, and it would need inbound access to each cluster -- which ADR-067
+# forbids outright.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-agent
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: support-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: support-agent
+        app.kubernetes.io/component: support
+    spec:
+      serviceAccountName: support-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: support-agent
+          # Pinned by digest in kustomization.yaml, written by the
+          # support-agent workflow. A floating tag would let two boxes
+          # bootstrapped a week apart run different agents while both
+          # claim the same bundle version.
+          image: support-agent:latest
+          args:
+            - --allowlist=/etc/support-agent/allowlist.yaml
+            - --interval=1h
+            # The Support Plane's own CA, NOT the one cert-manager writes into
+            # the agent's Secret. That one is the tenant's fleet CA -- it signs
+            # the agent's client certificate and says nothing about who is
+            # allowed to terminate the other end. Validating the platform's
+            # server certificate against the tenant's own CA fails every time,
+            # and the tempting "fix" is to stop verifying, which would let
+            # anything that can answer DNS receive this box's evidence.
+            - --ca=/etc/support-agent/enrolment/ca.crt
+          env:
+            # Both come from `support-agent-enrolment`, a ConfigMap THE TENANT
+            # OWNS and the platform never ships or reconciles.
+            #
+            # They were read from the platform's own allowlist ConfigMap, which
+            # made both impossible: neither key existed there, so enrolment could
+            # never happen, and a tenant adding a denylist to a platform-owned
+            # object would have it reverted by selfHeal on the next sync. ADR-077
+            # gives the tenant the right to narrow the scope; a value they cannot
+            # keep is not that right.
+            #
+            # Absent is the default and is not an error: no ConfigMap means no
+            # endpoint, which means unenrolled, which is what every box that has
+            # not asked for support should be.
+            - name: SUPPORT_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: support-agent-enrolment
+                  key: endpoint
+                  optional: true
+            # Effective scope is `allowlist - denylist`, computed in the cluster.
+            # Nothing here can widen it: Effective() only removes.
+            - name: SUPPORT_DENY
+              valueFrom:
+                configMapKeyRef:
+                  name: support-agent-enrolment
+                  key: deny
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: allowlist
+              mountPath: /etc/support-agent
+              readOnly: true
+            # Optional, like the certificate: an unenrolled box has no ConfigMap,
+            # and a required mount would hang the pod.
+            - name: enrolment
+              mountPath: /etc/support-agent/enrolment
+              readOnly: true
+            - name: client-tls
+              mountPath: /etc/support-agent/tls
+              readOnly: true
+      volumes:
+        - name: allowlist
+          configMap:
+            name: support-agent-allowlist
+        - name: enrolment
+          configMap:
+            name: support-agent-enrolment
+            optional: true
+        # `optional: true` is what makes the agent ship inert. An unenrolled box
+        # has no Certificate and therefore no Secret; a required volume would
+        # leave the pod stuck in ContainerCreating and report the platform's own
+        # component as broken on every box that never asked for support.
+        - name: client-tls
+          secret:
+            secretName: support-agent-client-tls
+            optional: true

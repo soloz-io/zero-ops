@@ -56,18 +56,6 @@ spec:
   owner: postgres
   ensure: present
 ---
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: openmeter
-  namespace: platform-data
-spec:
-  cluster:
-    name: platform-db
-  name: openmeter
-  owner: postgres
-  ensure: present
----
 # Zitadel's database (spike — ADR pending).
 #
 # owner: hub_zitadel, NOT postgres, and that is the one thing that differs from

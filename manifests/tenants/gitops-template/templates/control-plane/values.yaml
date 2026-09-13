@@ -49,7 +49,6 @@ hubDomain: <HUB_DOMAIN>
 workers: <WORKER_COUNT>
 
 
-
 platformRepoURL: <PLATFORM_REPO_URL>
 
 # This repository. It holds this box's cluster declarations and its per-tenant
@@ -81,6 +80,36 @@ workloads: {}
 placement:
   class: ""
 
+# Capability selection (ADR-066). "A tenant runs what it needs and does not carry
+# the rest."
+#
+# Every one of these defaults true in the bundle, and they are written out here
+# so selecting is an edit rather than something you have to know exists. Setting
+# one to false removes that capability's Application on the next sync; your own
+# ArgoCD does it, and nothing else is touched.
+#
+# Selection is a value and never a version, so choosing a capability and
+# upgrading the bundle are independent acts and neither blocks the other.
+#
+# Turning one OFF is deliberate and has consequences worth knowing:
+#   database       removes the CNPG Postgres this box's platform services use.
+#   messaging      removes NATS, which spoke leaf-nodes connect to.
+#   observability  removes collection, and with it every platform dashboard.
+#   support        removes the Support Agent. It ships inert and reports nothing
+#                  until you enrol; turning it off is how you remove it after
+#                  ending a support subscription (ADR-077).
+capabilities:
+  database:
+    enabled: true
+  messaging:
+    enabled: true
+  observability:
+    enabled: true
+  # Off until the platform publishes the agent image and its Support Plane
+  # exists. Enable it when you enrol.
+  support:
+    enabled: false
+
 # On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
 # over your Tailscale tailnet.
 #
@@ -97,4 +126,3 @@ onPrem:
   enabled: false
   # Your tailnet, e.g. acme.ts.net. Required when enabled.
   tailnet: ""
-

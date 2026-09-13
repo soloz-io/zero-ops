@@ -4,7 +4,7 @@ kind: Kustomization
 
 # Headlamp Kubernetes Dashboard (ADR-058).
 #
-# Renders the headlamp helm chart through kustomize (the Infisical/OpenMeter
+# Renders the headlamp helm chart through kustomize (the Infisical
 # pattern) so we can:
 #   1. Apply a custom read-only ClusterRole (not cluster-admin)
 #   2. Override resource limits for the hub's constrained nodes

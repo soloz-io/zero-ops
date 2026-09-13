@@ -105,7 +105,7 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 ### `post-bootstrap-validate.sh`
 
 Validates the full hub platform after initial bootstrap. Covers all platform
-namespaces, ArgoCD, Crossplane, ESO, Infisical, CNPG, ClickHouse, OpenMeter,
+namespaces, ArgoCD, Crossplane, ESO, Infisical, CNPG, OpenMeter,
 Ory identity stack, NATS, hub-operator, kube-sbt, ingress, spoke pool,
 and observability.
 

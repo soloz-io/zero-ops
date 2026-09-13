@@ -64,6 +64,21 @@ type Secrets struct {
 	EscrowClientID     string
 	EscrowClientSecret string
 	EscrowProjectID    string
+
+	// What the hub needs to come up healthy, rather than merely up. Defined as
+	// a list in platform_credentials.go so prompting, validation and writing
+	// them into the repository cannot disagree about the set.
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+
+	GrafanaCloudAPIKey         string
+	GrafanaCloudPrometheusURL  string
+	GrafanaCloudPrometheusUser string
+	GrafanaCloudLokiURL        string
+	GrafanaCloudLokiUser       string
+
+	GHCRUsername string
+	GHCRToken    string
 }
 
 // hasEscrow reports whether a complete escrow credential was supplied.
@@ -104,18 +119,32 @@ func (s Secrets) CompleteFor(provider string) bool {
 	return !needsTailscale(provider) || strings.TrimSpace(s.TailscaleAuthkey) != ""
 }
 
+// nothingLeftToAsk reports whether a prompt session would ask anything.
+//
+// Deliberately not folded into CompleteFor. That answers "can this box be
+// dispatched", which the handover message and its tests depend on meaning
+// exactly that; this answers "is there anything still to collect", which now
+// includes the escrow and the credentials the hub needs to come up healthy.
+// Conflating them redefined a contract three tests pin, for no gain.
+func (s Secrets) nothingLeftToAsk(spec Spec) bool {
+	return s.CompleteFor(spec.Provider) &&
+		s.hasEscrow() &&
+		len(s.missingInTier(spec, tierCapability)) == 0 &&
+		len(s.missingInTier(spec, tierDestination)) == 0
+}
+
 // Prompt asks for whichever secret is missing.
 //
 // Reads without echo, because a token typed into a terminal that echoes it is a
 // token in a scrollback buffer and, on a shared screen, in someone else's
 // memory. Returns what it has when there is no terminal to ask -- a pipeline
 // gets the flags it passed and no prompt that would hang it.
-func (s Secrets) Prompt(provider string) (Secrets, error) {
-	if s.CompleteFor(provider) || !term.IsTerminal(int(os.Stdin.Fd())) {
+func (s Secrets) Prompt(spec Spec) (Secrets, error) {
+	if s.nothingLeftToAsk(spec) || !term.IsTerminal(int(os.Stdin.Fd())) {
 		return s, nil
 	}
 
-	credName, err := ProviderCredential(provider)
+	credName, err := ProviderCredential(spec.Provider)
 	if err != nil {
 		credName = "the provider's API token"
 	}
@@ -147,7 +176,7 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 	// Hybrid only. Asked here rather than left for the tenant to discover,
 	// because a box that bootstraps without it reports success and then cannot
 	// pass pod traffic between its control plane and its home workers.
-	if needsTailscale(provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
+	if needsTailscale(spec.Provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
 		v, err := readSecret(
 			"TS_AUTHKEY (a Tailscale auth key; the control plane and home workers join your tailnet with it): ")
 		if err != nil {
@@ -202,6 +231,14 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 			}
 		}
 	}
+	// Everything the hub needs beyond the escrow, in the same session: a tenant
+	// asked for four things and then later for nine more has been asked twice
+	// for one onboarding.
+	var perr error
+	if s, perr = promptPlatformCredentials(spec, s); perr != nil {
+		return s, perr
+	}
+
 	return s, nil
 }
 
@@ -213,6 +250,52 @@ func readSecret(prompt string) (string, error) {
 		return "", fmt.Errorf("reading the value: %w", err)
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// promptPlatformCredentials asks for whatever the hub needs and does not have.
+//
+// After the escrow, because the escrow is the one whose absence is unrecoverable
+// and should be answered while the operator is still paying attention.
+func promptPlatformCredentials(spec Spec, s Secrets) (Secrets, error) {
+	capability := s.missingInTier(spec, tierCapability)
+	support := s.missingInTier(spec, tierDestination)
+	if len(capability) == 0 && len(support) == 0 {
+		return s, nil
+	}
+
+	if len(capability) > 0 {
+		fmt.Println("\nCredentials for capabilities this box is configured to use.")
+		fmt.Println("Without them those capabilities cannot work, so they are required.")
+		for _, c := range capability {
+			v, err := readSecret(c.Prompt)
+			if err != nil {
+				return s, err
+			}
+			*c.Field(&s) = v
+		}
+	}
+
+	if len(support) > 0 {
+		// Asked for, and skippable in one keystroke. ADR-067 makes this the
+		// width of the maintenance claim rather than a condition of running, and
+		// a prompt that cannot be declined would misrepresent that.
+		fmt.Println("\nWhere this box exports control-plane telemetry (optional).")
+		fmt.Println("The platform maintains what it can see: supplying these widens the")
+		fmt.Println("support contract and changes nothing about how the box runs (ADR-067).")
+		fmt.Println("Press enter to skip.")
+		for i, c := range support {
+			v, err := readSecret(c.Prompt)
+			if err != nil {
+				return s, err
+			}
+			if i == 0 && strings.TrimSpace(v) == "" {
+				// Declined at the first question rather than nine times.
+				break
+			}
+			*c.Field(&s) = v
+		}
+	}
+	return s, nil
 }
 
 // SetSecrets writes the secrets into the tenant's repository.
@@ -241,6 +324,15 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 		values["INFISICAL_ESCROW_CLIENT_ID"] = strings.TrimSpace(s.EscrowClientID)
 		values["INFISICAL_ESCROW_CLIENT_SECRET"] = strings.TrimSpace(s.EscrowClientSecret)
 		values["INFISICAL_ESCROW_PROJECT_ID"] = strings.TrimSpace(s.EscrowProjectID)
+	}
+
+	// Whatever this box has. Capability credentials are refused earlier when
+	// absent, so anything empty here is a telemetry key the tenant declined --
+	// which is a narrower support contract, not a misconfiguration.
+	for _, c := range platformCredentials() {
+		if v := strings.TrimSpace(*c.Field(&s)); v != "" {
+			values[c.Secret] = v
+		}
 	}
 
 	for name, value := range values {

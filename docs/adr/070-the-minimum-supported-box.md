@@ -79,6 +79,51 @@ A per-tenant control plane is structurally more expensive than a shared one. Thi
 - **Confirms ADR-069.** Support obligations decide the supported topology; this decision does not permit a cheaper one to be promised as though it were supported.
 - No change to the bundle, its promotion, the evidence behind support, or how a build declares its version.
 
+## Addendum 1: the instrument exists and prices itself; the number is unmeasured (2026-09-12)
+
+This ADR is explicit that the range is *"a constraint to validate, not an
+established fact"* and that *"no other decision may rest on it as though it were
+measured"*. That remains true. Nothing here has measured a box.
+
+What exists is the instrument. `scripts/measure/minimum-box.sh` reads a running
+cluster and prices the inventory this ADR names — nodes by instance type,
+primary IPs, block storage, load balancers.
+
+**Prices are fetched live from Hetzner's pricing API, per location, at the moment
+the measurement runs.** The first draft carried a hand-maintained price list,
+which was wrong for the reason this ADR is about: a checked-in figure goes stale
+between the day it is written and the day it is quoted, and a stale number is
+exactly how a constraint becomes an established fact nobody rechecked. Location
+matters more than it looks — the same `cpx31` is €17.49 in `hel1` and €32.49 in
+`sin`, so a measurement that took the first price in the list would report a
+Helsinki box at Singapore rates.
+
+Prices are taken **net of VAT**. The rate is a property of the account, not of
+the architecture, and letting it in would make the same box pass or fail
+depending on who bought it.
+
+Two lines are not in that API and stay declared in `scripts/measure/prices.yaml`:
+object storage for backups, and artefact mirroring. Both are real monthly costs,
+neither is derivable from what is running, and every per-node estimate omits
+them.
+
+The refusal matters more than the arithmetic. **While any line is unpriced the
+tool prints the inventory, names what is missing, and exits non-zero without
+comparing anything to the target.** A total assembled from the lines that
+happened to be priced is not a measurement. Today both off-API lines are unset,
+so that is what it does.
+
+On-premises nodes are counted and reported, never priced — they are the tenant's
+own hardware (ADR-075) — and never treated as a missing price, or a hybrid box
+would read as unmeasurable rather than cheaper.
+
+Two things remain upstream of a real measurement, and neither is in this ADR.
+The supported topology has to be settled from the obligation, which needs
+ADR-066's capability declaration to say what is mandatory; it currently marks six
+of seven selectable capabilities as not yet selectable. And ADR-078 adds two data
+stores and Grafana to every hub, which moves the figure materially. Measuring
+before those land would describe a box nobody ships.
+
 ## References
 
 - ADR-039: Platform Ownership Model

@@ -13,7 +13,7 @@
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean           # tear the last run down
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean publish cli scaffold bootstrap
 #
-# Phases: clean  publish  cli  scaffold  bootstrap  verify
+# Phases: clean  publish  cli  scaffold  bootstrap  verify  adr
 #         (default: the last five. `clean` is opt-in: it destroys a running
 #          cluster and deletes a GitHub repository, so it is never implied.)
 #
@@ -58,12 +58,12 @@ phases=()
 for arg in "$@"; do
     case "$arg" in
         --dry|--skip-push) DRY=1 ;;
-        clean|publish|cli|scaffold|bootstrap|verify) phases+=("$arg") ;;
+        clean|publish|cli|scaffold|bootstrap|verify|adr) phases+=("$arg") ;;
         -h|--help) usage 0 ;;
         *) echo "unknown argument: $arg" >&2; usage 1 ;;
     esac
 done
-[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap verify)
+[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap verify adr)
 
 wants() { printf '%s\n' "${phases[@]}" | grep -qx "$1"; }
 say()   { printf '\n\033[1m[local-e2e] %s\033[0m\n' "$*"; }
@@ -121,81 +121,10 @@ load_credentials() {
 
 # ── Toolchain ───────────────────────────────────────────────────────────────
 
-# Helm 3, specifically. kustomize's HelmChartInflationGenerator shells out to
-# `helm version -c`, which Helm 4 removed, so a Helm 4 toolchain fails every
-# component that inflates a chart from its kustomization -- headlamp and infisical
-# -- and the release workflow pins v3.16.4 for the same reason.
-#
-# Installed here if absent, into a private directory, and never onto PATH beyond
-# this process: a machine's `helm` is the operator's choice and this script has no
-# business changing it. HELM3=/path/to/helm skips the download entirely.
-
-# helm3_pin reads the version from the workflow rather than restating it, so the
-# toolchain this installs cannot drift from the runner's. A packaging difference
-# between a laptop and CI is exactly what this whole path exists to remove.
-helm3_pin() {
-    local v
-    v="$(sed -n '/azure\/setup-helm/,/version:/s/.*version: *//p' \
-         .github/workflows/publish-platform-charts.yml | head -1)"
-    printf '%s' "${v:-v3.16.4}"
-}
-
-is_helm3() { [ -x "$1" ] && "$1" version --short 2>/dev/null | grep -q '^v3\.'; }
-
-install_helm3() {
-    local ver dir os arch url tgz want got
-    ver="$(helm3_pin)"
-    dir="$HOME/.local/helm3"
-    case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;;
-        *) echo "local-e2e: no Helm 3 build for $(uname -s); install it yourself" >&2; return 1 ;; esac
-    case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;;
-        *) echo "local-e2e: no Helm 3 build for $(uname -m); install it yourself" >&2; return 1 ;; esac
-
-    url="https://get.helm.sh/helm-${ver}-${os}-${arch}.tar.gz"
-    say "installing Helm ${ver} (${os}-${arch}) into ${dir}"
-
-    tgz="$(mktemp -d)/helm.tar.gz"
-    curl -fsSL -o "$tgz" "$url" || {
-        echo "local-e2e: could not download ${url}" >&2; return 1; }
-
-    # Verified, because this is a binary fetched over the network and then run.
-    # The publisher's checksum is the only thing that makes that defensible.
-    want="$(curl -fsSL "${url}.sha256sum" | awk '{print $1}')"
-    got="$(shasum -a 256 "$tgz" | awk '{print $1}')"
-    if [ -z "$want" ] || [ "$want" != "$got" ]; then
-        echo "local-e2e: checksum mismatch for ${url}" >&2
-        echo "  published: ${want:-<none>}" >&2
-        echo "  received:  ${got}" >&2
-        rm -rf "$(dirname "$tgz")"
-        return 1
-    fi
-
-    mkdir -p "$dir"
-    tar -xz -C "$dir" --strip-components=1 -f "$tgz" "${os}-${arch}/helm"
-    rm -rf "$(dirname "$tgz")"
-    is_helm3 "$dir/helm" || {
-        echo "local-e2e: installed ${dir}/helm but it does not report v3" >&2; return 1; }
-    echo "Helm $("$dir/helm" version --short) ready"
-}
-
-require_helm3() {
-    if [ -n "${HELM3:-}" ]; then
-        is_helm3 "$HELM3" || { echo "local-e2e: HELM3=$HELM3 is not a Helm 3" >&2; return 1; }
-        PATH="$(cd "$(dirname "$HELM3")" && pwd):$PATH"; export PATH
-        return 0
-    fi
-    if command -v helm >/dev/null && helm version --short 2>/dev/null | grep -q '^v3\.'; then
-        return 0
-    fi
-    for c in "$HOME/.local/helm3/helm" /usr/local/opt/helm@3/bin/helm; do
-        if is_helm3 "$c"; then
-            PATH="$(dirname "$c"):$PATH"; export PATH
-            return 0
-        fi
-    done
-    install_helm3 || return 1
-    PATH="$HOME/.local/helm3:$PATH"; export PATH
-}
+# Helm 3, shared with publish.sh so the local loop and a release package
+# through the same toolchain.
+# shellcheck source=scripts/dev/helm3.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helm3.sh"
 
 require_ghcr_login() {
     local scopes
@@ -453,6 +382,23 @@ do_verify() {
     "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-15m}"
 }
 
+# The acceptance pass. `verify` answers "did this converge"; this answers "does
+# what each decision promised actually hold" -- which is a different question, and
+# the one a run exists to settle. A box can converge perfectly while the bundle
+# names an unpublished chart or a capability switched off is still running.
+do_adr() {
+    local repo="$TENANT-gitops"
+    local kc="$WORKSPACE/$repo/k8-secrets/kubeconfig/$CLUSTER.kubeconfig"
+    [ -r "$kc" ] || {
+        echo "local-e2e: no kubeconfig at $kc; bootstrap has not produced one" >&2
+        return 1
+    }
+    say "asserting ADR-062 through ADR-070 against $CLUSTER"
+    ( cd "$ROOT" && PATH="$ROOT/bin:$PATH" \
+        ./scripts/dev/adr-acceptance.sh "$VERSION" "$WORKSPACE/$repo" "$kc" \
+            "ghcr.io/$OWNER/charts" )
+}
+
 # ── Run ─────────────────────────────────────────────────────────────────────
 
 if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
@@ -511,7 +457,7 @@ preflight() {
     # bootstrap arm and demanded a clone that the very same run was about to make.
     if wants scaffold; then
         wants clean || workspace_is_clear
-    elif wants bootstrap || wants verify; then
+    elif wants bootstrap || wants verify || wants adr; then
         [ -d "$WORKSPACE/$TENANT-gitops" ] || {
             echo "local-e2e: $WORKSPACE/$TENANT-gitops does not exist; run the scaffold phase first" >&2
             return 1
@@ -526,7 +472,7 @@ preflight() {
 
 preflight
 
-for p in clean publish cli scaffold bootstrap verify; do
+for p in clean publish cli scaffold bootstrap verify adr; do
     wants "$p" && "do_$p"
 done
 

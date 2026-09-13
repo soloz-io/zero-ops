@@ -52,8 +52,6 @@ spec:
         env:
         - name: PORT
           value: "8080"
-        - name: OPENMETER_URL
-          value: "http://openmeter-api.platform-billing.svc.cluster.local"
         # Which identity provider backs this service.
         #
         # A setting, not a build. The provider interface was always pluggable;

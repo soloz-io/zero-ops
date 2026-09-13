@@ -2211,7 +2211,7 @@ box-a (Dell,   2C/4T, 15W)  → spoke  2 nodes x  6 GB, 5 vCPU,  1.25:1
 ```
 
 The hub carries the platform — ArgoCD, Crossplane, CAPI/CAPH, cert-manager,
-ESO, Infisical, VictoriaMetrics, ClickHouse, OpenMeter, NATS, CNPG, Kyverno,
+ESO, Infisical, OpenMeter, NATS, CNPG, Kyverno,
 identity — roughly 58 pods and ~1840m of requests. That is concurrency, not a
 latency-sensitive path, so it belongs on the box with more physical cores and
 more power headroom. box-a's Skylake cores are quicker per thread, but that is

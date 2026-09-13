@@ -16,6 +16,7 @@ spec:
   generators:
     - list:
         elements:
+          {{- if .Values.capabilities.database.enabled }}
           - appName: 'platform-database'
             destinationNamespace: 'platform-data'
             isPlatformOwned: 'true'
@@ -47,6 +48,7 @@ spec:
                 provider: {{ include "environment-manager.placementClass" $ | quote }}
               {{- end }}
             helmReleaseName: ''
+          {{- end }}
           {{- if ne (include "environment-manager.placementClass" .) "hybrid" }}
           # NATS is not deployed on a box whose data sits in the on-prem class. It
           # has no consumer inside hub-core-services — it is the messaging layer
@@ -60,6 +62,7 @@ spec:
           # the two can differ (ADR-075) — providers/hybrid carries no nats
           # overlay, so a hetzner box placing its data on-prem would otherwise
           # render an Application against a path that does not exist.
+          {{- if .Values.capabilities.messaging.enabled }}
           - appName: 'platform-nats'
             destinationNamespace: 'platform-messaging'
             isPlatformOwned: 'true'
@@ -91,6 +94,7 @@ spec:
                 provider: {{ include "environment-manager.placementClass" $ | quote }}
               {{- end }}
             helmReleaseName: ''
+          {{- end }}
           {{- end }}
           - appName: 'platform-redis'
             destinationNamespace: 'platform-data'

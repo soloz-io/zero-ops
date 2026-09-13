@@ -65,15 +65,12 @@ const (
 	KeyGitHubToken           = "github-token"
 
 	// Application Secret Keys (Operator uploads directly to Infisical)
-	KeyControlPlaneDBUsername      = "hub-control-plane-db-username"
-	KeyControlPlaneDBPassword      = "hub-control-plane-db-password"
-	KeyHubCentralizedDBUsername    = "hub-centralized-db-username"
-	KeyHubCentralizedDBPassword    = "hub-centralized-db-password"
-	KeyNATSLeafUsername            = "nats-leaf-username"
-	KeyNATSLeafPassword            = "nats-leaf-password"
-	KeyOpenmeterPostgreSQLUsername = "openmeter-postgresql-username"
-	KeyOpenmeterPostgreSQLPassword = "openmeter-postgresql-password"
-	KeyClickhouseAdminPassword     = "platform-clickhouse-admin-password"
+	KeyControlPlaneDBUsername   = "hub-control-plane-db-username"
+	KeyControlPlaneDBPassword   = "hub-control-plane-db-password"
+	KeyHubCentralizedDBUsername = "hub-centralized-db-username"
+	KeyHubCentralizedDBPassword = "hub-centralized-db-password"
+	KeyNATSLeafUsername         = "nats-leaf-username"
+	KeyNATSLeafPassword         = "nats-leaf-password"
 
 	// Labels
 	LabelManagedBy = "app.kubernetes.io/managed-by"

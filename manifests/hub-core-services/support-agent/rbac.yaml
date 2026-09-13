@@ -1,0 +1,35 @@
+# The Support Agent's Kubernetes access, which is none.
+#
+# ADR-077 makes this the form the claim has to take. "The agent is not a
+# control-plane backdoor" is a sentence in a document; a ClusterRole granting no
+# read access to any resource is a fact a tenant's security review confirms in
+# ten seconds, and scripts/validate/cluster/80-support-agent-rbac.sh asserts it
+# against the rendered manifest on every release.
+#
+# There is NO ClusterRole and no binding. Not a minimal one -- none.
+#
+# The draft carried telemeter's two rules, `create` on tokenreviews and
+# subjectaccessreviews, which that project needs for the authenticating proxy in
+# front of its own metrics endpoint. This agent has no such endpoint: it has no
+# Service, no Ingress and no ingress NetworkPolicy rule (ADR-077, "Nothing
+# reaches inward"), so there is nothing for a proxy to authenticate callers TO.
+# Carrying the rules anyway would be standing permission for a component that
+# does not exist, which is exactly the drift every gate in this directory exists
+# to catch -- and it would have been read by a reviewer as a permission the agent
+# needs.
+#
+# So the agent's Kubernetes access is the empty set, and
+# `kubectl auth can-i --list --as=system:serviceaccount:platform-ops:support-agent`
+# returns only what every authenticated identity has. It reads the metrics
+# endpoints platform components already expose over HTTP, and the ADR-045
+# artefacts already on disk. Granting anything here is a change to the platform's
+# boundary and belongs in an amendment to ADR-077, not in a commit that needed a
+# field.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: support-agent
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support

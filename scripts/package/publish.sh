@@ -36,6 +36,26 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then err() { echo "::error::$*"; }
 else                                 err() { echo "error: $*" >&2; }; fi
 
+# The packaging toolchain, pinned.
+#
+# kustomize's HelmChartInflationGenerator shells out to `helm version -c`, which
+# Helm 4 removed -- so on a machine with Helm 4 on PATH every component that
+# inflates a chart from its kustomization fails with "unknown shorthand flag:
+# 'c'", and it reads like a broken manifest rather than a toolchain fault. The
+# release workflow pins Helm 3 for the same reason; this makes a local run use
+# the same one, which is the property that lets a local package stand in for a
+# released one at all (ADR-068 addendum 1).
+#
+# Skipped in CI, where the workflow has already installed the pinned Helm.
+if [ -z "${GITHUB_ACTIONS:-}" ]; then
+    # shellcheck source=scripts/dev/helm3.sh
+    . "$(cd "$(dirname "$0")/../dev" && pwd)/helm3.sh"
+    require_helm3 || {
+        echo "publish: no Helm 3 available; packaging would differ from a release" >&2
+        exit 1
+    }
+fi
+
 rm -rf dist/charts dist/dist dist/pkg
 mkdir -p dist/charts
 

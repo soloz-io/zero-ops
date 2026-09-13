@@ -23,7 +23,7 @@ Platform-driven topology scaling and provisioning halts. Spoke-local autoscaling
 Hub APIs become read-only or completely unavailable. Platform tenant onboarding and provisioning operations halt. Existing Spoke workloads remain unaffected.
 
 **Crossplane Failure:**
-Existing infrastructure (CNPG databases, Redis, ClickHouse) running on Spokes remains fully operational. Crossplane `provider-kubernetes` ceases synchronization. Infrastructure mutations, deletions, and new XR provisions queue until Crossplane is restored.
+Existing infrastructure (CNPG databases, Redis) running on Spokes remains fully operational. Crossplane `provider-kubernetes` ceases synchronization. Infrastructure mutations, deletions, and new XR provisions queue until Crossplane is restored.
 
 **ArgoCD Failure:**
 Tenant workloads (BFF, Frontend, Waypoint) continue running. GitOps synchronizations halt. Tenant CI/CD updates to image digests fail to deploy. Existing deployments cannot scale or roll back via GitOps.

@@ -124,6 +124,37 @@ Control planes will run different bundle versions, and the platform supports the
 - **Constrains ADR-067.** Evidence for support crosses outward under a tenant's grant; no platform component initiates a connection into a box.
 - A platform-operated control plane shared by several tenants is out of scope here and is left to a separate ADR.
 
+## Addendum 1: the platform opens no pull requests; the tenant's own automation does (2026-09-12)
+
+The decision above describes the mechanism as a platform-side actor: *"it reads
+the tenant's `<tenant>-gitops` repository, opens branches and pull requests
+against it"*, through a scoped and revocable App installation.
+
+That is not what was built, and what was built is stronger. **The platform holds
+no access to any tenant repository at all.** Promotion is the tenant's own
+Renovate, running in the tenant's organisation, watching the public chart
+registry and opening pull requests against its own repository
+(`manifests/tenants/gitops-template/renovate.json`). The pre-flight verdict those
+proposals now carry is likewise produced inside the box, by the tenant's CI,
+against the tenant's cluster (ADR-067 addendum 2).
+
+The clause is therefore amended rather than implemented. *"The platform's
+authority ends at a pull request"* understated it: the platform's authority ends
+at **publishing a version**. There is no delegated access to revoke, because
+none was ever granted, and the failure mode a revocable grant still carries —
+that someone must remember it exists — does not arise.
+
+What this ADR gets right is unchanged and is what the implementation preserves:
+the platform proposes and never applies, the tenant decides, and a tenant that
+stops listening keeps a working box. What changes is that the platform is one
+step further out than this ADR claimed.
+
+One consequence worth naming. Proposals now depend on the tenant running
+Renovate; a tenant who disables it stops receiving them and the platform cannot
+tell. Under the original design the platform would have known. That is a real
+loss of signal, and it is the reason ADR-067's export is the evidence a
+maintenance obligation rests on rather than the proposal record.
+
 ## References
 
 - ADR-031: Tenant Secret Isolation and Identity Topology

@@ -7,6 +7,25 @@
 - [ADR 002: Hub CNPG Database Migration Pattern](./002-hub-cnpg-database-migration-pattern.md)
 - [ADR 006: Multi-Tenant Database Pattern](./006-multi-tenant-database-pattern.md)
 
+## Addendum 1: ClickHouse has been withdrawn (2026-09-12)
+
+This ADR governs three stateful capabilities — PostgreSQL, Redis and ClickHouse
+— and **ClickHouse is no longer shipped**. Its manifests, its Altinity operator,
+its ExternalSecrets and the two Infisical mappings that seeded its passwords have
+been removed from the platform.
+
+Everything below about ClickHouse is therefore historical: the
+`ClickHouseInstallation` topology, its placement rules, its database-level
+isolation and its backup contract describe a component no box runs. **The
+decisions about PostgreSQL and Redis are unaffected and remain in force**,
+including the rule that every stateful workload runs on worker nodes and never
+on a control-plane node.
+
+ADR-049 had already deferred ClickHouse from the active pipeline; this completes
+that by removing it. OpenMeter, which used it as its event store, is retained and
+now has no aggregation backend configured — choosing one is a metering decision
+this ADR does not make (see ADR-078, "Out of scope").
+
 ## Context
 
 Applications requiring stateful infrastructure (PostgreSQL, Redis, ClickHouse) can either deploy embedded databases via Helm chart dependencies or consume platform-provided centralized services.

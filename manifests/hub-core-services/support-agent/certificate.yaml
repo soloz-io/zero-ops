@@ -1,0 +1,63 @@
+# The Support Agent's enrolment, which is a certificate and not a token.
+#
+# ADR-077 addendum 1: in an agent-to-principal design the certificate IS the
+# credential. Identity lives in it, the receiving end validates it against its
+# own CA and extracts the agent ID from the subject, and revocation is a
+# fingerprint blocklist at that end. There is no token to leak, no first-use
+# exchange, and no window during which a long-lived secret exists.
+#
+# ISSUED BY THE ISSUANCE THIS BOX ALREADY RUNS. ADR-066 makes certificate
+# issuance machinery every box carries, so the agent's credential is one more
+# leaf from it: nothing new holds a secret, and it rotates on the same machinery
+# as everything else here.
+#
+# THE SECRET'S EXISTENCE IS THE ENROLMENT. The agent treats a readable
+# certificate as "enrolled" and anything else as "not enrolled", re-read every
+# cycle. A tenant un-enrols by deleting this Certificate; the Secret goes with
+# it, the agent stops reporting within one interval, and nothing else changes.
+# That is ADR-067's revocability expressed as an object a tenant can delete.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: support-agent-client
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+spec:
+  secretName: support-agent-client-tls
+  # Short, and reissued well before expiry. "Short-lived" is a validity period
+  # rather than a protocol (ADR-077 addendum 1): the concern behind the original
+  # token exchange was a credential whose compromise is undetectable and whose
+  # revocation depends on someone remembering it exists. A 30-day leaf that
+  # renews at 10 days, plus a blocklist that does not wait for expiry, answers
+  # that more completely than an exchange would.
+  # 24h/8h, which is what every other agent identity in this platform already
+  # uses (argocd-agent, alloy and the NATS leaf node all carry exactly these
+  # values in manifests/spoke/spoke-catalog/infra/certificates.yaml). A support
+  # credential is not more special than a reconciliation credential, and a
+  # second rotation cadence is a second thing to be wrong about.
+  duration: 24h
+  renewBefore: 8h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    # A new key on every renewal. Rotating the certificate while keeping the key
+    # leaves the thing most worth stealing unchanged for the life of the box.
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    # The only usage that matters here. This certificate authenticates a client
+    # and never serves anything -- the component has no Service and no Ingress.
+    - client auth
+  # The box's identity, and the only field the platform reads to know who is
+  # reporting. ADR-051 makes the DNS zone a box's authoritative identity, so the
+  # hub domain is what the subject carries. Templated per cluster: a literal here
+  # would make every box in the field report as whichever one this was written
+  # on, which is the failure ADR-063's portability gate exists to catch.
+  commonName: support-agent:PLACEHOLDER_HUB_DOMAIN
+  issuerRef:
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer
+    group: infisical-issuer.infisical.com

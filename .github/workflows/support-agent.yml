@@ -1,0 +1,84 @@
+# Build and publish the Support Agent image.
+#
+# Same shape as every other component image here. It is separate from
+# publish-platform-charts because the agent is a container the bundle REFERENCES,
+# not content the bundle carries: a chart release does not rebuild it, and a code
+# change to the agent does not need a bundle version.
+name: support-agent
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - cmd/support-agent/**
+      - internal/support/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          # The repository root: the Dockerfile builds from the module, because
+          # the agent's collection engine lives in internal/support and a context
+          # of cmd/support-agent could not reach it.
+          context: .
+          file: cmd/support-agent/Dockerfile
+          # amd64 only, for the reason recorded in the other image workflows:
+          # every node in the fleet is x86, and these Dockerfiles do not
+          # cross-compile, so a non-native leg runs under QEMU for nothing.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/zero-ops/support-agent:${{ github.sha }}
+            ghcr.io/soloz-io/zero-ops/support-agent:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Pull latest remote changes
+        run: git pull --rebase
+
+      # Pinned by digest, not by tag. A floating tag means two boxes bootstrapped
+      # a week apart run different agents while both claim the same bundle
+      # version, and the support evidence they send is then not comparable.
+      - name: Pin the digest in both components
+        run: |
+          set -euo pipefail
+          digest="${{ steps.build.outputs.digest }}"
+          cd manifests/hub-core-services/support-agent
+          kustomize edit set image "support-agent=ghcr.io/soloz-io/zero-ops/support-agent@${digest}"
+          cd -
+          # The spoke agent is a plain multi-document manifest, not a
+          # kustomization, so its reference is rewritten in place.
+          sed -i.bak -E \
+            "s|image: ghcr.io/soloz-io/zero-ops/support-agent@sha256:[a-f0-9]+|image: ghcr.io/soloz-io/zero-ops/support-agent@${digest}|" \
+            manifests/spoke/spoke-catalog/infra/support-agent.yaml
+          rm -f manifests/spoke/spoke-catalog/infra/support-agent.yaml.bak
+          ./scripts/package/embed-platform-assets.sh
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifests/hub-core-services/support-agent/kustomization.yaml \
+                  manifests/spoke/spoke-catalog/infra/support-agent.yaml \
+                  internal/platform/embedded
+          git commit -m "chore(support-agent): update image to ${{ github.sha }}" || exit 0
+          git push

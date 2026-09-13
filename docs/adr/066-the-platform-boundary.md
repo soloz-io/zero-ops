@@ -63,23 +63,23 @@ A selected capability is provisioned once per box and used as often as the tenan
 
 This is what lets the box adapt without the platform being consulted, and it is the difference between a golden path and a menu.
 
-### The catalogue is how a capability is added
+### The bundle's capability declaration is how a capability is added
 
-Capabilities are declared in a catalogue the bundle carries, and a tenant selects from it in the values its cluster supplies (ADR-063). Selection is a value and never a version, so adopting a capability and upgrading a bundle are independent acts and neither blocks the other.
+Capabilities are declared in the bundle itself, and a tenant selects from that declaration in the values its cluster supplies (ADR-063). The declaration travels inside the artefact it describes; there is no second body of curated content beside the platform, which is what ADR-071 refuses. Selection is a value and never a version, so adopting a capability and upgrading a bundle are independent acts and neither blocks the other.
 
-A capability enters the catalogue by being packaged and versioned with the bundle, and certified against it: tested with the machinery at that bundle version, not against every other capability. The machinery is one tested substrate; each capability is certified against that substrate and declares what it requires of it.
+A capability enters the declaration by being packaged and versioned with the bundle, and certified against it: tested with the machinery at that bundle version, not against every other capability. The machinery is one tested substrate; each capability is certified against that substrate and declares what it requires of it.
 
 Testing every combination is not possible and is not what a bundle version claims. Ten independently selectable capabilities are a thousand combinations, and a claim to have exercised them all would be false in a way nobody could check. What is claimed is narrower and true: this substrate was tested, and each capability was tested on it.
 
 Where two capabilities genuinely interact -- a database and the metering that reads it -- the interaction is itself declared and certified, so a pair that must be tested together is named rather than assumed.
 
-### A capability has a lifecycle, and leaving the catalogue is part of it
+### A capability has a lifecycle, and leaving the declaration is part of it
 
-A capability moves through declared states: **catalogued** and installable, **supported** and maintained on every box running it, **deprecated** and still maintained but closed to new selection, **end-of-life** with maintenance ending on a stated date, and **removed** from the catalogue.
+A capability moves through declared states: **declared** and installable, **supported** and maintained on every box running it, **deprecated** and still maintained but closed to new selection, **end-of-life** with maintenance ending on a stated date, and **removed** from the declaration.
 
 Every state but the last carries maintenance. Deprecation is an announcement with a date, not a withdrawal, and a tenant running a deprecated capability keeps being maintained until that date passes.
 
-Without this, "nothing reaches a tenant's box that the platform is not prepared to maintain there" is a promise with no end, and every capability ever catalogued would have to be maintained forever. The economics of this platform are decided by what enters the catalogue and what is allowed to leave it, so both are decisions rather than events.
+Without this, "nothing reaches a tenant's box that the platform is not prepared to maintain there" is a promise with no end, and every capability ever declared would have to be maintained forever. The economics of this platform are decided by what enters the declaration and what is allowed to leave it, so both are decisions rather than events.
 
 What the platform owes a tenant whose capability reaches end-of-life -- a migration path, a supported successor, or notice alone -- is a support-contract question this ADR does not settle.
 
@@ -94,6 +94,30 @@ Cluster-machinery state is not placed on on-premises nodes. Those nodes carry ca
 **Maintain the tenant's applications too.** Rejected. Their logic, images and data are the tenant's, the platform holds no access to the repositories carrying them (ADR-062), and nothing the platform knows would let it maintain them.
 
 **Let each tenant draw its own boundary.** Rejected. A support obligation that varies per tenant cannot be stated once, and the uniformity of the platform is what makes a single tested bundle meaningful under ADR-063.
+
+## Capabilities
+
+The declaration this ADR requires, checked by
+`scripts/validate/architecture-consistency.py`. This ADR stays **Proposed** while
+any of them is `planned` — and six of the seven selectable ones are, because only
+`onPrem.enabled` is a real toggle today.
+
+```architecture
+capabilities:
+  - gitops-engine
+  - cluster-lifecycle
+  - secret-delivery
+  - certificate-issuance
+  - dns
+  - gateway
+  - admission-policy
+  - capacity-lifecycle
+  - on-prem-capacity
+  - database
+  - identity
+  - messaging
+  - metering
+```
 
 ## Ownership
 
@@ -129,15 +153,121 @@ The floor price is not bounded by cluster machinery. A box costs its machinery p
 
 The boundary runs through some components rather than between them. An identity provider serves both the platform's own access and the tenant's end users; a metrics store holds both. Each such component needs its two sides named, and the second side is the tenant's data with the retention and disclosure obligations that follow.
 
-Every capability added to the catalogue is a permanent maintenance obligation across every box that selects it. Adding one is a decision about the platform's cost base, not a feature.
+Every capability added to the declaration is a permanent maintenance obligation across every box that selects it. Adding one is a decision about the platform's cost base, not a feature.
 
 ## Impact
 
 - **Amends ADR-065.** What ships into a box is the cluster machinery plus the capabilities a tenant selects, and the platform maintains both.
-- **Amends ADR-063.** A bundle is the tested set of the machinery and every catalogue capability; a box runs the machinery and its selections.
+- **Amends ADR-063.** A bundle is the tested set of the machinery and every declared capability; a box runs the machinery and its selections.
 - **Confirms ADR-062.** Application logic stays in tenant-owned repositories the platform holds no access to, which is the same line drawn from the other side.
 - **Confirms ADR-046 and ADR-052.** On-premises nodes carry capabilities and burst capacity.
 - **Constrains ADR-013.** Observability spans the boundary, so its components are classified explicitly rather than by location.
+
+## Addendum 1: "catalogue" was the wrong word, and the declaration is a file (2026-09-12)
+
+This ADR said *"the catalogue is how a capability is added"*. ADR-071 says
+*"This platform publishes no catalog"*, rejecting kubefirst's separately curated
+`gitops-catalog` repository. Read together the two ADRs appeared to contradict
+each other, and neither could be implemented while they did.
+
+They do not disagree about anything substantive. What ADR-071 refuses is a
+**second body of maintained content beside the platform** — content the platform
+maintains but only some tenants run, curated and versioned apart from the bundle.
+What this ADR requires is that the bundle **say what it carries**. The word
+"catalogue" was doing both jobs, and it is withdrawn: the thing is the bundle's
+**capability declaration**, it travels inside the artefact it describes, and
+nothing is curated beside the platform.
+
+The declaration is now a file: `manifests/architecture/components.yaml`, under
+`capabilities:`. It records for each capability whether it is machinery or
+selectable, the values path that selects it, its lifecycle state and end-of-life
+date, the components that realise it, and the pairs certified together.
+`scripts/validate/architecture-consistency.py` checks it, and this ADR cannot
+reach Accepted while anything it declares is still `planned` — which is what
+stops the declaration being a list of intentions.
+
+## Addendum 2: selection is wired for four of seven (2026-09-12)
+
+*"A tenant runs what it needs and does not carry the rest"* was true of nothing.
+Every capability was unconditionally on, so selection existed in this ADR and in
+no cluster. Four now select:
+
+| capability | value | |
+|---|---|---|
+| on-prem capacity | `onPrem.enabled` | was already wired |
+| database | `capabilities.database.enabled` | new |
+| messaging | `capabilities.messaging.enabled` | new |
+| observability | `capabilities.observability.enabled` | new |
+
+**Every default is `true`, and that is load-bearing rather than tidy.** These
+capabilities run on every existing box, so a default of `false` would remove them
+on the first sync of the version that introduced the flag. A promotion that
+silently deletes a tenant's database is the worst thing this mechanism could do,
+and ADR-064 makes promotions routine. A tenant turns one off deliberately and
+never by accepting an upgrade.
+
+Wiring observability surfaced a constraint worth recording. A capability gate
+cannot live on a component **descriptor**: the released path globs descriptors
+out of the chart and the development path reads them from git, and only the
+first can filter — so the gate would take effect in a released box and not in a
+development one. ADR-068 is explicit that those two paths must not diverge, and
+two defects have already reached clusters through exactly that gap. So a
+capability whose presence is selectable is declared inline in its boundary,
+which is the same test ADR-061 already applies to a component whose *source* is
+parameterised. `grafana-alloy` moved accordingly, and into `inline-charts.sh`
+with it — leaving that out would have published a bundle naming a chart no
+release produced.
+
+Three remain unselectable, each for a stated reason rather than for want of
+effort:
+
+- **identity** is entangled with the OIDC wiring every other component
+  authenticates against; a flag that switched it off would leave the gateway,
+  the auth proxy and ArgoCD's GitHub auth resolving nothing.
+- **object storage** is selected by supplying a destination, not by deploying
+  anything, so there is no Application to gate. Its selection mechanism is the
+  credential tiering, which is not yet a cluster value. (`platform-storage` is
+  not this — that is the on-prem local-path provisioner.)
+- **metering** is applied by no component at all today.
+
+This ADR stays **Proposed** until all three select, which is what
+`scripts/validate/architecture-consistency.py` enforces.
+
+## Addendum 3: two reclassifications, and what is left selectable (2026-09-12)
+
+Addendum 2 left three capabilities unselectable and read as three pieces of
+missing work. Two were not: they were misclassifications, and building toggles
+for them would have produced states nobody wants.
+
+**`identity` is machinery.** This ADR's own test for machinery is that a box
+cannot function without it. The gateway is machinery and resolves an OIDC issuer
+from identity; the auth proxy, ArgoCD's login and every relying party follow the
+same value. A box with identity switched off has a gateway that authenticates
+nobody — a supported-looking state with nothing behind it. Reclassified rather
+than given a toggle.
+
+**`object storage` is not a capability in this sense at all.** It is a
+*destination*: selected by supplying an S3 endpoint and credentials, with no
+Application to gate and nothing deployed either way. It sat in a table of things
+that have Applications, which is why its `enable` field read as a fiction. Its
+selection mechanism is the credential tiering in
+`internal/soloz-cli/tenant/platform_credentials.go`, which already distinguishes
+a capability the platform refuses to run without from a destination it reports
+the absence of. Removed from the declaration; it is not lost, it is recorded
+where it belongs.
+
+**`metering` stays declared and `planned`**, because it is neither of the above
+— it is a decision not yet made. OpenMeter has been withdrawn (it wanted
+ClickHouse, Kafka and Svix for a capability no box ran), and the replacement is
+the PostgreSQL implementation already written at
+`internal/kube-sbt/providers/metering`, on the CNPG cluster every box runs. What
+is outstanding is an ADR for it, not a toggle.
+
+**What is selectable now:** `on-prem-capacity`, `database`, `messaging`,
+`observability`, `support`, `metering`. The first four work today. `support`
+defaults false until its image and Support Plane exist; `metering` awaits its
+decision. Both are recorded in the declaration with their reasons rather than
+left as gaps someone has to rediscover.
 
 ## References
 

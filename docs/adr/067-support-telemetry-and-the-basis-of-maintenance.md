@@ -120,6 +120,62 @@ Two clauses above are refined by ADR-077 rather than replaced:
 
 Nothing in the original decision is withdrawn. Support obligations still follow the export and are still graded by it; what is now stated is which export.
 
+## Addendum 2: the pre-flight verdict has a mechanism (2026-09-12)
+
+*"A proposal is gated on evidence from its target"* was the clause with nothing
+behind it. A proposal arrived as a version bump with release notes, and whether
+that version was safe for **this** cluster was a judgement the tenant had no way
+to make and the platform had no standing to make for them — it holds no access
+to the cluster and under ADR-065 never will.
+
+`soloz proposal preflight` is that judgement, made where the cluster is. The
+tenant's own CI runs it on the pull request, in the tenant's runners, under the
+tenant's secrets; only the verdict is ever seen elsewhere. It checks that the
+release's declared minimum permits the step this cluster is taking, that the
+candidate is actually published where this box pulls from, and that the cluster
+is reconciling now.
+
+Three outcomes, and the third is the one this ADR named: **pass**, **fail**, and
+**unverified**. A check that cannot run returns unverified rather than passing,
+because a verdict that silently degrades to "fine" when it could see nothing is
+worse than no verdict — it is indistinguishable, to whoever merges it, from one
+that looked. A tenant with no kubeconfig in CI gets an unverified proposal that
+says what that means, which is the honest answer and not a failure.
+
+Failing exits non-zero so the tenant's own branch protection can act on it.
+Unverified does not, unless the tenant asks: blocking every merge on a check
+that could not reach the cluster is how a check gets deleted rather than fixed,
+and whether to require it is the tenant's rule to set (ADR-065).
+
+`internal/soloz-cli/proposal/`, `cmd/soloz/proposal.go`, and
+`.github/workflows/bundle-preflight.yml` in the tenant template.
+
+
+## Acceptance
+
+What proves the decisions above, rather than restating them. Checked by
+`scripts/validate/architecture-consistency.py`, which refuses an ADR naming
+proof that does not exist or that nothing runs.
+
+```architecture
+acceptance:
+  - scripts/validate/cluster/80-support-agent-rbac.sh
+  - scripts/validate/cluster/81-support-agent-allowlist.sh
+  - scripts/validate/cluster/82-support-agent-independence.sh
+  - scripts/validate/cluster/83-support-agent-no-ingress.sh
+  - internal/support
+  - internal/soloz-cli/proposal
+```
+
+Three claims and their instruments. *"No platform component queries a box"* is a
+ClusterRole with no read verb (80) and a component with no inbound path (83) —
+both properties of the manifests, true whatever the agent's code does. *"Bounded
+and knowable in advance"* is the allowlist (81) enforced against the shipped
+contract with a fixture cluster full of tenant identifiers (`internal/support`).
+*"A proposal is gated on evidence from its target"* is the verdict, including
+that a check which could not run never reads as a pass
+(`internal/soloz-cli/proposal`).
+
 ## References
 
 - ADR-013: Hub-Spoke Observability Architecture with Dual Collection Patterns

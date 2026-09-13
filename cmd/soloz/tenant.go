@@ -92,6 +92,8 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts",
 		"registry published bundles are pulled from (no scheme)")
 	f.BoolVar(&scaffoldSpec.Private, "private", true, "create the repository private")
+	f.BoolVar(&scaffoldSpec.PrivateRegistry, "private-registry", false,
+		"this tenant runs private images; a registry credential becomes required (ADR-066)")
 	// The tenant's own credentials. Flags so automation can supply them; prompted
 	// when a terminal is present and they are absent; and when neither, the run
 	// stops after creating the repository and says what remains.
@@ -123,8 +125,40 @@ what a tenant would receive before any repository exists.`,
 	return cmd
 }
 
+// ADR-068: "Overriding a source requires naming its version." A build may be
+// pointed at another registry or repository; doing so without also stating the
+// version to request is refused rather than defaulted.
+//
+// The default is the version THIS BINARY carries, and the overridden source is
+// not known to hold it. Defaulting produces a repository pinned to a version the
+// registry it names may never have published, and the failure surfaces at the
+// first Application that cannot load its source -- long after the run that
+// chose it reported success.
+func refuseUndeclaredSourceOverride(cmd *cobra.Command) error {
+	f := cmd.Flags()
+	if f.Changed("bundle-version") {
+		return nil
+	}
+	for _, name := range []string{"bundle-registry", "platform-repo"} {
+		if !f.Changed(name) {
+			continue
+		}
+		return fmt.Errorf(
+			"--%s points at a source this build did not publish to, so the "+
+				"version it would request (%q, the version this CLI carries) is "+
+				"not known to be there. Pass --bundle-version naming a version "+
+				"that source holds (ADR-068)",
+			name, defaultBundleVersion())
+	}
+	return nil
+}
+
 func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
+
+	if err := refuseUndeclaredSourceOverride(cmd); err != nil {
+		return err
+	}
 
 	// A development box reads the platform chart from the branch under test, so
 	// the change being tested is the change the cluster reconciles. Resolved here
@@ -234,7 +268,7 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	}
 	if !scaffoldNoPrompt {
 		var err error
-		if secrets, err = secrets.Prompt(scaffoldSpec.Provider); err != nil {
+		if secrets, err = secrets.Prompt(scaffoldSpec); err != nil {
 			return err
 		}
 	}
@@ -248,6 +282,21 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 		w.Flush()
 		return err
 	}
+
+	// What this box's own configuration calls for, and only that. A development
+	// box is not asked for object storage; a tenant running public images is
+	// never asked for a registry credential. Asking for either anyway would turn
+	// an implementation detail of the platform into an onboarding requirement.
+	if err := secrets.RequireSelectedCapabilities(scaffoldSpec); err != nil {
+		tenant.HandoverInstructions(scaffoldSpec, secrets, w)
+		w.Flush()
+		return err
+	}
+
+	// Where this box's own telemetry goes, if anywhere. Said plainly and
+	// carrying no consequence: every capability ships to every tenant, and an
+	// unconfigured destination withholds nothing.
+	fmt.Fprintf(w, "\n%s\n", secrets.ObservabilityDestination(scaffoldSpec))
 
 	// Provider-aware: a hybrid box also needs a tailnet key, and dispatching
 	// without one starts a run the workflow refuses on purpose.

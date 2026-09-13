@@ -120,7 +120,7 @@ A release gate asserts that no Support Agent collector names an observability co
 
 ## Out of scope
 
-**Metering.** OpenMeter is a billing system, not an observability one, and its architecture is a separate decision. Noted rather than decided here: OpenMeter and its ClickHouse are applied by no component, while `cmd/kube-sbt/main.go:24` defaults to `http://openmeter-api.platform-billing.svc.cluster.local` and kube-sbt *is* deployed — a running component calling a Service nothing creates. The architecture-consistency gate now reports it rather than leaving it to be noticed.
+**Metering.** OpenMeter is a billing system, not an observability one, and its architecture is a separate decision. Noted rather than decided here: OpenMeter is applied by no component, while `cmd/kube-sbt/main.go:24` defaults to `http://openmeter-api.platform-billing.svc.cluster.local` and kube-sbt *is* deployed — a running component calling a Service nothing creates. Its event store has since been withdrawn from the platform, so `config.aggregation` is unset and adopting metering means choosing a backend before anything else. The architecture-consistency gate reports the orphan rather than leaving it to be noticed.
 
 **Alert routing and on-call.** §6. The platform evaluates; the tenant decides who is woken.
 
@@ -131,6 +131,8 @@ A release gate asserts that no Support Agent collector names an observability co
 Registered in `manifests/architecture/components.yaml` and checked by `scripts/validate/architecture-consistency.py`. This ADR stays **Proposed** until every one of them is shipped and applied, which is the mechanism that keeps a decision from resting on a component nothing deploys.
 
 ```architecture
+capabilities:
+  - observability
 components:
   - grafana-alloy
   - victoriametrics
@@ -186,6 +188,18 @@ See ADR-039 for the complete ownership matrix.
 - `internal/soloz-cli/bootstrap/hubdomain.go:83` — `victoriametrics.hub.<domain>` resolves to something.
 - Dashboard JSON becomes a packaged artifact set.
 - A new release gate asserts the Support Agent names no observability component (§8).
+
+## Acceptance
+
+```architecture
+acceptance:
+  - scripts/validate/cluster/82-support-agent-independence.sh
+```
+
+§8 is the only claim in this ADR with a proof today, and it is the one most
+likely to be defeated by a later convenience: once a store exists in the box,
+pointing the agent at it is one line and reads as a simplification. The rest of
+this ADR claims components, and check A is what holds those.
 
 ## References
 

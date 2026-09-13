@@ -32,6 +32,8 @@ func main() {
 	rootCmd.AddCommand(newKubeconfigCmd())
 	rootCmd.AddCommand(newTenantCmd())
 	rootCmd.AddCommand(newBundleVersionCmd())
+	rootCmd.AddCommand(newProposalCmd())
+	rootCmd.AddCommand(newSupportCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

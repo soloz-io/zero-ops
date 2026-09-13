@@ -43,15 +43,6 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
-  # Allow OpenMeter API (same namespace)
-  - to:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/name: openmeter
-          app.kubernetes.io/component: api
-    ports:
-    - protocol: TCP
-      port: 8080
   # The identity provider's API, over HTTPS.
   #
   # Needed because the issuer is reached at its PUBLIC URL, not an in-cluster

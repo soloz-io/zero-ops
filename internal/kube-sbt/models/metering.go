@@ -9,7 +9,8 @@ import (
 // MeterSpec defines a usage metric (Req 14)
 // ARCHITECTURAL NOTE: Used by hub-operator CRD, not kube-sbt REST API
 // CORRECTED (Gap 3.1): Tenant aggregation requires GroupBy attributes, not compound subject IDs
-// Reference: archived/billing-metering/openmeter/openmeter/streaming/clickhouse/meter_query.go:L156-L180
+// Verified against OpenMeter's own meter-query implementation: subject filtering
+// is exact-match, with no wildcard or prefix form.
 // OpenMeter FilterSubject does NOT support wildcard/prefix matching
 // Solution: AgentGateway emits tenant_id as OTLP attribute, meter uses GroupBy["tenant_id"]
 type MeterSpec struct {

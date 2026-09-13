@@ -555,7 +555,8 @@ func (m *MeteringProvider) ListPlans(ctx context.Context, namespace string) ([]m
 
 // GetUsage queries usage data with namespace isolation (Req 2, 3)
 // CORRECTED (Gap 3.1): Tenant aggregation via GroupBy attributes, not FilterSubject wildcard
-// Reference: archived/billing-metering/openmeter/openmeter/streaming/clickhouse/meter_query.go:L156-L180
+// Verified against OpenMeter's own meter-query implementation: subject filtering
+// is exact-match, with no wildcard or prefix form.
 func (m *MeteringProvider) GetUsage(ctx context.Context, namespace string, filter models.UsageFilter) (*models.UsageReport, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("openmeter: namespace is required")

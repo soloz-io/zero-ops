@@ -169,6 +169,22 @@ jobs:
           # Read by hub-operator through the Secret Day-0 creates from them. Empty
           # is a box whose master keys exist only inside it, which the bootstrap
           # says out loud rather than passing over.
+          # Required for the hub to come up HEALTHY, not optional extras. Absent,
+          # the cluster bootstraps and then sits with ExternalSecrets retrying
+          # forever: no database backups, an observability agent that will not
+          # start, and no way to pull the tenant's own private images (ADR-066
+          # makes those workloads theirs). Scaffolding collects them and refuses
+          # to dispatch without them; this passes them to the Day-0 that writes
+          # them into the cluster.
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          GRAFANA_CLOUD_API_KEY: ${{ secrets.GRAFANA_CLOUD_API_KEY }}
+          GRAFANA_CLOUD_PROMETHEUS_URL: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_URL }}
+          GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
+          GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}
+          GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           INFISICAL_ESCROW_URL: ${{ secrets.INFISICAL_ESCROW_URL }}
           INFISICAL_ESCROW_PROJECT_ID: ${{ secrets.INFISICAL_ESCROW_PROJECT_ID }}
           INFISICAL_ESCROW_CLIENT_ID: ${{ secrets.INFISICAL_ESCROW_CLIENT_ID }}

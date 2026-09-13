@@ -1,6 +1,6 @@
 ---
 # NetworkPolicy for platform-redis
-# Allows ingress from platform-billing namespace (OpenMeter, Svix)
+# Allows ingress from platform-billing namespace (kube-sbt)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -13,7 +13,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow from platform-billing namespace (OpenMeter, Svix)
+    # Allow from platform-billing namespace (kube-sbt)
     - from:
         - namespaceSelector:
             matchLabels:

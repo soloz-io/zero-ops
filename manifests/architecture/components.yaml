@@ -1,0 +1,288 @@
+# The components the platform's architecture decisions name, and where each one
+# actually lives.
+#
+# scripts/validate/architecture-consistency.py joins this to the ADRs and to the
+# component descriptors. The join is the point: an ADR that names a runtime
+# component the repository cannot resolve fails a release, and a directory under
+# manifests/hub-core-services/ that nothing applies fails one too.
+#
+# Both halves of that were needed. ADR-013 named five components and four were
+# never written -- that is the first half. The fifth, VictoriaMetrics, WAS
+# written, reviewed and merged, and then referenced by no descriptor, so 577
+# lines of operator, VMCluster, ingress and a working alert rule sat in the tree
+# for four months without ever reaching a cluster -- that is the second.
+#
+#   status: shipped   built, and something applies it
+#   status: planned   decided in an ADR, not built or not yet wired
+#
+# `planned` is deliberately cheap to write and expensive to keep: the gate
+# refuses to let an ADR reach Accepted while anything it names is planned. That
+# makes accepting a decision the moment its claims have to be true.
+
+components:
+  # ── Observability (ADR-078) ─────────────────────────────────────────────
+  - name: grafana-alloy
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/hub-core-services/grafana-alloy
+    note: >-
+      Deployed as a DaemonSet on hub and spoke. ADR-078 rewrites where it
+      writes to and what it scopes to; it does not replace the component.
+
+  - name: victoriametrics
+    declared_by: [078-the-observability-capability.md]
+    status: planned
+    path: manifests/hub-core-services/victoriametrics
+    note: >-
+      Operator, VMCluster, CRDs and ingress, all written and none applied. The
+      exact orphan this gate exists to catch. Planned until a boundary-03
+      descriptor names it.
+
+  - name: victoriametrics-alerts
+    declared_by: [078-the-observability-capability.md]
+    status: planned
+    path: manifests/hub-core-services/victoriametrics-alerts
+    note: >-
+      `platform-core-alerts`, 211 lines of working pod-health and memory
+      expressions, applied to nothing. Needs VMAlert and a descriptor.
+
+  - name: victoria-logs
+    declared_by: [078-the-observability-capability.md]
+    status: planned
+    note: >-
+      ADR-078 §4 chooses it over Loki: one operator for both signals, and no
+      installed Loki to preserve because ADR-013 never deployed one.
+
+  - name: vmalert
+    declared_by: [078-the-observability-capability.md]
+    status: planned
+    note: Evaluates the platform rules above. Without it they are text.
+
+  - name: grafana
+    declared_by: [078-the-observability-capability.md]
+    status: planned
+    note: >-
+      ADR-078 §5. Platform dashboards are bundle artifacts and need somewhere
+      to be installed; ADR-013 assumed Headlamp's Prometheus plugin, which
+      pointed at a store that was never deployed.
+
+  # ── Support (ADR-077) ───────────────────────────────────────────────────
+  - name: support-agent
+    declared_by: [077-the-support-agent.md]
+    status: shipped
+    path: manifests/hub-core-services/support-agent
+    note: >-
+      Ships to every box and is inert until enrolled. Enrolment is the client
+      certificate existing (ADR-077 addendum 1), so an unenrolled box runs the
+      agent with nowhere to report and is not degraded. RBAC, NetworkPolicy,
+      allowlist, Certificate and Deployment are all applied by the boundary-03
+      descriptor, and four release gates hold the boundary.
+
+# Directories deliberately not applied on their own. Each needs a reason,
+# because a waiver without one is an orphan with paperwork -- and the gate
+# rejects a waiver for something that IS applied, so the list cannot rot into a
+# blanket exemption.
+unreferenced:
+  - path: manifests/hub-core-services/database-migrations
+    reason: >-
+      Atlas SQL and checksums, not Kubernetes objects. Consumed by the migration
+      job, never applied by ArgoCD.
+
+  - path: manifests/hub-core-services/database-recovery
+    reason: >-
+      Break-glass. An overlay that rewrites platform-db's bootstrap to restore
+      from the object-store archive, applied by hand during the procedure in
+      docs/runbooks/platform-db-restore.md. Reconciling it continuously would
+      re-create the cluster from an archive every time it drifted.
+
+# ── The bundle's capability declaration (ADR-066) ────────────────────────────
+#
+# ADR-066 said "catalogue" and ADR-071 says the platform publishes none. Its
+# addendum 1 settles the word: this is the bundle's capability declaration, it
+# travels inside the artefact it describes, and nothing is curated beside the
+# platform. This file is that declaration.
+#
+#   kind: machinery   every box runs it; there is nothing to select. Without it
+#                     a box cannot reconcile anything.
+#   kind: selectable  a tenant chooses whether to run it. `enable` names the
+#                     values path that chooses, and ADR-066 requires selection
+#                     to be a value and never a version.
+#
+# Both kinds are platform. Selecting a capability does not make it the tenant's
+# to maintain -- that is the whole proposition, and the reason the two questions
+# ("what does a box cost" and "who is answerable when it breaks") have separate
+# answers here.
+#
+#   lifecycle: declared | supported | deprecated | end-of-life | removed
+#
+# Every state but `removed` carries maintenance. `deprecated` and `end-of-life`
+# must name a date, because ADR-069 makes the date the thing a tenant is owed.
+#
+#   status: shipped   the selection mechanism exists and works
+#   status: planned   decided, not yet realised
+#
+# `planned` is deliberately cheap to write and expensive to keep: ADR-066 cannot
+# reach Accepted while anything it declares is planned. Today six of seven
+# selectable capabilities are planned, because only `onPrem.enabled` is a real
+# toggle -- everything else is unconditionally on, which means "a tenant runs
+# what it needs and does not carry the rest" is not yet true.
+
+capabilities:
+  # ── Machinery: not selectable, because a box without it reconciles nothing ──
+  - name: gitops-engine
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: Reconciles every other capability, including its own definition.
+
+  - name: cluster-lifecycle
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: Composition and cluster lifecycle -- Crossplane and Cluster API.
+
+  - name: secret-delivery
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: >-
+      Secrets never enter git (ADR-003). The escrow that makes a box recoverable
+      by its owner alone is ADR-076.
+
+  - name: certificate-issuance
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+
+  - name: dns
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+
+  - name: gateway
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+
+  - name: admission-policy
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+
+  - name: capacity-lifecycle
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: Node and capacity lifecycle, including autoscaling.
+
+  - name: cache
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: >-
+      Redis. Machinery rather than selectable: platform components depend on it,
+      so a box without it does not lose a capability, it fails to reconcile.
+
+  # ── Selectable ──────────────────────────────────────────────────────────────
+  - name: on-prem-capacity
+    kind: selectable
+    enable: onPrem.enabled
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: >-
+      ADR-075. The only capability whose selection is actually implemented. Off
+      by default, because a box with no machines of its own has nothing to join.
+      ADR-066: on-prem nodes carry capabilities and burst capacity, never
+      cluster-machinery state.
+
+  - name: database
+    kind: selectable
+    enable: capabilities.database.enabled
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    interacts_with: [metering]
+    note: >-
+      Unconditionally on today. The platform maintains the capability -- operator
+      reconciling, version supported, backups restorable, failover working. The
+      schemas in it are the tenant's, and a slow query against a healthy Postgres
+      is not a platform incident.
+
+  - name: identity
+    kind: machinery
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: >-
+      Machinery, not selectable -- reclassified rather than given a toggle.
+      ADR-066's test for machinery is that a box cannot function without it, and
+      the gateway (machinery) resolves an OIDC issuer from this: the auth proxy,
+      ArgoCD's login and every relying party follow the same value. A box with
+      identity switched off has a gateway that authenticates nobody, which is a
+      supported-looking state nobody wants. Building the toggle would have
+      produced that state; classifying it correctly removes the question.
+      A Zitadel that will not start is the platform's; a misconfigured client
+      registered in a healthy one is the tenant's.
+
+  - name: messaging
+    kind: selectable
+    enable: capabilities.messaging.enabled
+    lifecycle: supported
+    status: shipped
+    declared_by: [066-the-platform-boundary.md]
+    note: Unconditionally on today.
+
+
+  - name: observability
+    kind: selectable
+    enable: capabilities.observability.enabled
+    lifecycle: declared
+    status: shipped
+    declared_by: [078-the-observability-capability.md]
+    components: [grafana-alloy, victoriametrics, victoriametrics-alerts, victoria-logs, vmalert, grafana]
+    note: >-
+      ADR-078. `declared` rather than `supported`: the collection half ships and
+      the store, query, visualisation and rule evaluation do not, so there is
+      nothing to promise maintenance of yet.
+
+  - name: support
+    kind: selectable
+    enable: capabilities.support.enabled
+    lifecycle: declared
+    status: planned
+    declared_by: [077-the-support-agent.md]
+    components: [support-agent]
+    note: >-
+      ADR-077 addendum 3, decision 1. Default `true` like every other capability:
+      the agent ships to every box and is inert until enrolled, so a box that
+      never buys support carries a process that reports nowhere. Turning it off
+      is how a tenant removes the agent after cancelling -- their GitOps prunes
+      it, and no platform component ever does. Planned until the flag is wired
+      and the component moves inline; a descriptor cannot carry a capability gate
+      (ADR-066 addendum 2).
+
+  - name: metering
+    kind: selectable
+    enable: metering.enabled
+    lifecycle: declared
+    status: planned
+    declared_by: [066-the-platform-boundary.md]
+    interacts_with: [database]
+    note: >-
+      OpenMeter has been withdrawn: it required ClickHouse, Kafka and Svix for a
+      capability the platform never deployed, which is a maintenance obligation
+      out of all proportion to the box ADR-070 targets. The replacement is the
+      PostgreSQL-backed implementation already present at
+      internal/kube-sbt/providers/metering, on the CNPG cluster every box
+      already runs. Planned until that provider compiles and kube-sbt is wired
+      to it -- see the metering ADR.

@@ -80,6 +80,62 @@ hubDomain: ""
 placement:
   class: ""
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Capability selection (ADR-066)
+# ──────────────────────────────────────────────────────────────────────────────
+# "A tenant runs what it needs and does not carry the rest." That sentence was
+# true of nothing: every capability was unconditionally on, so selection existed
+# in the ADR and nowhere else.
+#
+# Selection is a VALUE and never a version, so adopting a capability and
+# upgrading a bundle stay independent acts and neither blocks the other. A tenant
+# sets these in its own cluster values file.
+#
+# EVERY DEFAULT IS `true`, and that is not a style choice. These capabilities are
+# running on every existing box; a default of `false` would remove them on the
+# next sync of the version that introduced the flag -- a promotion that silently
+# deletes a tenant's database is the worst thing this mechanism could do. A
+# tenant turns one OFF deliberately, and never by accepting an upgrade.
+#
+# Selecting a capability does not make it the tenant's to maintain. Both selected
+# and required capabilities are platform, and the platform maintains what a box
+# actually runs (ADR-066).
+#
+# Declared in manifests/architecture/components.yaml and checked by
+# scripts/validate/architecture-consistency.py, which refuses a selectable
+# capability that names no `enable` path.
+capabilities:
+  # CNPG Postgres. The platform maintains the operator, the version, the backups
+  # and the failover; the schemas in it are the tenant's.
+  database:
+    enabled: true
+  # NATS. Also gated by placement class below -- an on-prem data class does not
+  # carry the JetStream volume regardless of this flag.
+  messaging:
+    enabled: true
+  # Collection, and under ADR-078 the store, query and dashboards that go with it.
+  observability:
+    enabled: true
+
+  # ADR-077's Support Agent.
+  #
+  # DEFAULT FALSE, AND THIS IS TEMPORARY. ADR-077 decision 1 says support defaults
+  # `true` like every other capability -- it ships to every box and is inert until
+  # enrolled. Two things have to exist before that default is safe, and neither
+  # does yet:
+  #
+  #   1. the agent's image. .github/workflows/support-agent.yml builds and pins it;
+  #      until that has run the manifests reference a tag that does not resolve, and
+  #      a default of `true` would put an ImagePullBackOff on every box.
+  #   2. the Support Plane. Until it exists there is nothing to enrol against, so an
+  #      agent that did start would have nowhere to report.
+  #
+  # Flip to `true` when both hold. Recorded here rather than in a ticket because a
+  # default that silently contradicts its ADR is exactly the drift the architecture
+  # gate exists to catch.
+  support:
+    enabled: false
+
 # On-prem nodes (ADR-075): machines on the tenant's own premises, joining over
 # their tailnet. A selectable capability (ADR-066), not a property of the
 # provider, and revisable at any point in a cluster's life -- the datapath every

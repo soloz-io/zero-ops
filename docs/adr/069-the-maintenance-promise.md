@@ -51,7 +51,7 @@ This is the difference between a platform that cannot compel and one that cannot
 
 ADR-067 conditions the promise on exported telemetry. This ADR conditions it on version currency. Both bound the same promise, and a tenant outside either is outside the full promise: the platform cannot be answerable for a cluster whose state it cannot see, nor for a version it no longer maintains.
 
-### A capability leaving the catalogue carries notice and a path
+### A capability leaving the declaration carries notice and a path
 
 When a capability reaches end-of-life the platform states the date, and offers either a supported successor with a migration path or notice sufficient for a tenant to arrange its own. Deprecation is an announcement with a date, not a withdrawal.
 
@@ -106,6 +106,61 @@ Two conditions now bound the promise — version currency and exported telemetry
 - **Extends ADR-066.** The end-of-life question it names as unsettled is settled here.
 - **Extends ADR-067.** Telemetry and version currency bound the same promise, and both are stated as conditions on it.
 - **Confirms ADR-065.** The platform never compels. Support follows the version rather than the tenant, so declining stays an exercise of authority rather than a breach.
+
+## Addendum 1: the window is declared, and a release without one is refused (2026-09-12)
+
+*"Every published bundle version is supported for a window declared when it is
+published"* was declared nowhere. There was no field, no gate, and no way for
+any tenant — or for the platform — to answer "is what I am running still
+supported". A maintenance promise nobody can evaluate is not one.
+
+`manifests/architecture/support-policy.yaml` is the declaration:
+**2 minor versions or 180 days, whichever is longer**, then 90 days deprecated
+with the end date stated, then unsupported, then end-of-life. Both halves are
+kept because each fails alone — time alone strands a tenant six releases behind
+but still inside its window; versions alone let a burst of releases expire a
+version adopted last week. Whichever is longer governs, so neither can shorten
+the promise.
+
+`scripts/package/support-state.py` evaluates it: given the published releases
+it prints the state of every version today, and answers for one version with an
+exit code. That is what makes *"derivable from what it runs"* true rather than
+merely stated — and it is the retroactive audit, because a version published
+before the window existed carries none and is reported as unevaluable rather
+than assumed supported. An unknown window is not a long one.
+
+It also surfaces something the policy's arithmetic hides: while the platform has
+published only `0.1.x`, every version is within 2 minors of the newest, so the
+version half expires nothing and the effective window is unbounded. That half
+begins to apply at minor 3. The policy is not wrong; it has not started
+operating yet, and a promise that is unbounded by accident is worth knowing
+about before a tenant discovers it.
+
+`scripts/package/support-window.py` turns the policy into the dates a release
+states, `release-metadata.sh` writes them into the release body, and
+`release-discloses.sh` refuses a release that states none. Renovate surfaces
+release notes in the proposal it opens, so the window reaches a tenant reading
+the pull request as well as one reading the release.
+
+**The security clause is now true by construction rather than by intention.**
+*"A security fix is proposed outside the cadence"* holds because there is no
+cadence: the tenant's Renovate carries no `minimumReleaseAge` and no schedule, so
+every published version is proposed as soon as it exists. The policy file records
+that, so introducing a delay later is visibly a change to this promise rather
+than a configuration tweak.
+
+
+## Acceptance
+
+```architecture
+acceptance:
+  - scripts/package/support-state.py
+  - scripts/validate/release-discloses.sh
+```
+
+`release-discloses.sh` refuses a release that declares no window;
+`support-state.py` evaluates the windows that were declared. The first stops the
+promise being unstated, the second stops it being unauditable.
 
 ## References
 

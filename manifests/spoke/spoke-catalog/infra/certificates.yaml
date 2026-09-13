@@ -31,6 +31,31 @@ spec:
     kind: ClusterIssuer
     group: infisical-issuer.infisical.com
 ---
+# The Support Agent's identity on THIS spoke.
+#
+# ADR-077: one agent per cluster, not one per fleet. A single hub-side collector
+# reaching into every spoke is the load and coupling argocd-agent exists to
+# remove, and it would need inbound access to each cluster -- which ADR-067
+# forbids outright. It also makes revocation per-agent: declining to renew one
+# spoke's certificate stops that spoke reporting and stops nothing running.
+#
+# The Secret's existence IS the enrolment (ADR-077 addendum 1). A tenant
+# un-enrols one spoke by removing this Certificate.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: support-agent-client-cert
+  namespace: platform-ops
+spec:
+  secretName: support-agent-client-tls
+  duration: 24h
+  renewBefore: 8h
+  commonName: support-agent:{{ .Values.spokeName }}
+  issuerRef:
+    name: infisical-fleet-issuer
+    kind: ClusterIssuer
+    group: infisical-issuer.infisical.com
+---
 # FIX: Added document separator here
 apiVersion: cert-manager.io/v1
 kind: Certificate

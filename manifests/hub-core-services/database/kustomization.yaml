@@ -10,7 +10,6 @@ resources:
   - hub-db-credentials-es.yaml
   - infisical-database.yaml
   - network-policy.yaml
-  - openmeter-db-credentials-es.yaml
   - password-rotation-job.yaml
   - platform-db-app-credentials-es.yaml
   - platform-databases.yaml

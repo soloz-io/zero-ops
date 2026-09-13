@@ -1,7 +1,7 @@
 # ADR-068: The Build Declares the Bundle Version
 
 **Date:** 2026-09-08
-**Status:** Proposed
+**Status:** Accepted
 
 ## Context
 
@@ -146,6 +146,32 @@ running the loop:
   artifact carrying ADR-075's `mtu` and `devices` values.
 
 See `docs/runbooks/local-release-path-testing.md`.
+
+## Addendum 2: accepted (2026-09-12)
+
+Every clause above is now implemented and guarded. The last one outstanding was
+*"Overriding a source requires naming its version"*, which guarded nothing:
+`--bundle-registry` and `--platform-repo` both existed, and `--bundle-version`
+defaulted to whatever the binary carried, so a scaffold against a fork pinned a
+version that fork had never published and said so only when the first
+Application failed to load its source. `refuseUndeclaredSourceOverride` in
+`cmd/soloz/tenant.go` refuses it, and
+`cmd/soloz/tenant_source_override_test.go` asserts the refusal, the permitted
+form, and that the default path is untouched.
+
+## Acceptance
+
+```architecture
+acceptance:
+  - internal/soloz-cli/bootstrap
+  - cmd/soloz
+  - scripts/validate/released-cli-standalone.sh
+```
+
+`embedded_assets_test.go` asserts a released binary carries every path Day-0
+reads, per provider, environment and boundary. `released-cli-standalone.sh`
+refuses a release whose CLI needs a checkout. `cmd/soloz` covers the source
+override that must name its version.
 
 ## References
 

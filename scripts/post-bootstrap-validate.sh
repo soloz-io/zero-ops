@@ -335,9 +335,6 @@ check_infisical() {
         "platform-data:hub-db-credentials"
         "platform-data:platform-db-app-credentials"
         "platform-data:control-plane-db-credentials"
-        "platform-billing:openmeter-postgresql"
-        "platform-billing:openmeter-clickhouse"
-        "platform-billing:openmeter-svix"
     )
     for entry in "${key_secrets[@]}"; do
         local ns="${entry%%:*}"
@@ -391,90 +388,9 @@ check_databases() {
     check_namespace_pods "platform-data"
 }
 
-# ─── 7. CLICKHOUSE ────────────────────────────────────────────────────────────
-check_clickhouse() {
-    log_section "7. CLICKHOUSE"
-    check_argocd_app "platform-clickhouse" "FAIL"
-
-    # ClickHouseInstallation CR
-    local chi_status
-    chi_status=$(kc get clickhouseinstallation platform-clickhouse -n platform-data \
-        -o jsonpath='{.status.status}' 2>/dev/null || echo "NotFound")
-    if [[ "$chi_status" == "Completed" ]]; then
-        log_pass "ClickHouseInstallation platform-clickhouse: $chi_status"
-    elif [[ "$chi_status" == "NotFound" ]]; then
-        log_fail "ClickHouseInstallation platform-clickhouse: Not deployed (ArgoCD sync failed?)"
-    else
-        log_warn "ClickHouseInstallation platform-clickhouse: status=$chi_status (may still be provisioning)"
-    fi
-
-    # ClickHouse service reachable
-    local ch_svc
-    ch_svc=$(kc get svc -n platform-data -l "clickhouse.altinity.com/chi=platform-clickhouse" \
-        --no-headers 2>/dev/null | grep -c '' || true)
-    if [[ "${ch_svc:-0}" -gt 0 ]]; then
-        log_pass "ClickHouse services present ($ch_svc found)"
-    else
-        log_fail "ClickHouse services not found in platform-data"
-    fi
-}
-
-# ─── 8. OPENMETER ─────────────────────────────────────────────────────────────
-check_openmeter() {
-    log_section "8. OPENMETER"
-    check_argocd_app "openmeter" "FAIL"
-
-    local om_deployments=(
-        "openmeter-api"
-        "openmeter-balance-worker"
-        "openmeter-billing-worker"
-        "openmeter-notification-service"
-        "openmeter-sink-worker"
-        "openmeter-svix"
-    )
-
-    for deploy in "${om_deployments[@]}"; do
-        local available
-        available=$(kc get deployment "$deploy" -n platform-billing \
-            -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
-        local desired
-        desired=$(kc get deployment "$deploy" -n platform-billing \
-            -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
-        available="${available:-0}"; desired="${desired:-1}"
-        if [[ "$available" -ge "$desired" && "$desired" -gt 0 ]]; then
-            log_pass "OpenMeter $deploy: $available/$desired"
-        else
-            # Show crash reason if CrashLoopBackOff
-            local crash_reason
-            crash_reason=$(kc get pods -n platform-billing -l "app.kubernetes.io/name=$deploy" \
-                --no-headers 2>/dev/null | grep -v "Running" | head -1 || true)
-            log_fail "OpenMeter $deploy: $available/$desired available${crash_reason:+ → $crash_reason}"
-        fi
-    done
-
-    # Kafka (StatefulSet)
-    local kafka_ready_raw
-    kafka_ready_raw=$(kc get statefulset -n platform-billing -l "app.kubernetes.io/name=kafka" \
-        --no-headers 2>/dev/null | awk '{print $2}' | head -1 | tr -d '[:space:]' || echo "0/0")
-    local kafka_ready="${kafka_ready_raw:-0/0}"
-    if echo "$kafka_ready" | grep -qE '^[1-9][0-9]*/[1-9][0-9]*$'; then
-        log_pass "OpenMeter Kafka: $kafka_ready ready"
-    else
-        log_fail "OpenMeter Kafka: ready=$kafka_ready (StatefulSet not ready)"
-    fi
-
-    # Recurring job errors (billing/subscription sync)
-    local failed_jobs
-    failed_jobs=$(kc get jobs -n platform-billing --no-headers 2>/dev/null \
-        | awk '$2 ~ /^0\// {print $1}' | grep -c '')
-    if [[ "$failed_jobs" =~ ^[0-9]+$ ]] && (( failed_jobs > 5 )); then
-        log_warn "OpenMeter: $failed_jobs failed recurring jobs (billing/subscription cronjobs) — may indicate backend not ready"
-    fi
-}
-
-# ─── 9. ORY IDENTITY STACK ────────────────────────────────────────────────────
+# ─── 7. ORY IDENTITY STACK ────────────────────────────────────────────────────
 check_ory() {
-    log_section "9. ORY IDENTITY STACK"
+    log_section "7. ORY IDENTITY STACK"
     check_argocd_app "zitadel" "FAIL"
 
     local ory_deployments=(
@@ -494,9 +410,9 @@ check_ory() {
     done
 }
 
-# ─── 10. NATS MESSAGING ───────────────────────────────────────────────────────
+# ─── 8. NATS MESSAGING ───────────────────────────────────────────────────────
 check_nats() {
-    log_section "10. NATS MESSAGING"
+    log_section "8. NATS MESSAGING"
 
     # NATS is not deployed on every hub: the hybrid provider omits it (no consumer
     # in hub-core-services, and a single home-lab node should not carry a 10Gi
@@ -520,9 +436,9 @@ check_nats() {
     fi
 }
 
-# ─── 11. HUB OPERATOR ─────────────────────────────────────────────────────────
+# ─── 9. HUB OPERATOR ─────────────────────────────────────────────────────────
 check_hub_operator() {
-    log_section "11. HUB-OPERATOR"
+    log_section "9. HUB-OPERATOR"
     check_argocd_app "hub-operator" "FAIL"
     check_deployment "platform-ops" "hub-operator"
 
@@ -560,9 +476,9 @@ check_hub_operator() {
     fi
 }
 
-# ─── 12. KUBE-SBT API ─────────────────────────────────────────────────────────
+# ─── 10. KUBE-SBT API ─────────────────────────────────────────────────────────
 check_kube_sbt_api() {
-    log_section "12. KUBE-SBT API"
+    log_section "10. KUBE-SBT API"
     check_argocd_app "kube-sbt" "FAIL"
     check_namespace_pods "platform-ops" "app=kube-sbt"
 
@@ -575,9 +491,9 @@ check_kube_sbt_api() {
     fi
 }
 
-# ─── 13. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
+# ─── 11. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
-    log_section "13. INGRESS & CERT-MANAGER"
+    log_section "11. INGRESS & CERT-MANAGER"
     # The hub serves its hostnames from the Gateway API; ingress-nginx was
     # retired, so checking for its Application fails every bootstrap.
     check_argocd_app "hub-gateway" "FAIL"
@@ -595,9 +511,9 @@ check_ingress() {
     fi
 }
 
-# ─── 14. SPOKE POOL + CAPI ────────────────────────────────────────────────────
+# ─── 12. SPOKE POOL + CAPI ────────────────────────────────────────────────────
 check_spoke() {
-    log_section "14. SPOKE POOL & CAPI"
+    log_section "12. SPOKE POOL & CAPI"
 
     # Extract the spoke admin kubeconfig for direct spoke-cluster validation.
     get_spoke_kubeconfig
@@ -909,9 +825,9 @@ check_spoke_datapath() {
     fi
 }
 
-# ─── 15. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
+# ─── 13. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
 check_platform_argocd_apps() {
-    log_section "15. CRITICAL ARGOCD APPS"
+    log_section "13. CRITICAL ARGOCD APPS"
 
     # Critical — failure blocks operations
     local critical_apps=(
@@ -934,9 +850,6 @@ check_platform_argocd_apps() {
     # Warning only — degraded but not blocking
     local warn_apps=(
         "platform-kyverno"
-        "platform-clickhouse"
-        "clickhouse-operator"
-        "openmeter"
         "zitadel"
         "platform-infisical"
     )
@@ -945,9 +858,9 @@ check_platform_argocd_apps() {
     done
 }
 
-# ─── 16. OBSERVABILITY ────────────────────────────────────────────────────────
+# ─── 14. OBSERVABILITY ────────────────────────────────────────────────────────
 check_observability() {
-    log_section "16. OBSERVABILITY"
+    log_section "14. OBSERVABILITY"
     check_argocd_app "victoria-metrics-cluster" "WARN"
     check_argocd_app "victoria-metrics-alerts" "WARN"
     check_argocd_app "grafana-alloy" "WARN"
@@ -1037,8 +950,6 @@ main() {
     check_eso
     check_infisical
     check_databases
-    check_clickhouse
-    check_openmeter
     check_ory
     check_nats
     check_hub_operator

@@ -93,6 +93,68 @@ spec:
           # where a component is declared. It was a descriptor while that target
           # arrived as a Day-0-written Kustomize patch committed under
           # generated/; removing that is what moves it here.
+          {{- if .Values.capabilities.support.enabled }}
+          # ADR-077. Ships to every box and is inert until enrolled; enrolment is
+          # the client certificate and the tenant-owned enrolment ConfigMap both
+          # existing, neither of which this element creates.
+          #
+          # Inline rather than a descriptor because its presence is a function of
+          # a value, and a descriptor gate takes effect in a released box and not
+          # in a development one (ADR-066 addendum 2).
+          - boundary: '03'
+            appName: 'support-agent'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/support-agent'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              support-agent:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
+          {{- if .Values.capabilities.observability.enabled }}
+          # ADR-078: collection, and the store, query and rules that go with it.
+          #
+          # Declared here rather than as a descriptor because its PRESENCE is a
+          # function of a value, which is the same test ADR-061 applies to a
+          # source that is. A descriptor cannot carry that test: the released
+          # path globs descriptors out of the chart and the development path
+          # reads them from git, and only the first could filter -- so a
+          # capability gate on a descriptor would take effect in a released box
+          # and not in a development one. ADR-068 is explicit that the two paths
+          # must not diverge, and two defects have already reached clusters
+          # through exactly that gap.
+          - boundary: '03'
+            appName: 'grafana-alloy'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/grafana-alloy'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              grafana-alloy:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
           - boundary: '03'
             appName: 'hub-gateway'
             destinationNamespace: 'platform-ops'
@@ -343,15 +405,6 @@ spec:
           jsonPointers:
             - /metadata/annotations/updatedAt
             - /spec/template/metadata/annotations/updatedAt
-    {{"{{-"}} end {{"}}"}}
-    {{"{{-"}} if eq .appName "clickhouse-operator" {{"}}"}}
-    spec:
-      ignoreDifferences:
-        - group: apps
-          kind: Deployment
-          jsonPointers:
-            - /spec/template/spec/containers/0/resources
-            - /spec/progressDeadlineSeconds
     {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .appName "infrastructure-provider" {{"}}"}}
     spec:

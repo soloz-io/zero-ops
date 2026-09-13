@@ -73,6 +73,6 @@ func runSpokeTeardown(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Println("\n✓ All Spoke Clusters successfully torn down")
 	}
-	
+
 	return nil
 }

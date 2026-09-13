@@ -1,0 +1,22 @@
+# The Support Agent, shipped to every cluster and inert until enrolled.
+#
+# ADR-077: no Service and no Ingress here, deliberately. Their absence is what
+# makes "nothing reaches inward" a property of the component rather than of the
+# agent's behaviour, and adding either is a change to the platform's boundary.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rbac.yaml
+  - network-policy.yaml
+  - allowlist.yaml
+  - certificate.yaml
+  - deployment.yaml
+
+# Written by .github/workflows/support-agent.yml on every build. The placeholder
+# below is not pullable on purpose: if the workflow has never run, the agent
+# fails to start visibly rather than silently running some other image that
+# happened to be tagged latest.
+images:
+  - name: support-agent
+    newName: ghcr.io/soloz-io/zero-ops/support-agent
+    newTag: unbuilt

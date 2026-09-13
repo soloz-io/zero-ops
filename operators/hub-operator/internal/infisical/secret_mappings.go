@@ -432,30 +432,6 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "leafnode",
 		Description: "NATS Leaf Node credentials for spoke clusters",
 	},
-	{
-		UsernameKey: "openmeter-postgresql-username",
-		PasswordKey: "openmeter-postgresql-password",
-		Username:    "openmeter",
-		Description: "OpenMeter PostgreSQL credentials",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "platform-clickhouse-admin-password",
-		Username:    "",
-		Description: "Platform ClickHouse admin user password (bootstrap jobs, separate for rotation independence)",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "openmeter-clickhouse-password",
-		Username:    "",
-		Description: "OpenMeter ClickHouse user password (logical database access)",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "openmeter-svix-signing-secret",
-		Username:    "",
-		Description: "OpenMeter Svix signing secret (also generates JWT token)",
-	},
 	// AgentGateway's OIDC session cookie encryption key. It belongs here because
 	// it is a random value with no external source, so leaving it out of this
 	// registry made it the one cookie secret an operator had to seed by hand into

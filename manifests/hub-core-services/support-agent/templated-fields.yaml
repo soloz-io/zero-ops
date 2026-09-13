@@ -1,0 +1,10 @@
+# Fields of the Support Agent that depend on which box is reconciling it.
+#
+# Exactly one: the identity in the client certificate. A literal would ship every
+# tenant a certificate naming the box this file was written on, and the platform
+# would receive a fleet of boxes all claiming to be the same one.
+- kind: Certificate
+  name: support-agent-client
+  fields:
+    - path: [spec, commonName]
+      value: 'support-agent:{{ .Values.global.hubDomain }}'

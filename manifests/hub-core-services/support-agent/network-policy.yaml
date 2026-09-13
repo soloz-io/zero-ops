@@ -1,0 +1,96 @@
+# The Support Agent's network position, which is outbound and nothing else.
+#
+# ADR-077 requires that nothing reaches inward: no platform component opens a
+# connection into a tenant's cluster, holds a credential for one, or queries it.
+# Stated as a policy rather than as a property of the agent's code, because a
+# process that simply never listens is a process that might listen after the next
+# change, while a policy with no ingress rule is checkable now and stays true.
+#
+# There is no Service and no Ingress for this workload anywhere in the component,
+# for the same reason. Adding either is a change to ADR-077's boundary.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: support-agent
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: support-agent
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress rules. An empty Ingress policyType denies everything inbound,
+  # which is the intent stated in the form the API understands. This block is
+  # deliberately absent rather than present-and-empty: `ingress: []` and no
+  # `ingress` key mean the same thing here, and the absent key cannot be widened
+  # by adding one more entry to a list that already exists.
+  egress:
+    # Name resolution. Without it the agent cannot resolve the support endpoint
+    # and fails closed, which is correct but reports as a transmission failure
+    # rather than as a missing rule.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Platform components, for their health and metrics endpoints.
+    #
+    # Scoped by namespace label rather than by naming a store: the agent's
+    # evidence comes from platform-owned interfaces (ADR-077), and it must not
+    # depend on where a tenant sends their own telemetry. An earlier draft
+    # pointed this at an in-cluster metrics backend, which would have made
+    # support contingent on the tenant having deployed one -- coupling the
+    # support channel to a capability that is theirs to decline.
+    #
+    # topology.platform.io/role=hub is carried by every platform-* namespace and
+    # by nothing a tenant creates, so this reaches the platform's components and
+    # no workload. On a spoke the same policy selects that cluster's own role.
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - key: topology.platform.io/role
+                operator: Exists
+      ports:
+        # Component metrics and health, on the ports platform components serve
+        # them on. Enumerated rather than opened: a rule permitting all ports to
+        # these namespaces would let a future collector reach a database or a
+        # message bus, which the evidence categories do not admit.
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8443
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 9189
+    # The platform's telemetry ingress, over TLS.
+    #
+    # Not restricted to an IP block: the endpoint is a public name whose address
+    # is the platform's to change, and pinning addresses here would make a DNS
+    # change on our side an outage on the tenant's. The restriction that matters
+    # is that this is the only external destination in the list.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Nothing private. An agent that can reach RFC1918 space can reach
+              # the tenant's other workloads and their cloud metadata service,
+              # and neither is anything it has business with.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

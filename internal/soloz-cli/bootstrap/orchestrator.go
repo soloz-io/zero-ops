@@ -371,7 +371,15 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		"Generating local bootstrap secrets...",
 		func() error {
 			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
-			return ci.GenerateLocalSecrets(ctx)
+			if err := ci.GenerateLocalSecrets(ctx); err != nil {
+				return err
+			}
+			// The optional credentials, here rather than later: the hub-operator
+			// uploads them to Infisical on its first reconcile, and a Secret that
+			// appears afterwards waits for the next one. Nothing created these at
+			// all until now, so the mappings that consume them retried forever --
+			// five ExternalSecrets on every box, and grafana-alloy never starting.
+			return ci.InstallPlatformCredentials(ctx)
 		},
 		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
 	); err != nil {
@@ -379,7 +387,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 11c: Boundary 02 — platform data workloads ─────────────
-	// Deploys CNPG Cluster, Redis, NATS, ClickHouse. The CNPG Cluster
+	// Deploys CNPG Cluster, Redis and NATS. The CNPG Cluster
 	// CR triggers the operator (installed in B01). platform-db-app was
 	// created in the previous phase (generate-local-secrets), so CNPG's
 	// initdb has the credentials it needs immediately.
@@ -1144,7 +1152,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Boundary 02: Platform data workloads (CNPG, Redis, NATS, ClickHouse)
+// Boundary 02: Platform data workloads (CNPG, Redis, NATS)
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
