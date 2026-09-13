@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	neturl "net/url"
 	"os"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -214,13 +216,51 @@ func (c *Client) CreateOrUpdateSecret(ctx context.Context, projectSlug, environm
 		return c.updateSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
 	}
 
-	return c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
+	err = c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
+	if err == nil {
+		return nil
+	}
+
+	// The existence check said no and the server says otherwise. The server is
+	// the one that knows.
+	//
+	// Check-then-act is only as good as the two calls agreeing about identity,
+	// and here they do not always: the GET carries workspaceId, environment and
+	// secretPath, the POST carries those plus type=shared, and a lookup that
+	// misses for any reason turns a re-run into a hard failure. It did --
+	// resuming a bootstrap died on infisical-db-username with
+	// "Secret already exists", after three and a half minutes of work that had
+	// all succeeded.
+	//
+	// Day-0 has to be re-runnable. Every phase before this one already is, and a
+	// bootstrap that cannot resume is one that starts from an empty cluster
+	// after any transient failure.
+	if isAlreadyExists(err) {
+		return c.updateSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
+	}
+	return err
+}
+
+// isAlreadyExists reports whether a create failed because the secret is there.
+//
+// Matched on the message because Infisical answers 400 for this and for a
+// genuinely malformed request, so the status alone cannot tell them apart.
+// Narrow on purpose: a substring broad enough to catch an unrelated 400 would
+// turn a real error into a silent overwrite.
+func isAlreadyExists(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Secret already exists")
 }
 
 // secretExists checks if a secret already exists
 func (c *Client) secretExists(ctx context.Context, workspaceId, environmentSlug, secretPath, key string) (bool, error) {
-	url := fmt.Sprintf("%s%s?workspaceId=%s&environment=%s&secretPath=%s",
-		c.baseURL, fmt.Sprintf(PathSecretsRaw, key), workspaceId, environmentSlug, secretPath)
+	// Escaped rather than interpolated. A secretPath is a path and may carry
+	// characters that are not query-safe; unescaped, the lookup misses and the
+	// caller concludes the secret does not exist.
+	q := neturl.Values{}
+	q.Set("workspaceId", workspaceId)
+	q.Set("environment", environmentSlug)
+	q.Set("secretPath", secretPath)
+	url := fmt.Sprintf("%s%s?%s", c.baseURL, fmt.Sprintf(PathSecretsRaw, neturl.PathEscape(key)), q.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
