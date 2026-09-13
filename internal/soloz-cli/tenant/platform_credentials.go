@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -197,4 +198,22 @@ func (s Secrets) ObservabilityDestination(spec Spec) string {
 	return "Observability: no remote destination configured.\n" +
 		"The stack still runs and still collects; nothing is withheld. Add a\n" +
 		"destination whenever you want it shipped somewhere you can read it."
+}
+
+// fillFromEnvironment supplies any credential still empty from the environment.
+//
+// Only empties: a flag is an explicit statement by whoever ran the command and
+// must win over an ambient variable. Trimmed, and blanks are ignored, so an
+// exported-but-empty variable is the same as an unset one rather than a value
+// that silently satisfies a required credential.
+func (s *Secrets) fillFromEnvironment() {
+	for _, c := range platformCredentials() {
+		f := c.Field(s)
+		if strings.TrimSpace(*f) != "" {
+			continue
+		}
+		if v := strings.TrimSpace(os.Getenv(c.Secret)); v != "" {
+			*f = v
+		}
+	}
 }

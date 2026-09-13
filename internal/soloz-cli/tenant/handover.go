@@ -257,6 +257,20 @@ func readSecret(prompt string) (string, error) {
 // After the escrow, because the escrow is the one whose absence is unrecoverable
 // and should be answered while the operator is still paying attention.
 func promptPlatformCredentials(spec Spec, s Secrets) (Secrets, error) {
+	// The environment first, for anything still empty.
+	//
+	// platformCredential.Secret is one name deliberately: the key in the
+	// tenant's repository, the variable Day-0 reads, and the name an operator
+	// supplies. Resolving it here makes that true at scaffold time too.
+	//
+	// Without this there were two resolution paths with different rules.
+	// Scaffold filled Secrets from FLAGS only -- and there are no flags for
+	// object storage, the registry or Grafana Cloud -- so it prompted for them
+	// even when the values were sitting in the environment. Day-0 then read the
+	// same values from the environment without asking. The operator was
+	// answering questions whose answers the next phase already had.
+	s.fillFromEnvironment()
+
 	capability := s.missingInTier(spec, tierCapability)
 	support := s.missingInTier(spec, tierDestination)
 	if len(capability) == 0 && len(support) == 0 {
