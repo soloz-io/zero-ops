@@ -45,14 +45,6 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: platform-messaging
-  labels:
-    name: platform-messaging
-    topology.platform.io/role: hub
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: platform-observability
   labels:
     name: platform-observability

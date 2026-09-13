@@ -6,7 +6,7 @@ ADR-067 decided support telemetry and named no channel, so scaffolding adopted
 the nearest one and turned a tenant's Grafana Cloud account into a licence check.
 ADR-064 decided promotion and named no reconciler, so merged promotions did
 nothing and looked normal doing it. ADR-013 named VictoriaMetrics, Loki, an OTel
-gateway, MetricCollector sidecars and a NATS billing buffer; four of those five
+gateway and MetricCollector sidecars; those
 were never written, and the one that was -- 577 lines of operator, VMCluster,
 ingress and a working 211-line alert rule -- is referenced by no component and
 has never been applied to a cluster.

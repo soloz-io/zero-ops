@@ -77,10 +77,6 @@ type HubEnvironmentSpec struct {
 	// +kubebuilder:validation:Required
 	Database DatabaseConfig `json:"database"`
 
-	// NATS configuration for JetStream streams
-	// +optional
-	NATS *NATSConfig `json:"nats,omitempty"`
-
 	// OAuth configuration for Hydra clients
 	// +optional
 	OAuth *OAuthConfig `json:"oauth,omitempty"`
@@ -160,37 +156,6 @@ type DatabaseRole struct {
 	Permissions []string `json:"permissions,omitempty"`
 }
 
-// NATSConfig defines NATS JetStream configuration
-type NATSConfig struct {
-	// Streams to be created in NATS JetStream
-	// +optional
-	Streams []NATSStream `json:"streams,omitempty"`
-}
-
-// NATSStream defines a NATS JetStream stream specification
-type NATSStream struct {
-	// Name of the stream
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
-
-	// Subjects that the stream listens to
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	Subjects []string `json:"subjects"`
-
-	// Retention policy for the stream
-	// +kubebuilder:validation:Enum=limits;interest;workqueue
-	// +kubebuilder:default="limits"
-	// +optional
-	Retention string `json:"retention,omitempty"`
-
-	// Storage type for the stream
-	// +kubebuilder:validation:Enum=file;memory
-	// +kubebuilder:default="file"
-	// +optional
-	Storage string `json:"storage,omitempty"`
-}
-
 // OAuthConfig defines OAuth client configuration
 type OAuthConfig struct {
 	// Clients to be registered with Hydra
@@ -258,7 +223,6 @@ type HubEnvironmentStatus struct {
 	// - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
 	// - SecretsBackedUp: Secrets have been uploaded to Infisical
 	// - OAuthClientsRegistered: OAuth clients have been registered with Hydra
-	// - NATSStreamsConfigured: NATS JetStream streams have been created
 	// - Ready: All phases complete successfully
 	// +listType=map
 	// +listMapKey=type

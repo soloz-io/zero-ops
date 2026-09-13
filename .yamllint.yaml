@@ -66,6 +66,12 @@ ignore: |
   manifests/spoke/spoke-bootstrap/cnpg-crds-template.yaml
   manifests/hub-core-services/eso/crds/
   internal/assets/manifests/core/
+  # Auto-generated CRDs (from make manifests) — third-party schema descriptions
+  # that cannot be wrapped without breaking kubectl apply / kubeconform.
+  operators/hub-operator/config/crd/bases/ops.nutgraf.in_hubenvironments.yaml
+  # Cloud-init runcmd blocks contain shell commands and URLs that cannot be
+  # split across lines without breaking execution.
+  internal/assets/manifests/classes/hetzner-mgmt-ubuntu-v1.yaml
   # Documentation, including snapshots taken during incident investigations.
   # These are records of what a file looked like at a moment, not manifests the
   # platform applies, and some are Go templates that never parse as plain YAML.

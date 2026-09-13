@@ -38,8 +38,7 @@ artifacts:
   # The security boundary emits a ClusterIssuer only when fleet.projectId and
   # fleet.clientId are both supplied, so without this file there is no issuer and
   # every certificate naming infisical-fleet-issuer stays pending forever. On the
-  # box that found this, eleven were: the NATS leaf-node server cert (nats-0
-  # never left ContainerCreating), all three argocd-agent mTLS identities, and
+  # box that found this, eleven were: all three argocd-agent mTLS identities and
   # the Support Agent's client certificate -- which IS its enrolment (ADR-077).
   #
   # Written here rather than onto the seed Application because ADR-072 makes the
@@ -55,6 +54,7 @@ artifacts:
     requiredFields:
       - infisical.fleet.projectId
       - infisical.fleet.clientId
+
   # The hub Gateway's external-dns target was generated here as a Kustomize
   # patch. It is per-cluster instance data, and the gateway component now takes
   # it as a chart value supplied from hubIngressAddress, so nothing is written

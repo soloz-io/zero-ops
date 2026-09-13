@@ -229,7 +229,6 @@ spec:
                       #
                       #   idx  patched  resource
                       #   [ 0]   yes    <spoke>-hetzner-credentials  (Secret)
-                      #   [ 1]   yes    <spoke>-nats-leaf-creds      (Secret)
                       #   [ 2]    no    cilium-addon-hybrid          (Secret)
                       #   [ 3]    no    ccm-addon-template           (Secret)
                       #   [ 4]    no    csi-addon-hybrid             (Secret)
@@ -251,9 +250,6 @@ spec:
                         # Hetzner credentials (CP + burst worker cloud provider)
                         - name: ""
                           kind: Secret
-                        # NATS leaf node credentials
-                        - name: ""
-                          kind: Secret
                         # CNI: flatcar-native hybrid variant (native routing over tailnet, no VXLAN)
                         - name: cilium-addon-hybrid
                           kind: Secret
@@ -268,9 +264,6 @@ spec:
                           kind: ConfigMap
                         # platform-observability namespace
                         - name: observability-namespace
-                          kind: ConfigMap
-                        # platform-messaging namespace
-                        - name: messaging-namespace
                           kind: ConfigMap
                         # ArgoCD CRDs
                         - name: argocd-crds-template
@@ -347,15 +340,7 @@ spec:
                       fmt: "%s-hetzner-credentials"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[1].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leaf-credentials"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[6].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[5].name
                 transforms:
                   - type: string
                     string:
@@ -363,15 +348,7 @@ spec:
                       fmt: "%s-observability-namespace"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[7].name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-messaging-namespace"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[10].name
                 transforms:
                   - type: string
                     string:
@@ -379,7 +356,7 @@ spec:
                       fmt: "%s-argocd-agent-params"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[12].name
                 transforms:
                   - type: string
                     string:
@@ -387,7 +364,7 @@ spec:
                       fmt: "%s-machine-identity"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[13].name
                 transforms:
                   - type: string
                     string:
@@ -395,7 +372,7 @@ spec:
                       fmt: "%s-bootstrap-cert"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[14].name
                 transforms:
                   - type: string
                     string:
@@ -403,7 +380,7 @@ spec:
                       fmt: "%s-agent-ca"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[17].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[15].name
                 transforms:
                   - type: string
                     string:
@@ -411,7 +388,7 @@ spec:
                       fmt: "%s-cluster-issuer"
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.resources[18].name
+                toFieldPath: spec.forProvider.manifest.spec.resources[16].name
                 transforms:
                   - type: string
                     string:
@@ -624,46 +601,6 @@ spec:
                       type: Format
                       fmt: "%s-observability-namespace"
 
-          - name: messaging-namespace-configmap
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: v1
-                    kind: ConfigMap
-                    metadata:
-                      name: messaging-namespace
-                      namespace: platform-capi
-                    data:
-                      namespace.yaml: |
-                        apiVersion: v1
-                        kind: Namespace
-                        metadata:
-                          name: platform-messaging
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-messaging-namespace"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-messaging-namespace"
-
           # ────────────────────────────────────────────────────────────────────
           # ExternalSecrets (identical to hetzner)
           # ────────────────────────────────────────────────────────────────────
@@ -731,71 +668,6 @@ spec:
                     string:
                       type: Format
                       fmt: "%s-hetzner-credentials"
-
-          - name: nats-leaf-credentials-externalsecret
-            base:
-              apiVersion: kubernetes.crossplane.io/v1alpha2
-              kind: Object
-              spec:
-                managementPolicies:
-                  - "*"
-                forProvider:
-                  manifest:
-                    apiVersion: external-secrets.io/v1
-                    kind: ExternalSecret
-                    metadata:
-                      namespace: platform-capi
-                    spec:
-                      refreshInterval: 1h
-                      secretStoreRef:
-                        name: infisical-backend
-                        kind: ClusterSecretStore
-                      target:
-                        name: ""
-                        creationPolicy: Owner
-                        template:
-                          type: addons.cluster.x-k8s.io/resource-set
-                          data:
-                            secret.yaml: |
-                              apiVersion: v1
-                              kind: Secret
-                              metadata:
-                                name: nats-leaf-creds
-                                namespace: platform-messaging
-                              type: Opaque
-                              stringData:
-                                password: "{{ .password | trim }}"
-                      data:
-                        - secretKey: password
-                          remoteRef:
-                            key: nats-leaf-password
-                providerConfigRef:
-                  name: kubernetes-provider
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leaf-credentials-es"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leaf-credentials-es"
-              - type: FromCompositeFieldPath
-                fromFieldPath: metadata.name
-                toFieldPath: spec.forProvider.manifest.spec.target.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "%s-nats-leaf-credentials"
 
           # ────────────────────────────────────────────────────────────────────
           # Spoke ProviderConfig (identical to hetzner)

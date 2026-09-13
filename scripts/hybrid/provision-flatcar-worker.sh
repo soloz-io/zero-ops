@@ -60,7 +60,7 @@ CPU_COUNT="0"            # 0 = auto-detect (all host logical cores)
 #
 # The old flat 20GB default was far too small once the hub moved its workloads to
 # home-lab nodes (ADR-046 §19): a 20GB VHDX yields ~13GB usable after the Flatcar
-# OS, and a hub node carries ArgoCD, cert-manager, Kyverno, Crossplane, ESO, NATS,
+# OS, and a hub node carries ArgoCD, cert-manager, Kyverno, Crossplane, ESO,
 # Redis and Infisical AND platform-db's 10Gi local-path PVC. It hit
 # DiskPressure=True, the kubelet tainted the node, and with the control plane
 # tainted as well nothing could be scheduled anywhere.

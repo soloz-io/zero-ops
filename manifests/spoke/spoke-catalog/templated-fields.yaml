@@ -90,21 +90,15 @@
 # ── The hub this spoke belongs to (ADR-051) ────────────────────────────────
 #
 # A spoke reaches its own hub, and every address below was the PLATFORM's: the
-# NATS leaf node dialled the platform's argocd-principal, the secret store read
-# the platform's Infisical, and the ACME issuer requested certificates in the
-# platform's zone with the platform's account. ADR-065 and ADR-066 make that a
+# secret store read the platform's Infisical, and the ACME issuer requested
+# certificates in the platform's zone with the platform's account. ADR-065 and
+# ADR-066 make that a
 # boundary violation rather than a misconfiguration -- a tenant's spoke must not
 # depend on the vendor at runtime.
 #
 # NOT the API groups. compute.nutgraf.in, tenantdatabases.nutgraf.in and
 # nutgraf.in/v1alpha1 identify the platform's CRDs, in the same sense as
 # cluster.x-k8s.io, and are the same on every box by design.
-
-- kind: ConfigMap
-  name: nats-config
-  # tls://argocd-principal.<zone>:7422 -- the leaf node's remote.
-  fields:
-    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
 
 - kind: ClusterSecretStore
   name: infisical-backend

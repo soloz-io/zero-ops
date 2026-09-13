@@ -123,15 +123,12 @@ dns:
 #
 # Turning one OFF is deliberate and has consequences worth knowing:
 #   database       removes the CNPG Postgres this box's platform services use.
-#   messaging      removes NATS, which spoke leaf-nodes connect to.
 #   observability  removes collection, and with it every platform dashboard.
 #   support        removes the Support Agent. It ships inert and reports nothing
 #                  until you enrol; turning it off is how you remove it after
 #                  ending a support subscription (ADR-077).
 capabilities:
   database:
-    enabled: true
-  messaging:
     enabled: true
   observability:
     enabled: true

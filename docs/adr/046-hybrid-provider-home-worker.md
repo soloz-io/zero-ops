@@ -2553,3 +2553,8 @@ depend on the least reliable node in it.
 - ADR-014 (Platform-Wide Placement Rule & Stateful Infrastructure) — §Backup and restore contract.
 - PRD: hybrid home-lab cluster integration using Hetzner and Tailscale.
 
+## Amendment (2026-09-13) — NATS removed
+
+This ADR gated NATS out of `02-platform-data` for the on-prem placement class, and recorded that the NATS leaf node had no placement in any of the six overlays. Both are now moot: NATS is removed from the platform entirely (ADR-080). The observation that drove the gating — *"NATS has no consumer inside `hub-core-services`"* — turned out to be true of every box, not only hybrid ones.
+
+The `volumeClaimTemplates` incident recorded in §22 stands as the example it always was: an immutable field edited in place under a continuously-reconciling controller. It recurred on `platform-nats` before the removal.

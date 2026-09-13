@@ -22,14 +22,6 @@ data:
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
 
-    // NATS metrics scraping
-    prometheus.scrape "nats" {
-      targets = [{
-        __address__ = "nats.platform-messaging.svc:8222",
-      }]
-      forward_to = [prometheus.relabel.add_cell_id.receiver]
-    }
-
     // PostgREST metrics scraping
     prometheus.scrape "postgrest" {
       targets = [{

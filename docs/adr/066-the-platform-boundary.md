@@ -41,7 +41,7 @@ The line falls between a capability and the use made of it. The platform maintai
 
 Every box runs the same cluster machinery: the GitOps engine, composition and cluster lifecycle, secret delivery, certificate issuance, DNS, gateway, admission policy, and node and capacity lifecycle. Without these a box cannot reconcile anything, so they are not selectable.
 
-Above them sit capabilities a tenant selects: a database, an identity provider, messaging, object storage, mail, metrics. A tenant runs what it needs and does not carry the rest.
+Above them sit capabilities a tenant selects: a database, an identity provider, object storage, mail, metrics. A tenant runs what it needs and does not carry the rest.
 
 **Selecting a capability does not make it the tenant's to maintain.** Both sets are platform, and the platform maintains what a box actually runs. A tenant that selects a database receives a maintained database, which is the whole proposition: the alternative asks an organisation with no platform engineers to operate a Postgres cluster, and the component fails in their hands.
 
@@ -115,7 +115,6 @@ capabilities:
   - on-prem-capacity
   - database
   - identity
-  - messaging
   - metering
 ```
 
@@ -196,7 +195,6 @@ no cluster. Four now select:
 |---|---|---|
 | on-prem capacity | `onPrem.enabled` | was already wired |
 | database | `capabilities.database.enabled` | new |
-| messaging | `capabilities.messaging.enabled` | new |
 | observability | `capabilities.observability.enabled` | new |
 
 **Every default is `true`, and that is load-bearing rather than tidy.** These
@@ -263,10 +261,10 @@ the PostgreSQL implementation already written at
 `internal/kube-sbt/providers/metering`, on the CNPG cluster every box runs. What
 is outstanding is an ADR for it, not a toggle.
 
-**What is selectable now:** `on-prem-capacity`, `database`, `messaging`,
-`observability`, `support`, `metering`. The first four work today. `support`
-defaults false until its image and Support Plane exist; `metering` awaits its
-decision. Both are recorded in the declaration with their reasons rather than
+**What is selectable now:** `on-prem-capacity`, `database`, `observability`,
+`support`, `metering`. The first three work today. `support` defaults false until
+its image and Support Plane exist; `metering` awaits its decision. `messaging`
+was selectable and has been withdrawn — see ADR-080, which removes NATS. Both are recorded in the declaration with their reasons rather than
 left as gaps someone has to rediscover.
 
 ## References

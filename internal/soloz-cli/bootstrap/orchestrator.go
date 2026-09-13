@@ -42,7 +42,7 @@ import (
 //	Phase  5a: argocd-install        ArgoCD + seed Application (pre-worker, hybrid)
 //	Phase 11a: boundary-01            infra operators ready (orchestrator-owned)
 //	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
-//	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
+//	Phase 11c: boundary-02            Data workloads (CNPG, Redis)
 //	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
 //	Phase 11e: boundary-03            Services (Infisical, hub Gateway, apps)
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
@@ -387,7 +387,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 11c: Boundary 02 — platform data workloads ─────────────
-	// Deploys CNPG Cluster, Redis and NATS. The CNPG Cluster
+	// Deploys the CNPG Cluster and Redis. The CNPG Cluster
 	// CR triggers the operator (installed in B01). platform-db-app was
 	// created in the previous phase (generate-local-secrets), so CNPG's
 	// initdb has the credentials it needs immediately.
@@ -477,20 +477,18 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 
 	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
 	//
-	// Zitadel's initialisation is not transactional, so a boundary 04 that failed
-	// part-way leaves a database no retry can recover from. Reset before the
-	// retry, not after it fails again -- see resetZitadelIfInitIncomplete, which
-	// does nothing unless the phase is genuinely unfinished AND the database
-	// carries the exact signature of a half-finished setup.
-	if err := o.resetZitadelIfInitIncomplete(ctx, mgmtKubeconfig,
-		o.phaseDone(bs, state.PhaseBoundary04)); err != nil {
-		return fmt.Errorf("[boundary04] %w", err)
-	}
-
+	// The postcondition is the identity provider serving, not the boundary having
+	// been applied. Everything downstream -- iam-admin-pat, the identity token,
+	// identity-service-credentials, kube-sbt -- is waiting on Zitadel, so a phase
+	// that reports success while Zitadel is down moves the failure two namespaces
+	// away from its cause and takes eleven minutes to surface there.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
 		"Deploying tenant services (boundary 04)...",
 		func() error { return o.deployBoundary04(ctx, mgmtKubeconfig) },
 		func() { fmt.Println("[boundary04] ✓ Tenant services deployed") },
+		withPostcondition(func() error {
+			return o.phasePostconditions(mgmtKubeconfig)[state.PhaseBoundary04](ctx)
+		}),
 	); err != nil {
 		return err
 	}
@@ -634,6 +632,40 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 // runPhase executes a single bootstrap phase with checkpoint persistence.
 // If the phase is already completed, it skips. On success, it saves state
 // and advances to the next phase.
+// phaseSpec carries the optional properties of a phase. Options rather than
+// parameters because every phase has an action and almost none has anything
+// else, and a signature that grew a field per phase would make twenty-one call
+// sites carry nils for a property one of them uses.
+type phaseSpec struct {
+	postcondition func() error
+}
+
+type phaseOption func(*phaseSpec)
+
+// withPostcondition declares what must be TRUE for this phase to count as done,
+// as distinct from what the phase DOES.
+//
+// A completion record says a phase ran to the end of its action once, under
+// whatever assertions that binary carried. It does not say the phase's effect is
+// still in place, and it cannot say the phase was checked against assertions
+// added since. Boundary 04 is the case that proved the difference: it was
+// recorded complete by a binary that asserted only that ArgoCD had generated the
+// Applications, so every later run skipped it -- including the runs whose whole
+// purpose was the Zitadel repair -- while the identity provider had never once
+// served. The bootstrap printed "complete" twenty-four phases deep over a box
+// with no working identity provider.
+//
+// So a phase that declares a postcondition is re-checked on resume, and a
+// completion record that no longer holds is withdrawn rather than trusted. The
+// check is a point-in-time probe, never a wait: resume must stay cheap, and the
+// waiting belongs to the action that runs if the probe says the phase is unfinished.
+//
+// Adoption is per phase. A phase that declares none behaves exactly as before,
+// so this can be taken up where it earns its keep instead of all at once.
+func withPostcondition(check func() error) phaseOption {
+	return func(s *phaseSpec) { s.postcondition = check }
+}
+
 func (o *Orchestrator) runPhase(
 	ctx context.Context,
 	stateMgr *state.StateManager,
@@ -642,10 +674,29 @@ func (o *Orchestrator) runPhase(
 	label, header string,
 	action func() error,
 	onSuccess func(),
+	opts ...phaseOption,
 ) error {
+	var spec phaseSpec
+	for _, opt := range opts {
+		opt(&spec)
+	}
+
 	if o.phaseDone(bs, phase) {
-		fmt.Printf("[%s] ✓ Skipped (already completed)\n", label)
-		return nil
+		if spec.postcondition == nil {
+			fmt.Printf("[%s] ✓ Skipped (already completed)\n", label)
+			return nil
+		}
+		if err := spec.postcondition(); err == nil {
+			fmt.Printf("[%s] ✓ Skipped (already completed, postcondition holds)\n", label)
+			return nil
+		} else {
+			fmt.Printf("[%s] ⚠ recorded complete, but its postcondition does not hold: %v\n", label, err)
+			fmt.Printf("[%s]   withdrawing the completion record and running the phase again\n", label)
+			bs.CompletedPhases = removePhase(bs.CompletedPhases, phase)
+			if saveErr := stateMgr.Save(bs); saveErr != nil {
+				return saveErr
+			}
+		}
 	}
 	if header != "" {
 		fmt.Println("\n[" + label + "] " + header)
@@ -1170,7 +1221,7 @@ func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) 
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Boundary 02: Platform data workloads (CNPG, Redis, NATS)
+// Boundary 02: Platform data workloads (CNPG, Redis)
 // ──────────────────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
@@ -1214,6 +1265,13 @@ func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) 
 }
 
 func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
+	// Before the boundary, not after it fails. A previous attempt can leave two
+	// independent obstacles behind -- a database whose initialisation did not
+	// finish, and an ArgoCD operation wedged on a hook -- and either one alone
+	// makes the retry that follows pointless (see prepareZitadelForRetry).
+	if err := o.prepareZitadelForRetry(ctx, kubeconfig); err != nil {
+		return err
+	}
 	if err := o.deployBoundary(ctx, kubeconfig, 4); err != nil {
 		return err
 	}
@@ -1240,6 +1298,28 @@ func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) 
 	return nil
 }
 
+// zitadelServing reports whether the identity provider is serving right now.
+//
+// One point-in-time probe with no wait in it, so it can be used both as the
+// condition awaitZitadelReady polls and as boundary 04's postcondition on
+// resume, where a wait would make every resume pay Zitadel's start-up time.
+//
+// readyReplicas, not the Deployment's existence: Zitadel crash-looping on a
+// half-initialised database is a Deployment that exists, has a pod, and serves
+// nothing.
+func (o *Orchestrator) zitadelServing(ctx context.Context, kubeconfig string) error {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "deployment", "zitadel", "-n", "platform-identity",
+		"-o", "jsonpath={.status.readyReplicas}").Output()
+	if err != nil {
+		return fmt.Errorf("the zitadel deployment could not be read in platform-identity")
+	}
+	if ready := strings.TrimSpace(string(out)); ready == "" || ready == "0" {
+		return fmt.Errorf("the identity provider has no ready replica")
+	}
+	return nil
+}
+
 // awaitZitadelReady waits until the identity provider is serving, and says what
 // is wrong when it is not.
 //
@@ -1257,10 +1337,7 @@ func (o *Orchestrator) awaitZitadelReady(ctx context.Context, kubeconfig string)
 	fmt.Println("[boundary04] waiting for the identity provider to serve")
 
 	for {
-		ready, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-			"get", "deployment", "zitadel", "-n", "platform-identity",
-			"-o", "jsonpath={.status.readyReplicas}").Output()
-		if err == nil && strings.TrimSpace(string(ready)) != "" && strings.TrimSpace(string(ready)) != "0" {
+		if err := o.zitadelServing(ctx, kubeconfig); err == nil {
 			fmt.Printf("[boundary04] ✓ identity provider ready after %s\n",
 				formatDuration(time.Since(started)))
 			return nil
@@ -1386,8 +1463,23 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 	fmt.Printf("[recovery] Last completed phase: %s\n", bs.CurrentPhase)
 
 	if o.phaseDone(bs, state.PhaseComplete) {
-		fmt.Println("Cluster already bootstrapped. No further CLI operations permitted per ADR-040.")
-		return nil
+		// Verified, not trusted. See phasePostconditions: a bootstrap that
+		// recorded `complete` while a phase's effect never happened would
+		// otherwise refuse every run that could repair it, including the runs
+		// carrying the repair.
+		unmet := o.unmetPostconditions(ctx, bs, bs.MgmtKubeconfig)
+		if len(unmet) == 0 {
+			fmt.Println("Cluster already bootstrapped. No further CLI operations permitted per ADR-040.")
+			return nil
+		}
+		fmt.Printf("[recovery] This bootstrap is recorded complete, but %d phase(s) did not leave the cluster in the state they claim:\n", len(unmet))
+		fmt.Print(describeUnmet(unmet))
+		fmt.Println("[recovery] Withdrawing those records and resuming. Nothing already working is re-done:")
+		fmt.Println("[recovery]   every other phase is skipped as usual.")
+		withdrawCompletion(bs, unmet)
+		if err := stateMgr.Save(bs); err != nil {
+			return err
+		}
 	}
 
 	// Resume from where we left off — the runFresh pipeline will skip

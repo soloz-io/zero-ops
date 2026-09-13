@@ -410,35 +410,9 @@ check_ory() {
     done
 }
 
-# ─── 8. NATS MESSAGING ───────────────────────────────────────────────────────
-check_nats() {
-    log_section "8. NATS MESSAGING"
-
-    # NATS is not deployed on every hub: the hybrid provider omits it (no consumer
-    # in hub-core-services, and a single home-lab node should not carry a 10Gi
-    # JetStream volume). Detect that from the cluster rather than duplicating the
-    # provider logic here — if the ApplicationSet never generated the app, NATS was
-    # deliberately not selected for this hub.
-    if ! kc get application platform-nats -n platform-ops >/dev/null 2>&1; then
-        log_pass "NATS not deployed on this hub (no platform-nats Application) — skipping"
-        return 0
-    fi
-
-    check_argocd_app "platform-nats" "FAIL"
-
-    local nats_ready
-    nats_ready=$(kc get pods -n platform-messaging --no-headers 2>/dev/null \
-        | grep -c "Running" || echo "0")
-    if [[ "$nats_ready" -gt 0 ]]; then
-        log_pass "NATS pods running: $nats_ready"
-    else
-        log_warn "NATS: no running pods in platform-messaging"
-    fi
-}
-
-# ─── 9. HUB OPERATOR ─────────────────────────────────────────────────────────
+# ─── 8. HUB OPERATOR ─────────────────────────────────────────────────────────
 check_hub_operator() {
-    log_section "9. HUB-OPERATOR"
+    log_section "8. HUB-OPERATOR"
     check_argocd_app "hub-operator" "FAIL"
     check_deployment "platform-ops" "hub-operator"
 
@@ -476,9 +450,9 @@ check_hub_operator() {
     fi
 }
 
-# ─── 10. KUBE-SBT API ─────────────────────────────────────────────────────────
+# ─── 9. KUBE-SBT API ─────────────────────────────────────────────────────────
 check_kube_sbt_api() {
-    log_section "10. KUBE-SBT API"
+    log_section "9. KUBE-SBT API"
     check_argocd_app "kube-sbt" "FAIL"
     check_namespace_pods "platform-ops" "app=kube-sbt"
 
@@ -491,9 +465,9 @@ check_kube_sbt_api() {
     fi
 }
 
-# ─── 11. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
+# ─── 10. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
-    log_section "11. INGRESS & CERT-MANAGER"
+    log_section "10. INGRESS & CERT-MANAGER"
     # The hub serves its hostnames from the Gateway API; ingress-nginx was
     # retired, so checking for its Application fails every bootstrap.
     check_argocd_app "hub-gateway" "FAIL"
@@ -511,9 +485,9 @@ check_ingress() {
     fi
 }
 
-# ─── 12. SPOKE POOL + CAPI ────────────────────────────────────────────────────
+# ─── 11. SPOKE POOL + CAPI ────────────────────────────────────────────────────
 check_spoke() {
-    log_section "12. SPOKE POOL & CAPI"
+    log_section "11. SPOKE POOL & CAPI"
 
     # Extract the spoke admin kubeconfig for direct spoke-cluster validation.
     get_spoke_kubeconfig
@@ -825,9 +799,9 @@ check_spoke_datapath() {
     fi
 }
 
-# ─── 13. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
+# ─── 12. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
 check_platform_argocd_apps() {
-    log_section "13. CRITICAL ARGOCD APPS"
+    log_section "12. CRITICAL ARGOCD APPS"
 
     # Critical — failure blocks operations
     local critical_apps=(
@@ -840,7 +814,6 @@ check_platform_argocd_apps() {
         "platform-database"
         "hub-environment"
         "hub-operator"
-        "platform-nats"
         "platform-redis"
     )
     for app in "${critical_apps[@]}"; do
@@ -858,9 +831,9 @@ check_platform_argocd_apps() {
     done
 }
 
-# ─── 14. OBSERVABILITY ────────────────────────────────────────────────────────
+# ─── 13. OBSERVABILITY ────────────────────────────────────────────────────────
 check_observability() {
-    log_section "14. OBSERVABILITY"
+    log_section "13. OBSERVABILITY"
     check_argocd_app "victoria-metrics-cluster" "WARN"
     check_argocd_app "victoria-metrics-alerts" "WARN"
     check_argocd_app "grafana-alloy" "WARN"
@@ -951,7 +924,6 @@ main() {
     check_infisical
     check_databases
     check_ory
-    check_nats
     check_hub_operator
     check_kube_sbt_api
     check_ingress

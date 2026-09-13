@@ -43,19 +43,6 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-  nats:
-    streams:
-    - name: spoke-events
-      subjects:
-      - "spoke.*.lifecycle.>"
-      - "spoke.*.billing.>"
-      retention: limits
-      storage: file
-    - name: hub-events
-      subjects:
-      - "hub.notifications.>"
-      retention: interest
-      storage: file
   oauth:
     clients:
     - clientId: mcp-server

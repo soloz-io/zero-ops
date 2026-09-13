@@ -9,8 +9,8 @@ namespace: platform-ops
 # namePrefix: hub-operator-
 
 # Labels to add to all resources and selectors.
-#labels:
-#- includeSelectors: true
+# labels:
+# - includeSelectors: true
 #  pairs:
 #    someName: someValue
 
@@ -20,14 +20,14 @@ resources:
 - ../manager
 - ../certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-#- ../prometheus
+# - ../prometheus
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 # [NETWORK POLICY] Protect the /metrics endpoint and Webhook Server with NetworkPolicy.
 # Only Pod(s) running a namespace labeled with 'metrics: enabled' will be able to gather the metrics.
 # Only CR(s) which requires webhooks and are applied on namespaces labeled with 'webhooks: enabled' will
 # be able to communicate with the Webhook Server.
-#- ../network-policy
+# - ../network-policy
 
 # Uncomment the patches line if you enable Metrics
 patches:
@@ -166,16 +166,6 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# [CUSTOM] Append NATS URL
-- patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: NATS_URL
-        value: "nats://nats.platform-core.svc:4222"
-  target:
-    kind: Deployment
-    name: hub-operator
 # Note: the escrow env vars (INFISICAL_ESCROW_*) are already defined in
 # config/manager/manager.yaml — not duplicated here.
 # [CUSTOM] Patch resource requests/limits for production
@@ -201,7 +191,7 @@ patches:
 # Uncomment the patches line if you enable Metrics and CertManager
 # [METRICS-WITH-CERTS] To enable metrics protected with certManager, uncomment the following line.
 # This patch will protect the metrics with certManager self-signed certs.
-#- path: cert_metrics_manager_patch.yaml
+# - path: cert_metrics_manager_patch.yaml
 #  target:
 #    kind: Deployment
 
@@ -213,7 +203,7 @@ patches:
 
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER' prefix.
 # Uncomment the following replacements to add the cert-manager CA injection annotations
-#replacements:
+# replacements:
 # - source: # Uncomment the following block to enable certificates for metrics
 #     kind: Service
 #     version: v1

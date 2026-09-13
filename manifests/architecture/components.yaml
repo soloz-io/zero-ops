@@ -234,14 +234,6 @@ capabilities:
       A Zitadel that will not start is the platform's; a misconfigured client
       registered in a healthy one is the tenant's.
 
-  - name: messaging
-    kind: selectable
-    enable: capabilities.messaging.enabled
-    lifecycle: supported
-    status: shipped
-    declared_by: [066-the-platform-boundary.md]
-    note: Unconditionally on today.
-
 
   - name: observability
     kind: selectable

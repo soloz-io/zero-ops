@@ -45,6 +45,14 @@ jobs:
       - name: Workflow secrets are declared, not just used
         run: python3 scripts/validate/workflow-secrets.py .
 
+      # setupJob.initContainers is a raw container list, so the cleanup
+      # container's image cannot reference the chart's own image values and has
+      # to be written out. It is therefore the one image here that a chart bump
+      # does not carry along, and a cleanup run by a different binary than the
+      # setup it precedes reasons about migrations it may not know.
+      - name: The Zitadel cleanup image matches the chart's appVersion
+        run: python3 scripts/validate/zitadel-cleanup-image.py --online
+
   # internal/platform/embedded is a generated copy of the manifests a released
   # CLI carries. It was guarded only by a pre-commit hook, which means it was
   # guarded on one machine: a commit made with --no-verify, or by anyone who had

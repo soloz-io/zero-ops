@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The Zero-Ops platform relies on a centralized Hub cluster hosting critical control plane components (Crossplane, ArgoCD, Infisical, NATS, PostgreSQL). A formal definition of survivability, blast radius, and recovery objectives is required to ensure that a Hub outage does not cause cascading failures across the global fleet of Spoke clusters.
+The Zero-Ops platform relies on a centralized Hub cluster hosting critical control plane components (Crossplane, ArgoCD, Infisical, PostgreSQL). A formal definition of survivability, blast radius, and recovery objectives is required to ensure that a Hub outage does not cause cascading failures across the global fleet of Spoke clusters.
 
 A critical distinction underpins this ADR: **Runtime Autonomy** and **Lifecycle Autonomy** are not the same. Runtime Autonomy (existing traffic, workloads, secrets, and certificates continue functioning) is achievable and guaranteed. Lifecycle Autonomy (secret rotation, certificate issuance, provisioning, GitOps sync continue during Hub outage) is not guaranteed and follows the dependency matrix below. The platform accepts that centralized dependencies (Infisical, ArgoCD, Crossplane) control lifecycle operations while the data plane operates independently at runtime.
 
@@ -33,9 +33,6 @@ Spoke-local External Secrets Operator (ESO) relies on its local cache. Pods refe
 *Secret Rotation SLO:* Hub outages under 24 hours result in no expected tenant impact. For Hub outages exceeding the Secret TTL, rotation guarantees no longer apply.
 *Certificate Issuance:* Existing leaf certificates continue serving until expiry. New certificate issuance and renewal require Infisical availability (via infisical-issuer or Intermediate CA distribution).
 
-**NATS Failure:**
-Cross-cluster telemetry buffering (JetStream) queues locally on Spokes. Remote trigger executions and Hub-to-Spoke orchestration commands fail. Tenant applications function normally.
-
 ### Disaster Recovery Objectives
 
 **Hub Control Plane:**
@@ -54,7 +51,6 @@ Cross-cluster telemetry buffering (JetStream) queues locally on Spokes. Remote t
 | **Crossplane Down** | ✅ | ❌ | ✅ | ✅ | ✅ |
 | **ArgoCD Down** | ✅ | ✅ | ❌ | ✅ | ✅ |
 | **Infisical Down** | ✅ | ✅ | ✅ | ⚠️ | ❌ |
-| **NATS Down** | ✅ | ⚠️ | ✅ | ✅ | ✅ |
 
 ## Ownership
 
@@ -70,3 +66,7 @@ This ADR defines failure domain boundaries and autonomy guarantees for the contr
 
 ### Negative
 - Platform-level infrastructure mutation, scaling, credential rotation, and certificate issuance operations are tightly coupled to Hub availability and pause during outages.
+
+## Amendment (2026-09-13) — NATS removed
+
+NATS appeared above as a failure domain and in the matrix. It is removed from the platform (ADR-080): nothing published to or subscribed from it, and the roles assigned to it here — cross-cluster telemetry buffering and Hub-to-Spoke orchestration — were never built. Telemetry is ADR-078's; support reporting is ADR-077's, over egress HTTPS.

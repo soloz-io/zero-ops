@@ -9,7 +9,7 @@
 # binds nowhere and the pod sits Pending; §11 calls that "the correct failure mode",
 # which is precisely why it is invisible — nothing errors, the bootstrap just stops.
 #
-# This drifted once already: platform-db declared its placement while redis and nats
+# This drifted once already: platform-db declared its placement while redis
 # did not, and each failed in turn on separate days. The check exists so the third
 # case is caught here rather than 40 minutes into a bootstrap.
 validate_placement_class() {
@@ -107,7 +107,7 @@ validate_bases_are_provider_neutral() {
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
 import glob, yaml
 
-for comp in ("database", "redis", "nats"):
+for comp in ("database", "redis"):
     for f in glob.glob(f"manifests/hub-core-services/{comp}/*.yaml"):
         try:
             docs = [d for d in yaml.safe_load_all(open(f)) if d]

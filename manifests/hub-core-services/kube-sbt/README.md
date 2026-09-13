@@ -18,7 +18,6 @@ kube-sbt is the REST API server for the kube-sbt metering and billing system. It
 ## Dependencies
 - **OpenMeter API**: `openmeter-api.platform-billing.svc.cluster.local`
 - **Zitadel**: `id.dev.nutgraf.in` (via gateway)
-- **NATS**: `nats.platform-messaging.svc.cluster.local:4222`
 - **Redis**: `redis.platform-billing.svc.cluster.local:6379`
 
 ## Deployment
@@ -26,7 +25,6 @@ kube-sbt is the REST API server for the kube-sbt metering and billing system. It
 ### Prerequisites
 1. OpenMeter deployed and healthy
 2. Zitadel (identity provider) deployed
-3. NATS JetStream deployed
 4. Redis deployed
 
 ### Build Docker Image
@@ -82,7 +80,6 @@ The deployment includes a NetworkPolicy that:
   - DNS (kube-dns)
   - OpenMeter API
   - Zitadel
-  - NATS
   - Redis
 
 ## Monitoring
@@ -126,7 +123,6 @@ kubectl delete networkpolicy -n platform-billing kube-sbt
 - `OPENMETER_URL`: OpenMeter API URL
 - `AUTH_PROVIDER`: identity provider to use (default and only accepted value: `zitadel`)
 - `OIDC_ISSUER_URL`: Zitadel public issuer URL
-- `NATS_URL`: NATS server URL
 - `REDIS_URL`: Redis server URL
 
 ### Resource Limits

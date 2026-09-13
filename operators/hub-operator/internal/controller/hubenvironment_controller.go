@@ -515,7 +515,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			// authenticate to Postgres, and the only visible symptom is a
 			// CrashLoop in a different namespace.
 			logger.Error(err, "Failed to provision database roles — reconcile stops here; no later phase runs",
-				"nextPhasesBlocked", []string{"IdentityReady", "NATSStreamsConfigured"})
+				"nextPhasesBlocked", []string{"IdentityReady"})
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, err
 		}
 		logger.Info("Phase 2 complete: database roles provisioned")
@@ -615,49 +615,6 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// Requirement 9.10: Phase 3 - Create NATS Streams
-	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "NATSStreamsConfigured", hubEnv.Generation) {
-		logger.Info("Phase 3: Creating NATS streams")
-
-		// Requirement 9.11: Check if NATS is ready
-		natsReady, err := r.isNATSReady(ctx, hubEnv)
-		if err != nil {
-			logger.Error(err, "Failed to check NATS readiness")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-		if !natsReady {
-			logger.Info("Waiting for NATS to be ready")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-
-		natsClient, err := infisicalclient.NewNATSClient("")
-		if err != nil {
-			logger.Error(err, "Failed to create NATS client")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		defer natsClient.Close()
-
-		if err := natsClient.CreateOrUpdateStreams(ctx, hubEnv); err != nil {
-			logger.Error(err, "Failed to create NATS streams")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-
-		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
-			Type:               "NATSStreamsConfigured",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Configured",
-			Message:            "NATS streams configured successfully",
-			ObservedGeneration: hubEnv.Generation,
-		})
-
-		if err := r.Status().Update(ctx, hubEnv); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		logger.Info("Phase 3c complete: NATS streams created")
-		return ctrl.Result{Requeue: true}, nil
-	}
-
 	// 6. Set Ready condition
 	if !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "Ready", hubEnv.Generation) {
 		logger.Info("All phases complete, setting Ready condition")
@@ -728,22 +685,6 @@ func (r *HubEnvironmentReconciler) isInfisicalReady(ctx context.Context, hubEnv 
 		return false, err
 	}
 	return deployment.Status.ReadyReplicas > 0, nil
-}
-
-// isNATSReady checks if NATS StatefulSet is ready
-// Requirement 9.11: Implement dependency readiness checks
-func (r *HubEnvironmentReconciler) isNATSReady(ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment) (bool, error) {
-	statefulset := &appsv1.StatefulSet{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Name:      "nats",
-		Namespace: infisical.NamespaceMessaging,
-	}, statefulset); err != nil {
-		if errors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return statefulset.Status.ReadyReplicas > 0, nil
 }
 
 // uploadSecretsToInfisical uploads all secrets to Infisical
@@ -962,17 +903,6 @@ func (r *HubEnvironmentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				predicate.ResourceVersionChangedPredicate{},
 				predicate.NewPredicateFuncs(func(obj client.Object) bool {
 					return obj.GetName() == infisical.InfisicalServiceName && obj.GetNamespace() == infisical.InfisicalServiceNamespace
-				}),
-			),
-		).
-		// Requirement 12.9: Watch NATS StatefulSet
-		Watches(
-			&appsv1.StatefulSet{},
-			handler.EnqueueRequestsFromMapFunc(r.findHubEnvironmentForStatefulSet),
-			builder.WithPredicates(
-				predicate.ResourceVersionChangedPredicate{},
-				predicate.NewPredicateFuncs(func(obj client.Object) bool {
-					return obj.GetName() == "nats" && obj.GetNamespace() == "platform-core"
 				}),
 			),
 		).

@@ -134,5 +134,8 @@ func ReadHubZone(projectRoot, environmentSlug string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no spec.domain declared for environment %q in any overlay; "+
-		"the environment overlay is the system of record for the base domain (ADR-051)", environmentSlug)
+		"the environment overlay is the system of record for the base domain (ADR-051).\n"+
+		"  Looked in: %s\n"+
+		"  Source: %s",
+		environmentSlug, strings.Join(candidates, ", "), platform.Origin())
 }

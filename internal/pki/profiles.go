@@ -55,7 +55,7 @@ type Profile struct {
 // it needs and the profile refuses anything longer. That is what lets one profile
 // serve both classes of consumer without weakening either.
 //
-//	24h   default for workload / client identities (spoke agent, alloy, nats client)
+//	24h   default for workload / client identities (spoke agent, alloy)
 //	7d    ceiling, for SERVING identities that cannot hot-reload their certificate
 //
 // Three constraints fix the ceiling at 7 days, and they pull in opposite directions:

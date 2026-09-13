@@ -49,53 +49,6 @@ spec:
               {{- end }}
             helmReleaseName: ''
           {{- end }}
-          {{- if ne (include "environment-manager.placementClass" .) "hybrid" }}
-          # NATS is not deployed on a box whose data sits in the on-prem class. It
-          # has no consumer inside hub-core-services — it is the messaging layer
-          # spoke leaf-nodes connect to — and that class runs its workloads on
-          # on-prem nodes where the 10Gi JetStream volume is not worth the disk.
-          # The hetzner overlay is retained for hubs that do run it.
-          #
-          # Keyed on the placement class rather than the provider, which is what
-          # the reason above was always about: the argument is where the volume
-          # lands, not who created the machine. It is also load-bearing now that
-          # the two can differ (ADR-075) — providers/hybrid carries no nats
-          # overlay, so a hetzner box placing its data on-prem would otherwise
-          # render an Application against a path that does not exist.
-          {{- if .Values.capabilities.messaging.enabled }}
-          - appName: 'platform-nats'
-            destinationNamespace: 'platform-messaging'
-            isPlatformOwned: 'true'
-            repoURL: {{ .Values.platformRepoURL | quote }}
-            targetRevision: ''
-            # ADR-046 §11: the provider overlay supplies the placement class
-            # (workload-location + matching storage class). The base under
-            # hub-core-services/nats is provider-neutral and must not be
-            # deployed directly. Same convention as
-            # spoke-catalog/environments/<env>/<provider>.
-            path: 'manifests/hub-core-services/providers/{{ include "environment-manager.placementClass" . }}/nats'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              {{- if $released }}
-              # One artefact (ADR-063): enable this component and
-              # give it the topology, or the distribution renders
-              # nothing and reports the Application healthy.
-              platform-nats:
-                enabled: true
-              {{- include "environment-manager.globalValues" $ | nindent 14 }}
-                # The variant selector inside the distribution: the subchart
-                # resolves files/<env>-<provider>, then files/<env>, then
-                # files/<provider>. For these three that lookup must follow the
-                # placement class, or a box placing its data on-prem would still
-                # render the cloud overlay and pin a storage class its nodes
-                # cannot provision (ADR-046 §11, ADR-075).
-                provider: {{ include "environment-manager.placementClass" $ | quote }}
-              {{- end }}
-            helmReleaseName: ''
-          {{- end }}
-          {{- end }}
           - appName: 'platform-redis'
             destinationNamespace: 'platform-data'
             isPlatformOwned: 'true'

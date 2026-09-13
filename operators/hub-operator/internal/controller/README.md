@@ -45,13 +45,6 @@ The controller executes phases sequentially, updating status conditions after ea
    - Prunes orphaned clients not in CR spec
    - Sets `OAuthClientsRegistered` condition to True
 
-6. **Phase 3c: NATS Stream Creation**
-   - Waits for NATS StatefulSet to be Ready
-   - Creates JetStream streams using NATS Go SDK
-   - Detects configuration drift and updates streams
-   - Prunes orphaned streams not in CR spec
-   - Sets `NATSStreamsConfigured` condition to True
-
 7. **Ready Condition**
    - Set when all phases complete successfully
    - Indicates Hub environment is fully operational
@@ -63,7 +56,6 @@ The controller implements readiness checks for external dependencies:
 - `isCNPGReady()`: Checks CNPG Cluster Ready condition
 - `isInfisicalReady()`: Checks Infisical Deployment status
 - `isHydraReady()`: Checks Hydra Deployment status
-- `isNATSReady()`: Checks NATS StatefulSet status
 
 Reconciliation waits (requeues after 10 seconds) if dependencies are not ready.
 
@@ -75,7 +67,7 @@ The controller distinguishes between transient and permanent errors:
 
 **Transient Errors** (requeue with backoff):
 - Database connection failures
-- API timeouts (Hydra, Infisical, NATS)
+- API timeouts (Hydra, Infisical)
 - Network failures
 - 5xx HTTP errors
 
@@ -111,7 +103,6 @@ The controller maintains 7 status conditions:
 | DatabaseRolesConfigured | True/False | Configured/RoleCreationFailed | Database roles provisioned |
 | SecretsBackedUp | True/False | Uploaded/AuthenticationFailed | Secrets uploaded to Infisical |
 | OAuthClientsRegistered | True/False | Registered/Failed | OAuth clients registered in Hydra |
-| NATSStreamsConfigured | True/False | Configured/Failed | NATS streams created |
 | Ready | True/False | AllPhasesComplete/Failed | Hub environment fully operational |
 
 ## RBAC Permissions
@@ -143,7 +134,6 @@ All reconciliation operations are idempotent:
 - Database migrations use golang-migrate (tracks applied migrations)
 - Role creation uses CREATE ROLE IF NOT EXISTS pattern
 - OAuth client registration checks client_id before creating
-- NATS stream creation checks stream name before creating
 - Infisical uploads track uploaded secrets in Status.UploadedSecrets
 
 Running reconciliation multiple times produces the same end state.
@@ -169,7 +159,7 @@ The controller watches:
 - **External Dependencies**: CNPG Cluster (for readiness)
 
 Future tasks will add watches for:
-- Hydra/Infisical/NATS Deployments (readiness)
+- Hydra/Infisical Deployments (readiness)
 - platform-db-ca secret (certificate rotation)
 - Secrets with label `ops.nutgraf.in/db-credentials=true` (password rotation)
 
@@ -181,10 +171,9 @@ Future tasks will add watches for:
 - Mock external API calls
 
 ### E2E Tests (KUTTL)
-- Deploy real CNPG, Hydra, Infisical, NATS
+- Deploy real CNPG, Hydra, Infisical
 - Assert database roles exist via SQL queries
 - Assert OAuth clients exist via Hydra API
-- Assert NATS streams exist via NATS API
 - Assert secrets exist in Infisical via API
 
 ## Development Workflow
@@ -237,7 +226,6 @@ Check dependency status:
 ```bash
 kubectl get cluster platform-db -o jsonpath='{.status.conditions}'
 kubectl get deployment infisical -n platform-ops
-kubectl get statefulset nats -n platform-core
 ```
 
 Reconciliation will requeue every 10 seconds until dependencies are ready.
@@ -248,4 +236,3 @@ Reconciliation will requeue every 10 seconds until dependencies are ready.
 - [Controller-Runtime](https://github.com/kubernetes-sigs/controller-runtime)
 - [CloudNativePG API](https://cloudnative-pg.io/documentation/current/api_reference/)
 - [Ory Hydra Go SDK](https://github.com/ory/hydra-client-go)
-- [NATS Go SDK](https://github.com/nats-io/nats.go)

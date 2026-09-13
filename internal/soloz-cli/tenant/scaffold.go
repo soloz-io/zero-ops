@@ -321,7 +321,7 @@ func (s Spec) chartSource() string {
           # The generated file carries this box's Infisical PKI coordinates
           # (ADR-045). Without them the security boundary emits no ClusterIssuer
           # and every certificate naming infisical-fleet-issuer stays pending --
-          # NATS never starts, the argocd-agent mTLS identities never issue, and
+          # the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
           # its enrolment.
           - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
@@ -366,7 +366,7 @@ func (s Spec) chartSource() string {
           # The generated file carries this box's Infisical PKI coordinates
           # (ADR-045). Without them the security boundary emits no ClusterIssuer
           # and every certificate naming infisical-fleet-issuer stays pending --
-          # NATS never starts, the argocd-agent mTLS identities never issue, and
+          # the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
           # its enrolment.
           - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml

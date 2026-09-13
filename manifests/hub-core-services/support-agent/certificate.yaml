@@ -33,7 +33,7 @@ spec:
   # renews at 10 days, plus a blocklist that does not wait for expiry, answers
   # that more completely than an exchange would.
   # 24h/8h, which is what every other agent identity in this platform already
-  # uses (argocd-agent, alloy and the NATS leaf node all carry exactly these
+  # uses (argocd-agent and alloy both carry exactly these
   # values in manifests/spoke/spoke-catalog/infra/certificates.yaml). A support
   # credential is not more special than a reconciliation credential, and a
   # second rotation cadence is a second thing to be wrong about.

@@ -145,10 +145,6 @@ capabilities:
   # and the failover; the schemas in it are the tenant's.
   database:
     enabled: true
-  # NATS. Also gated by placement class below -- an on-prem data class does not
-  # carry the JetStream volume regardless of this flag.
-  messaging:
-    enabled: true
   # Collection, and under ADR-078 the store, query and dashboards that go with it.
   observability:
     enabled: true

@@ -63,7 +63,7 @@ spec:
   - ports:
     - protocol: TCP
       port: 443
-  # Allow Ory Kratos and NATS (ports-only: Cilium evaluates NetworkPolicy BEFORE
+  # Allow Ory Kratos (ports-only: Cilium evaluates NetworkPolicy BEFORE
   # service DNAT; ClusterIPs match no namespace selector. Ports constrain scope.)
   - ports:
     - protocol: TCP

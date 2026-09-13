@@ -93,44 +93,6 @@ spec:
                 - prod
                 - ephemeral
                 type: string
-              nats:
-                description: NATS configuration for JetStream streams
-                properties:
-                  streams:
-                    description: Streams to be created in NATS JetStream
-                    items:
-                      description: NATSStream defines a NATS JetStream stream specification
-                      properties:
-                        name:
-                          description: Name of the stream
-                          type: string
-                        retention:
-                          default: limits
-                          description: Retention policy for the stream
-                          enum:
-                          - limits
-                          - interest
-                          - workqueue
-                          type: string
-                        storage:
-                          default: file
-                          description: Storage type for the stream
-                          enum:
-                          - file
-                          - memory
-                          type: string
-                        subjects:
-                          description: Subjects that the stream listens to
-                          items:
-                            type: string
-                          minItems: 1
-                          type: array
-                      required:
-                      - name
-                      - subjects
-                      type: object
-                    type: array
-                type: object
               oauth:
                 description: OAuth configuration for Hydra clients
                 properties:
@@ -254,7 +216,6 @@ spec:
                   - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
                   - SecretsBackedUp: Secrets have been uploaded to Infisical
                   - OAuthClientsRegistered: OAuth clients have been registered with Hydra
-                  - NATSStreamsConfigured: NATS JetStream streams have been created
                   - Ready: All phases complete successfully
                 items:
                   description: Condition contains details for one aspect of the current

@@ -37,10 +37,10 @@ zitadel:
       # The gateway terminates TLS; Zitadel serves plain HTTP inside the mesh.
       Enabled: false
 
-  # NOT setting Database.Postgres.* deliberately. The chart supports two modes
-  # and prefers the DSN env var below; when a DSN is present Zitadel ignores the
-  # discrete fields, so configuring both would leave two sources of truth for
-  # one connection with no error if they disagreed.
+# NOT setting Database.Postgres.* deliberately. The chart supports two modes
+# and prefers the DSN env var below; when a DSN is present Zitadel ignores the
+# discrete fields, so configuring both would leave two sources of truth for
+# one connection with no error if they disagreed.
 
 # The DSN carries the credential, assembled by the ExternalSecret so the
 # password never reaches a values file.
@@ -119,9 +119,29 @@ replicaCount: 1
 # transient failure into a permanent one.
 #
 # The three Jobs deliberately KEEP their hooks: they are genuine one-shot
-# initialisation, must run before the Deployment (weights 1 then 2), and are
-# restartable by design -- cmd/setup runs cleanup on interruption so a retry
-# "can pick up where we left off rather than booting into a broken state".
+# initialisation and must run before the Deployment (weights 1 then 2).
+#
+# This used to add "and are restartable by design -- cmd/setup runs cleanup on
+# interruption so a retry can pick up where we left off rather than booting into
+# a broken state". That quote is upstream's and it is TRUE ONLY OF
+# INTERRUPTION. cmd/setup/setup.go branches on the error:
+#
+#   if !errors.Is(setupErr, context.Canceled) {
+#       logging.OnError(ctx, setupErr).Fatal("setup failed, skipping cleanup")
+#   }
+#   // cleanup runs only below here, i.e. only for context.Canceled
+#
+# A setup that FAILS takes the path that skips cleanup. Reading the sentence as
+# a general guarantee cost a bootstrap several hours: setup died part-way through
+# 03_default_instance having already written an instance_domain row into
+# eventstore.unique_constraints, every retry collided with the row its own
+# predecessor wrote, and nothing cleaned up because nothing was cancelled.
+#
+# That collision is recoverable only by recreating the database, which the CLI
+# now does (ADR-079, resetZitadelIfInitIncomplete). There is no upstream remedy
+# for it: `zitadel setup cleanup` clears a stuck LOCK, and a lock was not the
+# problem -- internal/migration/migration.go pushes a `failed` event on migration
+# error, and shouldExec re-runs a StepFailed step, so it was already retrying.
 serviceAccount:
   annotations: null
 
@@ -150,3 +170,95 @@ login:
       paths:
         - path: /ui/v2/login
           pathType: PathPrefix
+
+# Clear a migration left half-started before attempting setup again.
+#
+# The case this covers is NOT the one above. `setupJob.activeDeadlineSeconds`
+# defaults to 300, so a migration slower than five minutes has its pod SIGKILLed
+# mid-step. That leaves the step in StepStarted, and StepStarted is the one state
+# shouldExec refuses to re-run:
+#
+#   if step.state == StepStarted { return false, errMigrationAlreadyStarted }
+#
+# checkExec then logs "migration already started, will check again in 5 seconds"
+# for ever, on this attempt and on every future one. Nothing times it out and
+# nothing recovers it, because the process that would have cleaned up is the one
+# that was killed.
+#
+# `zitadel setup cleanup` is upstream's answer, and it is exactly this: it finds
+# the last StepStarted step and pushes a failed event for it, which shouldExec
+# re-runs. Wired through setupJob.initContainers, which the chart documents as
+# the place to perform "pre-setup tasks", so the setup Job repairs itself before
+# each attempt rather than needing an operator.
+#
+# Safe when there is nothing to clean: with no stuck step Cleanup logs "there is
+# no stuck migration please run `zitadel setup`" and returns nil, so the
+# container exits 0 and setup proceeds. On a first install the eventstore tables
+# already exist -- zitadel-init creates them at hook weight 1, before this Job --
+# so the query has somewhere to look.
+#
+# The image is pinned rather than inherited because initContainers is a raw
+# container list with no access to the chart's own image values. It MUST track
+# the chart's appVersion: a cleanup run by a different binary than the setup it
+# precedes is reasoning about migrations it may not know. Gated by
+# scripts/validate/zitadel-cleanup-image.py so the pin cannot drift silently
+# past a chart bump.
+setupJob:
+  initContainers:
+    # Guarantee the schema exists before setup looks for it.
+    #
+    # zitadel-init is a separate hook Job at weight 1, and its COMPLETION RECORD
+    # is what ArgoCD reasons about -- not the database. Recreate the database and
+    # that record describes a schema that is gone, but ArgoCD still reads the Job
+    # as Succeeded, skips it, and hands setup an empty database:
+    #
+    #   zitadel-init   hook=PreSync  phase=Succeeded
+    #   zitadel-setup  -> relation "eventstore.events2" does not exist
+    #
+    # Deleting the stale Job to force a re-run is NOT the answer: an in-flight
+    # operation waiting on it then waits for something that can never appear, and
+    # the Application wedges permanently. That was tried, twice.
+    #
+    # Making the setup Job establish its own precondition removes the dependency
+    # on another Job's record entirely. `zitadel init` is idempotent by
+    # construction -- every step is a "verify", and it logs "skipping creation"
+    # when a thing is already there -- so running it on every setup attempt costs
+    # a few seconds and is correct whether or not the init Job ran.
+    #
+    # FIRST, because cleanup below queries the eventstore this creates.
+    - name: ensure-schema
+      # chart 10.0.4 -> appVersion v4.15.3
+      image: ghcr.io/zitadel/zitadel:v4.15.3
+      args:
+        - init
+        - --config
+        - /config/zitadel-config-yaml
+      env:
+        - name: ZITADEL_DATABASE_POSTGRES_DSN
+          valueFrom:
+            secretKeyRef:
+              name: zitadel-db-credentials
+              key: dsn
+      volumeMounts:
+        - name: zitadel-config-yaml
+          mountPath: /config
+
+    - name: cleanup-stuck-migration
+      # chart 10.0.4 -> appVersion v4.15.3
+      image: ghcr.io/zitadel/zitadel:v4.15.3
+      args:
+        - setup
+        - cleanup
+        - --config
+        - /config/zitadel-config-yaml
+      env:
+        # The same DSN the setup container is given. Not inherited: the chart
+        # merges its `env` value into its own containers, not into this list.
+        - name: ZITADEL_DATABASE_POSTGRES_DSN
+          valueFrom:
+            secretKeyRef:
+              name: zitadel-db-credentials
+              key: dsn
+      volumeMounts:
+        - name: zitadel-config-yaml
+          mountPath: /config

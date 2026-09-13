@@ -592,7 +592,7 @@ spec:
             # workload-location is half of the ADR-046 §11 placement class, and it
             # was missing here while every hub overlay selected on it.
             #
-            # manifests/hub-core-services/providers/hetzner/{database,redis,nats}
+            # manifests/hub-core-services/providers/hetzner/{database,redis}
             # pin `workload-location: hetzner`, and no hub node carried the label --
             # so on a pure-Hetzner hub platform-db selected a label nothing had and
             # stayed Pending. The spoke ClusterClass has always set it

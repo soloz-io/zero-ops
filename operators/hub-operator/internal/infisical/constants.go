@@ -39,7 +39,6 @@ const (
 	NamespaceEdge        = "platform-edge"
 	NamespaceData        = "platform-data"
 	NamespaceIdentity    = "platform-identity"
-	NamespaceMessaging   = "platform-messaging"
 	NamespaceSecurity    = "platform-security"
 
 	// Infisical Secret Keys
@@ -69,8 +68,6 @@ const (
 	KeyControlPlaneDBPassword   = "hub-control-plane-db-password"
 	KeyHubCentralizedDBUsername = "hub-centralized-db-username"
 	KeyHubCentralizedDBPassword = "hub-centralized-db-password"
-	KeyNATSLeafUsername         = "nats-leaf-username"
-	KeyNATSLeafPassword         = "nats-leaf-password"
 
 	// Labels
 	LabelManagedBy = "app.kubernetes.io/managed-by"

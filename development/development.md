@@ -6,7 +6,7 @@
 ./scripts/dev/local-e2e.sh 0.1.16-rc.7 clean cli scaffold bootstrap
 ./scripts/dev/local-e2e.sh 0.1.16-rc.7 cli bootstrap
 #### manifest change → 
-DOMAIN=nutgraf.in make e2e-fresh VERSION=<next rc>.
+DOMAIN=nutgraf.in make e2e-fresh VERSION=0.1.16-rc.10
 make e2e-fresh VERSION=0.1.16-rc.5    # clean → publish → cli → scaffold → bootstrap
 make e2e-clean VERSION=0.1.16-rc.5    # tear the last run down and stop
 make e2e       VERSION=0.1.16-rc.5    # as before — cannot reach clean

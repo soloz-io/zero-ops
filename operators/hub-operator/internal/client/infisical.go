@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -492,7 +493,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 
 	if resp.StatusCode == http.StatusBadRequest {
 		bodyStr := string(bodyBytes)
-		if contains(bodyStr, "already exists") {
+		if strings.Contains(bodyStr, "already exists") {
 			logger.Info("Folder already exists in Infisical (400)", "folderPath", folderPath)
 			return nil
 		}

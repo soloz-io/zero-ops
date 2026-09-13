@@ -426,12 +426,6 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		HexBytes:    16,
 		Description: "Zitadel masterkey for encryption at rest",
 	},
-	{
-		UsernameKey: "nats-leaf-username",
-		PasswordKey: "nats-leaf-password",
-		Username:    "leafnode",
-		Description: "NATS Leaf Node credentials for spoke clusters",
-	},
 	// AgentGateway's OIDC session cookie encryption key. It belongs here because
 	// it is a random value with no external source, so leaving it out of this
 	// registry made it the one cookie secret an operator had to seed by hand into

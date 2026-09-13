@@ -56,22 +56,6 @@ spec:
     kind: ClusterIssuer
     group: infisical-issuer.infisical.com
 ---
-# FIX: Added document separator here
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: nats-leafnode-client-cert
-  namespace: platform-messaging
-spec:
-  secretName: nats-leafnode-client-cert
-  duration: 24h
-  renewBefore: 8h
-  commonName: nats:{{ .Values.spokeName }}
-  issuerRef:
-    name: infisical-fleet-issuer
-    kind: ClusterIssuer
-    group: infisical-issuer.infisical.com
----
 # Public tenant TLS is NOT defined here anymore.
 #
 # The former tenant-gateway-tls Certificate requested a wildcard (*.dev.nutgraf.in)

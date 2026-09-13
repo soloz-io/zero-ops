@@ -121,7 +121,7 @@ else
 # name:application:chart-default. The default is carried here rather than assumed
 # true: `support` ships false until its image and Support Plane exist, and a
 # check that assumed otherwise would report a correct box as broken.
-for cap in database:platform-database:true messaging:platform-nats:true \
+for cap in database:platform-database:true \
            observability:grafana-alloy:true support:support-agent:false; do
     name="${cap%%:*}" rest="${cap#*:}" app="${rest%%:*}" default="${rest##*:}"
     want=$(grep -A2 "^  ${name}:" "$GITOPS"/clusters/*/values.yaml 2>/dev/null | grep -m1 'enabled:' | awk '{print $2}')

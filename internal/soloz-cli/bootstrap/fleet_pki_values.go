@@ -14,8 +14,7 @@ import (
 // Without them the security boundary renders no ClusterIssuer -- the template
 // emits one only when fleet.projectId and fleet.clientId are both supplied --
 // and every certificate that names infisical-fleet-issuer stays pending
-// forever. On the box this was found on that was eleven certificates: the NATS
-// leaf-node server cert (so nats-0 never left ContainerCreating), all three
+// forever. On the box this was found on that was eleven certificates: all three
 // argocd-agent mTLS identities, and the Support Agent's client certificate,
 // which IS its enrolment (ADR-077).
 //
@@ -66,8 +65,8 @@ func (o *Orchestrator) writeFleetPKIValues(ctx context.Context, kubeconfig strin
 # lives only on the cluster is reverted within a sync.
 #
 # Without them the security boundary emits no ClusterIssuer at all, and every
-# certificate naming infisical-fleet-issuer stays pending -- NATS never starts,
-# the argocd-agent mTLS identities never issue, and the Support Agent can never
+# certificate naming infisical-fleet-issuer stays pending -- the
+# argocd-agent mTLS identities never issue, and the Support Agent can never
 # enrol, because its client certificate IS its enrolment (ADR-035, ADR-077).
 #
 # Both together or neither. The chart refuses one without the other, because an
