@@ -57,9 +57,15 @@ fi
 if [ "$CLUSTER_UP" -eq 0 ]; then
     na ADR-063 "cluster unreachable; cannot enumerate what it names"
 else
+# Only charts the PLATFORM publishes. A box legitimately references upstream
+# charts from upstream repositories -- argo-cd from argoproj.github.io,
+# cloudnative-pg, crossplane, kyverno, zitadel and the rest -- and probing those
+# against the platform registry reported nine healthy Applications as naming
+# unpublished charts. The claim ADR-063 makes is about what the BUNDLE resolves,
+# not about every chart a cluster happens to use.
 missing="" seen=0
 for chart in $(kc get applications.argoproj.io -A \
-        -o jsonpath='{range .items[*]}{.spec.source.chart}{"\n"}{end}' \
+        -o jsonpath="{range .items[?(@.spec.source.repoURL==\"${REGISTRY}\")]}{.spec.source.chart}{\"\n\"}{end}" \
         | sort -u | grep -v '^$'); do
     seen=$((seen+1))
     helm show chart "oci://${REGISTRY}/${chart}" --version "$VERSION" >/dev/null 2>&1 \
@@ -94,7 +100,8 @@ else
 fi
 
 # ── ADR-065: the box reconciles from the tenant's own repository ────────────
-root_src=$(kc get application -n platform-ops -o jsonpath='{.items[?(@.metadata.name=="root")].spec.sources[*].repoURL}')
+root_src=$(kc get applications.argoproj.io -A \
+    -o jsonpath="{range .items[?(@.metadata.name=='${CLUSTER:-acme-hub}-root')]}{.spec.source.repoURL}{' '}{.spec.sources[*].repoURL}{end}")
 if [ -z "$root_src" ]; then
     root_src=$(kc get applications.argoproj.io -A \
         -o jsonpath='{range .items[*]}{.spec.source.repoURL}{"\n"}{end}' | sort -u | head -3 | tr '\n' ' ')
