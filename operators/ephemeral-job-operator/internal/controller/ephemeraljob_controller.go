@@ -52,9 +52,13 @@ type EphemeralJobReconciler struct {
 }
 
 const (
-	jobOwnerKey    = ".metadata.controller"
-	finalizerName  = "compute.nutgraf.in/ephemeraljob"
-	labelJobUID    = "compute.nutgraf.in/ephemeraljob-uid"
+	jobOwnerKey   = ".metadata.controller"
+	finalizerName = "compute.nutgraf.in/ephemeraljob"
+	labelJobUID   = "compute.nutgraf.in/ephemeraljob-uid"
+	// The CR's NAME, carried on the pod so a consumer that knows only the
+	// request — the SDK knows a sandbox by name, not by UID — can find its
+	// compute without the pod having to be named after it.
+	labelJobName   = "compute.nutgraf.in/ephemeraljob-name"
 	defaultRequeue = 10 * time.Second
 
 	// Bounded so a slow or hanging receiver cannot stall the work queue for
@@ -939,11 +943,15 @@ func (r *EphemeralJobReconciler) buildPod(
 	container := r.buildWorkloadContainer(ej)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ej.Namespace,
+			// GenerateName, not Name — see ensurePod. The server picks a unique
+			// suffix, so a leftover object can never hold the name this request
+			// needs.
+			GenerateName: name + "-",
+			Namespace:    ej.Namespace,
 			Labels: authoredLabels(ej, map[string]string{
-				labelJobUID: string(ej.UID),
-				"tenant-id": tenantFromNamespace(ej.Namespace),
+				labelJobUID:  string(ej.UID),
+				labelJobName: ej.Name,
+				"tenant-id":  tenantFromNamespace(ej.Namespace),
 				// enforce-tenant-abi/require-cost-labels does not match bare
 				// Pods, but the label is carried anyway so Job-mode and
 				// Service-mode workloads attribute identically.
@@ -1015,6 +1023,11 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	pod, err := r.ensurePod(ctx, ej, name, placement)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if pod == nil {
+		// A terminated pod of the same name is being deleted so this request
+		// can have a fresh one; it does not exist yet.
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	switch pod.Status.Phase {
@@ -1135,13 +1148,42 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 func (r *EphemeralJobReconciler) ensurePod(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) (*corev1.Pod, error) {
-	var existing corev1.Pod
-	err := r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
-	if err == nil {
-		return &existing, nil
-	}
-	if !apierrors.IsNotFound(err) {
+	// Compute is identified by OWNERSHIP, never by name.
+	//
+	// This used to get-or-create a Pod called `ej-<request>`. A deterministic
+	// name makes the compute's identity a string that anything can hold: a pod
+	// left behind by a previous incarnation — terminated, or stuck Terminating
+	// because the node it ran on is gone — keeps that name indefinitely, and
+	// every later attempt either adopted a corpse or could not create. Observed
+	// for two days on one sandbox: adopted, `Failed` within seconds, repeat.
+	//
+	// Every remedy for that is a remedy for the NAMING: check whether the
+	// adopted pod is usable, delete it when it is not, force-delete it when the
+	// delete does not take. Force-deleting removes the API object while the
+	// container may still run on a partitioned node, which is a safety decision
+	// this controller has no business making on a timer — and reclaiming pods
+	// whose node has gone is the node-lifecycle controller's job, not ours.
+	//
+	// So the name stops being an identifier. Pods are created with
+	// `GenerateName` and found by label, exactly as ReplicaSet and Job do, and
+	// the label is the CR's UID, which a recreated CR does not share. A stale
+	// pod is then not tolerated but invisible: it matches no selector this
+	// controller uses, holds no name this controller wants, and is collected by
+	// Kubernetes when its own owner goes.
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods,
+		client.InNamespace(ej.Namespace),
+		client.MatchingLabels{labelJobUID: string(ej.UID)},
+	); err != nil {
 		return nil, err
+	}
+	for i := range pods.Items {
+		// A pod on its way out is not this request's compute, even though it
+		// still matches the selector; reporting its phase would report the
+		// shutdown as the job's outcome.
+		if pods.Items[i].DeletionTimestamp == nil {
+			return &pods.Items[i], nil
+		}
 	}
 
 	pod := r.buildPod(ej, name, p)
@@ -1149,9 +1191,6 @@ func (r *EphemeralJobReconciler) ensurePod(
 		return nil, err
 	}
 	if err := r.Create(ctx, pod); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return &existing, r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
-		}
 		return nil, err
 	}
 	return pod, nil

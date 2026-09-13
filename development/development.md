@@ -3,8 +3,8 @@
 ## Local Testing
 ### A rule of thumb: 
 #### CLI change → 
-./scripts/dev/local-e2e.sh 0.1.16-rc.5 clean cli scaffold bootstrap
-./scripts/dev/local-e2e.sh 0.1.16-rc.6 cli bootstrap
+./scripts/dev/local-e2e.sh 0.1.16-rc.7 clean cli scaffold bootstrap
+./scripts/dev/local-e2e.sh 0.1.16-rc.7 cli bootstrap
 #### manifest change → 
 DOMAIN=nutgraf.in make e2e-fresh VERSION=<next rc>.
 make e2e-fresh VERSION=0.1.16-rc.5    # clean → publish → cli → scaffold → bootstrap
