@@ -40,6 +40,7 @@ reads, one file per value:
 | `k8-secrets/infisical/INFISICAL_ESCROW_CLIENT_ID` | `--escrow-client-id` |
 | `k8-secrets/infisical/INFISICAL_ESCROW_CLIENT_SECRET` | `--escrow-client-secret` |
 | `k8-secrets/infisical/INFISICAL_ESCROW_URL` | `--escrow-url` (defaults to `https://app.infisical.com`) |
+| `k8-secrets/ghcr/username`, `k8-secrets/ghcr/token` | `GHCR_USERNAME`/`GHCR_TOKEN`, for pulling the tenant's private images (ADR-066). Optional here: falls back to the GitHub PAT above, which carries `write:packages`, with the login from `gh`. A real tenant supplies a token scoped to their own images. |
 | `k8-secrets/tailscale/authkey` | `--tailscale-authkey`, hybrid only |
 
 They are loaded before anything is published, so a missing one stops the run

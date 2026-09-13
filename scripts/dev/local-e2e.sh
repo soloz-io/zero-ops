@@ -110,6 +110,34 @@ load_credentials() {
     ESCROW_CLIENT_SECRET="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
         "the escrow machine identity client secret")"
 
+    # The tenant's registry credential (ADR-066: workloads are theirs).
+    #
+    # Mandatory, and it used to surface three seconds INTO bootstrap -- after the
+    # cloud cluster existed -- because nothing loaded it here. A credential the
+    # run cannot finish without belongs in this function, where a missing one
+    # stops the run before it spends a version or provisions anything.
+    #
+    # k8-secrets/ghcr/ if present. Otherwise the GitHub PAT already loaded above,
+    # which carries write:packages and therefore read, with the login taken from
+    # gh. That is a convenience for THIS loop only: a tenant supplies a token
+    # scoped to pulling their own images, and scaffolding collects it.
+    # Read directly: these two are OPTIONAL inputs with a fallback, and
+    # read_secret is for required ones -- it reports a missing file, which is
+    # exactly what an absent optional credential is not.
+    GHCR_USERNAME=""; GHCR_TOKEN=""
+    [ -r "$SECRETS/ghcr/username" ] && GHCR_USERNAME="$(tr -d '\r\n' < "$SECRETS/ghcr/username")"
+    [ -r "$SECRETS/ghcr/token" ]    && GHCR_TOKEN="$(tr -d '\r\n' < "$SECRETS/ghcr/token")"
+    if [ -z "$GHCR_USERNAME" ]; then
+        GHCR_USERNAME="$(env -u GITHUB_TOKEN -u GH_TOKEN gh api user --jq .login 2>/dev/null || true)"
+    fi
+    [ -n "$GHCR_TOKEN" ] || GHCR_TOKEN="$GITOPS_TOKEN"
+    if [ -z "$GHCR_USERNAME" ] || [ -z "$GHCR_TOKEN" ]; then
+        echo "local-e2e: no registry credential for pulling this tenant's private images." >&2
+        echo "  put a username and token under ${SECRETS}/ghcr/, or run: gh auth login" >&2
+        return 1
+    fi
+    export GHCR_USERNAME GHCR_TOKEN
+
     # Hybrid only. ADR-046 invariant 6 wants a tailnet IP on every node carrying
     # pod traffic; nothing reads this under any other provider.
     TAILSCALE_AUTHKEY=""
