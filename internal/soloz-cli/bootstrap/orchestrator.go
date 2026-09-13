@@ -476,6 +476,17 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	fmt.Println("[bootstrap-infisical-api] ✓ seed re-applied with PKI coordinates")
 
 	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
+	//
+	// Zitadel's initialisation is not transactional, so a boundary 04 that failed
+	// part-way leaves a database no retry can recover from. Reset before the
+	// retry, not after it fails again -- see resetZitadelIfInitIncomplete, which
+	// does nothing unless the phase is genuinely unfinished AND the database
+	// carries the exact signature of a half-finished setup.
+	if err := o.resetZitadelIfInitIncomplete(ctx, mgmtKubeconfig,
+		o.phaseDone(bs, state.PhaseBoundary04)); err != nil {
+		return fmt.Errorf("[boundary04] %w", err)
+	}
+
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
 		"Deploying tenant services (boundary 04)...",
 		func() error { return o.deployBoundary04(ctx, mgmtKubeconfig) },
@@ -1212,8 +1223,77 @@ func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) 
 	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 4); err != nil {
 		return err
 	}
+	// The boundary generating its Applications is not the same claim as the
+	// identity provider working, and the difference is expensive. Zitadel's setup
+	// Job can fail while the boundary reports activated: the Job retries, Zitadel
+	// crash-loops, and the FIRST visible symptom is an ExternalSecret in another
+	// namespace stalling -- because iam-admin-pat is never created, so the
+	// identity token is never uploaded for ESO to deliver. That cost eleven
+	// minutes of a verify budget on two separate runs before anyone looked at
+	// Zitadel.
+	//
+	// Asserted here so the failure is named by the phase that owns it.
+	if err := o.awaitZitadelReady(ctx, kubeconfig); err != nil {
+		return err
+	}
 	fmt.Println("[boundary04] ✓ 04-tenant-services boundary activated")
 	return nil
+}
+
+// awaitZitadelReady waits until the identity provider is serving, and says what
+// is wrong when it is not.
+//
+// Bounded, because "not ready in ten minutes" is an answer an operator can act
+// on and an unbounded wait is a hung bootstrap. The message carries the setup
+// Job's own last error rather than a pod status, since that is what names the
+// cause: a failed migration, a database it cannot reach, or a schema half
+// written by a previous attempt.
+func (o *Orchestrator) awaitZitadelReady(ctx context.Context, kubeconfig string) error {
+	const (
+		deadline = 10 * time.Minute
+		every    = 15 * time.Second
+	)
+	started := time.Now()
+	fmt.Println("[boundary04] waiting for the identity provider to serve")
+
+	for {
+		ready, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "deployment", "zitadel", "-n", "platform-identity",
+			"-o", "jsonpath={.status.readyReplicas}").Output()
+		if err == nil && strings.TrimSpace(string(ready)) != "" && strings.TrimSpace(string(ready)) != "0" {
+			fmt.Printf("[boundary04] ✓ identity provider ready after %s\n",
+				formatDuration(time.Since(started)))
+			return nil
+		}
+
+		if time.Since(started) > deadline {
+			reason := o.zitadelSetupFailure(ctx, kubeconfig)
+			return fmt.Errorf("the identity provider did not start within %v.\n"+
+				"  %s\n"+
+				"  Nothing downstream of it can work: iam-admin-pat is not created, so the\n"+
+				"  identity token is not uploaded, so identity-service-credentials never\n"+
+				"  resolves and kube-sbt cannot start",
+				deadline, reason)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
+	}
+}
+
+// zitadelSetupFailure returns the setup Job's own last error, or a fallback.
+func (o *Orchestrator) zitadelSetupFailure(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"logs", "-n", "platform-identity", "job/zitadel-setup",
+		"-c", "zitadel-setup", "--tail=4").CombinedOutput()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return "zitadel-setup produced no readable logs; check the Job in platform-identity"
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return "zitadel-setup last said: " + lines[len(lines)-1]
 }
 
 func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
