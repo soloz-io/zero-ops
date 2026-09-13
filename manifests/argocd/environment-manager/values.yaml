@@ -117,24 +117,20 @@ capabilities:
   observability:
     enabled: true
 
-  # ADR-077's Support Agent.
+  # ADR-077's Support Agent. Ships to every box and is INERT until enrolled.
   #
-  # DEFAULT FALSE, AND THIS IS TEMPORARY. ADR-077 decision 1 says support defaults
-  # `true` like every other capability -- it ships to every box and is inert until
-  # enrolled. Two things have to exist before that default is safe, and neither
-  # does yet:
+  # Default true, as ADR-077 decision 1 requires. An unenrolled box runs the
+  # agent with no endpoint, no certificate and nowhere to report: it logs that it
+  # is not enrolled and idles. That is the designed resting state, not a
+  # degraded one, and running it is how the "ships inert" claim is tested rather
+  # than asserted.
   #
-  #   1. the agent's image. .github/workflows/support-agent.yml builds and pins it;
-  #      until that has run the manifests reference a tag that does not resolve, and
-  #      a default of `true` would put an ImagePullBackOff on every box.
-  #   2. the Support Plane. Until it exists there is nothing to enrol against, so an
-  #      agent that did start would have nowhere to report.
-  #
-  # Flip to `true` when both hold. Recorded here rather than in a ticket because a
-  # default that silently contradicts its ADR is exactly the drift the architecture
-  # gate exists to catch.
+  # There is no Support Plane yet, so today every box is in that state. Turning
+  # this off is how a tenant removes the agent after ending a subscription --
+  # their own GitOps prunes it, and no platform component ever does (ADR-077
+  # addendum 3, decisions 2 and 4).
   support:
-    enabled: false
+    enabled: true
 
 # On-prem nodes (ADR-075): machines on the tenant's own premises, joining over
 # their tailnet. A selectable capability (ADR-066), not a property of the

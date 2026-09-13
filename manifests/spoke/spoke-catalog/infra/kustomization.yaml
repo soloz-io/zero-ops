@@ -65,18 +65,15 @@ resources:
   # CRS wrapper -> CAPI). It is intentionally NOT tracked here so ArgoCD never
   # prunes or empties the CRS-delivered object.
   - certificates.yaml
-  # ADR-077: one Support Agent per cluster. The spoke's own manifest is
-  # written (support-agent.yaml) and deliberately NOT applied yet.
+  # ADR-077: one Support Agent per cluster, and this is the spoke's own. It
+  # reports about this spoke under this spoke's identity; a single hub-side
+  # collector reaching into every spoke is the coupling argocd-agent exists to
+  # remove, and it would need inbound access ADR-067 forbids.
   #
-  # Two things have to exist first: the agent image, which
-  # .github/workflows/support-agent.yml builds and pins, and the Support
-  # Plane it would report to. Until then every spoke would carry a pod in
-  # ImagePullBackOff for a capability nobody has bought.
-  #
-  # The hub's copy is gated on capabilities.support.enabled instead; this
-  # tree has no equivalent toggle, so the line is commented rather than
-  # conditioned. Uncomment when the hub default flips to true.
-  # - support-agent.yaml
+  # Inert until enrolled, like the hub's. This tree carries no capability
+  # toggle, so a spoke follows its hub: disabling support on the hub stops the
+  # catalogue being reconciled here in the first place.
+  - support-agent.yaml
   # ADR-047: agent-sandbox (Sandbox CRD + controller) for sandbox-capable fleets
   - agent-sandbox/crd.yaml
   - agent-sandbox/controller.yaml

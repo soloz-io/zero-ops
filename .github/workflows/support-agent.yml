@@ -67,9 +67,17 @@ jobs:
           cd -
           # The spoke agent is a plain multi-document manifest, not a
           # kustomization, so its reference is rewritten in place.
+          # Matches the digest form AND the :unbuilt placeholder. Matching only
+          # @sha256 meant the FIRST run -- the one that replaces the placeholder
+          # -- silently changed nothing, and the spoke shipped an unpullable tag
+          # while the hub was correctly pinned.
           sed -i.bak -E \
-            "s|image: ghcr.io/soloz-io/zero-ops/support-agent@sha256:[a-f0-9]+|image: ghcr.io/soloz-io/zero-ops/support-agent@${digest}|" \
+            "s|image: ghcr\.io/soloz-io/zero-ops/support-agent(@sha256:[a-f0-9]+\|:[A-Za-z0-9._-]+)|image: ghcr.io/soloz-io/zero-ops/support-agent@${digest}|" \
             manifests/spoke/spoke-catalog/infra/support-agent.yaml
+          grep -q "support-agent@${digest}" manifests/spoke/spoke-catalog/infra/support-agent.yaml || {
+              echo "::error::the spoke image reference did not update; the pattern no longer matches"
+              exit 1
+          }
           rm -f manifests/spoke/spoke-catalog/infra/support-agent.yaml.bak
           ./scripts/package/embed-platform-assets.sh
 

@@ -105,10 +105,8 @@ capabilities:
     enabled: true
   observability:
     enabled: true
-  # Off until the platform publishes the agent image and its Support Plane
-  # exists. Enable it when you enrol.
   support:
-    enabled: false
+    enabled: true
 
 # On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
 # over your Tailscale tailnet.

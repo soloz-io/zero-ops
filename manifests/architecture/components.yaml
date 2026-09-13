@@ -259,7 +259,7 @@ capabilities:
     kind: selectable
     enable: capabilities.support.enabled
     lifecycle: declared
-    status: planned
+    status: shipped
     declared_by: [077-the-support-agent.md]
     components: [support-agent]
     note: >-
@@ -267,9 +267,10 @@ capabilities:
       the agent ships to every box and is inert until enrolled, so a box that
       never buys support carries a process that reports nowhere. Turning it off
       is how a tenant removes the agent after cancelling -- their GitOps prunes
-      it, and no platform component ever does. Planned until the flag is wired
-      and the component moves inline; a descriptor cannot carry a capability gate
-      (ADR-066 addendum 2).
+      it, and no platform component ever does. Selection works, the image is
+      published and pinned by digest, and both the hub and spoke agents are
+      applied. `declared` rather than `supported` until a Support Plane exists to
+      enrol against.
 
   - name: metering
     kind: selectable
