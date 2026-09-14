@@ -174,6 +174,20 @@ load_credentials() {
     if [ "$PROVIDER" = "hybrid" ]; then
         TAILSCALE_AUTHKEY="$(read_secret "$SECRETS/tailscale/authkey" "a Tailscale auth key")"
     fi
+    # Exported, not only passed to scaffold.
+    #
+    # bootstrap runs from the TENANT CLONE, and readTailscaleAuthkey reads
+    # "k8-secrets/tailscale/authkey" relative to the working directory -- which is
+    # the clone, not this checkout. The key sits in $ROOT/k8-secrets, so the file
+    # lookup missed it, the control plane was staged with an EMPTY authkey, and
+    # the ClusterClass's `if [ -s /etc/tailscale-hostname ]` guard skipped
+    # `tailscale up` entirely. Both nodes came up Ready and pod traffic between
+    # them died in one direction (ADR-046 invariant 6); the visible symptom was
+    # cert-manager's webhook timing out from the API server.
+    #
+    # The env var is read before the file, so exporting it here makes the key
+    # reach bootstrap wherever it runs from.
+    [ -n "$TAILSCALE_AUTHKEY" ] && export TS_AUTHKEY="$TAILSCALE_AUTHKEY"
     export HCLOUD_TOKEN
 }
 
@@ -416,9 +430,18 @@ do_bootstrap() {
     # From the clone, exactly as the tenant workflow does. Correct only because
     # the binary carries its platform content; a development build would resolve
     # manifests/ against this directory and find nothing.
+    # --on-prem without a tailnet is refused by the CLI (ADR-046 invariant 6), so
+    # pass the name alongside the flag rather than leaving it for the operator to
+    # discover. TAILNET_NAME overrides; home-lab.env is where a developer's
+    # tailnet is already recorded, so it is read rather than restated here.
     local on_prem_flag=""
     if [ "$PROVIDER" = "hybrid" ]; then
         on_prem_flag="--on-prem"
+        local tailnet="${TAILNET_NAME:-}"
+        if [ -z "$tailnet" ] && [ -r "$ROOT/scripts/hybrid/home-lab.env" ]; then
+            tailnet=$(. "$ROOT/scripts/hybrid/home-lab.env" >/dev/null 2>&1; printf '%s' "${TAILNET_NAME:-}")
+        fi
+        [ -n "$tailnet" ] && on_prem_flag="$on_prem_flag --tailnet-name $tailnet"
     fi
     ( cd "$WORKSPACE/$repo" && "$ROOT/bin/soloz" bootstrap \
         --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \

@@ -47,6 +47,38 @@ var (
 
 // workerReplicasOverride is the --workers value, or nil when it was not passed.
 // Zero is a real count, so the flag uses a negative sentinel and this converts it.
+// requireTailnetCredentials refuses an on-prem bootstrap that cannot put the
+// control plane on the tenant's tailnet.
+//
+// Both halves are needed and they come from different places: the authkey joins
+// the tailnet, the name is what the box is called on it. Checked together so a
+// half-configured run is refused once, with both gaps named, rather than failing
+// twice.
+func requireTailnetCredentials(tailnet string) error {
+	var missing []string
+
+	if strings.TrimSpace(tailnet) == "" {
+		missing = append(missing, "  --tailnet-name is empty. Pass the tenant's tailnet, e.g. --tailnet-name acme.ts.net")
+	}
+
+	keyed := os.Getenv("TS_AUTHKEY") != "" || os.Getenv("TAILSCALE_AUTHKEY") != ""
+	if !keyed {
+		if _, err := os.Stat(filepath.Join("k8-secrets", "tailscale", "authkey")); err != nil {
+			missing = append(missing, "  no Tailscale authkey. Set TS_AUTHKEY (or TAILSCALE_AUTHKEY), "+
+				"or write one to k8-secrets/tailscale/authkey")
+		}
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("--on-prem needs the control plane on the tenant's tailnet:\n%s\n\n"+
+		"Without it Cilium cannot route pod traffic between the control plane and on-prem\n"+
+		"nodes, and the cluster reports every node Ready while one direction silently fails\n"+
+		"(ADR-046 invariant 6). Refused here rather than discovered later.",
+		strings.Join(missing, "\n"))
+}
+
 func workerReplicasOverride() *int {
 	if workerReplicas < 0 {
 		return nil
@@ -243,6 +275,26 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	if provider == "hybrid" {
 		fmt.Printf("   On-prem nodes: %v\n", onPremEnabled)
 		fmt.Printf("   Tailnet: %s\n", tailnetName)
+	}
+
+	// On-prem requires a tailnet, and the requirement is checked HERE -- before
+	// anything is provisioned -- rather than warned about inside a phase.
+	//
+	// ADR-046 invariant 6: Cilium takes its VXLAN tunnel endpoint from a node's
+	// InternalIP. An on-prem node's only InternalIP is its tailnet address, so
+	// unless the control plane is on the tailnet too, cross-node pod traffic dies
+	// in one direction WHILE BOTH NODES REPORT READY. That last part is why this
+	// is fatal rather than advisory: the cluster looks healthy and cannot route.
+	//
+	// It used to be a warning printed by capi-init. A resumed bootstrap skips
+	// completed phases, so on the run that mattered the warning was never
+	// printed, the control plane had no tailnet address, and the failure surfaced
+	// much later as cert-manager's webhook timing out from the API server --
+	// three layers from its cause.
+	if onPremEnabled {
+		if err := requireTailnetCredentials(tailnetName); err != nil {
+			return err
+		}
 	}
 
 	// Build provider based on --provider flag

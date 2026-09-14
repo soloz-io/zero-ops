@@ -291,7 +291,7 @@ func (o *Orchestrator) installOperatorOnMgmt(ctx context.Context, mgmtKubeconfig
 			"-n", constants.NamespaceCertManager,
 			dep,
 			"--for=condition=Available",
-			"--timeout=3m",
+			"--timeout=5m",
 		)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("cert-manager deployment %s not ready: %w\n%s", dep, err, output)
@@ -309,7 +309,7 @@ spec:
   selfSigned: {}
 `)
 
-	deadline := time.Now().Add(2 * time.Minute)
+	deadline := time.Now().Add(5 * time.Minute)
 	webhookReady := false
 	for time.Now().Before(deadline) {
 		cmd = exec.CommandContext(ctx, "kubectl",
