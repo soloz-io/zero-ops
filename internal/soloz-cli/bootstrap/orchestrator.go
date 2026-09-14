@@ -106,6 +106,30 @@ func (o *Orchestrator) providerName() string {
 	return o.ProviderName
 }
 
+// resolveScriptPath resolves a script path relative to the zero-ops checkout.
+// Bootstrap runs from the tenant's workspace, not the checkout, so relative
+// paths like "scripts/hybrid/..." would fail. This mirrors hcloudTokenPaths:
+// ZERO_OPS_DIR first, then the executable's directory.
+func resolveScriptPath(rel string) string {
+	if root := strings.TrimSpace(os.Getenv("ZERO_OPS_DIR")); root != "" {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			return filepath.Join(root, rel)
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if exe, err = filepath.EvalSymlinks(exe); err == nil {
+			dir := filepath.Dir(exe)
+			for _, base := range []string{dir, filepath.Dir(dir)} {
+				candidate := filepath.Join(base, rel)
+				if _, err := os.Stat(candidate); err == nil {
+					return candidate
+				}
+			}
+		}
+	}
+	return rel
+}
+
 // Run executes the full 17-phase bootstrap pipeline with checkpoint/restart.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	if o.Debug {
@@ -911,7 +935,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 		return nil
 	}
 
-	script := filepath.Join("scripts", "hybrid", "provision-flatcar-worker.sh")
+	script := resolveScriptPath(filepath.Join("scripts", "hybrid", "provision-flatcar-worker.sh"))
 	if _, err := os.Stat(script); err != nil {
 		return fmt.Errorf("home-lab worker is required before boundary-01 but %s is missing.\n"+
 			"Provision it manually, then re-run:\n"+

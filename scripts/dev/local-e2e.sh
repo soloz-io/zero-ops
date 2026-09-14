@@ -416,9 +416,14 @@ do_bootstrap() {
     # From the clone, exactly as the tenant workflow does. Correct only because
     # the binary carries its platform content; a development build would resolve
     # manifests/ against this directory and find nothing.
+    local on_prem_flag=""
+    if [ "$PROVIDER" = "hybrid" ]; then
+        on_prem_flag="--on-prem"
+    fi
     ( cd "$WORKSPACE/$repo" && "$ROOT/bin/soloz" bootstrap \
         --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \
-        --environment "$ENVIRONMENT" --gitops-dir . )
+        --environment "$ENVIRONMENT" --gitops-dir . \
+        $on_prem_flag )
 }
 
 # Bootstrap returning success means every phase completed, not that the platform
