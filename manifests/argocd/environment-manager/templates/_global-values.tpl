@@ -61,4 +61,9 @@ global:
            the records it believes it owns, so two boxes sharing one would
            delete each other's. */}}
     ownerId: {{ .Values.dns.ownerId | default (include "environment-manager.clusterName" .) | quote }}
+  {{- /* The spoke this box's burst-capacity autoscaler watches. A global for the
+         same reason as hubDomain: it is a fact about the box, and the
+         alternative was the component carrying one box's spoke name as a
+         literal. */}}
+  burstSpokePool: {{ include "environment-manager.burstSpokePool" . | quote }}
 {{- end -}}

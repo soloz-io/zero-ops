@@ -356,7 +356,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// before proceeding.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary01, "boundary01",
 		"Deploying platform infrastructure (boundary 01)...",
-		func() error { return o.deployBoundary01(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 1) },
 		func() { fmt.Println("[boundary01] ✓ Platform infrastructure deployed") },
 	); err != nil {
 		return err
@@ -393,7 +393,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// initdb has the credentials it needs immediately.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary02, "boundary02",
 		"Deploying platform data (boundary 02)...",
-		func() error { return o.deployBoundary02(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 2) },
 		func() { fmt.Println("[boundary02] ✓ Platform data deployed") },
 	); err != nil {
 		return err
@@ -425,7 +425,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// webhook is guaranteed up.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary03, "boundary03",
 		"Deploying platform services (boundary 03)...",
-		func() error { return o.deployBoundary03(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 3) },
 		func() { fmt.Println("[boundary03] ✓ Platform services deployed") },
 	); err != nil {
 		return err
@@ -484,7 +484,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// away from its cause and takes eleven minutes to surface there.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
 		"Deploying tenant services (boundary 04)...",
-		func() error { return o.deployBoundary04(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 4) },
 		func() { fmt.Println("[boundary04] ✓ Tenant services deployed") },
 		withPostcondition(func() error {
 			return o.phasePostconditions(mgmtKubeconfig)[state.PhaseBoundary04](ctx)
@@ -499,7 +499,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// auth) to be in place first.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary05, "boundary05",
 		"Deploying fleet provisioning (boundary 05)...",
-		func() error { return o.deployBoundary05(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 5) },
 		func() { fmt.Println("[boundary05] ✓ Fleet provisioning deployed") },
 	); err != nil {
 		return err
@@ -512,7 +512,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// boundary05 (fleet provisioning) so fleet values are already reconciling.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary06, "boundary06",
 		"Deploying public tenant TLS (boundary 06)...",
-		func() error { return o.deployBoundary06(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 6) },
 		func() { fmt.Println("[boundary06] ✓ Public tenant TLS deployed") },
 	); err != nil {
 		return err
@@ -1180,122 +1180,128 @@ func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig stri
 // Boundary 01: Platform infrastructure (ArgoCD + operators)
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) error {
-	// ArgoCD, the seed Application, and boundary 01 activation are already done
-	// in Phase 5a (installArgoCDAndSeed). This phase waits for the operators
-	// that boundary 01 delivers to become ready — webhooks, CRDs, and pods.
-	// Those operators may need the worker to be Ready, which is why this runs
-	// after on-prem-join.
-
-	// ADR-061: boundary 01 was ACTIVATED in Phase 5a, but nothing has yet
-	// confirmed it produced anything. This is the first point where that can be
-	// asserted — Phase 5a provisions the platform repo credentials only after
-	// activating the boundary, so the seed Application cannot render its
-	// ApplicationSets until after that phase completes.
-	//
-	// It runs before the operator waits below on purpose: if the boundary
-	// generated nothing, those waits would time out on operators whose
-	// Applications were never created, and blame the operators.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 1); err != nil {
-		return err
-	}
-
-	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
-	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
-		return fmt.Errorf("operators not ready: %w", err)
-	}
-	fmt.Println("[boundary01] ✓ Operators ready")
-
-	fmt.Println("[boundary01] Verifying CRDs are queryable...")
-	if err := o.waitForCRDs(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("CRDs not queryable: %w", err)
-	}
-
-	fmt.Println("[boundary01] Waiting for operator pods to be Ready...")
-	if err := o.waitForOperatorPods(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("operator pods not ready: %w", err)
-	}
-
-	fmt.Println("[boundary01] ✓ Platform infrastructure deployed")
-	return nil
-}
-
 // ──────────────────────────────────────────────────────────────────────────
 // Boundary 02: Platform data workloads (CNPG, Redis)
 // ──────────────────────────────────────────────────────────────────────────
-
-func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 2); err != nil {
-		return err
-	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 2); err != nil {
-		return err
-	}
-	fmt.Println("[boundary02] ✓ 02-platform-data boundary activated")
-	return nil
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // Boundary 03: Platform services (hub Gateway, platform services)
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 3); err != nil {
+// deployBoundaryN runs the boundary's declared contract.
+//
+// One path for all six. Before this there were six hand-written functions, and
+// what each asserted was whatever someone had needed to debug: boundaries 02, 05
+// and 06 asserted nothing, not by decision but because nobody had been burned
+// there yet. What a boundary guarantees is now declared in boundaryContracts and
+// the compiler refuses a boundary that declares nothing.
+func (o *Orchestrator) deployBoundaryN(ctx context.Context, kubeconfig string, number int) error {
+	c, err := contractFor(number)
+	if err != nil {
 		return err
 	}
-	// This boundary both registers new kinds and manages them: the Crossplane
-	// XRDs compose SpokePool, and the Hub Operator registers HubEnvironment.
-	// The controller has been running since boundary 01 and holds an API schema
-	// from before either existed, so its own Applications cannot be diffed until
-	// it re-reads one.
-	if err := o.refreshArgoCDSchemaCache(ctx, kubeconfig); err != nil {
-		return err
-	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 3); err != nil {
-		return err
-	}
-	fmt.Println("[boundary03] ✓ 03-platform-services boundary activated")
-	return nil
+	return o.runBoundary(ctx, kubeconfig, c)
 }
 
-func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
-	// Before the boundary, not after it fails. A previous attempt can leave two
-	// independent obstacles behind -- a database whose initialisation did not
-	// finish, and an ArgoCD operation wedged on a hook -- and either one alone
-	// makes the retry that follows pointless (see prepareZitadelForRetry).
-	if err := o.prepareZitadelForRetry(ctx, kubeconfig); err != nil {
-		return err
+// awaitDatabaseRolesProvisioned waits until the hub-operator reports that it has
+// created the platform's database roles.
+//
+// Asks for the operator's own condition rather than inspecting Postgres: the
+// operator is the authority on whether it has finished, and a role appearing is
+// not the same as every role being granted -- provisioning is all-or-nothing,
+// and half of it is indistinguishable from all of it by counting roles.
+func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeconfig string) error {
+	const (
+		deadline = 15 * time.Minute
+		every    = 10 * time.Second
+	)
+	started := time.Now()
+	var lastNudge time.Time
+
+	for {
+		out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "hubenvironment", "hub-environment", "-A", "-o",
+			`jsonpath={.items[*].status.conditions[?(@.type=="DatabaseRolesProvisioned")].status}`).Output()
+		if err == nil && strings.TrimSpace(string(out)) == "True" {
+			fmt.Printf("    ✓ database roles provisioned after %s\n",
+				formatDuration(time.Since(started)))
+			return nil
+		}
+
+		// Nudge anything ESO has backed off on.
+		//
+		// refreshInterval is ESO's retry interval as well as its drift cadence, so
+		// an ExternalSecret that attempted a moment before the ClusterSecretStore
+		// finished validating waits a full interval before trying again --
+		// observed as an attempt at 08:36:48, the store becoming Ready at
+		// 08:37:01, and the next attempt due at 09:36 against a fifteen-minute
+		// budget. The intervals on the Day-0-critical secrets are shortened for
+		// this reason; this makes the wait self-correcting even where they are
+		// not, and on a box whose bundle predates that change.
+		//
+		// Every 30s rather than every poll: the annotation is a write, and ESO
+		// needs time to act on it.
+		if time.Since(lastNudge) > 30*time.Second {
+			o.nudgeStalledExternalSecrets(ctx, kubeconfig)
+			lastNudge = time.Now()
+		}
+
+		if time.Since(started) > deadline {
+			return fmt.Errorf("the hub-operator did not provision the platform's database "+
+				"roles within %v.\n  %s\n"+
+				"  Nothing that owns a database can start until it does: Zitadel's hooks fail\n"+
+				"  on a role that does not exist and exhaust their retries against it",
+				deadline, o.hubEnvironmentBlocker(ctx, kubeconfig))
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
 	}
-	if err := o.deployBoundary(ctx, kubeconfig, 4); err != nil {
-		return err
+}
+
+// nudgeStalledExternalSecrets asks ESO to retry any ExternalSecret that is not
+// synced, instead of waiting out its refresh interval.
+//
+// `force-sync` is ESO's own mechanism for this: the annotation's value only has
+// to change for the controller to reconcile immediately. Best effort throughout
+// -- a nudge that fails costs nothing, because the interval still applies.
+func (o *Orchestrator) nudgeStalledExternalSecrets(ctx context.Context, kubeconfig string) {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "externalsecret", "-A", "-o",
+		`jsonpath={range .items[?(@.status.conditions[0].reason!="SecretSynced")]}{.metadata.namespace} {.metadata.name}{"\n"}{end}`).Output()
+	if err != nil {
+		return
 	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 4); err != nil {
-		return err
+	stamp := fmt.Sprintf("%d", time.Now().Unix())
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		_ = exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"annotate", "externalsecret", parts[1], "-n", parts[0],
+			"force-sync="+stamp, "--overwrite").Run()
 	}
-	// The boundary generating its Applications is not the same claim as the
-	// identity provider working, and the difference is expensive. Zitadel's setup
-	// Job can fail while the boundary reports activated: the Job retries, Zitadel
-	// crash-loops, and the FIRST visible symptom is an ExternalSecret in another
-	// namespace stalling -- because iam-admin-pat is never created, so the
-	// identity token is never uploaded for ESO to deliver. That cost eleven
-	// minutes of a verify budget on two separate runs before anyone looked at
-	// Zitadel.
-	//
-	// Asserted here so the failure is named by the phase that owns it.
-	if err := o.awaitZitadelReady(ctx, kubeconfig); err != nil {
-		return err
+}
+
+// hubEnvironmentBlocker returns the operator's own reason for not having
+// finished, which names the phase it is stuck in.
+func (o *Orchestrator) hubEnvironmentBlocker(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment", "-A", "-o",
+		`jsonpath={range .items[*].status.conditions[?(@.status=="False")]}{.type}: {.message}{"\n"}{end}`).Output()
+	if err != nil {
+		return "the HubEnvironment could not be read"
 	}
-	fmt.Println("[boundary04] ✓ 04-tenant-services boundary activated")
-	return nil
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return "hub-operator reports: " + line
+		}
+	}
+	return "the HubEnvironment reports no failing condition; check the hub-operator's logs"
 }
 
 // zitadelServing reports whether the identity provider is serving right now.
@@ -1330,7 +1336,12 @@ func (o *Orchestrator) zitadelServing(ctx context.Context, kubeconfig string) er
 // written by a previous attempt.
 func (o *Orchestrator) awaitZitadelReady(ctx context.Context, kubeconfig string) error {
 	const (
-		deadline = 10 * time.Minute
+		// Longer than the setup Job's own activeDeadlineSeconds (600s), so this
+		// phase outlives the Job and reports the Job's verdict rather than timing
+		// out over one that is still retrying. The two are set together; raising
+		// one without the other makes the wait meaningless in one direction or
+		// the error misleading in the other.
+		deadline = 12 * time.Minute
 		every    = 15 * time.Second
 	)
 	started := time.Now()
@@ -1366,45 +1377,42 @@ func (o *Orchestrator) zitadelSetupFailure(ctx context.Context, kubeconfig strin
 	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 		"logs", "-n", "platform-identity", "job/zitadel-setup",
 		"-c", "zitadel-setup", "--tail=4").CombinedOutput()
-	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		return "zitadel-setup produced no readable logs; check the Job in platform-identity"
+	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		return "zitadel-setup last said: " + lines[len(lines)-1]
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	return "zitadel-setup last said: " + lines[len(lines)-1]
+
+	// The Job may be gone. Its delete policy carries `hook-failed`, because a
+	// failed hook Job left in place is read as the hook's result by every later
+	// sync and wedges the Application permanently -- so a failure deletes itself,
+	// and takes its logs with it.
+	//
+	// ArgoCD's own record of why the hook failed outlives the Job, so ask it
+	// rather than reporting "no readable logs", which says nothing and was what
+	// this returned for a box whose hooks had been cleaned up exactly as designed.
+	if msg := o.zitadelHookFailure(ctx, kubeconfig); msg != "" {
+		return msg
+	}
+	return "zitadel-setup produced no readable logs and ArgoCD recorded no hook failure; " +
+		"check `kubectl get application zitadel -n platform-ops -o jsonpath='{.status.operationState}'`"
 }
 
-func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 5); err != nil {
-		return err
+// zitadelHookFailure returns ArgoCD's own record of a failed PreSync hook.
+//
+// Survives the Job, which `hook-failed` deletes as soon as it fails.
+func (o *Orchestrator) zitadelHookFailure(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "application", "zitadel", "-n", "platform-ops", "-o",
+		`jsonpath={range .status.operationState.syncResult.resources[?(@.hookPhase=="Failed")]}{.name}: {.message}{"\n"}{end}`).Output()
+	if err != nil {
+		return ""
 	}
-	// Again, and not redundantly. Crossplane establishes a composed kind
-	// asynchronously after its XRD syncs, so AINativeSaaS can appear AFTER the
-	// refresh in boundary 03 — and this is the boundary that first manages one.
-	if err := o.refreshArgoCDSchemaCache(ctx, kubeconfig); err != nil {
-		return err
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return "ArgoCD recorded the hook failure: " + line
+		}
 	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 5); err != nil {
-		return err
-	}
-	fmt.Println("[boundary05] ✓ 05-tenant-fleet boundary activated")
-	return nil
-}
-
-func (o *Orchestrator) deployBoundary06(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 6); err != nil {
-		return err
-	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 6); err != nil {
-		return err
-	}
-	fmt.Println("[boundary06] ✓ 06-tenant-public-tls boundary activated")
-	return nil
+	return ""
 }
 
 // publicTlsIssuerFor returns the ACME ClusterIssuer for this environment — the

@@ -9,32 +9,6 @@ import (
 
 type contextT = context.Context
 
-// The reset is destructive, so the conditions that trigger it are the whole
-// safety argument.
-//
-// eventstore written + migrations absent  -> setup did work it did not record,
-//
-//	and no retry can recover it
-//
-// eventstore written + migrations present -> a healthy Zitadel. Never drop.
-// neither                                 -> untouched. Nothing to reset.
-func TestPartialInitSignatureRequiresBothHalves(t *testing.T) {
-	// The query is the contract; assert it names both tables and the polarity
-	// of each test, because reversing either turns this into data loss.
-	q := zitadelPartialInitQuery
-	for _, want := range []string{
-		"eventstore.events2",
-		"IS NOT NULL",
-		"projections.migrations",
-		"IS NULL",
-		"AND",
-	} {
-		if !contains(q, want) {
-			t.Errorf("the partial-init signature no longer checks %q:\n%s", want, q)
-		}
-	}
-}
-
 // The signature is the ONLY guard, deliberately.
 //
 // An earlier version also required boundary 04 to be unfinished. That read as a
@@ -48,18 +22,6 @@ func TestResetIsGatedOnTheDatabaseAloneAndNotOnPhaseState(t *testing.T) {
 	// Compiles only while the signature is (ctx, kubeconfig). A phase argument
 	// would break this line, which is the point of it.
 	var _ func(ctx contextT, kubeconfig string) error = (&Orchestrator{}).prepareZitadelForRetry
-}
-
-// The repair has two independent triggers, and a box can present either alone.
-// Collapsing them -- treating the wedged sync as something only a half-finished
-// database could cause -- is how the first version left a cluster that could not
-// recover: the database had been recreated, so the signature was clean, while
-// the Application stayed locked on a hook that no longer existed.
-func TestTheTwoRepairsAreIndependentlyTriggered(t *testing.T) {
-	var (
-		_ func(ctx contextT, kubeconfig string) bool = (&Orchestrator{}).zitadelInitIsHalfFinished
-		_ func(ctx contextT, kubeconfig string) bool = (&Orchestrator{}).zitadelSyncIsStuck
-	)
 }
 
 // A sync that has only just begun is a busy Application, not a wedged one.
@@ -87,22 +49,6 @@ func contains(haystack, needle string) bool {
 		}
 		return false
 	})()
-}
-
-// The database name is a VALUE here, not an identifier, and SQL spells those
-// differently. Go's %q looks like the right verb and is not: it emits double
-// quotes, which Postgres reads as an identifier, so the statement asks whether
-// datname equals a column called zitadel. The reset announced itself, ran eight
-// seconds, and stopped on `column "zitadel" does not exist`.
-func TestTerminateConnectionsQuotesTheNameAsAValue(t *testing.T) {
-	got := terminateConnections("zitadel")
-	if !contains(got, "'zitadel'") {
-		t.Errorf("the database name is not a SQL string literal: %s", got)
-	}
-	if contains(got, `"zitadel"`) {
-		t.Errorf("the database name is double-quoted, which SQL reads as an "+
-			"identifier and Postgres rejects as an unknown column: %s", got)
-	}
 }
 
 // Clearing the operation and requesting a new one are ONE repair, split around
@@ -304,8 +250,8 @@ func TestBeingOutOfSyncIsEnoughToTriggerTheRepair(t *testing.T) {
 	if !strings.Contains(fn, "outOfSync") {
 		t.Error("the repair does not consider whether the Application is out of sync")
 	}
-	if !strings.Contains(fn, "!stuckSync && !halfInit && !outOfSync") {
-		t.Error("the early return does not account for all three conditions, so one " +
+	if !strings.Contains(fn, "!stuckSync && !outOfSync && !schemaMissing") {
+		t.Error("the early return does not account for every condition, so one " +
 			"of them cannot trigger the repair on its own")
 	}
 }
@@ -363,5 +309,43 @@ func TestTheRepairNeverDeletesAHookJob(t *testing.T) {
 		t.Error("the repair deletes a hook Job. An in-flight operation waiting on it " +
 			"deadlocks permanently, and clearing .operation does not stop that " +
 			"operation -- see the note in zitadel_reset.go")
+	}
+}
+
+// Nothing in this repair may drop, create or truncate a database.
+//
+// It once did, gated on `eventstore.events2 IS NOT NULL AND
+// projections.migrations IS NULL` and justified as "a Zitadel that initialised
+// properly HAS projections.migrations and therefore cannot match it".
+//
+// Zitadel v4.15.3 has no projections.migrations table -- migration state lives
+// in the eventstore -- so the condition held on EVERY healthy database. Verified
+// against a running, serving box: the query returned true, meaning the repair
+// would have dropped a live identity provider's data. The only thing preventing
+// it was the "is it serving" gate, which a brief restart satisfies.
+//
+// Every recovery this platform has actually needed came from hook mechanics, not
+// from recreating the database.
+func TestTheRepairIsNotDestructive(t *testing.T) {
+	src, err := os.ReadFile("zitadel_reset.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code strings.Builder
+	for _, line := range strings.Split(string(src), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	body := code.String()
+	for _, banned := range []string{"DROP DATABASE", "CREATE DATABASE", "TRUNCATE",
+		"pg_terminate_backend", "DROP SCHEMA"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("the repair performs %q. Recreating Zitadel's database has never "+
+				"fixed anything here, and the signature that once guarded it matched "+
+				"every healthy box", banned)
+		}
 	}
 }

@@ -171,6 +171,59 @@ login:
         - path: /ui/v2/login
           pathType: PathPrefix
 
+
+# Give the hooks room to outlast a credential that is still settling.
+#
+# The chart defaults both Jobs to backoffLimit 5 and activeDeadlineSeconds 300,
+# which suits `helm install` against a database whose credentials already exist.
+# Day-0 is not that: bootstrap-secrets rotates the platform's database passwords
+# while these hooks are running, so for a window of a minute or two the DSN in
+# the cluster and the password on the role disagree and every attempt fails with
+#
+#   FATAL: password authentication failed for user "hub_zitadel" (SQLSTATE 28P01)
+#
+# Observed on a fresh box: the setup Job started at 19:16:49 and was killed
+# DeadlineExceeded at 19:21:49, exactly 300s later, while the credential became
+# consistent shortly after. Both Jobs then sat terminal -- Kubernetes starts no
+# further pod for a Failed Job -- so a window of two minutes cost the whole
+# boundary, and the same credential authenticated fine when tested afterwards.
+#
+# 600s rather than "large": a deadline is also what stops a genuinely broken
+# initialisation retrying for ever, and awaitZitadelReady waits 12 minutes, so
+# the phase outlives the Job and reports the Job's own verdict rather than timing
+# out over one that is still trying.
+initJob:
+  backoffLimit: 10
+  activeDeadlineSeconds: 600
+  # A FAILED hook must delete itself, or it blocks every later sync.
+  #
+  # The chart's default policy is `before-hook-creation` alone, which deletes the
+  # previous hook when creating the next one. That covers success and does not
+  # cover failure: a Job left in a terminal Failed state is read by ArgoCD as the
+  # hook's result for the NEXT sync too, so the sync fails without running
+  # anything. Measured on this box -- a requested sync completed in 41ms:
+  #
+  #   PreSync/1 hook Job/zitadel-init (,Failed,Job was active longer than deadline)
+  #   "sync/terminate complete" duration=41.670788ms
+  #   "Skipping auto-sync: application status is Synced"
+  #
+  # Nothing recovers from that. Auto-sync declines because the Application reads
+  # Synced, and every explicit sync re-reads the same stale failure. One Job that
+  # failed once made the identity provider permanently unreachable.
+  #
+  # `hook-failed` deletes the Job as soon as it fails, so the next sync finds
+  # nothing stale and creates it fresh.
+  #
+  # The cost is real: the failed Job's logs go with it. That is why
+  # zitadelSetupFailure falls back to ArgoCD's own recorded hook message, which
+  # survives the Job -- and why the initContainers above matter, since a
+  # credential or schema failure now surfaces in the pod that failed rather than
+  # three namespaces away.
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-failed
+    helm.sh/hook-weight: "1"
+
 # Clear a migration left half-started before attempting setup again.
 #
 # The case this covers is NOT the one above. `setupJob.activeDeadlineSeconds`
@@ -204,6 +257,14 @@ login:
 # scripts/validate/zitadel-cleanup-image.py so the pin cannot drift silently
 # past a chart bump.
 setupJob:
+  # Same reasoning as initJob above.
+  backoffLimit: 10
+  activeDeadlineSeconds: 600
+  # Same delete policy, and the same reason. Weight 2 keeps it after init.
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-failed
+    helm.sh/hook-weight: "2"
   initContainers:
     # Guarantee the schema exists before setup looks for it.
     #
@@ -239,6 +300,22 @@ setupJob:
             secretKeyRef:
               name: zitadel-db-credentials
               key: dsn
+        # Wait for the database to accept this credential instead of failing on
+        # the first refusal.
+        #
+        # The chart gives its own containers this and these initContainers did
+        # not, which made them strictly more brittle than the job they precede.
+        # Day-0 rotates the platform's database passwords while these hooks run,
+        # so for a minute or two the DSN in the cluster and the password on the
+        # role disagree:
+        #
+        #   FATAL: password authentication failed for user "hub_zitadel" (28P01)
+        #
+        # zitadel-init rode it out -- "retrying initial database connection in a
+        # second" -- while ensure-schema exited 1 on the first attempt and took
+        # the whole setup Job down with it, Init:Error, before setup ever ran.
+        - name: ZITADEL_DATABASE_POSTGRES_AWAITINITIALCONN
+          value: 5m
       volumeMounts:
         - name: zitadel-config-yaml
           mountPath: /config
@@ -259,6 +336,22 @@ setupJob:
             secretKeyRef:
               name: zitadel-db-credentials
               key: dsn
+        # Wait for the database to accept this credential instead of failing on
+        # the first refusal.
+        #
+        # The chart gives its own containers this and these initContainers did
+        # not, which made them strictly more brittle than the job they precede.
+        # Day-0 rotates the platform's database passwords while these hooks run,
+        # so for a minute or two the DSN in the cluster and the password on the
+        # role disagree:
+        #
+        #   FATAL: password authentication failed for user "hub_zitadel" (28P01)
+        #
+        # zitadel-init rode it out -- "retrying initial database connection in a
+        # second" -- while ensure-schema exited 1 on the first attempt and took
+        # the whole setup Job down with it, Init:Error, before setup ever ran.
+        - name: ZITADEL_DATABASE_POSTGRES_AWAITINITIALCONN
+          value: 5m
       volumeMounts:
         - name: zitadel-config-yaml
           mountPath: /config

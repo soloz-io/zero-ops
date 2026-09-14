@@ -15,11 +15,20 @@ that never scales looks like a cluster with nothing to scale.
 */}}
 {{- define "environment-manager.burstSpokePool" -}}
 {{- $env := .Values.environmentSlug -}}
+{{- if not $env -}}
+{{- fail "environmentSlug is not set: this chart cannot resolve the burst-capacity spoke pool (ADR-078). Scaffolding writes it into clusters/<name>/values.yaml." -}}
+{{- end -}}
 {{- $provider := .Values.provider -}}
+{{- if not $provider -}}
+{{- fail "provider is not set: this chart cannot resolve the burst-capacity spoke pool (ADR-078). Scaffolding writes it into clusters/<name>/values.yaml." -}}
+{{- end -}}
+{{- $pool := "" -}}
+{{- if and $env $provider -}}
 {{- $byEnv := index (.Values.burstSpokePool | default dict) $env | default dict -}}
-{{- $pool := index $byEnv $provider | default "" -}}
+{{- $pool = index $byEnv $provider | default "" -}}
 {{- if not $pool -}}
 {{- fail (printf "burstSpokePool has no entry for %s+%s: the burst-capacity autoscaler would be rendered for a spoke this combination never provisions. Add it beside supportedMatrix in the environment-manager values." $env $provider) -}}
+{{- end -}}
 {{- end -}}
 {{- $pool -}}
 {{- end -}}

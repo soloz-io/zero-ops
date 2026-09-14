@@ -53,6 +53,13 @@ jobs:
       - name: The Zitadel cleanup image matches the chart's appVersion
         run: python3 scripts/validate/zitadel-cleanup-image.py --online
 
+      # A released box and an unreleased one must receive the same globals. They
+      # drifted once: `dns` reached only the unreleased path, so every released
+      # box ran external-dns with an empty --provider and crash-looped, while the
+      # path a developer tests was correct.
+      - name: Globals are emitted once, not per code path
+        run: python3 scripts/validate/one-globals-emitter.py
+
   # internal/platform/embedded is a generated copy of the manifests a released
   # CLI carries. It was guarded only by a pre-commit hook, which means it was
   # guarded on one machine: a commit made with --no-verify, or by anyone who had

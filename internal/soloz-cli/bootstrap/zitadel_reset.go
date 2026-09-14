@@ -48,17 +48,27 @@ const (
 	// treated as wedged. Its hooks finish in seconds; an hour was observed.
 	zitadelSyncStaleAfter = 5 * time.Minute
 
-	// The signature of the unrecoverable state, and nothing else.
+	// NOTE: there is deliberately no "half-initialised database" signature here,
+	// and no code that drops the database.
 	//
-	// eventstore.events2 exists  -> setup wrote event data
-	// projections.migrations absent -> and recorded none of it
+	// There was. It tested `eventstore.events2 IS NOT NULL AND
+	// projections.migrations IS NULL`, justified as "a Zitadel that initialised
+	// properly HAS projections.migrations and therefore cannot match it".
 	//
-	// Both halves are required. A database with neither has not been touched and
-	// needs no reset; one with both is a Zitadel that initialised properly and
-	// must never be dropped.
-	zitadelPartialInitQuery = `SELECT
-	  (to_regclass('eventstore.events2') IS NOT NULL)
-	  AND (to_regclass('projections.migrations') IS NULL)`
+	// That is false. Zitadel v4.15.3 has no `projections.migrations` table at
+	// all -- it keeps migration state as events in the eventstore, and its
+	// projections schema holds a hundred other tables. The signature was inferred
+	// from a broken box and never checked against a working one, so it matched
+	// EVERY healthy database. Verified afterwards on a running, serving box: the
+	// query returned true.
+	//
+	// Only the "is it serving" gate stood between that and dropping a live
+	// identity provider's database, and a Zitadel restarting briefly satisfies it.
+	//
+	// The drop is gone rather than re-specified. It never fixed anything on this
+	// platform: every recovery came from the hook mechanics -- `ensure-schema`,
+	// and a failed hook Job deleting itself. A destructive operation that has
+	// earned nothing does not get a second signature.
 )
 
 // resetZitadelIfInitIncomplete drops and recreates the Zitadel database when a
@@ -102,11 +112,10 @@ func (o *Orchestrator) prepareZitadelForRetry(ctx context.Context, kubeconfig st
 	// PREPARATORY work -- clear a stale operation, recreate a database -- and the
 	// sync is what the function is actually for.
 	stuckSync := o.zitadelSyncIsStuck(ctx, kubeconfig)
-	halfInit := o.zitadelInitIsHalfFinished(ctx, kubeconfig)
 	outOfSync := o.zitadelOutOfSync(ctx, kubeconfig)
 	schemaMissing := o.zitadelSchemaMissing(ctx, kubeconfig)
 
-	if !stuckSync && !halfInit && !outOfSync && !schemaMissing {
+	if !stuckSync && !outOfSync && !schemaMissing {
 		// Not serving, but Synced, with nothing in flight and a database that
 		// looks right. Re-syncing would not address that, so say nothing and let
 		// awaitZitadelReady report what it finds: a repair that guesses is worse
@@ -115,12 +124,12 @@ func (o *Orchestrator) prepareZitadelForRetry(ctx context.Context, kubeconfig st
 	}
 
 	if schemaMissing {
-		fmt.Println("[boundary04] Zitadel's database carries no schema at all.")
-		fmt.Println("[boundary04]   zitadel-init creates it and its Job is recorded Complete, so")
-		fmt.Println("[boundary04]   ArgoCD skips it and setup runs against tables that are not")
-		fmt.Println("[boundary04]   there. Clearing both hook Jobs so the sync rebuilds them.")
+		fmt.Println("[boundary04] Zitadel's database carries no schema yet.")
+		fmt.Println("[boundary04]   Either nothing has initialised it, or the hooks that would")
+		fmt.Println("[boundary04]   have ran out of retries before they could. Requesting a sync,")
+		fmt.Println("[boundary04]   which re-runs init and setup against it.")
 	}
-	if !stuckSync && !halfInit && !schemaMissing {
+	if !stuckSync && !schemaMissing {
 		fmt.Println("[boundary04] The zitadel Application is not synced and will not sync itself.")
 		fmt.Println("[boundary04]   ArgoCD does not retry a failed sync on the same revision, so an")
 		fmt.Println("[boundary04]   Application left this way stays OutOfSync however long it waits.")
@@ -132,14 +141,6 @@ func (o *Orchestrator) prepareZitadelForRetry(ctx context.Context, kubeconfig st
 		fmt.Println("[boundary04]   a lock on every later sync -- including the one that would")
 		fmt.Println("[boundary04]   re-run init and setup. Cancelling it.")
 	}
-	if halfInit {
-		fmt.Println("[boundary04] Zitadel's database carries a half-finished initialisation.")
-		fmt.Println("[boundary04]   eventstore written, projections.migrations absent -- so Zitadel")
-		fmt.Println("[boundary04]   has done work it has no record of, and every setup retry fails")
-		fmt.Println("[boundary04]   on a constraint its predecessor wrote. Recreating the database,")
-		fmt.Println("[boundary04]   which is the only way back to a state setup can start from.")
-	}
-
 	// Order matters, and this order was learned the hard way.
 	//
 	// The in-flight sync goes FIRST, and the sync request at the end is not
@@ -151,30 +152,6 @@ func (o *Orchestrator) prepareZitadelForRetry(ctx context.Context, kubeconfig st
 	// never start.
 	if err := o.clearZitadelSync(ctx, kubeconfig); err != nil {
 		return err
-	}
-
-	// Then the database, if that is what is wrong with it.
-	if halfInit {
-		primary, err := o.cnpgPrimary(ctx, kubeconfig)
-		if err != nil || primary == "" {
-			return fmt.Errorf("the zitadel database needs recreating but the platform-db primary could not be found")
-		}
-		// DROP fails while anything holds a connection, and the crash-looping
-		// Zitadel reconnects between attempts.
-		if _, err := o.psql(ctx, kubeconfig, primary, "postgres",
-			terminateConnections(zitadelDatabase)); err != nil {
-			return fmt.Errorf("could not disconnect clients from the zitadel database: %w", err)
-		}
-		if _, err := o.psql(ctx, kubeconfig, primary, "postgres",
-			"DROP DATABASE IF EXISTS "+zitadelDatabase); err != nil {
-			return fmt.Errorf("could not drop the half-initialised zitadel database: %w", err)
-		}
-		// Recreated here rather than left to CNPG: the bootstrap SQL that creates
-		// it runs once, at cluster initdb, and will not run again.
-		if _, err := o.psql(ctx, kubeconfig, primary, "postgres",
-			"CREATE DATABASE "+zitadelDatabase); err != nil {
-			return fmt.Errorf("could not recreate the zitadel database: %w", err)
-		}
 	}
 
 	// Finally, ask for a sync. THIS is what re-runs the hooks: ArgoCD deletes and
@@ -196,20 +173,6 @@ func (o *Orchestrator) prepareZitadelForRetry(ctx context.Context, kubeconfig st
 
 	fmt.Println("[boundary04] ✓ a fresh sync is requested; ArgoCD re-runs init and setup")
 	return nil
-}
-
-// zitadelInitIsHalfFinished reports the signature of an initialisation that
-// wrote event data and recorded none of it.
-func (o *Orchestrator) zitadelInitIsHalfFinished(ctx context.Context, kubeconfig string) bool {
-	primary, err := o.cnpgPrimary(ctx, kubeconfig)
-	if err != nil || primary == "" {
-		return false // No database yet: a first bootstrap, nothing to reset.
-	}
-	out, err := o.psql(ctx, kubeconfig, primary, zitadelDatabase, zitadelPartialInitQuery)
-	if err != nil {
-		return false // The database may not exist yet. Not an error.
-	}
-	return strings.TrimSpace(out) == "t"
 }
 
 // zitadelSchemaMissing reports that the database carries no eventstore at all.
@@ -441,24 +404,6 @@ func (o *Orchestrator) awaitNewZitadelOperation(ctx context.Context, kubeconfig,
 		}
 	}
 	return false, nil
-}
-
-// terminateConnections builds the statement that disconnects a database's
-// clients, so DROP DATABASE can proceed.
-//
-// Single quotes, and never %q. Go's %q emits DOUBLE quotes, which in SQL quote
-// an IDENTIFIER rather than a string -- so `datname = "zitadel"` asks Postgres
-// to compare the column against a column named zitadel, and it answers
-// `column "zitadel" does not exist`. That is what stopped the first reset this
-// code ever performed, eight seconds in, on the box it was written for.
-//
-// Extracted to be tested. The other two statements here name the database as an
-// identifier (DROP DATABASE / CREATE DATABASE), where bare is correct and quotes
-// of either kind would be wrong; this is the only place it appears as a value.
-func terminateConnections(database string) string {
-	return fmt.Sprintf(
-		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s'`,
-		database)
 }
 
 // cnpgPrimary returns the name of the platform database's primary pod.

@@ -316,10 +316,10 @@ func (d *HetznerDriver) OnCAPIInit(ctx context.Context, kubeconfig, context, nam
 	// A box with no on-prem nodes gets EMPTY values: every tailscale command in the
 	// ClusterClass is guarded on `[ -s /etc/tailscale-hostname ]` and becomes a
 	// no-op.
-	return d.stageTailscaleCredentials(ctx, kubeconfig, namespace)
+	return d.StageTailscaleCredentials(ctx, kubeconfig, namespace)
 }
 
-// stageTailscaleCredentials puts this box's control plane on the tenant's tailnet,
+// StageTailscaleCredentials puts this box's control plane on the tenant's tailnet,
 // or leaves the credentials empty when it has no on-prem nodes.
 //
 // ADR-046 invariant 6: Cilium derives its VXLAN tunnel endpoint from a node's
@@ -332,7 +332,7 @@ func (d *HetznerDriver) OnCAPIInit(ctx context.Context, kubeconfig, context, nam
 // live only there, which is why a hetzner box with --on-prem staged nothing: the
 // flag was read, the capability was reported, and the credential the ClusterClass
 // needed was written empty anyway.
-func (d *HetznerDriver) stageTailscaleCredentials(ctx context.Context, kubeconfig, namespace string) error {
+func (d *HetznerDriver) StageTailscaleCredentials(ctx context.Context, kubeconfig, namespace string) error {
 	if !d.OnPremEnabled {
 		if err := writeTailscaleSecret(ctx, kubeconfig, namespace, "", ""); err != nil {
 			return fmt.Errorf("failed to create placeholder tailscale secret: %w", err)

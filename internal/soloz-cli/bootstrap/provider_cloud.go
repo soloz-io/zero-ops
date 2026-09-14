@@ -285,6 +285,51 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 		return fmt.Errorf("pivot ready failed: %w", err)
 	}
 	fmt.Println("[pivot-ready] ✓ Cluster ready on Management Cluster")
+
+	// Re-stage the tailnet credential on the pivoted hub.
+	//
+	// It was written at capi-init, into the BOOTSTRAP cluster, because the hub's
+	// own ClusterClass reads it through contentFrom.secret while the hub Cluster
+	// is being created. `clusterctl move` carries CAPI-owned objects; a plain
+	// Secret is not one, so it does not cross the pivot.
+	//
+	// Nothing noticed, because the hub was already built by then. The first
+	// object to need it on the hub is the first SPOKE, whose KubeadmConfig cannot
+	// render without it:
+	//
+	//   BootstrapReady False  failed to resolve file source: secret not found:
+	//                         platform-capi/tailscale-hybrid-psk
+	//
+	// Every machine then sits Pending for ever -- control plane included -- so the
+	// spoke has no API server, and anything watching it (the burst autoscaler)
+	// fails against an endpoint that will never answer.
+	//
+	// Empty values are correct on a box with no tailnet: every tailscale step in
+	// the ClusterClass is guarded on a non-empty hostname and becomes a no-op.
+	// What matters is that the reference RESOLVES.
+	if err := p.stageTailnetCredentialOnHub(ctx, mgmtKubeconfig); err != nil {
+		return err
+	}
+	return nil
+}
+
+// stageTailnetCredentialOnHub asks the driver to write its tailnet credential
+// into the pivoted hub, if it has one to write.
+//
+// Type assertion rather than a new interface method, matching OnPremRequested
+// above: only the drivers that provision through a ClusterClass reading this
+// secret implement it, and a driver that does not is not in error.
+func (p *CloudProvider) stageTailnetCredentialOnHub(ctx context.Context, kubeconfig string) error {
+	stager, ok := p.driver.(interface {
+		StageTailscaleCredentials(context.Context, string, string) error
+	})
+	if !ok {
+		return nil
+	}
+	if err := stager.StageTailscaleCredentials(ctx, kubeconfig, constants.NamespaceCAPI); err != nil {
+		return fmt.Errorf("stage tailnet credential on the pivoted hub: %w", err)
+	}
+	fmt.Println("[pivot-ready] ✓ tailnet credential staged on the hub (spokes render without it otherwise)")
 	return nil
 }
 

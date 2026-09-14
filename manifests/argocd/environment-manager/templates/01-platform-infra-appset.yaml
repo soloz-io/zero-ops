@@ -458,6 +458,9 @@ spec:
       source:
         directory:
           recurse: true
+    {{"{{-"}} if ne .directoryInclude "" {{"}}"}}
+          include: '{{"{{"}} .directoryInclude {{"}}"}}'
+    {{"{{-"}} end {{"}}"}}
     {{"{{-"}} end {{"}}"}}
 {{- end }}
 {{- if not $released }}

@@ -18,19 +18,22 @@ Takes: app, values (the component's own, possibly empty), root.
 {{- with .values }}
 {{ . | indent 2 }}
 {{- end }}
-global:
-  environmentSlug: {{ .root.Values.environmentSlug | quote }}
-  provider: {{ .root.Values.provider | quote }}
-  # Every platform-owned component, not only the ones that need it today. The
-  # api-gateway's OIDC issuer, required audience and JWKS URL are all this
-  # domain, and they reached clusters as the platform's own literal because no
-  # component had a way to ask. A global costs nothing where it is unused and
-  # removes the reason to hard-code it where it is.
-  hubDomain: {{ include "environment-manager.hubDomain" .root | quote }}
-  # The spoke this box's burst-capacity autoscaler watches. A global for the same
-  # reason as hubDomain: it is a fact about the box, and the alternative was the
-  # component carrying one box's spoke name as a literal.
-  burstSpokePool: {{ include "environment-manager.burstSpokePool" .root | quote }}
+{{- /* ONE emitter, deliberately. This block used to restate the globals for the
+       released path, and the two copies drifted: `dns` and `gitOrgURL` were
+       added to globalValues and never here, so every released box rendered
+       external-dns with `--provider=` and `--txt-owner-id=` empty and it
+       crash-looped on "enum value must be one of ..., got ''". The unreleased
+       path was correct throughout, which is why it was not noticed.
+
+       A global is a fact about the box; which code path assembles the
+       Application cannot change what is true of it.
+
+       NOTE the tag below is `{{` and not `{{-`: a chomping tag swallows the
+       newline that separates `enabled: true` from `global:`, and the two run
+       together into `enabled: trueglobal:` -- which helm reports four layers
+       away as "error converting YAML to JSON: yaml: line 2: mapping values are
+       not allowed in this context". */}}
+{{ include "environment-manager.globalValues" .root }}
 {{- end -}}
 
 {{/*

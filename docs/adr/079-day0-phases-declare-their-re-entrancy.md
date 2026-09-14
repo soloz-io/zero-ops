@@ -82,7 +82,80 @@ Recreating is safe precisely because incomplete initialisation means there is
 nothing to preserve. The guard is therefore not "is the data important" but "did
 initialisation finish", and the state machine already knows.
 
-### A reset is gated on the state's own signature, and on nothing else
+### A signature inferred from a broken system is not a signature
+
+**The reset described below has been removed.** What follows is why, because the
+reasoning that justified it is the more useful record.
+
+The condition was `eventstore.events2 IS NOT NULL AND projections.migrations IS
+NULL`, and the safety argument was explicit: *"a Zitadel that initialised properly
+HAS projections.migrations and therefore cannot match it."*
+
+Zitadel v4.15.3 has no `projections.migrations` table. Migration state lives in
+the eventstore as events; the `projections` schema holds a hundred other tables.
+The signature was read off a broken box — the table was absent, and absence was
+assumed to mean *incomplete* — and never once checked against a working one.
+
+Evaluated later against a healthy, serving box, the query returned **true**. The
+repair would have dropped a live identity provider's database. Only the "is it
+serving" gate stood in the way, and a Zitadel restarting briefly satisfies that.
+
+Two failures, and the second is the one worth keeping:
+
+1. A state predicate was derived from a single observation of a failure, where
+   every symptom is present at once and none is distinguishable from the others.
+2. **The claim was written down as the safety argument and never tested.** It
+   read as reasoning and was a guess, and being written down made it harder to
+   doubt rather than easier.
+
+A predicate that authorises destruction must be verified against the state it
+must NOT match. Confirming it matches the broken case is the easy half and proves
+nothing.
+
+The drop is gone rather than re-specified with a corrected query. It never fixed
+anything here: every recovery came from hook mechanics — `ensure-schema`, and a
+failed hook Job that deletes itself. A destructive operation that has earned
+nothing does not get a second signature. A test now forbids `DROP DATABASE`,
+`CREATE DATABASE`, `TRUNCATE` and `pg_terminate_backend` in this file.
+
+### A failed hook blocks every later sync unless it deletes itself
+
+The chart's hook delete policy was `before-hook-creation`, which covers success
+and not failure. A Job left terminally Failed is read by ArgoCD as the hook's
+result for the *next* sync too:
+
+```
+PreSync/1 hook Job/zitadel-init (,Failed,Job was active longer than deadline)
+"sync/terminate complete" duration=41.670788ms
+"Skipping auto-sync: application status is Synced"
+```
+
+A sync that completes in 41 milliseconds ran nothing. Auto-sync then declines
+because the Application reads `Synced`, and every explicit request re-reads the
+same stale failure. One Job that failed once made the identity provider
+permanently unreachable — and it is why six revisions of the repair above could
+get no traction: they requested syncs that were structurally incapable of running.
+
+`hook-delete-policy: before-hook-creation,hook-failed` removes the Job as soon as
+it fails. The cost is the failed Job's logs, so the phase now falls back to
+ArgoCD's recorded hook message, which outlives it.
+
+### A global is a fact about the box, not about the code path
+
+The environment-manager assembled Applications two ways — from the git tree and
+from the published distribution — and each emitted its own `global:` block. The
+copies drifted: `dns` and `gitOrgURL` were added to one and not the other, so
+every RELEASED box rendered external-dns with `--provider=` and `--txt-owner-id=`
+empty and crash-looped on `enum value must be one of ..., got ''`.
+
+The unreleased path was correct throughout, which is exactly why it survived: the
+broken path is the one nobody runs while developing. Duplication between a tested
+path and a shipped one is not symmetrical — it fails toward the customer.
+
+One emitter now, included by both, and a gate refuses a second `global:` literal
+anywhere in the templates.
+
+
 
 The condition to reset is: **the state carries the signature of a partial
 effect.** One half, not two.
@@ -407,6 +480,44 @@ never recreated here; requesting a sync is how they come back, built by the thin
 whose job that is. See the section above for what happens when that distinction
 is ignored.
 
+### Applying a declaration is not the same as the controller having acted on it
+
+The rule below was written for a component and applies just as much to a
+CONTROLLER'S WORK. Boundary 03 applies the `HubEnvironment`; the hub-operator
+then generates credentials, uploads them to Infisical, waits for ESO to deliver
+them, and only then creates the platform's database roles. The boundary reported
+success the moment ArgoCD had applied the CR.
+
+Boundary 04 therefore started against a database whose roles did not exist:
+
+```
+06:22:58  boundary 04 starts; zitadel init/setup hooks begin
+06:25:39  operator uploads application secrets
+06:32:28  "All database roles provisioned" -- hub_zitadel finally exists
+06:33:30  the hooks exhaust their retries and die
+```
+
+Every error in between was real and transient — first `password authentication
+failed for user "hub_zitadel"` because the role did not exist, then `permission
+denied for database zitadel` while it was being granted. Zitadel spent its entire
+retry budget on a database that was still being built, and died as it became
+usable.
+
+**The tempting fix is to give the hooks a longer deadline, and it is the wrong
+one.** A deadline widens the window in which the race is survivable; it does not
+order the two. Twice as long still fails on a box where the operator is twice as
+slow, and the failure is indistinguishable from a real one.
+
+Boundary 03 now waits for the operator's own `DatabaseRolesProvisioned`
+condition. The operator is asked rather than Postgres: provisioning is
+all-or-nothing, and a half-granted role cannot be told from a complete one by
+counting rows.
+
+**Where this sits relative to moving the component:** Zitadel is already in the
+right boundary — 02 builds the database, 03 declares the roles, 04 uses them.
+Nothing is fixed by a new boundary or a later one; the ordering was correct and
+the *gate between* two correctly-ordered phases was missing.
+
 ### The phase that owns a component asserts the component works
 
 `awaitBoundaryInventory` answers "did the boundary generate its Applications",
@@ -458,6 +569,9 @@ found in the wrong place, by someone reading the wrong logs.
   answers cannot disagree.
 - `handleExistingState` verifies a `complete` record before honouring it, and
   withdraws it along with any phase whose postcondition failed.
+- Boundary 03 waits for the hub-operator's `DatabaseRolesProvisioned` condition
+  (`awaitDatabaseRolesProvisioned`), so boundary 04 starts against a database
+  whose roles exist.
 - Boundary 04 is the first `resettable` phase and the first with a declared
   postcondition: `prepareZitadelForRetry` clears and re-requests a wedged sync
   (`clearZitadelSync` then `requestZitadelSync`, never separably, the latter
@@ -480,3 +594,6 @@ found in the wrong place, by someone reading the wrong logs.
 - Zitadel `cmd/setup/setup.go`, `cmd/setup/cleanup.go`, `internal/migration/migration.go`
   — the failure path, the official cleanup command, and the step states that
   separate what it treats from what it does not
+- ADR-055: Boundary Activation — amended to require a readiness contract per
+  boundary. The same rule one level up: this ADR governs a phase's own
+  postcondition, that one governs what the next boundary may assume.

@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 
@@ -868,6 +869,28 @@ func (r *SpokePoolReconciler) mapSpokeMachineIdentityToSpokePool(ctx context.Con
 // SetupWithManager registers the controller to watch SpokePool XRs.
 // Uses explicit Watches() instead of Owns() for Certificate and SpokeMachineIdentity
 // to avoid untested cluster-scoped → namespaced owner reference watch semantics.
+//
+// # Optional watches never gate startup
+//
+// An OPTIONAL watch must not prevent this controller from starting, nor stop it
+// reconciling resources unrelated to that watch. Registering a watch on a kind
+// whose CRD is absent makes controller-runtime wait for a cache that can never
+// sync, and the manager exits:
+//
+//	failed to wait for spokepool caches to sync kind source:
+//	*unstructured.Unstructured: timed out waiting for cache to be synced
+//
+// That turned an optional capability into a hard prerequisite by accident, and
+// the consequence was a deadlock across boundaries: SpokeMachineIdentity's CRD
+// ships with spoke-identity-operator in boundary 04, this operator runs in
+// boundary 03, and boundary 04 does not open until this operator has provisioned
+// the platform's database roles — which it never reached, because it exited on
+// the missing cache before reconciling anything. The visible symptom was Zitadel
+// failing to authenticate two boundaries later.
+//
+// So an optional kind is watched only when its CRD is present. When it is not,
+// the controller starts and reconciles everything else, and a watcher looks out
+// for the CRD appearing — see awaitOptionalCRD.
 func (r *SpokePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
@@ -883,22 +906,89 @@ func (r *SpokePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Kind:    "Certificate",
 	})
 
-	smi := &unstructured.Unstructured{}
-	smi.SetGroupVersionKind(schema.GroupVersionKind{
+	smiGVK := schema.GroupVersionKind{
 		Group:   "identity.zeroops.io",
 		Version: "v1alpha1",
 		Kind:    "SpokeMachineIdentity",
-	})
+	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(u).
 		Watches(
 			cert,
 			handler.EnqueueRequestsFromMapFunc(r.mapCertificateToSpokePool),
-		).
-		Watches(
+		)
+
+	// Certificate is NOT treated as optional. cert-manager is boundary 01
+	// infrastructure that every box has before this controller exists, so its
+	// absence is a broken cluster rather than a capability not yet installed.
+	// Marking a genuinely required kind optional would hide that.
+	logger := mgr.GetLogger().WithName("spokepool")
+	if kindIsInstalled(mgr, smiGVK) {
+		smi := &unstructured.Unstructured{}
+		smi.SetGroupVersionKind(smiGVK)
+		b = b.Watches(
 			smi,
 			handler.EnqueueRequestsFromMapFunc(r.mapSpokeMachineIdentityToSpokePool),
-		).
-		Complete(r)
+		)
+		logger.Info("watching SpokeMachineIdentity", "gvk", smiGVK.String())
+	} else {
+		logger.Info("SpokeMachineIdentity CRD is not installed; starting without that "+
+			"watch. Spoke identity changes will not re-trigger a SpokePool reconcile "+
+			"until the CRD exists and this operator restarts.", "gvk", smiGVK.String())
+		if err := mgr.Add(awaitOptionalCRD(mgr, smiGVK)); err != nil {
+			return err
+		}
+	}
+
+	return b.Complete(r)
+}
+
+// kindIsInstalled reports whether the cluster serves the given kind.
+//
+// Asked of the RESTMapper rather than by listing: a list can fail for reasons
+// that have nothing to do with the CRD (RBAC, a transient API error), and
+// treating those as "not installed" would silently drop a watch that should
+// exist.
+func kindIsInstalled(mgr ctrl.Manager, gvk schema.GroupVersionKind) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	return err == nil
+}
+
+// awaitOptionalCRD returns a Runnable that ends the manager once a previously
+// absent CRD appears, so the controller restarts with the watch registered.
+//
+// controller-runtime fixes a controller's watches when it is built, so a watch
+// cannot be added to a running one. Exiting cleanly and letting Kubernetes
+// restart the pod is the honest way to pick the kind up — and is a no-op on a
+// cluster where the CRD is installed before this operator, which is the ordinary
+// case.
+func awaitOptionalCRD(mgr ctrl.Manager, gvk schema.GroupVersionKind) manager.RunnableFunc {
+	return func(ctx context.Context) error {
+		logger := mgr.GetLogger().WithName("spokepool").WithValues("gvk", gvk.String())
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				// The mapper caches; ask it to look again before believing it.
+				if m, ok := mgr.GetRESTMapper().(meta.ResettableRESTMapper); ok {
+					m.Reset()
+				}
+				if kindIsInstalled(mgr, gvk) {
+					logger.Info("the CRD this controller optionally watches has been " +
+						"installed; shutting down so the watch is registered on restart")
+					// An ERROR, not nil. A runnable that returns nil simply ends
+					// its own goroutine and the manager carries on without the
+					// watch -- which would leave the controller permanently blind
+					// to a kind that now exists. Returning an error is how a
+					// runnable asks the manager to stop, and Kubernetes then
+					// restarts the pod with the watch registered.
+					return fmt.Errorf("restarting to watch %s, which has just been installed", gvk)
+				}
+			}
+		}
+	}
 }

@@ -89,3 +89,4 @@ soloz
 # repository here. It is a separate repository with its own remote, and a
 # `git add -A` in this checkout has swept one in before.
 .local-e2e/
+support-agent
