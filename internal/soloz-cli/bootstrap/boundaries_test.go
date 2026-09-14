@@ -169,3 +169,33 @@ func TestChecksDoNotPrintTheirOwnBoundaryTag(t *testing.T) {
 // Only boundaries.go holds checks; orchestrator.go still has phase-level output
 // that legitimately names its phase.
 func isSharedCheckLine(file string) bool { return file == "boundaries.go" }
+
+// The provider belongs to the cluster, not to the invocation.
+//
+// A hybrid box has one control plane, zero cloud workers, and expects workers
+// from the tenant's own hardware. Resumed as hetzner, `--on-prem` is absent,
+// on-prem-join reports "Not a home-worker cell — skipping", and the bootstrap
+// carries on toward deploying the platform onto a single tainted control plane
+// with nowhere to schedule. The state recorded "hybrid" throughout; nothing
+// compared it.
+func TestResumingWithADifferentProviderIsRefused(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	start := strings.Index(body, "func (o *Orchestrator) handleExistingState(")
+	if start < 0 {
+		t.Fatal("handleExistingState is gone")
+	}
+	fn := body[start:]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+
+	if !strings.Contains(fn, "bs.Provider") {
+		t.Error("resume does not compare the recorded provider against the one asked " +
+			"for; a hybrid cluster resumed as hetzner silently skips on-prem-join")
+	}
+	if !strings.Contains(fn, "o.providerName()") {
+		t.Error("resume does not read the provider this invocation was given")
+	}
+}

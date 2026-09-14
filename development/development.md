@@ -7,12 +7,14 @@
 ./scripts/dev/local-e2e.sh 0.1.16-rc.18 cli bootstrap
 #### manifest change → 
 DOMAIN=nutgraf.in make e2e-fresh VERSION=0.1.16-rc.18
-
-DOMAIN=nutgraf.in PROVIDER=hybrid make e2e-fresh VERSION=0.1.16-rc.19
-
 make e2e-fresh VERSION=0.1.16-rc.18    # clean → publish → cli → scaffold → bootstrap
 make e2e-clean VERSION=0.1.16-rc.18    # tear the last run down and stop
 make e2e       VERSION=0.1.16-rc.18    # as before — cannot reach clean
+
+#### PROVIDER=hybrid
+
+DOMAIN=nutgraf.in PROVIDER=hybrid make e2e-fresh VERSION=0.1.16-rc.19
+PROVIDER=hybrid ./scripts/dev/local-e2e.sh 0.1.16-rc.20 cli bootstrap
 
 #### Chart Change
 1. Publish the fix as rc.4 — this is a chart change, so it needs a new version:

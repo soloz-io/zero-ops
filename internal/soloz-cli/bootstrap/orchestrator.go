@@ -259,10 +259,23 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// itself, in the same ClusterResourceSet addon (ADR-041), so the operator
 	// settles and this node reaches Ready without anything having to be installed
 	// on the cluster first.
+	// The postcondition distinguishes "nothing to join" from "nothing joined".
+	//
+	// Under a provider with no on-prem capacity this phase returns in 46
+	// milliseconds having done nothing, which is correct -- and records itself
+	// complete, which is correct for THAT provider and wrong for the cluster.
+	// Observed: a hybrid box was resumed once as hetzner, this phase logged
+	// "Not a home-worker cell — skipping" and was marked done; every later hybrid
+	// run then skipped it, and the box sat with one tainted control plane and no
+	// worker at all, because the record described a decision made under different
+	// flags rather than a state of the cluster.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseOnPremJoin, "on-prem-join",
 		"Joining home-lab worker(s) to the hub...",
 		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
 		nil,
+		withPostcondition(func() error {
+			return o.onPremWorkersPresent(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig))
+		}),
 	); err != nil {
 		return err
 	}
@@ -1227,6 +1240,35 @@ func (o *Orchestrator) deployBoundaryN(ctx context.Context, kubeconfig string, n
 	return o.runBoundary(ctx, kubeconfig, c)
 }
 
+// onPremWorkersPresent reports whether this box has the on-prem capacity it asked
+// for.
+//
+// Trivially satisfied when on-prem was not requested: a hetzner box has no home
+// workers by design, and demanding one would fail every pure-cloud bootstrap.
+// The claim is only "if you asked for on-prem nodes, at least one is here".
+//
+// A point-in-time probe, never a wait -- the phase itself owns waiting for a node
+// to join. This only decides whether the phase must run again.
+func (o *Orchestrator) onPremWorkersPresent(ctx context.Context, kubeconfig string) error {
+	// Type assertion, matching how CloudProvider itself asks its driver: only a
+	// provider that can have on-prem capacity implements this, and one that
+	// cannot is not in error -- it simply has nothing to confirm.
+	asker, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if !ok || !asker.OnPremRequested() {
+		return nil
+	}
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "nodes", "-l", "workload-location=on-prem",
+		"-o", "jsonpath={.items[*].metadata.name}").Output()
+	if err != nil {
+		return fmt.Errorf("the hub's nodes could not be read to confirm on-prem capacity")
+	}
+	if strings.TrimSpace(string(out)) == "" {
+		return fmt.Errorf("this box asked for on-prem nodes and none has joined")
+	}
+	return nil
+}
+
 // awaitDatabaseRolesProvisioned waits until the hub-operator reports that it has
 // created the platform's database roles.
 //
@@ -1493,6 +1535,30 @@ func (o *Orchestrator) hubIngressAddress(ctx context.Context, kubeconfig string)
 func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.StateManager, bs *state.BootstrapState) error {
 	fmt.Printf("\n[recovery] Found existing state for cluster '%s'\n", o.ClusterName)
 	fmt.Printf("[recovery] Last completed phase: %s\n", bs.CurrentPhase)
+
+	// The provider is a property of the CLUSTER, not of this invocation.
+	//
+	// A resumed bootstrap that is told a different provider than the one the
+	// cluster was built with does not switch providers -- it half-applies the new
+	// one to a topology shaped by the old. Observed: a hybrid box (one control
+	// plane, zero cloud workers, workers expected from the tenant's own hardware)
+	// resumed as hetzner. `--on-prem` was therefore absent, on-prem-join reported
+	// "Not a home-worker cell — skipping", and the run continued toward deploying
+	// the platform onto a single tainted control plane with nowhere to schedule.
+	//
+	// Nothing compared the two, though the state records the provider and has
+	// since it was written. Refused rather than corrected: picking one for the
+	// operator would silently discard whichever they meant.
+	if recorded := strings.TrimSpace(bs.Provider); recorded != "" {
+		if asked := strings.TrimSpace(o.providerName()); asked != "" && asked != recorded {
+			return fmt.Errorf("this cluster was built with --provider %s and this run says --provider %s.\n"+
+				"  The provider decides the cluster's topology -- how many cloud workers it has,\n"+
+				"  and whether its workers come from the tenant's own hardware -- so resuming with\n"+
+				"  a different one applies half of it to a shape built for the other.\n\n"+
+				"  Re-run with --provider %s, or tear the cluster down and build it as %s.",
+				recorded, asked, recorded, asked)
+		}
+	}
 
 	if o.phaseDone(bs, state.PhaseComplete) {
 		// Verified, not trusted. See phasePostconditions: a bootstrap that
