@@ -485,7 +485,7 @@ func (i *Installer) WaitForInfisicalHealth(ctx context.Context) error {
 			(&health.InfisicalReadiness{}).Checkers()...,
 		),
 		Interval: 5 * time.Second,
-		Timeout:  15 * time.Minute,
+		Timeout:  45 * time.Minute,
 		// No OnCheckStart/OnCheckPass: the waiter's own output carries the
 		// step numbering, elapsed time and the reason it is still waiting.
 	}

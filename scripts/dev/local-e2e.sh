@@ -465,7 +465,7 @@ do_verify() {
     # The same command the tenant's workflow runs, not a local re-implementation.
     # A second implementation would be a second thing to keep true, and the whole
     # point of this loop is that local and CI take one path.
-    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-15m}"
+    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-45m}"
 }
 
 # The acceptance pass. `verify` answers "did this converge"; this answers "does

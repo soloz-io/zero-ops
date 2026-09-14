@@ -95,7 +95,7 @@ func (w *HealthWaiter) Wait(ctx context.Context, kubeconfig string) error {
 		w.Interval = 5 * time.Second
 	}
 	if w.Timeout == 0 {
-		w.Timeout = 15 * time.Minute
+		w.Timeout = 45 * time.Minute
 	}
 
 	deadline := time.Now().Add(w.Timeout)

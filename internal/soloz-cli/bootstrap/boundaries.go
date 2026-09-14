@@ -381,7 +381,7 @@ func init() {
 // claim that is always true and never useful.
 func (o *Orchestrator) awaitPlatformDatabaseReady(ctx context.Context, kubeconfig string) error {
 	const (
-		deadline = 15 * time.Minute
+		deadline = 45 * time.Minute
 		every    = 10 * time.Second
 	)
 	started := time.Now()

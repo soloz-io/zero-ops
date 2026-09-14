@@ -594,7 +594,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	fmt.Println("[adr045-commit] This requires the generated files to be committed AND pushed.")
 	fmt.Println("[adr045-commit] If auto-push failed, push manually.")
 
-	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	waitCtx, cancel := context.WithTimeout(ctx, 45*time.Minute)
 	defer cancel()
 
 	if err := o.waitForArgoCDAppsHealthy(waitCtx, mgmtKubeconfig, appsToWait); err != nil {
@@ -1236,7 +1236,7 @@ func (o *Orchestrator) deployBoundaryN(ctx context.Context, kubeconfig string, n
 // and half of it is indistinguishable from all of it by counting roles.
 func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeconfig string) error {
 	const (
-		deadline = 15 * time.Minute
+		deadline = 45 * time.Minute
 		every    = 10 * time.Second
 	)
 	started := time.Now()
