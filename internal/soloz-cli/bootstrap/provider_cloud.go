@@ -245,8 +245,26 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 		}
 	}
 
+	// 30 minutes, not 10.
+	//
+	// A worker's join time is not the control plane's. Measured on one fresh
+	// Hetzner box, all three machines created within 25 seconds of each other:
+	//
+	//	control plane      4m
+	//	worker (first)    12m
+	//	worker (second)   44m
+	//
+	// The old budget was 10 minutes, which is shorter than even the FASTER
+	// worker took -- so the phase was not marginal, it was under-provisioned,
+	// and had been passing on luck. It failed here after 10m05s on a machine
+	// that joined perfectly well at 44m, having already built three servers.
+	//
+	// A bound is still wanted: a machine that never joins should be reported,
+	// not waited on for ever. 30m covers the observed spread with room, and the
+	// failure names the machine and what it lacks, so a genuine non-join is
+	// still diagnosable rather than a hang.
 	fmt.Println("[pivot] Waiting for all nodes to join cluster...")
-	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 10*time.Minute); err != nil {
+	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 30*time.Minute); err != nil {
 		return "", fmt.Errorf("machines not ready for pivot: %w", err)
 	}
 	fmt.Println("[pivot] ✓ All nodes joined")

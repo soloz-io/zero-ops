@@ -4,5 +4,5 @@ kind: Kustomization
 # Delivered as extraManifestsPath alongside the Helm chart, matching how the Ory
 # services carry their ExternalSecrets (04-tenant-services-multi-appset).
 resources:
-  - zitadel-credentials-es.yaml
+  - zitadel-masterkey-es.yaml
   - platform-admin-rbac.yaml

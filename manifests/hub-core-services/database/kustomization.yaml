@@ -16,4 +16,5 @@ resources:
   - platform-db-pooler.yaml
   - platform-db.yaml
   - s3-credentials-es.yaml
+  - zitadel-db-credentials-es.yaml
   - scheduled-backup.yaml

@@ -1,0 +1,32 @@
+# Zitadel's masterkey encrypts everything it stores at rest.
+#
+# Unlike the database credential that used to sit beside this (now in
+# hub-core-services/database/, with the other role credentials), this is
+# Zitadel's own secret and has no meaning to any other component. It belongs with
+# the component that uses it.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: zitadel-masterkey
+  namespace: platform-identity
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: zitadel-masterkey
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+      engineVersion: v2
+      mergePolicy: Replace
+      data:
+        # The chart reads the key from this field name.
+        masterkey: "{{ .masterkey }}"
+  data:
+    - secretKey: masterkey
+      remoteRef:
+        key: hub-zitadel-masterkey
