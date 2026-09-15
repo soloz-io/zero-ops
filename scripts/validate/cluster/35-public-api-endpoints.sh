@@ -27,8 +27,8 @@ PUBLIC_ENDPOINTS=(
 # --resolve is deliberately NOT used, and neither is -k: resolving the name
 # through public DNS and validating the certificate chain are both part of what
 # is being checked.
-_probe() { curl -s -m 15 -o /dev/stdout -w '\n%{http_code}' "$1" 2>/dev/null; }
-_probe_final() { curl -s -L -m 20 -o /dev/null -w '%{http_code} %{url_effective}' "$1" 2>/dev/null; }
+_probe() { local u="$1"; shift; curl -s -m 15 "$@" -o /dev/stdout -w '\n%{http_code}' "$u" 2>/dev/null; }
+_probe_final() { local u="$1"; shift; curl -s -L -m 20 "$@" -o /dev/null -w '%{http_code} %{url_effective}' "$u" 2>/dev/null; }
 _code() { tail -1 <<< "$1"; }
 _body() { sed '$d' <<< "$1"; }
 _json_field() { python3 -c "import json,sys; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null; }
@@ -82,7 +82,8 @@ validate_public_api_endpoints() {
     [[ "$zone" != *.*.* ]] && apex="$zone"
 
     local row host path expect plaintext label url code resolved tls_out seen_hosts=""
-    local owner_id record_owner authoritative ttl
+    local owner_id record_owner authoritative ttl connect
+    local -a pin=()
     owner_id="$(kc -n platform-edge get deploy external-dns -o jsonpath='{.spec.template.spec.containers[0].args}' \
         | tr ',' '\n' | grep -oE '\-\-txt-owner-id=[^"]+' | cut -d= -f2 | head -1)"
     for row in "${PUBLIC_ENDPOINTS[@]}"; do
@@ -95,6 +96,7 @@ validate_public_api_endpoints() {
         # hostname is reported as one fault rather than as many.
         if [[ " $seen_hosts " != *" $host "* ]]; then
             seen_hosts="$seen_hosts $host"
+            pin=(); connect="$host"
 
             resolved="$(dig +short +time=3 +tries=1 "$host" 2>/dev/null | tail -1)"
             if [[ -z "$resolved" ]]; then
@@ -141,12 +143,20 @@ validate_public_api_endpoints() {
                 authoritative="$(dig +short +time=3 +tries=1 A "$host" "@$AUTH_NS" 2>/dev/null | tail -1)"
                 if [[ -n "$authoritative" && "$authoritative" != "$resolved" ]]; then
                     ttl="$(dig +time=3 +tries=1 A "$host" 2>/dev/null | awk -v h="$host." '$1==h {print $2; exit}')"
-                    warn "$label: $host is $authoritative in the zone but this resolver still has $resolved${ttl:+ for another ${ttl}s} — propagation, not a fault; nothing to fix"
-                    continue
+                    # Pin the rest of this host's checks to the address the ZONE
+                    # names, and keep running them. Downgrading to a warning and
+                    # skipping the probes would make "propagating" mean "not
+                    # checked" -- the endpoint could be genuinely broken and this
+                    # would still report only the cache. Everything below now
+                    # asserts the platform side properly, and the warning says
+                    # only what is actually true: this resolver is behind.
+                    pin=(--resolve "${host}:443:${authoritative}" --resolve "${host}:80:${authoritative}")
+                    connect="$authoritative"
+                    warn "$label: $host is $authoritative in the zone but this resolver still has $resolved${ttl:+ for another ${ttl}s} — cache lag, not a platform fault; checks below run against the zone's address"
                 fi
             fi
 
-            tls_out="$(echo | timeout 15 openssl s_client -servername "$host" -connect "$host:443" -verify_return_error 2>&1)"
+            tls_out="$(echo | timeout 15 openssl s_client -servername "$host" -connect "${connect}:443" -verify_return_error 2>&1)"
             if ! grep -q 'CONNECTED(' <<< "$tls_out"; then
                 hard_fail "$label: $host resolves to $resolved but nothing accepts TLS on :443 there — the published record points where this box is not"
                 continue
@@ -163,7 +173,7 @@ validate_public_api_endpoints() {
             # http-to-https redirect; a non-3xx here means one hostname answers
             # unencrypted, which no object-level check sees.
             if [[ "$plaintext" == "yes" ]]; then
-                code=$(_code "$(_probe "http://${host}/")")
+                code=$(_code "$(_probe "http://${host}/" ${pin[@]+"${pin[@]}"})")
                 case "$code" in
                     3??) pass "$label: http://${host} redirects to HTTPS (HTTP $code)" ;;
                     *)   hard_fail "$label: http://${host} returned HTTP ${code:-no-response}, expected a 3xx redirect — plaintext must never serve content" ;;
@@ -171,7 +181,7 @@ validate_public_api_endpoints() {
             fi
         fi
 
-        code=$(_code "$(_probe "$url")")
+        code=$(_code "$(_probe "$url" ${pin[@]+"${pin[@]}"})")
         if [[ " $expect " == *" $code "* ]]; then
             pass "$label: $url → HTTP $code"
         else
