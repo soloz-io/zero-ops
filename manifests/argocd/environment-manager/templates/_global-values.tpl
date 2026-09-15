@@ -55,6 +55,11 @@ global:
   hubDomain: {{ include "environment-manager.hubDomain" . | quote }}
   gitOrgURL: {{ include "environment-manager.gitOrgURL" . | quote }}
   dns:
+    {{- /* The DNS SERVICE this box's zone lives in -- a platform-level choice,
+           not external-dns's --provider flag. "hetzner" means Hetzner DNS,
+           which external-dns reaches through a webhook sidecar; the translation
+           to `--provider=webhook` happens where the flag is written, in
+           external-dns's templated-fields.yaml. */}}
     provider: {{ .Values.dns.provider | default "hetzner" | quote }}
     {{- /* The TXT ownership key. Defaults to the cluster name because
            --policy=sync makes a shared key destructive: external-dns deletes

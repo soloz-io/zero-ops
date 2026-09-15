@@ -123,7 +123,7 @@ Home workers never appear in the ClusterClass topology.
 
 ### Scheduling Contract
 
-- Default workloads: `nodeSelector: workload-location: home`.
+- Default workloads: `nodeSelector: workload-location: on-prem`.
 - Burst workloads: explicit `nodeSelector: workload-location: hetzner`.
 
 ### Cilium CNI — Flatcar-Native Datapath

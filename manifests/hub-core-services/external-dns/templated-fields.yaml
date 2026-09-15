@@ -30,5 +30,19 @@
     # --webhook-provider-url and in the sidecar's container name, and replacing
     # every occurrence renamed both and produced a Deployment that rendered
     # nothing. The arg's position is stable because this list is written here.
+    #
+    # TRANSLATED, not passed through. `dns.provider` names the DNS SERVICE the
+    # zone lives in; external-dns's --provider names the INTEGRATION it uses to
+    # reach one, and it has no "hetzner" value -- its enum is akamai,
+    # alibabacloud, aws, ..., webhook. Hetzner DNS is reached through the
+    # hetzner-webhook sidecar this Deployment runs, so the selector "hetzner"
+    # becomes "webhook" here.
+    #
+    # Passing it through unmapped made external-dns exit on "flag parsing error:
+    # enum value must be one of ...", so nothing published a record and every hub
+    # hostname was unreachable -- argocd, id, api and infisical alike.
+    #
+    # Any other value is a provider external-dns supports natively and is
+    # forwarded unchanged; the sidecar is not deployed for those.
     - path: [spec, template, spec, containers, 0, args, 4]
-      value: '--provider={{ .Values.global.dns.provider }}'
+      value: '--provider={{ if eq .Values.global.dns.provider "hetzner" }}webhook{{ else }}{{ .Values.global.dns.provider }}{{ end }}'
