@@ -47,14 +47,27 @@ patches:
   target:
     kind: Deployment
     name: hub-operator
-# [CUSTOM] Patch replica count
-- patch: |-
-    - op: replace
-      path: /spec/replicas
-      value: 2
-  target:
-    kind: Deployment
-    name: hub-operator
+# Replicas stay at the base manifest's 1. This used to patch it to 2 under a
+# bare "[CUSTOM] Patch replica count" with no reasoning, and the second pod was
+# never doing anything: the operator takes a leader-election lease
+# (6b46dbfb.nutgraf.in), one pod holds it, and the other idles as a warm standby.
+#
+# What that standby bought was a faster failover -- seconds, instead of a pod
+# reschedule -- for a controller that sits in no request path. What it cost was a
+# second 256Mi+ pod on every hub. On a hybrid hub it did not even buy the
+# failover: there is one worker, so both replicas land on the same node and die
+# together with it.
+#
+# This is not environment-gated, because it cannot be here: the component
+# descriptor (manifests/argocd/components/03/hub-operator.yaml) is read by
+# ArgoCD's git file generator as plain YAML, not rendered by the
+# environment-manager chart, so .Values.environmentSlug is not in scope. Making
+# it vary per environment means giving boundary-03 descriptors a patch mechanism
+# they do not have -- a larger change than this is worth.
+#
+# So prod drops to one replica too, and that is the deliberate part: a
+# kubebuilder operator at replicas: 1 is the upstream scaffold's own default, and
+# the base manifest here has always said 1.
 # [CUSTOM] Add image pull secret for GHCR
 - patch: |-
     - op: add
