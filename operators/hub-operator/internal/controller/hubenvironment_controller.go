@@ -135,7 +135,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// depends on nothing else in this reconcile and every public hostname on the
 	// box depends on it -- and because it is the piece that makes a broken box
 	// repairable by a bundle upgrade alone, with no CLI and no repository edit.
-	if err := r.reconcileIngressAddress(ctx, hubEnv, req.Namespace); err != nil {
+	if err := r.reconcileIngressAddress(ctx, hubEnv, infisical.NamespaceOps); err != nil {
 		logger.Error(err, "Failed to publish the hub ingress address; continuing")
 	}
 

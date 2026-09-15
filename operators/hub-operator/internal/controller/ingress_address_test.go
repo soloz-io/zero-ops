@@ -1,6 +1,10 @@
 package controller
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 // The address is a host, never host:port -- external-dns publishes an A record.
 func TestControlPlaneHostIsExtractedWithoutThePort(t *testing.T) {
@@ -50,5 +54,37 @@ func TestOnlyTheControlPlaneEndpointFieldIsRead(t *testing.T) {
 	got, err := controlPlaneHost("localAPIEndpoint:\n  advertiseAddress: 10.0.0.9\n")
 	if err == nil {
 		t.Errorf("localAPIEndpoint was read as the control-plane endpoint: %q", got)
+	}
+}
+
+// The ConfigMap must be created in a real namespace.
+//
+// HubEnvironment is cluster-scoped (+kubebuilder:resource:scope=Cluster), so
+// ctrl.Request.Namespace is ALWAYS empty for it. Passing that through produced:
+//
+//	Failed to publish the hub ingress address; continuing
+//	  error: an empty namespace may not be set during creation
+//
+// on every reconcile -- the operator ran, resolved nothing, logged, and carried
+// on, so the bundle upgrade landed and the address still never appeared.
+func TestTheConfigMapNamespaceIsNotTheRequestNamespace(t *testing.T) {
+	src, err := os.ReadFile("hubenvironment_controller.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+
+	call := "r.reconcileIngressAddress(ctx, hubEnv,"
+	at := strings.Index(body, call)
+	if at < 0 {
+		t.Fatal("reconcileIngressAddress is not called; the address is never published")
+	}
+	arg := body[at+len(call) : at+len(call)+40]
+	if strings.Contains(arg, "req.Namespace") {
+		t.Error("the ConfigMap namespace comes from req.Namespace, which is empty for a " +
+			"cluster-scoped resource; creation fails on every reconcile")
+	}
+	if !strings.Contains(arg, "NamespaceOps") {
+		t.Errorf("the ConfigMap is not created in the platform namespace: %q", strings.TrimSpace(arg))
 	}
 }

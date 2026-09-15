@@ -24,6 +24,51 @@ VERSION="${1:?usage: publish.sh <version> <ghcr-owner>}"
 OWNER="${2:?usage: publish.sh <version> <ghcr-owner>}"
 SKIP_PUSH="${SKIP_PUSH:-}"
 
+# The tree must not be behind its upstream.
+#
+# Eight components are built by their own workflow, which tags the image with the
+# commit SHA and then COMMITS the resolved digest back:
+#
+#   chore(hub-operator): update image to 43dd4a32...
+#
+# That commit lands after the developer's push, so between pushing and pulling
+# the working tree still pins the PREVIOUS digest. A publish in that window
+# produces a bundle whose charts are new and whose image is old, and says nothing
+# -- the chart renders, the digest is valid, the Application syncs Healthy. It
+# cost 0.1.16-rc.30 and rc.31 in one afternoon: both shipped hub-operator's new
+# manifests against its old image, so the ConfigMap the new code writes never
+# appeared and public DNS stayed empty.
+#
+# Refused rather than recomputed. An earlier attempt derived each digest from git
+# history instead of trusting the commit, and it was unsound: workflows are
+# path-filtered and several share go.mod, so "the newest commit touching this
+# component that has a published image" selected an image OLDER than the one
+# already pinned -- kube-sbt resolved to 58b791ef when the repo correctly pinned
+# a build from cd2d9ae7, an ancestor swap that would have downgraded three
+# components on every publish. The source-to-image mapping is not derivable from
+# history; only the build knows it, and the bot's commit is how it says so.
+#
+# So the invariant is simply that the commit has been pulled. That is exactly and
+# only when the pinned digests are trustworthy.
+#
+# The permanent removal of this window is a CI change, not a script change: build
+# the images and publish the bundle in one run, so there is no asynchronous
+# commit to be behind.
+if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+    git fetch -q origin 2>/dev/null || true
+    behind="$(git rev-list --count 'HEAD..@{u}' 2>/dev/null || echo 0)"
+    if [ "${behind:-0}" -ne 0 ]; then
+        echo "publish: this tree is ${behind} commit(s) behind its upstream." >&2
+        echo >&2
+        git log --oneline 'HEAD..@{u}' | sed 's/^/  /' >&2
+        echo >&2
+        echo "  Image digests are committed by CI AFTER a push, so publishing from here" >&2
+        echo "  would ship these charts against whatever images the tree still pins." >&2
+        echo "  Run: git pull --rebase" >&2
+        exit 1
+    fi
+fi
+
 # Helm requires semver. A tag that is not one would publish a chart nobody can
 # request by version.
 if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
