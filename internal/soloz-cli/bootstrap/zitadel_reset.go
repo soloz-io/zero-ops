@@ -111,6 +111,23 @@ func (o *Orchestrator) prepareZitadelForRetry(ctx context.Context, kubeconfig st
 	// is the same in every case: request a sync. So the probes decide the
 	// PREPARATORY work -- clear a stale operation, recreate a database -- and the
 	// sync is what the function is actually for.
+	// A sync that is CURRENTLY RUNNING needs waiting, not repairing.
+	//
+	// OutOfSync is the normal state of an Application mid-sync, so it cannot on
+	// its own mean "nothing is happening". This repair fired against a sync that
+	// had started 20 seconds earlier and was correctly running Zitadel's PreSync
+	// hooks; each of its three sync requests found startedAt unchanged -- because
+	// the same operation was still going -- and reported "settled the previous
+	// operation rather than starting a sync". It then failed the phase over a
+	// sync that was working.
+	//
+	// zitadelSyncIsStuck already distinguishes a wedged operation from a busy one
+	// by age, so deferring to it here is the whole fix: in flight and not stale
+	// means leave it alone and let awaitZitadelReady do the waiting.
+	if o.zitadelSyncInFlight(ctx, kubeconfig) && !o.zitadelSyncIsStuck(ctx, kubeconfig) {
+		return nil
+	}
+
 	stuckSync := o.zitadelSyncIsStuck(ctx, kubeconfig)
 	outOfSync := o.zitadelOutOfSync(ctx, kubeconfig)
 	schemaMissing := o.zitadelSchemaMissing(ctx, kubeconfig)
@@ -240,6 +257,22 @@ func (o *Orchestrator) zitadelOutOfSync(ctx context.Context, kubeconfig string) 
 		return false
 	}
 	return strings.TrimSpace(string(out)) != "Synced"
+}
+
+// zitadelSyncInFlight reports whether an operation is currently running.
+//
+// Distinct from zitadelSyncIsStuck, which asks whether a running one has been
+// running too long. "Something is happening" and "something is jammed" are
+// different questions and conflating them makes a repair interrupt healthy work.
+func (o *Orchestrator) zitadelSyncInFlight(ctx context.Context, kubeconfig string) bool {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "application", zitadelApplication, "-n", argoCDNamespace,
+		"-o", "jsonpath={.status.operationState.phase}").Output()
+	if err != nil {
+		return false
+	}
+	phase := strings.TrimSpace(string(out))
+	return phase == "Running" || phase == "Terminating"
 }
 
 // zitadelSyncIsStuck reports whether the Application is wedged on an operation

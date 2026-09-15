@@ -349,3 +349,39 @@ func TestTheRepairIsNotDestructive(t *testing.T) {
 		}
 	}
 }
+
+// A sync that is currently running must be waited for, not repaired.
+//
+// OutOfSync is the normal state of an Application mid-sync, so it cannot on its
+// own mean "nothing is happening". The repair fired against a sync that had
+// started 20 seconds earlier and was correctly running Zitadel's PreSync hooks;
+// each of its three sync requests found startedAt unchanged -- the same
+// operation was still going -- reported "settled the previous operation rather
+// than starting a sync", and failed the phase over work that was succeeding.
+// zitadel-init completed moments later.
+func TestARunningSyncIsLeftAlone(t *testing.T) {
+	src, err := os.ReadFile("zitadel_reset.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+
+	if !strings.Contains(body, "func (o *Orchestrator) zitadelSyncInFlight(") {
+		t.Fatal("nothing distinguishes a running sync from an absent one")
+	}
+
+	start := strings.Index(body, "func (o *Orchestrator) prepareZitadelForRetry(")
+	fn := body[start:]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+
+	if !strings.Contains(fn, "zitadelSyncInFlight") {
+		t.Error("the repair does not check whether a sync is already running; it will " +
+			"interrupt healthy syncs whenever the Application is OutOfSync")
+	}
+	// In flight AND stale is a wedge and must still be repaired; in flight and
+	// fresh must not.
+	if !strings.Contains(fn, "!o.zitadelSyncIsStuck") {
+		t.Error("the in-flight check does not defer to the staleness threshold, so a " +
+			"genuinely wedged operation would now be left alone too")
+	}
+}

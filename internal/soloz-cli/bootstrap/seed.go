@@ -738,7 +738,7 @@ func (o *Orchestrator) refreshArgoCDSchemaCache(ctx context.Context, kubeconfig 
 	}
 	wait := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 		"rollout", "status", "statefulset/argocd-application-controller",
-		"-n", "platform-ops", "--timeout=300s")
+		"-n", "platform-ops", "--timeout=600s")
 	if out, err := wait.CombinedOutput(); err != nil {
 		return fmt.Errorf("wait for argocd-application-controller: %w\n%s", err, out)
 	}

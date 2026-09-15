@@ -199,3 +199,110 @@ func TestResumingWithADifferentProviderIsRefused(t *testing.T) {
 		t.Error("resume does not read the provider this invocation was given")
 	}
 }
+
+// A repair must not run before the boundary it repairs is open.
+//
+// ADR-055 gates a boundary with a deny sync window on its AppProject. Its
+// Applications EXIST while it is closed -- the ApplicationSet generates them --
+// and refuse to sync. A repair that asks one of them to sync before activation
+// is answered "Sync prevented by sync window", then waits out its own
+// confirmation budget for a sync that was never permitted to begin.
+//
+// Observed on boundary 04: the Zitadel repair ran first, requested a sync against
+// a closed boundary, and the phase stalled with the Application OutOfSync and no
+// operation in flight.
+func TestRepairsRunAfterActivationNotBefore(t *testing.T) {
+	src, err := os.ReadFile("boundaries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	start := strings.Index(body, "func (o *Orchestrator) runBoundary(")
+	if start < 0 {
+		t.Fatal("runBoundary is gone")
+	}
+	fn := body[start:]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+
+	activate := strings.Index(fn, "if c.activates {")
+	inventory := strings.Index(fn, "awaitBoundaryInventory")
+	prepare := strings.Index(fn, "if c.prepare != nil {")
+	readiness := strings.Index(fn, "range c.readiness.checks")
+
+	for name, idx := range map[string]int{
+		"activation": activate, "inventory": inventory,
+		"prepare": prepare, "readiness": readiness,
+	} {
+		if idx < 0 {
+			t.Fatalf("runBoundary no longer has a %s step", name)
+		}
+	}
+	if !(activate < inventory && inventory < prepare && prepare < readiness) {
+		t.Errorf("order must be activate -> inventory -> prepare -> readiness; got "+
+			"activate=%d inventory=%d prepare=%d readiness=%d", activate, inventory, prepare, readiness)
+	}
+}
+
+// HubEnvironment is cluster-scoped, so a query for it must not pass -A.
+//
+// `kubectl get hubenvironment hub-environment -A` exits 0 and prints NOTHING --
+// it does not error. The gate therefore polled for its whole 45-minute deadline
+// against a condition it could not observe, while that condition had been True
+// since minutes after the boundary began, and then reported "the hub-operator did
+// not provision the platform's database roles" -- indistinguishable from the real
+// fault the gate exists to catch.
+func TestClusterScopedQueriesDoNotPassAllNamespaces(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+
+	for _, fnName := range []string{
+		"func (o *Orchestrator) awaitDatabaseRolesProvisioned(",
+		"func (o *Orchestrator) hubEnvironmentBlocker(",
+	} {
+		start := strings.Index(body, fnName)
+		if start < 0 {
+			t.Fatalf("%s is gone", fnName)
+		}
+		fn := body[start:]
+		fn = fn[:strings.Index(fn, "\n}\n")]
+
+		var code strings.Builder
+		for _, line := range strings.Split(fn, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "//") {
+				continue
+			}
+			code.WriteString(line)
+			code.WriteString("\n")
+		}
+		c := code.String()
+
+		if strings.Contains(c, `"hubenvironment"`) && strings.Contains(c, `"-A"`) {
+			t.Errorf("%s queries the cluster-scoped HubEnvironment with -A; kubectl "+
+				"returns empty and exits 0, so the caller sees no condition at all", fnName)
+		}
+		if strings.Contains(c, ".items[*]") && strings.Contains(c, "hubenvironment") {
+			t.Errorf("%s indexes .items[*] on a single cluster-scoped object", fnName)
+		}
+	}
+}
+
+// An absent condition and a stuck operator are different failures and need
+// different messages. They shared one, so a malformed query blamed the operator.
+func TestAnUnreadableConditionIsReportedAsSuch(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	start := strings.Index(body, "func (o *Orchestrator) awaitDatabaseRolesProvisioned(")
+	fn := body[start:]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+
+	if !strings.Contains(fn, "never readable") {
+		t.Error("the timeout does not distinguish a condition that was never readable " +
+			"from one that never became true")
+	}
+}

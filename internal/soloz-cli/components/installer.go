@@ -155,7 +155,21 @@ func (i *Installer) InstallArgoCD(ctx context.Context) error {
 		// ARGOCD_APPLICATION_CONTROLLER_SERVER_SIDE_DIFF, and defaults false.
 		"--set", `configs.params.controller\.diff\.server\.side=true`,
 		"--wait",
-		"--timeout", "10m",
+		// 25m, not 10m.
+		//
+		// This budget covers pulling every ArgoCD image onto whichever node the
+		// scheduler picks, and on a hybrid box that node is the tenant's own
+		// hardware -- so the pull crosses a home internet connection rather than
+		// a datacenter backplane. Measured on one: the pre-upgrade hook's image
+		// (quay.io/argoproj/argocd:v2.14.1) went ImagePullBackOff, retried, and
+		// then reported "Successfully pulled image in 59.539s". The hook Job
+		// completed; Helm had already given up at 10m and failed the release with
+		// "pre-upgrade hooks failed: timed out waiting for the condition".
+		//
+		// A failed release is not free: it leaves the release in `failed`, which
+		// the next run has to upgrade over. Paying for a slow pull is cheaper
+		// than a release that has to be recovered.
+		"--timeout", "25m",
 	)
 
 	if output, err := cmd.CombinedOutput(); err != nil {

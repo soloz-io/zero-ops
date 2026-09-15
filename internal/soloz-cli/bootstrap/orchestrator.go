@@ -269,12 +269,22 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// run then skipped it, and the box sat with one tainted control plane and no
 	// worker at all, because the record described a decision made under different
 	// flags rather than a state of the cluster.
+	//
+	// After pivot-move the bootstrap kind cluster is destroyed, so
+	// hubKubeconfigFromBootstrap returns "". Fall back to the management
+	// kubeconfig that pivot-move recorded — it points at the hub directly.
+	resolveHubKubeconfig := func() string {
+		if kc := o.hubKubeconfigFromBootstrap(ctx, kubeconfig); kc != "" {
+			return kc
+		}
+		return bs.MgmtKubeconfig
+	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseOnPremJoin, "on-prem-join",
 		"Joining home-lab worker(s) to the hub...",
-		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
+		func() error { return o.joinHomeWorkers(ctx, resolveHubKubeconfig()) },
 		nil,
 		withPostcondition(func() error {
-			return o.onPremWorkersPresent(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig))
+			return o.onPremWorkersPresent(ctx, resolveHubKubeconfig())
 		}),
 	); err != nil {
 		return err
@@ -1284,10 +1294,30 @@ func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeco
 	started := time.Now()
 	var lastNudge time.Time
 
+	// Whether the condition was EVER readable, as distinct from never True.
+	//
+	// The two failures need different messages and previously shared one. A
+	// malformed query returns empty for ever and reads exactly like an operator
+	// that is still working, so the timeout blamed the operator for a fault in
+	// how it was being asked.
+	seen := false
+
 	for {
+		// No -A, and no .items[*].
+		//
+		// HubEnvironment is CLUSTER-SCOPED. Passing a resource name together with
+		// --all-namespaces makes kubectl exit 0 and print NOTHING -- it does not
+		// error -- so this loop polled for its whole deadline against a condition
+		// it could not observe, while the condition had been True since minutes
+		// after the boundary began. The failure it then reported ("the
+		// hub-operator did not provision the platform's database roles") was
+		// indistinguishable from the real fault this gate exists to catch.
 		out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-			"get", "hubenvironment", "hub-environment", "-A", "-o",
-			`jsonpath={.items[*].status.conditions[?(@.type=="DatabaseRolesProvisioned")].status}`).Output()
+			"get", "hubenvironment", "hub-environment", "-o",
+			`jsonpath={.status.conditions[?(@.type=="DatabaseRolesProvisioned")].status}`).Output()
+		if status := strings.TrimSpace(string(out)); err == nil && status != "" {
+			seen = true
+		}
 		if err == nil && strings.TrimSpace(string(out)) == "True" {
 			fmt.Printf("    ✓ database roles provisioned after %s\n",
 				formatDuration(time.Since(started)))
@@ -1313,6 +1343,15 @@ func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeco
 		}
 
 		if time.Since(started) > deadline {
+			if !seen {
+				return fmt.Errorf("the DatabaseRolesProvisioned condition was never readable "+
+					"in %v -- not false, ABSENT.\n"+
+					"  Either the hub-operator has not reached the phase that publishes it, or\n"+
+					"  this check is asking for it wrongly. HubEnvironment is cluster-scoped;\n"+
+					"  confirm with:\n"+
+					"    kubectl get hubenvironment hub-environment -o yaml | grep -A3 DatabaseRoles",
+					deadline)
+			}
 			return fmt.Errorf("the hub-operator did not provision the platform's database "+
 				"roles within %v.\n  %s\n"+
 				"  Nothing that owns a database can start until it does: Zitadel's hooks fail\n"+
@@ -1356,9 +1395,12 @@ func (o *Orchestrator) nudgeStalledExternalSecrets(ctx context.Context, kubeconf
 // hubEnvironmentBlocker returns the operator's own reason for not having
 // finished, which names the phase it is stuck in.
 func (o *Orchestrator) hubEnvironmentBlocker(ctx context.Context, kubeconfig string) string {
+	// Same correction as the gate above: cluster-scoped, so no -A and no .items[*].
+	// This reported "no failing condition" for a query that returned nothing at
+	// all, which is why the timeout said the operator had not finished when it had.
 	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"get", "hubenvironment", "hub-environment", "-A", "-o",
-		`jsonpath={range .items[*].status.conditions[?(@.status=="False")]}{.type}: {.message}{"\n"}{end}`).Output()
+		"get", "hubenvironment", "hub-environment", "-o",
+		`jsonpath={range .status.conditions[?(@.status=="False")]}{.type}: {.message}{"\n"}{end}`).Output()
 	if err != nil {
 		return "the HubEnvironment could not be read"
 	}
