@@ -399,11 +399,47 @@ func (o *Orchestrator) requestZitadelSync(ctx context.Context, kubeconfig string
 		if started {
 			return nil
 		}
+		// Before asking again, check whether the thing the sync was FOR has
+		// happened. See the note on the give-up path below.
+		if !o.zitadelSchemaMissing(ctx, kubeconfig) {
+			fmt.Println("[boundary04]   the schema now exists; the sync this was requesting has " +
+				"already run")
+			return nil
+		}
+
 		fmt.Printf("[boundary04]   request %d settled the previous operation rather than "+
 			"starting a sync; asking again\n", attempt)
 	}
-	return fmt.Errorf("asked ArgoCD to sync the zitadel Application %d times and no new "+
-		"sync began; inspect `kubectl get application %s -n %s -o jsonpath='{.status.operationState}'`",
+
+	// Last look before failing, at the GOAL rather than the mechanism.
+	//
+	// This repair exists to get Zitadel's schema created. Requesting a sync is
+	// how it tries; it is not what it is for. The two came apart on 2026-09-15:
+	// the schema was genuinely missing when the phase began, so the repair set
+	// about requesting a sync -- and while it did, ArgoCD's OWN sync (started
+	// 11:45:05, Succeeded 11:49:14) ran zitadel-init and zitadel-setup and built
+	// the schema. Every request the repair made was spent settling that
+	// operation, so `startedAt` never changed, so after three attempts it failed
+	// the boundary and ended the bootstrap:
+	//
+	//	eventstore tables: 8       hub_zitadel role: 1
+	//	zitadel        1/1 Running      zitadel-init   Completed
+	//	zitadel-setup  Completed        operationState Succeeded
+	//
+	// A healthy identity provider, reported as a failure, because the repair
+	// judged itself on whether IT started the sync rather than on whether the
+	// schema exists. The in-flight guard in prepareZitadelForRetry catches the
+	// case where a sync is already running when the phase opens; it cannot catch
+	// one that starts a moment later, and this is that race.
+	if !o.zitadelSchemaMissing(ctx, kubeconfig) {
+		fmt.Println("[boundary04]   no new sync began, but the schema now exists -- something " +
+			"else supplied the sync, which is the outcome this was after")
+		return nil
+	}
+
+	return fmt.Errorf("asked ArgoCD to sync the zitadel Application %d times, no new "+
+		"sync began, and the schema is still absent; inspect `kubectl get application %s "+
+		"-n %s -o jsonpath='{.status.operationState}'`",
 		attempts, zitadelApplication, argoCDNamespace)
 }
 

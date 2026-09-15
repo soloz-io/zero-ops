@@ -32,13 +32,21 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Step 1: Let the CCM deprovision its own load balancers while it is still
 	// alive. Must run before anything else is destroyed — see the function comment.
+	// Ask the hub which spokes it owns while it can still answer. Everything
+	// below this line destroys, and after it nothing knows.
+	spokes := o.spokeClusterNames(ctx)
+	if len(spokes) > 0 {
+		fmt.Printf("[teardown] This hub provisioned %d spoke cluster(s): %s\n",
+			len(spokes), strings.Join(spokes, ", "))
+	}
+
 	ccmLoadBalancerIPs := o.drainLoadBalancerServices(ctx)
 
 	// Step 2: Strip Kubernetes finalizers & delete CAPI CRs fast (non-blocking)
 	o.stripKubernetesFinalizers(ctx)
 
 	// Step 3: Delete Hetzner cloud infrastructure directly via Hetzner API
-	if err := o.deleteHetznerResources(ctx, ccmLoadBalancerIPs); err != nil {
+	if err := o.deleteHetznerResources(ctx, ccmLoadBalancerIPs, spokes); err != nil {
 		fmt.Printf("[teardown] ⚠️  Hetzner cloud resource cleanup encountered warnings: %v\n", err)
 	}
 
@@ -91,6 +99,65 @@ func (o *Orchestrator) resolveKubectlBaseArgs() (baseArgs []string, ok bool) {
 		return nil, false
 	}
 	return []string{"--kubeconfig", kubeconfig}, true
+}
+
+// spokeClusterNames returns the CAPI clusters this hub provisioned, other than
+// the hub itself.
+//
+// Asked BEFORE anything is destroyed, because the hub is the only thing that
+// knows. A spoke's servers carry the spoke's name and the spoke's
+// caph-cluster-<spoke> label and mention the hub nowhere, so a teardown scoped
+// to the hub's name walks straight past them: one cx33 control plane for
+// spoke-pool-hybrid-dev-01 survived every `local-e2e clean` in this repository
+// and was still billing when someone thought to look.
+//
+// Empty when the hub cannot be reached. That is not the same as "no spokes", and
+// the caller must not treat it as such -- see reportOrphanedSpokes.
+func (o *Orchestrator) spokeClusterNames(ctx context.Context) []string {
+	baseArgs, ok := o.resolveKubectlBaseArgs()
+	if !ok {
+		return nil
+	}
+	args := append([]string{}, baseArgs...)
+	args = append(args, "get", "clusters.cluster.x-k8s.io", "-A",
+		"-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}")
+	out, err := exec.CommandContext(ctx, "kubectl", args...).Output()
+	if err != nil {
+		return nil
+	}
+
+	var spokes []string
+	for _, line := range strings.Split(string(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || name == o.ClusterName {
+			continue
+		}
+		spokes = append(spokes, name)
+	}
+	return spokes
+}
+
+// reportOrphanedSpokes names the CAPH-managed servers this teardown did not
+// touch, so a hub that could not be asked does not silently leave a bill.
+//
+// It reports and does not delete. The label says a server belongs to SOME
+// cluster, not that it belongs to THIS box, and a Hetzner project can hold more
+// than one -- deleting on that evidence would make a cleanup command capable of
+// destroying a cluster it was never pointed at.
+func reportOrphanedSpokes(servers []string) {
+	if len(servers) == 0 {
+		return
+	}
+	fmt.Println("[teardown] ⚠️  CAPH-managed servers remain, and this teardown could not")
+	fmt.Println("[teardown]     confirm they belong to this box (the hub was unreachable, so")
+	fmt.Println("[teardown]     its spoke list could not be read):")
+	for _, name := range servers {
+		fmt.Printf("[teardown]       %s\n", name)
+	}
+	fmt.Println("[teardown]     They are NOT deleted. If they are yours:")
+	for _, name := range servers {
+		fmt.Printf("[teardown]       hcloud server delete %s\n", name)
+	}
 }
 
 // drainLoadBalancerServices deletes every type=LoadBalancer Service on the cluster
@@ -244,7 +311,7 @@ func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
 // it to this cluster, so the name/label matcher below cannot see it. The IP match
 // needs no cooperation from naming conventions, which also means it covers
 // LoadBalancer Services authored by a fleet, not just platform ones.
-func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalancerIPs []string) error {
+func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalancerIPs, spokes []string) error {
 	fmt.Println("\n[teardown] Forcefully deleting Hetzner Cloud infrastructure resources...")
 
 	hcloudToken := os.Getenv("HCLOUD_TOKEN")
@@ -260,21 +327,46 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	}
 
 	client := hcloud.NewClient(hcloud.WithToken(hcloudToken))
-	labelPattern := fmt.Sprintf("caph-cluster-%s", o.ClusterName)
+
+	// Every cluster this box owns, matched the same way.
+	//
+	// The hub and its spokes are named differently -- acme-hub against
+	// spoke-pool-hybrid-dev-01 -- but CAPH marks them identically, with the
+	// server name carrying the cluster name and a caph-cluster-<cluster> label
+	// declaring ownership. One convention, applied to the whole set, so a spoke
+	// is not a special case that someone has to remember.
+	owned := append([]string{o.ClusterName}, spokes...)
 
 	matchesCluster := func(name string, labels map[string]string) bool {
-		if strings.HasPrefix(name, o.ClusterName) || strings.Contains(name, o.ClusterName) {
-			return true
-		}
-		for k, v := range labels {
-			if strings.HasPrefix(k, labelPattern) || strings.Contains(k, o.ClusterName) {
+		for _, cluster := range owned {
+			if strings.Contains(name, cluster) {
 				return true
 			}
-			if v == o.ClusterName || strings.Contains(v, o.ClusterName) {
-				return true
+			for k, v := range labels {
+				if strings.HasPrefix(k, "caph-cluster-"+cluster) || strings.Contains(k, cluster) {
+					return true
+				}
+				if strings.Contains(v, cluster) {
+					return true
+				}
 			}
 		}
 		return false
+	}
+
+	// Whatever CAPH owns and this teardown did not claim. Reported, never
+	// deleted -- see reportOrphanedSpokes.
+	var unclaimed []string
+	noteIfUnclaimed := func(name string, labels map[string]string) {
+		if matchesCluster(name, labels) {
+			return
+		}
+		for k := range labels {
+			if strings.HasPrefix(k, "caph-cluster-") {
+				unclaimed = append(unclaimed, name)
+				return
+			}
+		}
 	}
 
 	deletedServerIDs := make(map[int]bool)
@@ -283,6 +375,7 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	allServers, err := client.Server.All(ctx)
 	if err == nil {
 		for _, server := range allServers {
+			noteIfUnclaimed(server.Name, server.Labels)
 			if matchesCluster(server.Name, server.Labels) {
 				deletedServerIDs[server.ID] = true
 				fmt.Printf("[teardown] Deleting server: %s (ID: %d)\n", server.Name, server.ID)
@@ -447,6 +540,10 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	}
 
 	fmt.Println("[teardown] ✓ Hetzner Cloud resource cleanup completed")
+
+	// Said last, so it is the final thing on screen rather than scrolled away by
+	// the deletions above.
+	reportOrphanedSpokes(unclaimed)
 	return nil
 }
 
@@ -533,4 +630,3 @@ func (o *Orchestrator) localCleanup(ctx context.Context) error {
 	fmt.Println("[teardown] ✓ Local cleanup complete")
 	return nil
 }
-

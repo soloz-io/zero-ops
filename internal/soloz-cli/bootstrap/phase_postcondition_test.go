@@ -352,3 +352,63 @@ func TestInfrastructureIsSelectedByClusterNotByPosition(t *testing.T) {
 		t.Error("hubIngressAddress does not scope its lookup to THIS cluster")
 	}
 }
+
+// A handshake must not end a ninety-minute bootstrap.
+//
+// The hub's API server is reached over the public internet (the kubeconfig names
+// the CAPH load balancer), so a single kubectl can fail on the network while the
+// cluster is healthy. One did, at boundary 03:
+//
+//	failed to activate boundary 01: exit status 1
+//	Unable to connect to the server: net/http: TLS handshake timeout
+//
+// with the control plane's four static pods showing zero restarts between them.
+//
+// The instinct is to raise a timeout. That is the wrong lever: TLSHandshakeTimeout
+// is a client-go transport constant with no kubectl flag, and a handshake that has
+// not completed in ten seconds did not need eleven. The operation is idempotent by
+// construction -- the patch sets syncWindows to null -- so it can simply be retried.
+func TestBoundaryActivationRetriesTransportFailures(t *testing.T) {
+	for _, out := range []string{
+		"Unable to connect to the server: net/http: TLS handshake timeout",
+		"Unable to connect to the server: dial tcp 65.109.41.89:6443: connect: connection refused",
+		"Unable to connect to the server: read tcp: connection reset by peer",
+		"Unable to connect to the server: net/http: request canceled (Client.Timeout exceeded)",
+		"etcdserver: request timed out",
+		"error: the server was unable to return a response in the time allotted",
+	} {
+		if !transientTransportError(out) {
+			t.Errorf("not retried, so it ends the bootstrap: %q", out)
+		}
+	}
+
+	// The request being wrong is not the connection being wrong.
+	for _, out := range []string{
+		`Error from server (NotFound): appprojects.argoproj.io "boundary-01" not found`,
+		`Error from server (Forbidden): appprojects.argoproj.io is forbidden`,
+		"error: unable to parse ... invalid character",
+	} {
+		if transientTransportError(out) {
+			t.Errorf("retried, turning a clear error into a slow one: %q", out)
+		}
+	}
+}
+
+// The retry is only safe because the patch is idempotent. If that ever stops
+// being a null-merge, the retry has to be reconsidered with it.
+func TestBoundaryActivationStaysIdempotent(t *testing.T) {
+	src, err := os.ReadFile("seed.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func patchWithTransportRetry"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	if !strings.Contains(fn, `{"spec":{"syncWindows":null}}`) {
+		t.Error("the activation patch is no longer a null merge; retrying it may no longer be safe")
+	}
+	if !strings.Contains(fn, "--type") || !strings.Contains(fn, "merge") {
+		t.Error("the activation patch is no longer a merge patch")
+	}
+}

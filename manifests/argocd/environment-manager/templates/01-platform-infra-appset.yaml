@@ -379,11 +379,8 @@ spec:
               # worker capacity.
               webhook:
                 nodeSelector:
-                  node-role.kubernetes.io/control-plane: ""
-                tolerations:
-                  - key: node-role.kubernetes.io/control-plane
-                    operator: Exists
-                    effect: NoSchedule
+                  workload-location: on-prem
+                  node-role.kubernetes.io/worker: ""
 {{- end }}
 
               crds:

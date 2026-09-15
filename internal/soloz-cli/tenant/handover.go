@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -349,15 +351,99 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 		}
 	}
 
-	for name, value := range values {
-		cmd := exec.CommandContext(ctx, "gh", "secret", "set", name, "--repo", repo)
-		cmd.Stdin = strings.NewReader(value)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("setting %s on %s: %w\n%s", name, repo, err, out)
+	// Sorted, not map order. Go randomises map iteration, so a failure part-way
+	// through left a different subset of secrets set on every run -- which made
+	// "which ones landed?" unanswerable from the log and the failure itself
+	// irreproducible.
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		if err := setSecretWithRetry(ctx, repo, name, values[name]); err != nil {
+			return err
 		}
 		fmt.Printf("[scaffold] ✓ %s set on %s\n", name, repo)
 	}
 	return nil
+}
+
+// setSecretWithRetry writes one secret, retrying while GitHub is the one at
+// fault.
+//
+// It is called after the repository has been created and pushed to, and there is
+// no way back from here: an error aborts the scaffold with the repository
+// already existing, so the next attempt fails on "already exists" before it
+// reaches this code, and the operator has to delete the repository by hand. A
+// single HTTP 500 -- GitHub's, not ours -- therefore cost a whole run:
+//
+//	Error: setting GRAFANA_CLOUD_API_KEY on soloz-io/acme-gitops: exit status 1
+//	failed to set secret "GRAFANA_CLOUD_API_KEY": HTTP 500: Server Error
+//
+// Secrets are set by PUT, so writing one twice is the same as writing it once
+// and a retry cannot half-apply anything.
+func setSecretWithRetry(ctx context.Context, repo, name, value string) error {
+	const attempts = 4
+	var lastOut []byte
+	var lastErr error
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		cmd := exec.CommandContext(ctx, "gh", "secret", "set", name, "--repo", repo)
+		// Through stdin rather than an argument, so the value never appears in
+		// this process's command line.
+		cmd.Stdin = strings.NewReader(value)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastOut, lastErr = out, err
+
+		// Retry only what is worth retrying. A rejected token, a repository that
+		// does not exist, or a value GitHub will not accept fails the same way
+		// four times and turns a clear error into a slow one.
+		if permanentSecretFailure(string(out)) {
+			break
+		}
+		if attempt < attempts {
+			delay := time.Duration(attempt*attempt) * time.Second
+			fmt.Printf("[scaffold] %s: %s -- retrying in %s (attempt %d/%d)\n",
+				name, firstLine(string(out)), delay, attempt, attempts)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+	return fmt.Errorf("setting %s on %s: %w\n%s", name, repo, lastErr, lastOut)
+}
+
+// permanentSecretFailure reports whether retrying would only repeat the same
+// answer. Anything not named here -- 5xx, a timeout, a reset connection -- is
+// treated as GitHub's problem and retried.
+func permanentSecretFailure(out string) bool {
+	for _, sig := range []string{
+		"HTTP 401", "HTTP 403", "HTTP 404", "HTTP 422",
+		"Bad credentials", "Resource not accessible",
+	} {
+		if strings.Contains(out, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 120 {
+		s = s[:120]
+	}
+	return s
 }
 
 // Dispatch starts the bootstrap workflow in the tenant's repository.

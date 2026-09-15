@@ -123,17 +123,31 @@ done
 # one cluster's Infisical project IDs, and an Application naming a Helm chart and
 # a Kustomize block together, which ArgoCD refuses outright. Each rendered
 # perfectly.
-for combo in "dev hybrid" "stg hybrid" "prod hetzner"; do
-    set -- $combo
-    echo "  $1+$2"
+#
+# The combinations are READ from supportedMatrix, not listed here. They were
+# listed -- "dev hybrid", "stg hybrid", "prod hetzner" -- and the list is a copy
+# of a decision made elsewhere, so it went stale the moment the matrix changed:
+# moving stg from hybrid to hetzner left this loop rendering stg+hybrid, which
+# the chart now refuses by design, and the publish failed on its own gate having
+# found exactly what it was supposed to find. A gate that has to be edited in
+# lockstep with the thing it checks is a second source of truth.
+while read -r env provider; do
+    [ -n "$env" ] || continue
+    echo "  $env+$provider"
     helm template platform-bundle dist/charts/platform-bundle \
-        --set environmentSlug="$1" --set provider="$2" \
+        --set environmentSlug="$env" --set provider="$provider" \
         --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
         --set instanceRepoURL=https://github.com/example-org/example-gitops \
         --set hubDomain=dev.example.test \
         --set bundleVersion="$VERSION" \
     | python3 scripts/validate/application-specs.py dist/charts
-done
+done <<EOF
+$(python3 -c "
+import yaml
+m = yaml.safe_load(open('manifests/argocd/environment-manager/values.yaml')).get('supportedMatrix') or {}
+print('\n'.join(f'{e} {p}' for e, ps in m.items() for p in ps))
+")
+EOF
 
 # Asserts the whole support matrix, both halves. Every environment crossed with
 # every provider: a supported combination must render and must name only charts

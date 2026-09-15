@@ -385,3 +385,73 @@ func TestARunningSyncIsLeftAlone(t *testing.T) {
 			"genuinely wedged operation would now be left alone too")
 	}
 }
+
+// The repair must judge itself on the schema existing, not on who created it.
+//
+// On 2026-09-15 the schema was genuinely missing when boundary 04 opened, so the
+// repair set about requesting a sync. While it did, ArgoCD's own sync (started
+// 11:45:05, Succeeded 11:49:14) ran zitadel-init and zitadel-setup and built the
+// schema. Every request the repair made was spent settling that operation, so
+// startedAt never changed, so after three attempts it failed the boundary and
+// ended the bootstrap -- over a Zitadel that was 1/1 Running with 8 eventstore
+// tables and its hub_zitadel role in place.
+//
+// requestZitadelSync must therefore re-check zitadelSchemaMissing before giving
+// up, and return nil when the goal has been met by other means.
+func TestTheSyncRequestGivesUpOnlyIfTheSchemaIsStillMissing(t *testing.T) {
+	src, err := os.ReadFile("zitadel_reset.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func (o *Orchestrator) requestZitadelSync"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	// Strip comments: they quote the very symbols being searched for.
+	var code strings.Builder
+	for _, line := range strings.Split(fn, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	got := code.String()
+
+	if !strings.Contains(got, "zitadelSchemaMissing") {
+		t.Fatal("requestZitadelSync never re-checks the schema; it fails the boundary " +
+			"whenever something else supplied the sync")
+	}
+
+	// The GIVE-UP error is the last one in the function; the first is the
+	// unrelated "could not request a sync" path, and matching that made this
+	// test read the wrong guard.
+	giveUp := strings.LastIndex(got, "return fmt.Errorf(")
+	if giveUp < 0 {
+		t.Fatal("give-up path not found")
+	}
+	guard := strings.LastIndex(got[:giveUp], "zitadelSchemaMissing")
+	if guard < 0 {
+		t.Fatal("the give-up path is not guarded by a final schema check")
+	}
+	if !strings.Contains(got[guard:giveUp], "return nil") {
+		t.Error("the final schema check does not return success when the schema exists")
+	}
+}
+
+// The failure message must name the real condition, so the next reader is not
+// sent after the sync mechanism when the schema is what matters.
+func TestTheGiveUpMessageNamesTheSchema(t *testing.T) {
+	src, err := os.ReadFile("zitadel_reset.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func (o *Orchestrator) requestZitadelSync"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	if !strings.Contains(fn, "schema is still absent") {
+		t.Error("the error reports only that no sync began, which was true of a " +
+			"perfectly healthy Zitadel")
+	}
+}

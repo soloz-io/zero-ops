@@ -342,9 +342,55 @@ spec:
               oidc-client-id: d32a30f0-f2b1-4a11-b3e9-d1e0aec4af6d
               oidc-username-claim: email
               oidc-groups-claim: groups
+              # Concurrency caps, sized for a 2 vCPU control plane.
+              #
+              # The defaults (400 / 200) are for a machine with cores to spare.
+              # Here the API server is the largest consumer on the node by a wide
+              # margin -- 2180 MiB of 3809 MiB allocatable and 329m at rest,
+              # spiking far higher while ArgoCD reconciles fifty Applications --
+              # and when it saturates, it stops answering fast enough for the
+              # leases its own control plane depends on. Admitting less work
+              # concurrently is what keeps those answers inside their deadline;
+              # the queued requests wait rather than failing.
+              max-requests-inflight: "200"
+              max-mutating-requests-inflight: "100"
           controllerManager:
             extraArgs:
               cloud-provider: external
+              # Leader election, relaxed -- and on this topology that costs
+              # nothing.
+              #
+              # These components crash-looped here: 26 restarts on the
+              # controller-manager, 23 on the scheduler, every one of them
+              #
+              #   error retrieving resource lock kube-system/kube-controller-manager:
+              #     Get .../leases/...?timeout=5s: context deadline exceeded
+              #   failed to renew lease: timed out waiting for the condition
+              #   "leaderelection lost"
+              #
+              # The 5s request timeout is renewDeadline/2. Under load the API
+              # server on the same 2 vCPU node cannot answer a lease GET inside
+              # it, so the component concludes it lost an election it was the
+              # only candidate in, exits, and takes every controller with it.
+              # A Deployment stayed at observedGeneration=1 for a spec written
+              # minutes earlier because nothing was running to act on it.
+              #
+              # The hub runs ONE control-plane replica (ADR-046's topology
+              # table). There is no second instance to fail over to, so a short
+              # renew deadline buys no availability whatsoever -- it only decides
+              # how quickly a transient API stall becomes a crash loop. Raising
+              # it trades failover speed that does not exist for tolerance that
+              # is needed.
+              leader-elect-lease-duration: 60s
+              leader-elect-renew-deadline: 40s
+              leader-elect-retry-period: 10s
+          scheduler:
+            extraArgs:
+              # Same reasoning as controllerManager above, same failure, same
+              # single-replica topology.
+              leader-elect-lease-duration: 60s
+              leader-elect-renew-deadline: 40s
+              leader-elect-retry-period: 10s
           etcd:
             local:
               dataDir: /var/lib/etcd
