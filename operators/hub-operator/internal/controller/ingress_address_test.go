@@ -74,17 +74,98 @@ func TestTheConfigMapNamespaceIsNotTheRequestNamespace(t *testing.T) {
 	}
 	body := string(src)
 
-	call := "r.reconcileIngressAddress(ctx, hubEnv,"
-	at := strings.Index(body, call)
-	if at < 0 {
-		t.Fatal("reconcileIngressAddress is not called; the address is never published")
+	if !strings.Contains(body, "r.reconcileIngressAddress(ctx, hubEnv)") {
+		t.Fatal("reconcileIngressAddress is not called, or still takes a namespace argument; " +
+			"the namespace is a property of the CONSUMER and belongs beside it")
 	}
-	arg := body[at+len(call) : at+len(call)+40]
-	if strings.Contains(arg, "req.Namespace") {
+	if strings.Contains(body, "reconcileIngressAddress(ctx, hubEnv, req.Namespace)") {
 		t.Error("the ConfigMap namespace comes from req.Namespace, which is empty for a " +
 			"cluster-scoped resource; creation fails on every reconcile")
 	}
-	if !strings.Contains(arg, "NamespaceOps") {
-		t.Errorf("the ConfigMap is not created in the platform namespace: %q", strings.TrimSpace(arg))
+}
+
+// The ConfigMap must be written where its consumer reads it.
+//
+// configMapKeyRef resolves in the POD's namespace. external-dns runs in
+// platform-edge; the first fix put the ConfigMap in platform-ops -- correct for
+// a cluster-scoped owner, invisible to the reader. With optional: true on the
+// reference nothing failed: the container started, the variable was unset,
+// external-dns logged DefaultTargets:[] and published nothing, and every hub
+// hostname stayed NXDOMAIN.
+//
+// This asserts the operator and the manifest agree on one namespace, because
+// they disagreed twice.
+func TestTheConfigMapIsWrittenWhereExternalDNSReadsIt(t *testing.T) {
+	src, err := os.ReadFile("ingress_address.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `IngressAddressNamespace = "platform-edge"`) {
+		t.Fatal("the operator does not target platform-edge, where external-dns runs")
+	}
+
+	manifest, err := os.ReadFile("../../../../manifests/hub-core-services/external-dns/external-dns.yaml")
+	if err != nil {
+		t.Skipf("external-dns manifest not readable from here: %v", err)
+	}
+	m := string(manifest)
+	if !strings.Contains(m, "namespace: platform-edge") {
+		t.Error("external-dns is no longer in platform-edge; the operator still writes there")
+	}
+	at := strings.Index(m, "name: hub-ingress")
+	if at < 0 {
+		t.Fatal("external-dns no longer references the hub-ingress ConfigMap")
+	}
+	ref := m[at:min(at+200, len(m))]
+	if strings.Contains(ref, "optional: true") {
+		t.Error("the hub-ingress reference is optional, so a missing address starts " +
+			"external-dns with no target and publishes nothing, silently")
+	}
+}
+
+// The condition must be persisted where it is set, not left to a later phase.
+//
+// reconcileIngressAddress runs near the top of Reconcile, and three phases
+// between it and the first Status().Update() can return early. On those paths
+// the condition was computed and dropped -- so the signal saying "no hub
+// hostname can be published" was lost precisely when something else had already
+// gone wrong, which is when it matters most.
+func TestTheIngressConditionIsPersistedWhereItIsSet(t *testing.T) {
+	src, err := os.ReadFile("ingress_address.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func (r *HubEnvironmentReconciler) reconcileIngressAddress"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	// Strip comments: the next function's doc block falls inside this slice and
+	// names the very symbol being counted.
+	var code strings.Builder
+	for _, line := range strings.Split(fn, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	fn = code.String()
+
+	// Both outcomes -- resolved and unresolved -- must write.
+	if strings.Count(fn, "persistIngressCondition") != 2 {
+		t.Errorf("expected both the resolved and unresolved paths to persist the condition, found %d call(s)",
+			strings.Count(fn, "persistIngressCondition"))
+	}
+	for _, want := range []string{"ConditionTrue", "ConditionFalse"} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("the %s outcome is not reported as a condition", want)
+		}
+	}
+
+	// And the writer must not abort the reconcile on failure.
+	w := body[strings.Index(body, "func (r *HubEnvironmentReconciler) persistIngressCondition"):]
+	w = w[:strings.Index(w, "\n}")+2]
+	if strings.Contains(w, "return err") {
+		t.Error("a condition that cannot be recorded aborts the reconcile that would fix it")
 	}
 }

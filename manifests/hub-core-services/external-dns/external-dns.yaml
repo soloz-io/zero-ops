@@ -121,15 +121,25 @@ spec:
             # customer upgrades a bundle and expects the fix. The operator ships in
             # the same bundle, so the pair arrives together.
             #
-            # optional: true because the ConfigMap does not exist until the operator
-            # has run once. Missing means unset, which is today's behaviour --
-            # wrong, but running -- rather than a pod that will not start.
+            # NOT optional.
+            #
+            # It was, to avoid a startup dependency on a ConfigMap the operator
+            # writes. That converted a missing dependency into a silent one: the
+            # ConfigMap was written to platform-ops while this pod reads
+            # platform-edge, configMapKeyRef found nothing, the variable was
+            # unset, and external-dns came up reporting
+            # "config: {... DefaultTargets:[] ...}" followed by "All records are
+            # already up to date" against an empty zone. Healthy pod, no DNS, no
+            # signal anywhere.
+            #
+            # A component whose entire purpose is publishing records to this
+            # address should refuse to start without it. CreateContainerConfigError
+            # names the missing ConfigMap; an empty flag names nothing.
             - name: EXTERNAL_DNS_DEFAULT_TARGETS
               valueFrom:
                 configMapKeyRef:
                   name: hub-ingress
                   key: address
-                  optional: true
           # The credential for whichever DNS service holds this zone.
           #
           # Optional and generic on purpose. external-dns reads every provider's

@@ -1,0 +1,51 @@
+# One certificate for every public hostname on this box.
+#
+# Seven per-host Certificates means seven ACME orders per rebuild of the same
+# box. Let's Encrypt allows five certificates per exact set of identifiers per
+# 168h, and a per-host certificate is its own identifier set, so each hostname
+# gets five rebuilds a week before it is refused:
+#
+#   429 urn:ietf:params:acme:error:rateLimited: too many certificates (5)
+#   already issued for this exact set of identifiers in the last 168h0m0s,
+#   retry after 2026-09-16 10:06:16 UTC
+#
+# That is the live state of infisical-dev, argocd-server-dev, dashboard-dev,
+# api/auth/id/console-zero-ops-dev as this file is written. Nothing can restore
+# them before tomorrow morning. A wildcard is one identifier set covering all
+# seven, and its quota is untouched -- which is why this file is the fix for the
+# outage and not merely a tidying of it.
+#
+# Two faults were present on 2026-09-15 and each hid the other:
+#
+#   1. The quota above, reached by repeated rebuilds of this box.
+#   2. The ACME API resolving to an AAAA record the IPv4-only pod network
+#      cannot reach, so the wildcard that would have replaced them could not be
+#      ordered either. See manifests/hub-core-services/dns/coredns-corefile.yaml.
+#
+# Fixing (2) alone leaves the seven hostnames rate-limited. Fixing (1) alone --
+# this file -- could not have issued anything while (2) stood. Worth recording
+# because each was individually a complete-looking explanation of "every
+# certificate on the box is Ready=False", and acting on either in isolation
+# produces no visible change and reads as the diagnosis being wrong.
+#
+# A wildcard requires DNS-01, which this box already has: the Hetzner webhook
+# solver is configured on letsencrypt-prod for this environment's zone. HTTP-01
+# cannot satisfy a wildcard.
+#
+# In the GATEWAY's namespace, unlike the per-host certificates. A listener's
+# certificateRef with no namespace resolves in the Gateway's own -- so one Secret
+# here serves every listener, and the cross-namespace ReferenceGrants are no
+# longer needed for TLS.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hub-wildcard
+  namespace: platform-ops
+spec:
+  secretName: hub-wildcard-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - '*.dev.nutgraf.in'

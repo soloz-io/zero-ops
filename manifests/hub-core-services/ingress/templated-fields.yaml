@@ -24,28 +24,16 @@
       value:
         - '{{ .Values.global.hubDomain }}'
 
-# The certificates themselves. Every dnsName is the same domain, so the object
-# and the literal are named rather than each index -- an index list goes stale
-# the moment a SAN is inserted, and a stale index is a certificate quietly issued
-# for someone else's hostname.
+# The certificate. One wildcard for the whole box, so a rebuild costs one ACME
+# issuance instead of seven -- see hub-wildcard-certificate.yaml.
+#
+# The object and the literal are named rather than indexed: an index list goes
+# stale the moment a SAN is inserted, and a stale index is a certificate quietly
+# issued for someone else's hostname. The seven per-host entries that stood here
+# are gone with the Certificates they templated.
 - kind: Certificate
-  name: api-zero-ops-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: Certificate
-  name: auth-zero-ops-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: Certificate
-  name: console-zero-ops-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: Certificate
-  name: id-zero-ops-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: Certificate
-  name: argocd-server-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: Certificate
-  name: dashboard-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: Certificate
-  name: infisical-dev
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+  name: hub-wildcard
+  fields:
+    - path: [spec, dnsNames]
+      value:
+        - '*.{{ .Values.global.hubDomain }}'

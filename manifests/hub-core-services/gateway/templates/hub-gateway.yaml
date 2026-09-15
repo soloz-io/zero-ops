@@ -55,8 +55,13 @@ spec:
     # issuance, which left the Gateway serving only http and infisical: every hub
     # hostname answered with no certificate, and agentgateway on the SPOKE
     # crash-looped because it fetches auth.dev.nutgraf.in's OIDC discovery
-    # document at startup. The Secrets below are now issued by
-    # ingress/hub-public-certificates.yaml via DNS-01, so these refs resolve.
+    # document at startup.
+    #
+    # Every listener below names hub-wildcard-tls, issued by
+    # ingress/hub-wildcard-certificate.yaml for *.{hubDomain}. One Secret, and no
+    # namespace on the ref -- it resolves in this Gateway's own namespace, which
+    # is why the cross-namespace ReferenceGrants that stood in files/ are gone.
+    # The seven per-host Certificates it replaced are gone with them.
     - name: api
       hostname: api.{{ .Values.global.hubDomain }}
       port: 443
@@ -65,8 +70,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: api-zero-ops-tls
-            namespace: platform-edge
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
@@ -83,8 +87,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: auth-zero-ops-tls
-            namespace: platform-edge
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
@@ -105,8 +108,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: id-zero-ops-tls
-            namespace: platform-identity
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
@@ -123,8 +125,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: console-zero-ops-tls
-            namespace: platform-identity
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
@@ -141,7 +142,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: argocd-server-tls
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
@@ -161,8 +162,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: infisical-tls
-            namespace: platform-security
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
@@ -181,8 +181,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: dashboard-tls
-            namespace: platform-ops
+            name: hub-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector

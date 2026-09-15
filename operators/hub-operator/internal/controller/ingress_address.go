@@ -65,6 +65,19 @@ const (
 	IngressAddressConfigMap = "hub-ingress"
 	IngressAddressKey       = "address"
 
+	// IngressAddressNamespace is where the ConfigMap is written: the namespace of
+	// the component that READS it, not the one this operator runs in.
+	//
+	// configMapKeyRef resolves in the POD's namespace. external-dns runs in
+	// platform-edge; writing to platform-ops -- where this operator lives and
+	// where every other object it manages sits -- put the value somewhere the
+	// consumer could not see. With `optional: true` on the reference that was
+	// silent: the container started cleanly, EXTERNAL_DNS_DEFAULT_TARGETS was
+	// unset, external-dns logged "config: {... DefaultTargets:[] ...}" and then
+	// "All records are already up to date" against an empty zone, and every hub
+	// hostname stayed NXDOMAIN with nothing unhealthy anywhere.
+	IngressAddressNamespace = "platform-edge"
+
 	// ConditionIngressAddressResolved reports whether the address is known.
 	//
 	// False is not cosmetic: no hub hostname can be published. The bootstrap
@@ -80,8 +93,9 @@ const (
 // reconcileIngressAddress resolves the hub's public ingress address and
 // publishes it, setting a condition either way.
 func (r *HubEnvironmentReconciler) reconcileIngressAddress(
-	ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment, namespace string,
+	ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment,
 ) error {
+	namespace := IngressAddressNamespace
 	logger := ctrl.LoggerFrom(ctx)
 
 	address, err := r.hubIngressAddress(ctx)
@@ -100,6 +114,7 @@ func (r *HubEnvironmentReconciler) reconcileIngressAddress(
 				"issue for any of them",
 		})
 		logger.Info("hub ingress address unresolved", "error", err)
+		r.persistIngressCondition(ctx, hubEnv)
 		return nil // reported as a condition, not a reconcile error
 	}
 
@@ -114,7 +129,27 @@ func (r *HubEnvironmentReconciler) reconcileIngressAddress(
 		ObservedGeneration: hubEnv.Generation,
 		Message:            fmt.Sprintf("hub ingress address is %s", address),
 	})
+	r.persistIngressCondition(ctx, hubEnv)
 	return nil
+}
+
+// persistIngressCondition writes the condition now, rather than leaving it to a
+// later phase's status update.
+//
+// This runs near the top of Reconcile, and three phases between here and the
+// first Status().Update() can return early. On any of those paths the condition
+// was computed and then dropped -- so the one signal that says "no hub hostname
+// can be published" was the signal most likely to be lost, because the failures
+// that trigger those early returns are exactly the ones worth reporting during.
+//
+// Failure to write is logged, not returned: a condition that cannot be recorded
+// must not also stop the reconcile that was about to fix the thing it describes.
+func (r *HubEnvironmentReconciler) persistIngressCondition(
+	ctx context.Context, hubEnv *opsv1alpha1.HubEnvironment,
+) {
+	if err := r.Status().Update(ctx, hubEnv); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "could not record IngressAddressResolved")
+	}
 }
 
 // hubIngressAddress reads the control-plane endpoint this cluster was built with.

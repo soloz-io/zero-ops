@@ -438,6 +438,13 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	// effect, since the field a proposal changes is then the field the cluster
 	// reads.
 	if o.GitopsDir != "" {
+		// The hub's ingress address, recorded in the tenant's repository before the
+		// declaration that reads it is applied. See gateway_dns_target.go: on a
+		// tenant box the seed is the one that repository declares, so a value the
+		// CLI injects into its OWN rendered seed reaches nothing.
+		if err := o.writeGatewayDNSTarget(ctx, kubeconfig); err != nil {
+			return err
+		}
 		return o.applyTenantSeed(ctx, kubeconfig)
 	}
 

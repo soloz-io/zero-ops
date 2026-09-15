@@ -12,17 +12,17 @@ resources:
   # that requests a certificate: without the webhook's APIService registered,
   # every DNS-01 challenge stays pending with no error on the Certificate.
   - cert-manager-webhook-hetzner.yaml
-  - infisical-certificate.yaml
-  # The hub's browser-facing certificates. Absent from Git until now: the Secrets
-  # were referenced by hub-gateway but only ever created by hand, so a cluster
-  # rebuild left every HTTPS listener on InvalidCertificateRef and took
-  # api/auth/console/argocd down together — and with auth gone, agentgateway on
-  # the spoke crash-looped on its OIDC discovery fetch.
-  - hub-public-certificates.yaml
+  # One certificate covering every browser-facing hostname on the box. It
+  # replaced seven per-host Certificates (hub-public-certificates.yaml,
+  # infisical-certificate.yaml, both deleted): seven identifier sets meant seven
+  # ACME issuances per rebuild, and the quota is five per set per week. See the
+  # file for the outage that made the arithmetic matter.
+  - hub-wildcard-certificate.yaml
 
 # For local development, uncomment:
 # - dev-certificates.yaml
 #
-# NOTE: dev-certificates.yaml is NOT a substitute for hub-public-certificates.yaml.
-# It issues three of the same Secret names from selfsigned-issuer, which no
-# browser accepts; it exists for offline local work only.
+# NOTE: dev-certificates.yaml is NOT a substitute for the wildcard. It issues
+# per-host Secret names from selfsigned-issuer, which no browser accepts, and it
+# names Secrets no listener references any more; it exists for offline local work
+# only.
