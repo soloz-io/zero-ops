@@ -346,7 +346,7 @@ burstSpokePool:
     hetzner: spoke-pool-eu-dev-01
     hybrid: spoke-pool-hybrid-dev-01
   stg:
-    hybrid: spoke-pool-hybrid-stg-01
+    hetzner: spoke-pool-eu-stg-01
   prod:
     hetzner: spoke-pool-eu-prod-01
 
@@ -359,6 +359,17 @@ supportedMatrix:
     - hetzner
     - hybrid
   stg:
-    - hybrid
+    # hetzner, not hybrid. hybrid is a DEVELOPMENT-ONLY provider: its capacity
+    # comes from a workstation, its nodes join over a tailnet and carry their own
+    # placement rules (ADR-046 §11), and its platform database sits on node-local
+    # storage. Staging exists to rehearse production, and production is hetzner --
+    # a staging environment on hybrid was exercising failure modes no tenant has
+    # and missing the ones they do.
+    #
+    # The spoke-pool source for this was created with the change
+    # (manifests/spoke/spoke-pools/stg/hetzner); the spoke-catalog already had
+    # environments/stg/hetzner. Listing a combination before its sources exist is
+    # what the comment above this block refuses, so the order matters.
+    - hetzner
   prod:
     - hetzner

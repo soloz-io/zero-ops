@@ -35,6 +35,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
+# Rebuilding is destructive and is no longer the first thing tried; see
+# phase_recover_existing_vm. --force-rebuild is how an operator asks for the old
+# behaviour, and RECOVER_WAIT_SECONDS is how long the gate waits before giving up.
+FORCE_REBUILD=0
+RECOVER_WAIT_SECONDS="${RECOVER_WAIT_SECONDS:-300}"
 VSWITCH_NAME="Hybrid-Switch"
 # Host side of the guest network. Guests boot static ${HOST_SUBNET_PREFIX}.1<node-idx>
 # addresses with $HOST_GATEWAY_IP as gateway (see the Ignition network unit), so these
@@ -108,10 +113,13 @@ Options:
   --cpus N             OVERRIDE virtual CPU count (default: per-node from registry).
   --disk-gb N          OVERRIDE virtual disk ceiling in GB (default: 100 hub / 60 spoke).
   --verify             Only check Ready status of registered nodes; no changes.
+  --force-rebuild      Skip the recovery gate and rebuild the VM from the base image.
+  --recover-wait N     Seconds to let an existing VM rejoin before rebuilding (default 300).
   -h, --help           Show this help message
 
 Phases per node:
-  [0/6] Offline binary cache verification on Mac
+  [0/6] Offline binary cache verification on Mac, then the recovery gate:
+        an existing VM is started and given time to rejoin before it is replaced
   [1/6] SSH reachability gate
   [2/6] Windows host & Hyper-V preparation
   [3/6] Flatcar base VHDX & Ignition ISO bundle preparation
@@ -140,6 +148,8 @@ while [[ $# -gt 0 ]]; do
     --cpus)          CPU_COUNT="$2"; shift 2 ;;
     --disk-gb)       DISK_SIZE_BYTES="$(($2 * 1024 * 1024 * 1024))"; CLI_DISK_SET=1; shift 2 ;;
     --verify)        MODE="verify"; shift ;;
+    --force-rebuild) FORCE_REBUILD=1; shift ;;
+    --recover-wait)  RECOVER_WAIT_SECONDS="$2"; shift 2 ;;
     -h|--help)       usage 0 ;;
     *) echo "ERROR: unknown option $1" >&2; usage 1 ;;
   esac
@@ -1204,6 +1214,59 @@ phase_provision_flatcar_vm() {
   local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3" CLUSTER_TARGET="${4:-hub}"
   echo "    [4/6] Provisioning Flatcar Gen2 VM via Hyper-V KVP + DVD (${VM_NAME} → ${CLUSTER_TARGET})..."
 
+  # ── Two guards inside the PowerShell below, and why they are there ──────
+  #
+  # NOTE FOR ANYONE EDITING THE POWERSHELL: it is built as a bash DOUBLE-QUOTED
+  # string, so a literal " ends the string early and a backtick runs a command on
+  # the Mac. `bash -n` does not catch either -- both stay syntactically valid and
+  # fail at run time, which is how a comment mentioning "Failed to reserve
+  # resources" once executed local-e2e.sh mid-provision. Keep prose out here,
+  # where it is a bash comment; inside, use no double quotes and no backticks.
+  #
+  # 1. HOST MEMORY CEILING.
+  #    $totalRamBytes and $reserveBytes were computed at the top of the block and
+  #    never read again: the "5 GB Host OS Reserve" in the capacity line was a
+  #    string literal describing a reserve that nothing enforced. A registry row
+  #    asking for more RAM than the host has went straight to New-VM, and failed
+  #    later and elsewhere as Hyper-V refusing to start the VM with "Failed to
+  #    finish reserving resources ... OperationFailed,...StartVM" -- an error
+  #    naming neither memory nor the value that caused it.
+  #
+  #    That is what made it reproducible rather than flaky. The registry asks for
+  #    13 GB startup (min = max = startup, so a hard 13 GB, not a range) on a
+  #    16 GB host. It fits only when nothing else holds memory -- and on the
+  #    FIRST run something always does, because `local-e2e.sh clean` tears down
+  #    the cluster, the kind cluster and the tenant repo but touches no Hyper-V
+  #    object at all, leaving the previous run's VM Running with its 13 GB
+  #    committed. The second run competes with nothing. Fails first, works
+  #    second, every time.
+  #
+  #    Clamped rather than warned about, unlike the vCPU guard: an oversubscribed
+  #    CPU still runs, a VM whose startup memory exceeds the host cannot start at
+  #    all. Min and max follow startup down -- Hyper-V requires
+  #    min <= startup <= max and Set-VMMemory rejects an inconsistent set.
+  #
+  #    Every value is then aligned DOWN to a 2 MB boundary, which Hyper-V
+  #    requires of any memory size. The registry values were whole GB and so
+  #    aligned by accident; the clamped ceiling is host-total minus 5 GB, and
+  #    TotalPhysicalMemory is usable RAM rather than a round number, so it
+  #    lands on an arbitrary byte count. New-VM rejects that with
+  #    Failed to modify device Memory / InvalidParameter -- a message that
+  #    names the device and not the constraint. Integer modulo, not
+  #    math::Floor on a division: these are int64 byte counts.
+  #
+  # 2. WAITING FOR THE MEMORY TO COME BACK.
+  #    The Remove-VM poll waits for the VM OBJECT to disappear, which is
+  #    necessary and not sufficient: the object goes almost at once while the
+  #    worker process exits and releases the committed memory afterwards. The
+  #    wait before Start-VM measures the quantity Start-VM is about to fail on.
+  #
+  #    AvailableBytes from Win32_PerfRawData_PerfOS_Memory, not
+  #    FreePhysicalMemory: "available" counts the standby list, which Windows
+  #    will hand to a starting VM, and "free" does not -- free under-reports and
+  #    would wait out the whole window on a host that was ready. A raw perf
+  #    counter rather than Get-Counter, whose names are localised and would not
+  #    resolve on a non-English host.
   local PS_VM="
 \$vmName = '${VM_NAME}';
 \$solozDir = 'C:\ProgramData\soloz\flatcar';
@@ -1221,7 +1284,14 @@ if (!(Test-Path \$baseVhdx) -and (Test-Path \$rawVhdx)) {
 if (\$existingVM) {
   Stop-VM -Name \$vmName -Force -TurnOff -ErrorAction SilentlyContinue
   Remove-VM -Name \$vmName -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 2
+  # Waited for, not slept through -- but only for the OBJECT. The memory it held
+  # comes back later and is waited for separately, just before Start-VM; see the
+  # note there. The two seconds this used to sleep covered neither.
+  for (\$i = 0; \$i -lt 30; \$i++) {
+    if (-not (Get-VM -Name \$vmName -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Seconds 2
+  }
+  Start-Sleep -Seconds 3
 }
 
 # Clean any stale checkpoint avhdx files
@@ -1231,7 +1301,7 @@ Write-Output '    → Creating fresh VM disk from pristine base Flatcar VHDX...'
 Copy-Item -Path \$baseVhdx -Destination \$vhdPath -Force
 Resize-VHD -Path \$vhdPath -SizeBytes $NODE_DISK_BYTES
 
-Write-Output '    → Creating Generation 2 VM (\$vmName)...'
+Write-Output ('    → Creating Generation 2 VM (' + \$vmName + ')...')
 \$cs = Get-CimInstance Win32_ComputerSystem
 \$totalRamBytes = [int64]\$cs.TotalPhysicalMemory
 \$reserveBytes = [int64](5GB)
@@ -1269,6 +1339,30 @@ if ($MIN_MEMORY_BYTES -gt 0) { \$finalMin = [int64]$MIN_MEMORY_BYTES }
 \$finalCpus = \$autoCpus
 if ($CPU_COUNT -gt 0) { \$finalCpus = [int]$CPU_COUNT }
 
+# Host memory ceiling -- see the note above this PowerShell block.
+\$memAlign = [int64](2MB)
+\$hostCeiling = \$totalRamBytes - \$reserveBytes
+\$hostCeiling = \$hostCeiling - (\$hostCeiling % \$memAlign)
+if (\$hostCeiling -lt [int64](2GB)) {
+  Write-Output ('    ✗ host has ' + [math]::Round(\$totalRamBytes/1GB, 1) + ' GB total; after a ' + [math]::Round(\$reserveBytes/1GB, 1) + ' GB OS reserve there is not enough left to run a node')
+  Write-Output 'VM-CAPACITY=FAIL'
+  exit 1
+}
+if (\$finalStartup -gt \$hostCeiling) {
+  Write-Output ('    ⚠ requested ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB startup memory, but this host has ' + [math]::Round(\$totalRamBytes/1GB, 1) + ' GB total')
+  Write-Output ('    → granting ' + [math]::Round(\$hostCeiling/1GB, 1) + ' GB (host total minus the ' + [math]::Round(\$reserveBytes/1GB, 1) + ' GB OS reserve)')
+  Write-Output ('    → the request comes from the memory columns for this node in scripts/hybrid/home-lab.env')
+  \$finalStartup = \$hostCeiling
+}
+# Hyper-V requires min <= startup <= max, and clamping startup can invalidate
+# either. Both follow it rather than failing Set-VMMemory on an inconsistent set.
+if (\$finalMin -gt \$finalStartup) { \$finalMin = \$finalStartup }
+if (\$finalMaxRam -lt \$finalStartup) { \$finalMaxRam = \$finalStartup }
+if (\$finalMaxRam -gt \$hostCeiling) { \$finalMaxRam = \$hostCeiling }
+\$finalStartup = \$finalStartup - (\$finalStartup % \$memAlign)
+\$finalMin = \$finalMin - (\$finalMin % \$memAlign)
+\$finalMaxRam = \$finalMaxRam - (\$finalMaxRam % \$memAlign)
+
 # Oversubscription guard (ADR-046 §24.5). home-lab.env is gitignored, so a stale
 # cpus column survives every repo change and silently reinstates the condition that
 # powered this class of host off mid-provision. An explicit value still wins — the
@@ -1282,7 +1376,7 @@ if (\$totalCpus -gt \$logical) {
   Write-Output ('    → lower the cpus column in home-lab.env for the VMs on this box')
 }
 
-Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, 5 GB Host OS Reserve)')
+Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, ' + [math]::Round(\$reserveBytes/1GB, 1) + ' GB Host OS Reserve)')
 
 New-VM -Name \$vmName -Generation 2 -MemoryStartupBytes \$finalStartup -VHDPath \$vhdPath -SwitchName '$VSWITCH_NAME' | Out-Null
 Add-VMDvdDrive -VMName \$vmName -Path \$isoPath | Out-Null
@@ -1300,8 +1394,42 @@ if (Test-Path \$kvpctl) {
   & \$kvpctl \$vmName add-ign \$ignPath
 }
 
-Start-VM -Name \$vmName
-Write-Output '    ✓ Started VM'
+# Wait for the host to return the memory -- see the note above this block.
+\$needBytes = \$finalStartup
+for (\$i = 0; \$i -lt 30; \$i++) {
+  \$avail = 0
+  try { \$avail = [int64](Get-CimInstance Win32_PerfRawData_PerfOS_Memory -ErrorAction Stop).AvailableBytes } catch { \$avail = 0 }
+  if (\$avail -eq 0) {
+    try { \$avail = [int64](Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).FreePhysicalMemory * 1024 } catch { \$avail = 0 }
+  }
+  if (\$avail -ge \$needBytes) { break }
+  if (\$i -eq 0) {
+    Write-Output ('    → waiting for the host to return memory: need ' + [math]::Round(\$needBytes/1GB, 1) + ' GB, ' + [math]::Round(\$avail/1GB, 1) + ' GB available')
+  }
+  Start-Sleep -Seconds 2
+}
+
+# Retried as well as waited for. The wait makes the first attempt likely to
+# succeed; the retry covers a host that is still settling, and neither invents
+# memory -- which is why the ceiling above is the actual fix.
+\$started = \$false
+for (\$i = 0; \$i -lt 6; \$i++) {
+  try {
+    Start-VM -Name \$vmName -ErrorAction Stop
+    \$started = \$true
+    break
+  } catch {
+    Write-Output ('    … start attempt ' + (\$i + 1) + ' failed: ' + \$_.Exception.Message)
+    Start-Sleep -Seconds 10
+  }
+}
+if (\$started) {
+  Write-Output '    ✓ Started VM'
+} else {
+  # Said here rather than inferred five minutes later from a node that never
+  # joined. The caller checks Get-VM state after this block regardless.
+  Write-Output '    ✗ Start-VM failed after 6 attempts over ~60s'
+}
 
 Write-Output '    → Setting up host portproxy for SSH...'
 \$vmIp = \$null
@@ -1342,7 +1470,20 @@ Write-Output 'VM-READY=OK'
 }
 
 # ── Phase 6: Verify node Ready ───────────────────────────────────────────────
-node_ready() {
+# node_state answers ONE question about a node, in a way the caller can act on:
+# is it serving, is it registered-but-not-serving, is it not in this cluster at
+# all, or could the cluster not be asked. Echoes exactly one word on stdout —
+# ready | notready | absent | unknown — with any diagnostics on stderr.
+#
+# The distinction between `notready` and `absent` is load-bearing and used to be
+# collapsed. node_ready returns non-zero for both, and the recovery gate read
+# that as "wait for it to come back". A node that is ABSENT from this cluster is
+# not coming back: on a fresh bootstrap the cluster has a new CA and new tokens,
+# so the VM left over from the previous run holds a kubelet certificate for a
+# cluster that no longer exists. Waiting for it is waiting for something that
+# cannot happen -- observed as a 5-minute pause on every `make e2e-fresh` before
+# the rebuild that was always going to be required.
+node_state() {
   local HOSTNAME="$1"
   local CLUSTER_TARGET="${2:-$TARGET_CLUSTER}"
   local TARGET_KC
@@ -1356,30 +1497,185 @@ node_ready() {
           get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
           -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
           | base64 -d > "$TMP_KC"; then
-      echo "    ✗ could not fetch spoke kubeconfig" >&2
       rm -f "$TMP_KC"
-      return 1
+      echo "    ✗ could not fetch spoke kubeconfig" >&2
+      echo unknown
+      return 0
     fi
     TARGET_KC="$TMP_KC"
   fi
 
-  if kubectl --kubeconfig="$TARGET_KC" get node "${HOSTNAME}" &>/dev/null; then
-    local READY
-    READY=$(kubectl --kubeconfig="$TARGET_KC" get node "${HOSTNAME}" \
-      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+  # Whether the API answered at all, separately from what it said. `get node`
+  # failing because the cluster is unreachable is not the same claim as the node
+  # not being in it, and treating the first as the second is how an unreachable
+  # hub came to look like a node that needed rebuilding.
+  local ALL
+  if ! ALL=$(kubectl --kubeconfig="$TARGET_KC" get nodes \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null); then
     [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
-    if [[ "$READY" == "True" ]]; then
-      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} cluster"
+    echo unknown
+    return 0
+  fi
+  [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
+
+  local line name status
+  while IFS= read -r line; do
+    name="${line%%=*}"; status="${line#*=}"
+    if [[ "$name" == "$HOSTNAME" ]]; then
+      [[ "$status" == "True" ]] && echo ready || echo notready
       return 0
-    else
-      echo "    ✗ ${HOSTNAME}: exists in ${CLUSTER_TARGET} but Ready=${READY}" >&2
-      return 1
     fi
-  else
-    [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
-    echo "    ✗ ${HOSTNAME}: not a member of ${CLUSTER_TARGET} cluster" >&2
+  done <<< "$ALL"
+  echo absent
+}
+
+# node_ready keeps its original contract -- exit 0 when the node is serving --
+# and now reads node_state so there is one place that asks the cluster.
+node_ready() {
+  local HOSTNAME="$1"
+  local CLUSTER_TARGET="${2:-$TARGET_CLUSTER}"
+  case "$(node_state "$HOSTNAME" "$CLUSTER_TARGET")" in
+    ready)
+      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} cluster"
+      return 0 ;;
+    notready)
+      echo "    ✗ ${HOSTNAME}: exists in ${CLUSTER_TARGET} but is not Ready" >&2
+      return 1 ;;
+    absent)
+      echo "    ✗ ${HOSTNAME}: not a member of ${CLUSTER_TARGET} cluster" >&2
+      return 1 ;;
+    *)
+      echo "    ✗ ${HOSTNAME}: could not ask the ${CLUSTER_TARGET} cluster" >&2
+      return 1 ;;
+  esac
+}
+
+# ── Recovery gate: start what exists before replacing it ─────────────────────
+#
+# Rebuilding is destructive and used to be the only thing this script could do.
+# phase_prep_flatcar_and_ignition sweeps the VM and deletes the Node object;
+# phase_provision_flatcar_vm then replaces the disk from the pristine base image.
+# Between them they cost ~10 minutes and take with them the evidence for why the
+# node dropped out in the first place.
+#
+# A node that has lost its heartbeat usually needs none of that. On a workstation
+# the VM is Off because the host slept, rebooted, or ran out of memory; the guest
+# still holds a valid kubelet client certificate, so starting it is enough — it
+# re-registers itself, which is exactly what was observed on 2026-09-15 after a
+# rebuild had already been triggered to fix it.
+#
+# Returns 0 when the node reached Ready without a rebuild, and the caller then
+# skips every remaining phase for this node. Returns 1 to mean "rebuild", which
+# is also what an absent VM and an unreachable Hyper-V both mean — this gate only
+# ever declines to destroy something, it never decides to.
+phase_recover_existing_vm() {
+  local SSH_TARGET="$1" HOSTNAME="$2" NODE_IDX="$3" CLUSTER_TARGET="${4:-$TARGET_CLUSTER}"
+
+  if [[ "$FORCE_REBUILD" == "1" ]]; then
+    echo "    [0/6] Recovery gate skipped (--force-rebuild)"
     return 1
   fi
+
+  local VM_STATE
+  VM_STATE=$(win_ps "$SSH_TARGET" "(Get-VM -Name '${HOSTNAME}' -ErrorAction SilentlyContinue).State" \
+    | tr -d '\r' | grep -Ex 'Running|Off|Saved|Paused|Starting|Stopping|Reset|Resuming|Other' | tail -1 || true)
+
+  if [[ -z "$VM_STATE" ]]; then
+    echo "    [0/6] Recovery gate: no VM named ${HOSTNAME} on the host — provisioning from scratch"
+    return 1
+  fi
+
+  echo "    [0/6] Recovery gate: ${HOSTNAME} already exists on the host (Hyper-V state: ${VM_STATE})"
+
+  # What the CLUSTER says decides whether recovery is possible at all, and it is
+  # asked before the VM's power state is acted on.
+  case "$(node_state "$HOSTNAME" "$CLUSTER_TARGET")" in
+    ready)
+      # Already serving. The caller's own gate usually catches this, but the
+      # script is also run by hand -- the CLI's failure message tells operators
+      # to do exactly that -- so it must not destroy a healthy node.
+      echo "    ✓ ${HOSTNAME}: already Ready in ${CLUSTER_TARGET} — nothing to do"
+      return 0 ;;
+    absent)
+      # Not a member of this cluster, so there is nothing to wait for. This is
+      # every fresh bootstrap: `local-e2e.sh clean` tears down the cluster, the
+      # kind cluster and the tenant repo but touches no Hyper-V object, so the
+      # previous run's VM is still on the host holding a kubelet certificate for
+      # a cluster that no longer exists. It cannot rejoin one with a new CA --
+      # waiting the full window for it only delays the rebuild it always needed.
+      echo "    → ${HOSTNAME} is not a member of the ${CLUSTER_TARGET} cluster and cannot"
+      echo "      rejoin one it holds no credentials for — rebuilding."
+      return 1 ;;
+  esac
+
+  case "$VM_STATE" in
+    Off|Saved|Paused)
+      echo "    → VM is ${VM_STATE}; starting it rather than replacing it..."
+      # Retried, and for the same reason the rebuild path is: Hyper-V does not
+      # release a VM's memory reservation the instant it stops, and a Start-VM
+      # issued into that window fails with "Failed to finish reserving resources".
+      if ! win_ps "$SSH_TARGET" "
+\$ok = \$false
+for (\$i = 0; \$i -lt 6; \$i++) {
+  try {
+    if ((Get-VM -Name '${HOSTNAME}' -ErrorAction Stop).State -eq 'Paused') {
+      Resume-VM -Name '${HOSTNAME}' -ErrorAction Stop
+    } else {
+      Start-VM -Name '${HOSTNAME}' -ErrorAction Stop
+    }
+    \$ok = \$true
+    break
+  } catch {
+    Write-Output ('    … start attempt ' + (\$i + 1) + ' failed: ' + \$_.Exception.Message)
+    Start-Sleep -Seconds 10
+  }
+}
+if (\$ok) { Write-Output 'START=OK' } else { Write-Output 'START=FAIL' }
+" | tr -d '\r' | grep -q 'START=OK'; then
+        echo "    ✗ could not start ${HOSTNAME} after 6 attempts — falling through to a rebuild" >&2
+        return 1
+      fi
+      echo "    ✓ ${HOSTNAME} started"
+      ;;
+    Running)
+      echo "    → VM is Running but the node is not Ready; giving the kubelet time to rejoin..."
+      ;;
+    *)
+      # Starting, Stopping, Reset, Resuming, Other: transitional or wedged. Not a
+      # state to start from and not one to wait on either.
+      echo "    → VM is ${VM_STATE}, which is neither running nor startable — rebuilding"
+      return 1
+      ;;
+  esac
+
+  # Poll proportionally: a long window wants a quiet loop, and a caller who asked
+  # for a short one (a test, or --recover-wait 30) wants an answer inside it
+  # rather than one fixed ten-second tick later.
+  local POLL=10
+  if (( RECOVER_WAIT_SECONDS < 50 )); then
+    POLL=$(( RECOVER_WAIT_SECONDS / 5 ))
+    (( POLL < 1 )) && POLL=1
+  fi
+
+  local DEADLINE=$(( $(date +%s) + RECOVER_WAIT_SECONDS ))
+  local WAITED=0
+  while true; do
+    if node_ready "$HOSTNAME" "$CLUSTER_TARGET" >/dev/null 2>&1; then
+      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} after ${WAITED}s — no rebuild needed"
+      return 0
+    fi
+    if [[ $(date +%s) -ge $DEADLINE ]]; then
+      break
+    fi
+    sleep "$POLL"
+    WAITED=$((WAITED + POLL))
+    if (( WAITED % 60 == 0 )); then
+      echo "        still waiting for ${HOSTNAME} to rejoin (${WAITED}s of ${RECOVER_WAIT_SECONDS}s)"
+    fi
+  done
+
+  echo "    ${HOSTNAME} did not rejoin within ${RECOVER_WAIT_SECONDS}s — rebuilding it" >&2
+  return 1
 }
 
 # ── Phase 5 & 6: Monitor guest boot & verify node Ready ─────────────────────
@@ -1668,6 +1964,14 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
     continue
   fi
   echo "    ✓ SSH connected"
+
+  # Before anything destructive: if this node already exists, try to bring it
+  # back rather than replace it. Returns 0 only when it is Ready, in which case
+  # every phase below would be undoing work that is already done.
+  if phase_recover_existing_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
+    echo ""
+    continue
+  fi
 
   # Each phase is a precondition for the next, so a failure stops this node here
   # rather than cascading into unrelated-looking errors further down.

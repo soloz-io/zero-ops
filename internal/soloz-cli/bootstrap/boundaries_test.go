@@ -306,3 +306,30 @@ func TestAnUnreadableConditionIsReportedAsSuch(t *testing.T) {
 			"from one that never became true")
 	}
 }
+
+// The completion banner must name a kubeconfig on a resumed run too.
+//
+// kubeconfigPath is assigned inside the finalize phase's closure, and a resumed
+// run skips finalize — so the closure never ran, the variable stayed empty, and
+// the banner printed "Kubeconfig:" followed by nothing and offered
+// `kubectl --kubeconfig= get nodes`, which is not a command. The state file has
+// held the path since the pivot wrote it.
+func TestTheCompletionBannerFallsBackToRecordedKubeconfig(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	banner := strings.Index(body, `"\n✓ Hub Cluster bootstrap complete!"`)
+	if banner < 0 {
+		t.Fatal("the completion banner is gone")
+	}
+	// The fallback must be established before the banner prints.
+	fallback := strings.Index(body, `kubeconfigPath = bs.MgmtKubeconfig`)
+	if fallback < 0 {
+		t.Fatal("no fallback for kubeconfigPath; a resumed run prints an empty path")
+	}
+	if fallback > banner {
+		t.Error("the fallback is applied after the banner is printed")
+	}
+}

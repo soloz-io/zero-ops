@@ -378,7 +378,7 @@ func (d *HetznerDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	cfg.KubernetesVersion = "v1.31.6"
 	cfg.NetworkCIDR = d.NetworkCIDR
 	cfg.SubnetCIDR = subnetCIDR
-	cfg.ControlPlaneMachineType = "cx33"
+	cfg.ControlPlaneMachineType = "cx23"
 	cfg.WorkerMachineType = "cx33"
 	cfg.ControlPlaneReplicas = 1
 	cfg.WorkerReplicas = d.PlannedWorkerReplicas()

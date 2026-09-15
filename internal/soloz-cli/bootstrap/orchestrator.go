@@ -284,7 +284,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		func() error { return o.joinHomeWorkers(ctx, resolveHubKubeconfig()) },
 		nil,
 		withPostcondition(func() error {
-			return o.onPremWorkersPresent(ctx, resolveHubKubeconfig())
+			return o.phasePostconditions(resolveHubKubeconfig())[state.PhaseOnPremJoin](ctx)
 		}),
 	); err != nil {
 		return err
@@ -351,10 +351,25 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 7: Pivot ready ──────────────────────────────────────────
+	// The postcondition is the tailnet credential existing ON THE HUB.
+	//
+	// PivotReady stages it there because `clusterctl move` does not carry a plain
+	// Secret across the pivot -- it is written into the bootstrap cluster at
+	// capi-init, and the hub gets none. Without it the hub-operator logs
+	// "Source secret not found, skipping", never uploads tailscale-authkey to
+	// Infisical, and the tailscale-hybrid-psk ExternalSecret sits in
+	// SecretSyncedError for ever.
+	//
+	// Asserted rather than assumed because this phase completed on boxes built
+	// before it staged anything, and a completion record written then describes a
+	// hub that never received the credential.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotReady, "pivot-ready",
 		"",
 		func() error { return o.Provider.PivotReady(ctx, mgmtKubeconfig) },
 		nil,
+		withPostcondition(func() error {
+			return o.phasePostconditions(mgmtKubeconfig)[state.PhasePivotReady](ctx)
+		}),
 	); err != nil {
 		return err
 	}
@@ -369,8 +384,17 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 			fmt.Println("[cleanup] ✓ Bootstrap cluster deleted")
 		}
 	}
-	o.markPhaseComplete(bs, state.PhaseCleanup)
-	stateMgr.Save(bs)
+	// Guarded, unlike every other phase, because this one is not run through
+	// runPhase and so nothing else checks whether it was already recorded. It
+	// appended an entry on every resume: the acme-hub state reached six "cleanup"
+	// records interleaved with the phases they were recorded between, which is
+	// unbounded growth in a file committed to the tenant's repository and makes
+	// the phase history unreadable exactly when it is being read to explain a
+	// failure.
+	if !o.phaseDone(bs, state.PhaseCleanup) {
+		o.markPhaseComplete(bs, state.PhaseCleanup)
+		stateMgr.Save(bs)
+	}
 
 	// ── Phase 9: ClusterClass deployment ──────────────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterClassDeploy, "clusterclass-deploy",
@@ -660,6 +684,20 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 
 	o.printTimingSummary(bs)
 
+	// finalize ASSIGNS kubeconfigPath, and a resumed run skips finalize.
+	//
+	// The variable is written inside that phase's closure, so on any run where
+	// the phase is already complete the closure never executes and the path stays
+	// empty -- printing "Kubeconfig:" with nothing after it and handing the
+	// operator `kubectl --kubeconfig= get nodes`, which is not a command.
+	//
+	// The state file has carried the answer since the pivot wrote it, so the
+	// banner reads from there rather than depending on which phases happened to
+	// run this time.
+	if kubeconfigPath == "" {
+		kubeconfigPath = bs.MgmtKubeconfig
+	}
+
 	argoCDPwd := o.getArgoCDPassword(ctx, mgmtKubeconfig)
 	fmt.Println("\n✓ Hub Cluster bootstrap complete!")
 	fmt.Printf("  Provider: %s\n", o.Provider.Name())
@@ -896,7 +934,11 @@ func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrap
 // hubWorkerSelector identifies a joined home-lab hub worker. provision-flatcar-worker.sh
 // applies hub-role=worker for its "hub" target, both via kubelet --node-labels and
 // again cluster-side after the join.
-const hubWorkerSelector = "hub-role=worker"
+//
+// Both labels, not either: hub-role=worker says which cluster the node belongs
+// to, workload-location=on-prem says it is the tenant's own hardware, and the
+// platform's placement rules (ADR-046 §11) require both of them together.
+const hubWorkerSelector = "hub-role=worker,workload-location=on-prem"
 
 // joinHomeWorkers brings up the home-lab worker(s) this hub needs before any
 // platform workload is deployed. No-op unless the provider asked for home workers.
@@ -953,9 +995,41 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 
 	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed
 	// bootstrap must not pay that again for a node that is already serving.
-	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
+	//
+	// What "already serving" means is the whole difficulty. Provisioning is
+	// destructive -- provision-flatcar-worker.sh deletes the Node object and
+	// replaces the VM's disk from the pristine base image before it has
+	// established that a rebuild was required -- so anything short of proof that
+	// this node needs rebuilding must not reach it.
+	switch state, name := o.probeHubWorker(ctx, kubeconfig); state {
+	case hubWorkerReady:
 		fmt.Printf("[on-prem-join] ✓ %s already Ready — skipping provisioning\n", name)
 		return nil
+
+	case hubWorkerUnknown:
+		// The hub could not be asked. That is not evidence the node is gone, and
+		// it used to read as exactly that: one unreachable API server, or a
+		// kubeconfig naming a cluster that had just been pivoted, and the phase
+		// went on to destroy a node that was serving perfectly well.
+		return fmt.Errorf("the hub's nodes could not be read from %s, so whether the "+
+			"on-prem worker is still serving is unknown.\n"+
+			"Refusing to provision: that would delete the Node object and rebuild the VM "+
+			"from the base image, which is not recoverable if the node was in fact fine.\n"+
+			"Check the hub is reachable, then re-run.", kubeconfig)
+
+	case hubWorkerNotReady:
+		// Registered but not Ready. A node that has lost its heartbeat usually
+		// comes back -- the guest reboots, tailscaled reconnects, the kubelet
+		// re-registers -- and the cheap outcome is to let it. Only when it does
+		// not is a rebuild the right answer.
+		fmt.Printf("[on-prem-join] %s is registered but NotReady — waiting %s for it to recover\n",
+			name, formatDuration(onPremRecoveryWindow))
+		fmt.Println("[on-prem-join]   (rebuilding is destructive: it deletes the Node and replaces the VM disk)")
+		if recovered := o.awaitHubWorkerReady(ctx, kubeconfig, onPremRecoveryWindow); recovered != "" {
+			fmt.Printf("[on-prem-join] ✓ %s recovered — skipping provisioning\n", recovered)
+			return nil
+		}
+		fmt.Printf("[on-prem-join] %s did not recover — provisioning it again\n", name)
 	}
 
 	script := resolveScriptPath(filepath.Join("scripts", "hybrid", "provision-flatcar-worker.sh"))
@@ -981,7 +1055,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 
 	// The script has its own Ready gate, but the cluster's view is what the next
 	// phase depends on, so confirm it here too.
-	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
+	if state, name := o.probeHubWorker(ctx, kubeconfig); state == hubWorkerReady {
 		fmt.Printf("[on-prem-join] ✓ %s Ready\n", name)
 		return nil
 	}
@@ -989,8 +1063,79 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 		"platform workloads would have nowhere to schedule (ADR-046 §11)", hubWorkerSelector)
 }
 
-// readyHubWorker reports whether a home-lab hub worker is joined and Ready.
-func (o *Orchestrator) readyHubWorker(ctx context.Context, kubeconfig string) (bool, string) {
+// onPremRecoveryWindow is how long a registered-but-NotReady on-prem node is
+// given to come back before the phase hands it to the provisioning script.
+//
+// Short, because this is the cheaper of two waits rather than the whole defence.
+// provision-flatcar-worker.sh now has a recovery gate of its own that can do
+// what this cannot -- start a VM the workstation left Off -- and waits ~5
+// minutes for the node to rejoin before it replaces anything. This window only
+// covers the case that needs no intervention at all, a kubelet part-way through
+// a restart, so that an ordinary resume does not shell out to the host over a
+// node that is seconds from Ready. Anything longer is spent twice.
+const onPremRecoveryWindow = 2 * time.Minute
+
+// awaitHubWorkerReady waits for a registered on-prem node to report Ready,
+// returning its name, or "" if the window passes without it.
+//
+// A hub that stops answering ends the wait rather than consuming it: the point
+// of waiting is to avoid a needless rebuild, and a probe that cannot reach the
+// hub is not evidence for one either way.
+func (o *Orchestrator) awaitHubWorkerReady(ctx context.Context, kubeconfig string, window time.Duration) string {
+	const every = 15 * time.Second
+	deadline := time.Now().Add(window)
+	for {
+		switch state, name := o.probeHubWorker(ctx, kubeconfig); state {
+		case hubWorkerReady:
+			return name
+		case hubWorkerAbsent:
+			// It was registered a moment ago and is not now, so something deleted
+			// it. Waiting cannot bring back a Node object nobody is writing.
+			return ""
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(every):
+		}
+	}
+}
+
+// hubWorkerState is what one probe of the hub can say about on-prem capacity.
+//
+// Three outcomes rather than a bool, because the phase must do something
+// different for each and two of them used to collapse into the same `false`:
+// a node that is registered but NotReady is a node to WAIT for, and a hub that
+// cannot be asked is not evidence of anything at all. Both used to mean
+// "provision", and provisioning destroys the VM and its disk before it knows
+// whether a rebuild was needed -- so a stalled kubelet, or one unreachable
+// API server, cost a working node and ten minutes.
+type hubWorkerState int
+
+const (
+	hubWorkerUnknown  hubWorkerState = iota // the hub could not be asked
+	hubWorkerAbsent                         // nothing carries the labels
+	hubWorkerNotReady                       // registered, not Ready
+	hubWorkerReady
+)
+
+// probeHubWorker is the single question both the phase and its postcondition
+// ask, so that they cannot disagree.
+//
+// They used to ask two: the postcondition matched workload-location=on-prem and
+// ignored readiness, the phase matched hub-role=worker and required Ready. A
+// NotReady node therefore satisfied the postcondition and failed the phase's own
+// gate -- so runPhase skipped the phase as "already completed, postcondition
+// holds" over a cluster whose only worker could not schedule anything, which is
+// the ADR-046 §11 failure the postcondition exists to catch.
+//
+// provision-flatcar-worker.sh applies both labels together (kubelet
+// --node-labels, and again cluster-side after the join), so requiring both is
+// the same claim either of them made alone.
+func (o *Orchestrator) probeHubWorker(ctx context.Context, kubeconfig string) (hubWorkerState, string) {
 	out, err := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", kubeconfig,
 		"get", "nodes", "-l", hubWorkerSelector,
@@ -998,15 +1143,21 @@ func (o *Orchestrator) readyHubWorker(ctx context.Context, kubeconfig string) (b
 			"{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}",
 	).Output()
 	if err != nil {
-		return false, ""
+		return hubWorkerUnknown, ""
 	}
+
+	state, name := hubWorkerAbsent, ""
 	for _, line := range strings.Split(string(out), "\n") {
-		name, status, found := strings.Cut(strings.TrimSpace(line), "=")
-		if found && status == "True" {
-			return true, name
+		n, status, found := strings.Cut(strings.TrimSpace(line), "=")
+		if !found || n == "" {
+			continue
 		}
+		if status == "True" {
+			return hubWorkerReady, n
+		}
+		state, name = hubWorkerNotReady, n
 	}
-	return false, ""
+	return state, name
 }
 
 // formatDuration renders a duration for humans reading a bootstrap log: seconds
@@ -1250,6 +1401,31 @@ func (o *Orchestrator) deployBoundaryN(ctx context.Context, kubeconfig string, n
 	return o.runBoundary(ctx, kubeconfig, c)
 }
 
+// tailnetCredentialStagedOnHub reports whether the Secret the hub-operator reads
+// its tailnet credential from exists on the hub.
+//
+// Trivially satisfied when on-prem was not requested: a pure-cloud box needs no
+// tailnet, and demanding the Secret would fail every hetzner bootstrap.
+//
+// Presence only, not content. The Secret is legitimately EMPTY on a box with no
+// authkey -- that is what renders the ClusterClass's tailscale steps inert -- so
+// requiring a non-empty value here would fail a configuration that is correct.
+// What must not happen is the Secret being absent, because the operator then
+// skips the upload silently.
+func (o *Orchestrator) tailnetCredentialStagedOnHub(ctx context.Context, kubeconfig string) error {
+	asker, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if !ok || !asker.OnPremRequested() {
+		return nil
+	}
+	err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "secret", "tailscale-hybrid-psk", "-n", "platform-capi").Run()
+	if err != nil {
+		return fmt.Errorf("platform-capi/tailscale-hybrid-psk is not on the hub, so the " +
+			"hub-operator has nothing to upload and the tailnet ExternalSecret cannot sync")
+	}
+	return nil
+}
+
 // onPremWorkersPresent reports whether this box has the on-prem capacity it asked
 // for.
 //
@@ -1267,25 +1443,109 @@ func (o *Orchestrator) onPremWorkersPresent(ctx context.Context, kubeconfig stri
 	if !ok || !asker.OnPremRequested() {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"get", "nodes", "-l", "workload-location=on-prem",
-		"-o", "jsonpath={.items[*].metadata.name}").Output()
-	if err != nil {
+	switch state, name := o.probeHubWorker(ctx, kubeconfig); state {
+	case hubWorkerReady:
+		return nil
+	case hubWorkerNotReady:
+		return fmt.Errorf("%s carries the on-prem labels but is NotReady, so nothing "+
+			"the platform pins to it can schedule", name)
+	case hubWorkerAbsent:
+		return fmt.Errorf("this box asked for on-prem nodes and none has joined")
+	default:
 		return fmt.Errorf("the hub's nodes could not be read to confirm on-prem capacity")
 	}
-	if strings.TrimSpace(string(out)) == "" {
-		return fmt.Errorf("this box asked for on-prem nodes and none has joined")
-	}
-	return nil
 }
 
-// awaitDatabaseRolesProvisioned waits until the hub-operator reports that it has
-// created the platform's database roles.
+// describeMissingRoles names them rather than counting them, because the name is
+// what an operator greps for and the count is not actionable.
+func describeMissingRoles(missing []string) string {
+	if len(missing) == 1 {
+		return fmt.Sprintf("the role %s does not exist", missing[0])
+	}
+	return fmt.Sprintf("these roles do not exist: %s", strings.Join(missing, ", "))
+}
+
+// declaredDatabaseRoles is the set of roles this box's HubEnvironment says the
+// platform needs. The names only -- each entry also carries a database and a
+// permission list, which belong to the operator that grants them.
+func (o *Orchestrator) declaredDatabaseRoles(ctx context.Context, kubeconfig string) ([]string, error) {
+	// Cluster-scoped, so no -A and no -n. See the note in the poll loop below:
+	// naming a cluster-scoped resource together with --all-namespaces makes
+	// kubectl exit 0 and print nothing, which reads as "no roles declared".
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment",
+		"-o", "jsonpath={.spec.database.roles[*].name}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("could not read the declared database roles: %w", err)
+	}
+	return strings.Fields(strings.TrimSpace(string(out))), nil
+}
+
+// missingDatabaseRoles asks the DATABASE which declared roles are not in it.
 //
-// Asks for the operator's own condition rather than inspecting Postgres: the
-// operator is the authority on whether it has finished, and a role appearing is
-// not the same as every role being granted -- provisioning is all-or-nothing,
-// and half of it is indistinguishable from all of it by counting roles.
+// An error means the database could not be asked, which is not the same as every
+// role being present and must never be read as it.
+func (o *Orchestrator) missingDatabaseRoles(ctx context.Context, kubeconfig string) ([]string, error) {
+	declared, err := o.declaredDatabaseRoles(ctx, kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+	if len(declared) == 0 {
+		return nil, nil
+	}
+
+	primary, err := o.cnpgPrimary(ctx, kubeconfig)
+	if err != nil || primary == "" {
+		return nil, fmt.Errorf("the platform database has no primary to ask yet")
+	}
+
+	// Every role name, compared in Go. Nothing from the HubEnvironment is
+	// interpolated into the statement -- the spec is operator-supplied, and a
+	// role name is not a place to start trusting it.
+	out, err := o.psql(ctx, kubeconfig, primary, "postgres", "select rolname from pg_roles")
+	if err != nil {
+		return nil, fmt.Errorf("could not read pg_roles: %w", err)
+	}
+	present := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			present[name] = true
+		}
+	}
+
+	var missing []string
+	for _, role := range declared {
+		if !present[role] {
+			missing = append(missing, role)
+		}
+	}
+	return missing, nil
+}
+
+// awaitDatabaseRolesProvisioned waits until the platform's database roles exist
+// AND the hub-operator reports it put them there.
+//
+// Both, because either alone has been wrong on this platform.
+//
+// The condition alone was wrong on 2026-09-15. platform-db's PVC is node-local
+// (local-path on the on-prem worker); the worker was rebuilt from a pristine
+// image, the database came back empty, and CNPG re-ran initdb -- but the
+// operator's DatabaseRolesProvisioned condition still said True, stamped ten and
+// a half hours earlier against a database that no longer existed. This gate read
+// it and printed "✓ database roles provisioned after 1s" over a cluster in which
+// hub_zitadel did not exist. Boundary 04 then waited for an identity provider
+// that could not authenticate, behind an operator that would never re-provision
+// the role because its own record said it already had.
+//
+// Counting roles alone was the objection that made it a condition in the first
+// place, and it was a fair one: provisioning is all-or-nothing, and half of it
+// is indistinguishable from all of it by COUNTING. So this does not count. It
+// compares against the set the HubEnvironment declares, by name, which is a
+// stronger claim than a count and a different claim from the operator's memory.
+//
+// What it still does not prove is that each role's PASSWORD matches the Secret
+// its consumer holds. Existence is necessary, not sufficient; the grants and the
+// credential remain the operator's to get right.
 func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeconfig string) error {
 	const (
 		deadline = 45 * time.Minute
@@ -1301,6 +1561,13 @@ func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeco
 	// that is still working, so the timeout blamed the operator for a fault in
 	// how it was being asked.
 	seen := false
+
+	// Whether the DATABASE was ever reachable, and what it last said was missing.
+	// Kept apart from `seen` for the same reason `seen` exists at all: "could not
+	// ask" and "asked, and the answer was no" need different messages.
+	probed := false
+	warnedStale := false
+	var lastMissing []string
 
 	for {
 		// No -A, and no .items[*].
@@ -1318,10 +1585,34 @@ func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeco
 		if status := strings.TrimSpace(string(out)); err == nil && status != "" {
 			seen = true
 		}
-		if err == nil && strings.TrimSpace(string(out)) == "True" {
+		operatorDone := err == nil && strings.TrimSpace(string(out)) == "True"
+
+		// Ask the database itself. The condition says the operator believes it
+		// finished; this says the roles are actually there now.
+		missing, dbErr := o.missingDatabaseRoles(ctx, kubeconfig)
+		if dbErr == nil {
+			probed = true
+			lastMissing = missing
+		}
+
+		if operatorDone && dbErr == nil && len(missing) == 0 {
 			fmt.Printf("    ✓ database roles provisioned after %s\n",
 				formatDuration(time.Since(started)))
 			return nil
+		}
+
+		// Said once, and loudly. A True condition over a database that does not
+		// have the roles is the signature of a database replaced underneath the
+		// operator, and it is not something to discover from a timeout 45 minutes
+		// later -- by then the run has been waiting on an identity provider that
+		// was never going to start.
+		if operatorDone && dbErr == nil && len(missing) > 0 && !warnedStale {
+			warnedStale = true
+			fmt.Printf("    ⚠️  the hub-operator reports DatabaseRolesProvisioned=True, but %s\n",
+				describeMissingRoles(missing))
+			fmt.Println("        Its record describes a database that no longer has them — most often")
+			fmt.Println("        because the volume behind platform-db was replaced. The operator will")
+			fmt.Println("        not redo work its own condition says is done; it has to be re-driven.")
 		}
 
 		// Nudge anything ESO has backed off on.
@@ -1351,6 +1642,24 @@ func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeco
 					"  confirm with:\n"+
 					"    kubectl get hubenvironment hub-environment -o yaml | grep -A3 DatabaseRoles",
 					deadline)
+			}
+			if !probed {
+				return fmt.Errorf("the platform database could not be read in %v to confirm "+
+					"its roles exist.\n"+
+					"  The hub-operator's condition is not enough on its own -- it records what the\n"+
+					"  operator did, not what the database now contains -- so this gate does not\n"+
+					"  pass on it alone. Check the database is serving:\n"+
+					"    kubectl -n platform-data get cluster platform-db", deadline)
+			}
+			if len(lastMissing) > 0 {
+				return fmt.Errorf("the platform database is missing %s after %v.\n  %s\n"+
+					"  Nothing that owns a database can start until they exist: Zitadel's hooks\n"+
+					"  fail on a role that does not exist and exhaust their retries against it.\n\n"+
+					"  If the hub-operator reports DatabaseRolesProvisioned=True while this says\n"+
+					"  they are absent, the database was replaced after it last ran -- the operator\n"+
+					"  will not repeat work its own record calls done.",
+					describeMissingRoles(lastMissing), deadline,
+					o.hubEnvironmentBlocker(ctx, kubeconfig))
 			}
 			return fmt.Errorf("the hub-operator did not provision the platform's database "+
 				"roles within %v.\n  %s\n"+
@@ -1559,15 +1868,35 @@ func (o *Orchestrator) publicTlsIssuerFor() (string, error) {
 // the CAPH-managed control-plane LoadBalancer. Returns "" when it cannot be
 // resolved, in which case the chart falls back to its default (publishing the
 // controller Service address) and public ingress DNS will be wrong.
+//
+// Selected by cluster name, never by position. This asked for `items[0]`, which
+// was right only while the hub was the sole HetznerCluster in the namespace. It
+// is not: every spoke pool this hub provisions adds one beside it, and on
+// acme-hub `spoke-pool-hybrid-dev-01-n5r6z` now sits in platform-capi next to
+// `acme-hub-gmj6h`. The hub kept winning that race because the names happened to
+// sort that way -- rename the hub, or add a spoke whose name sorts earlier, and
+// the hub Gateway publishes a SPOKE's address for every hub hostname, which
+// resolves, answers, and serves the wrong cluster.
+//
+// CAPI labels every infrastructure object with the cluster it belongs to, so the
+// question has an exact answer and there is no reason to guess at one.
 func (o *Orchestrator) hubIngressAddress(ctx context.Context, kubeconfig string) string {
-	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"get", "hetznercluster", "-n", "platform-capi",
-		"-o", "jsonpath={.items[0].spec.controlPlaneEndpoint.host}")
-	out, err := cmd.Output()
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hetznercluster", "-n", constants.NamespaceCAPI,
+		"-l", "cluster.x-k8s.io/cluster-name="+o.ClusterName,
+		"-o", "jsonpath={.items[*].spec.controlPlaneEndpoint.host}").Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+
+	// Exactly one, or nothing. Two matches means the label does not identify what
+	// it is being asked to identify, and picking either would be the same mistake
+	// in a new place.
+	hosts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(hosts) != 1 {
+		return ""
+	}
+	return hosts[0]
 }
 
 // ──────────────────────────────────────────────────────────────────────────

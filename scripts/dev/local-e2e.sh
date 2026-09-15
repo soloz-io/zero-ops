@@ -465,7 +465,51 @@ do_verify() {
     # The same command the tenant's workflow runs, not a local re-implementation.
     # A second implementation would be a second thing to keep true, and the whole
     # point of this loop is that local and CI take one path.
-    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-45m}"
+    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-45m}" || return 1
+
+    # Then the component checks, which converging does not cover.
+    #
+    # `soloz verify` watches ArgoCD Applications reach Synced+Healthy -- a statement
+    # about reconciliation, not about the platform working. external-dns crash-looped
+    # 108 times on an invalid --provider while its Application sat Synced, so no
+    # hostname for the box was ever published and every hub URL was unreachable,
+    # with nothing reporting it.
+    #
+    # post-bootstrap-validate.sh checks that per component. hub-bootstrap.sh ran it
+    # as a FATAL gate, for the reason stated in its own source: "swallowing this
+    # into a warning is how a bootstrap 'succeeds' while leaving a platform that
+    # does not work."
+    #
+    # Run from HERE and not from the CLI, deliberately. ADR-063 fails a release that
+    # references the platform's repository at runtime, and these scripts live in it,
+    # so a tenant's released `soloz bootstrap` cannot call them (ADR-072 moved Day-0
+    # into the tenant's own repository). This script IS a platform checkout, so the
+    # check runs where it is runnable without putting a repository reference into
+    # the artefact. Carrying these checks to tenants is separate work: they would
+    # have to travel inside the binary, as manifests/ already do.
+    local validator="$ROOT/scripts/post-bootstrap-validate.sh"
+    [ -r "$validator" ] || {
+        echo "local-e2e: $validator is missing; component validation cannot run" >&2
+        return 1
+    }
+    say "validating platform components"
+    ZERO_OPS_DIR="$ROOT" KUBECONFIG="$kc" \
+        ENVIRONMENT="$ENVIRONMENT" \
+        SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")}" \
+        bash "$validator"
+}
+
+# The spoke this environment+provider provisions, mirroring the burstSpokePool
+# table in environment-manager values.yaml. Wrong here means the validator checks
+# a spoke this box never creates, and reports a failure that is not one.
+spoke_pool_for() {
+    case "$1/$2" in
+        dev/hetzner)  echo "spoke-pool-eu-dev-01" ;;
+        dev/hybrid)   echo "spoke-pool-hybrid-dev-01" ;;
+        stg/hybrid)   echo "spoke-pool-hybrid-stg-01" ;;
+        prod/hetzner) echo "spoke-pool-eu-prod-01" ;;
+        *)            echo "spoke-pool-${1}-01" ;;
+    esac
 }
 
 # The acceptance pass. `verify` answers "did this converge"; this answers "does

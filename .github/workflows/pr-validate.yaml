@@ -60,6 +60,25 @@ jobs:
       - name: Globals are emitted once, not per code path
         run: python3 scripts/validate/one-globals-emitter.py
 
+      # The architecture gate (ADR-078): every component an ADR names is
+      # registered, an ACCEPTED ADR names no planned component, and every
+      # acceptance test an ADR names exists and is wired into something that runs
+      # it. It was written as a release gate and then run only by hand, which is
+      # the state it exists to prevent.
+      - name: Architecture declarations match what is deployed
+        run: python3 scripts/validate/architecture-consistency.py
+
+      # The 59 static checks that used to run before anything was created.
+      #
+      # Their only caller was hub-bootstrap.sh, which nothing invokes any more
+      # (development/legacy.md documents it as legacy). Retiring that script
+      # silently retired this gate with it: manifest renders, duplicate YAML keys,
+      # image pinning, placement classes, external-dns args and the rest stopped
+      # being checked anywhere. `run.sh preflight` needs no cluster -- it reads
+      # this repository -- so CI is where it belongs.
+      - name: Static preflight invariants
+        run: ENVIRONMENT=dev bash scripts/validate/run.sh preflight
+
   # internal/platform/embedded is a generated copy of the manifests a released
   # CLI carries. It was guarded only by a pre-commit hook, which means it was
   # guarded on one machine: a commit made with --no-verify, or by anyone who had

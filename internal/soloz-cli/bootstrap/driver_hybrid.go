@@ -50,6 +50,34 @@ type HybridDriver struct {
 
 func (d *HybridDriver) Name() string { return "hybrid" }
 
+// CAPINodeSelector places the CAPI controllers on this cell's own hardware.
+//
+// ADR-046's Scheduling Contract puts default workloads on the home nodes
+// ("home" meaning on-prem per this ADR's own header note), and on a hybrid hub
+// that is where the capacity is. §22 established that some cluster
+// infrastructure must stay on the Hetzner node -- the CSI controller, because
+// "a label-less home worker matches and gets a driver that cannot reach block
+// devices". That is a HARDWARE constraint and CAPI does not share it: its
+// controllers talk to the Kubernetes API and to Hetzner's HTTP API, both
+// reachable from an on-prem node.
+//
+// Left where they land, they concentrate on the one node that cannot absorb
+// them. Measured on a hybrid hub whose control plane is a cpx22:
+//
+//	control plane  26 pods  55% CPU  89% memory   ← etcd, apiserver, 6x CAPI
+//	on-prem        55 pods  40% CPU  53% memory   ← 13 GB, 6 vCPU, half idle
+//
+// Every CAPI controller was restarting on "leader election lost" -- 85, 85, 73,
+// 67 restarts -- because it could not renew a lease on a saturated node. That
+// also plausibly explains a 44-minute machine join observed earlier.
+//
+// nil for pure Hetzner, deliberately. That hub has Hetzner worker nodes, so the
+// controllers already have somewhere to go, and pinning them to a label that
+// box does not carry would strand them Pending.
+func (d *HybridDriver) CAPINodeSelector() map[string]string {
+	return map[string]string{"workload-location": "on-prem"}
+}
+
 // PlannedWorkerReplicas is zero for every hybrid box regardless of environment:
 // the cell exists so worker capacity comes from the tenant's own hardware.
 func (d *HybridDriver) PlannedWorkerReplicas() int { return 0 }
@@ -67,6 +95,27 @@ func (d *HybridDriver) CiliumAddonPath() string {
 // asked for home workers has one to wait for. Hetzner cells do not implement it.
 func (d *HybridDriver) OnPremRequested() bool { return d.OnPremEnabled }
 func (d *HybridDriver) OSType() string        { return d.Driver.OSType() }
+
+// StageTailscaleCredentials is forwarded, and must be.
+//
+// HybridDriver holds its Hetzner driver as a NAMED field, not an embedded one,
+// so nothing is promoted: a method that is not written here does not exist on
+// this type. PivotReady reaches the stager by type assertion, and an assertion
+// against a type missing the method does not fail loudly -- it simply does not
+// match, and the caller returns nil having done nothing.
+//
+// That is what happened. pivot-ready re-ran, reported success in 15 seconds, and
+// staged no Secret at all; the hub-operator then logged "Source secret not found,
+// skipping" and the tailscale-hybrid-psk ExternalSecret stayed in
+// SecretSyncedError. The one driver that needs this method is the one that did
+// not have it -- a hetzner box has no tailnet to stage.
+//
+// d.OnPremEnabled is the hybrid driver's own field, and the Hetzner driver reads
+// its own copy, so it is passed through the same way OnCAPIInit does.
+func (d *HybridDriver) StageTailscaleCredentials(ctx context.Context, kubeconfig, namespace string) error {
+	d.Driver.OnPremEnabled = d.OnPremEnabled
+	return d.Driver.StageTailscaleCredentials(ctx, kubeconfig, namespace)
+}
 
 // ── Phase 1: Preflight ──────────────────────────────────────────────────────
 // Reuse Hetzner preflight (token, region, SSH key). Tailscale connectivity

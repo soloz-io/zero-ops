@@ -23,25 +23,38 @@ spec:
     clusterRef: platform-db
     namespace: platform-data
     roles:
-    - name: hub_control_plane
-      database: control_plane
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
     # NOTE: `infisical` is deliberately ABSENT from this list. It is a BOOTSTRAP
     # role owned by CNPG (platform-db spec.managed.roles), not an application role.
     # RoleManager reads each role's credential from an ESO-synced Secret sourced
     # from Infisical, so it cannot be the thing that lets Infisical start — that is
     # a circular dependency, and listing it here would also give the role two
     # controllers. See manifests/hub-core-services/database/platform-db.yaml.
-    - name: hub_centralized
-      database: hub
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
+    # hub_control_plane and hub_centralized were removed (2026-09-15). Nothing
+    # consumed them: no workload mounted control-plane-db-credentials or
+    # hub-db-credentials, and mcp-server -- named in the mapping as the consumer
+    # of the first -- runs with no env, no envFrom and no volumes at all.
+    #
+    # They were not inert while they stayed. The role manager iterates this list
+    # and returns on the first failure, so either one failing skipped every role
+    # after it, including hub_zitadel. That is the failure described below, and
+    # keeping two unused roles in front of the one role this platform needs made
+    # it twice as likely.
+    #
+    # What stays, deliberately:
+    #
+    #   - the databases control_plane and hub. Dropping a database is destructive
+    #     and is a separate decision from retiring a role that reached it.
+    #   - control-plane-db-credentials and hub-db-credentials. These are NOT
+    #     orphans: the CLI creates the mcp_server and spoke_controller database
+    #     users from the same Infisical keys (secrets_database_impl.go), and the
+    #     hub-operator BLOCKS on both Secrets existing before it will provision
+    #     any role at all (hubenvironment_controller.go, requiredSecrets).
+    #     Removing them stops ApplicationSecretsReady ever becoming true, which
+    #     stops DatabaseRolesProvisioned, which is the gate boundary 04 waits on.
+    #
+    # Only the two ROLE DECLARATIONS are gone: they duplicated users the CLI
+    # already creates under different names, and nothing ever created them.
+
     # The identity provider's role (ADR-060).
     #
     # It OWNS its database rather than holding DML grants on one: Zitadel runs

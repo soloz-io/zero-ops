@@ -299,6 +299,22 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 		Debug:               p.debug,
 	}
 
+	// Place the CAPI controllers BEFORE waiting for them to be ready.
+	//
+	// Applied here and not at capi-init: that phase installs the providers into
+	// the KIND bootstrap cluster, where no node carries a placement label, so a
+	// selector set then would leave every provider Pending and fail the install.
+	// By this point the on-prem workers have joined (on-prem-join precedes
+	// pivot-move) and the providers have been moved onto the hub, so the label
+	// they are being sent to exists.
+	//
+	// Before WaitForReady rather than after, because the wait is what those
+	// restarts were failing: rescheduling first means it waits on controllers
+	// that have somewhere to run.
+	if err := p.placeCAPIControllers(ctx, mgmtKubeconfig); err != nil {
+		return err
+	}
+
 	if err := pivotOrch.WaitForReady(ctx, mgmtKubeconfig); err != nil {
 		return fmt.Errorf("pivot ready failed: %w", err)
 	}
@@ -328,6 +344,61 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 	if err := p.stageTailnetCredentialOnHub(ctx, mgmtKubeconfig); err != nil {
 		return err
 	}
+	return nil
+}
+
+// placeCAPIControllers pins the CAPI provider Deployments to the nodes this
+// provider says they belong on.
+//
+// A no-op unless the driver asks for it, which only the hybrid one does: a pure
+// Hetzner hub has worker nodes already and needs no selector, and applying one
+// it does not carry would strand every controller Pending.
+//
+// The selector goes on the provider CRs rather than on the Deployments. The
+// capi-operator owns those Deployments and reconciles them, so a patch applied
+// directly would be reverted the next time it looked.
+func (p *CloudProvider) placeCAPIControllers(ctx context.Context, kubeconfig string) error {
+	placer, ok := p.driver.(interface{ CAPINodeSelector() map[string]string })
+	if !ok {
+		return nil
+	}
+	selector := placer.CAPINodeSelector()
+	if len(selector) == 0 {
+		return nil
+	}
+
+	pairs := make([]string, 0, len(selector))
+	for k, v := range selector {
+		pairs = append(pairs, fmt.Sprintf("%q:%q", k, v))
+	}
+	patch := fmt.Sprintf(`{"spec":{"deployment":{"nodeSelector":{%s}}}}`, strings.Join(pairs, ","))
+
+	// Every provider kind the operator manages. Named rather than discovered so a
+	// provider added later is a compile-time edit here, not a silent omission.
+	//
+	// Each object is patched BY NAME. `kubectl patch` has no --all: it takes a
+	// resource name or -f, and passing --all fails with "unknown flag" rather
+	// than patching everything, which is how this first shipped.
+	for _, kind := range []string{
+		"coreprovider", "bootstrapprovider", "controlplaneprovider", "infrastructureprovider",
+	} {
+		listed, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", kind, "-n", constants.NamespaceCAPI,
+			"-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}").Output()
+		if err != nil {
+			return fmt.Errorf("could not list %s to place its controllers: %w", kind, err)
+		}
+		for _, name := range strings.Fields(string(listed)) {
+			out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+				"patch", kind, name, "-n", constants.NamespaceCAPI,
+				"--type", "merge", "-p", patch).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("could not place %s/%s: %s: %w",
+					kind, name, strings.TrimSpace(string(out)), err)
+			}
+		}
+	}
+	fmt.Printf("[pivot-ready] ✓ CAPI controllers placed on %v\n", selector)
 	return nil
 }
 

@@ -152,8 +152,11 @@ func (s Secrets) RequireEscrow() error {
 // it must not have to render to answer a question about its own flags. The
 // duplication is asserted by TestScaffoldMatrixMatchesTheChart.
 var supportedMatrix = map[string][]string{
-	"dev":  {"hetzner", "hybrid"},
-	"stg":  {"hybrid"},
+	"dev": {"hetzner", "hybrid"},
+	// stg moved from hybrid to hetzner: hybrid is development-only. Staging
+	// rehearses production, and production is hetzner -- on hybrid it was
+	// rehearsing a tailnet-joined, node-local-storage topology no tenant runs.
+	"stg":  {"hetzner"},
 	"prod": {"hetzner"},
 }
 

@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/state"
@@ -127,5 +129,226 @@ func TestUnmetPostconditionsIgnoresPhasesThatNeverRan(t *testing.T) {
 	bs := &state.BootstrapState{CompletedPhases: []state.BootstrapPhase{}}
 	if got := o.unmetPostconditions(t.Context(), bs, "/nonexistent-kubeconfig"); len(got) != 0 {
 		t.Errorf("a phase that never ran was reported as unmet: %v", got)
+	}
+}
+
+// Every postcondition must live in the registry, because two readers consult it
+// and they must not be able to disagree.
+//
+// They did. `withPostcondition` at a call site is read by runFresh; the registry
+// is read by handleExistingState, which decides whether a bootstrap recorded
+// `complete` may be resumed at all. pivot-ready and on-prem-join were declared
+// only at their call sites, so a box whose state said `complete` was answered
+// "Cluster already bootstrapped. No further CLI operations permitted per ADR-040"
+// while the tailnet credential it needed had never been staged -- the phase-level
+// check existed and was never reached.
+func TestEveryCallSitePostconditionComesFromTheRegistry(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+
+	// Each withPostcondition closure must delegate to phasePostconditions.
+	for i := 0; ; {
+		j := strings.Index(body[i:], "withPostcondition(func() error {")
+		if j < 0 {
+			break
+		}
+		start := i + j
+		end := strings.Index(body[start:], "}),")
+		if end < 0 {
+			t.Fatal("unterminated withPostcondition closure")
+		}
+		closure := body[start : start+end]
+		if !strings.Contains(closure, "phasePostconditions") {
+			t.Errorf("a withPostcondition closure does not read the registry:\n%s", closure)
+		}
+		i = start + end
+	}
+}
+
+// The registry must cover every phase that declares one at a call site.
+func TestTheRegistryCoversThePhasesThatDeclarePostconditions(t *testing.T) {
+	o := &Orchestrator{}
+	reg := o.phasePostconditions("/nonexistent")
+	for _, p := range []state.BootstrapPhase{
+		state.PhaseBoundary04,
+		state.PhasePivotReady,
+		state.PhaseOnPremJoin,
+	} {
+		if _, ok := reg[p]; !ok {
+			t.Errorf("phase %s declares a postcondition at its call site but is absent "+
+				"from the registry, so handleExistingState cannot check it", p)
+		}
+	}
+}
+
+// The phase and its postcondition must ask the hub exactly one question.
+//
+// They used to ask two. onPremWorkersPresent matched `workload-location=on-prem`
+// and ignored readiness; the phase's own gate matched `hub-role=worker` and
+// required Ready=True. A registered-but-NotReady node therefore SATISFIED the
+// postcondition and FAILED the phase gate, so runPhase reported
+// "Skipped (already completed, postcondition holds)" over a cluster whose only
+// worker could schedule nothing -- the ADR-046 §11 failure the postcondition was
+// added to catch, walking straight through it.
+//
+// Pinned by source rather than behaviour because the defect is a second query
+// existing at all, which no amount of exercising one of them can show.
+func TestOnlyOneProbeAsksTheHubAboutOnPremCapacity(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Comments quote the selectors they explain, so strip them before searching
+	// or this test matches its own rationale.
+	var body strings.Builder
+	for _, line := range strings.Split(string(src), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
+	code := body.String()
+
+	if n := strings.Count(code, `"get", "nodes", "-l"`); n != 1 {
+		t.Errorf(`%d node-label queries in orchestrator.go, want exactly 1 (probeHubWorker).
+A second one is how the phase and its postcondition came to disagree.`, n)
+	}
+
+	// Both labels, together. Either one alone is a weaker claim than the
+	// placement rules the platform actually applies.
+	for _, label := range []string{"hub-role=worker", "workload-location=on-prem"} {
+		if !strings.Contains(hubWorkerSelector, label) {
+			t.Errorf("hubWorkerSelector %q does not require %q", hubWorkerSelector, label)
+		}
+	}
+}
+
+// A hub that cannot be asked must never be read as a node that needs rebuilding.
+//
+// Provisioning deletes the Node object and replaces the VM's disk from the base
+// image. readyHubWorker returned a bare false when kubectl itself failed, which
+// is indistinguishable from "no such node" -- so one unreachable API server, or a
+// kubeconfig naming a cluster that had just been pivoted, destroyed a node that
+// was serving and cost ten minutes rebuilding it.
+func TestAnUnreadableHubDoesNotTriggerAProvision(t *testing.T) {
+	o := &Orchestrator{Provider: NewCloudProvider(
+		&HybridDriver{Driver: &HetznerDriver{}, OnPremEnabled: true}, "acme-hub", false)}
+
+	got, name := o.probeHubWorker(t.Context(), "/nonexistent-kubeconfig")
+	if got != hubWorkerUnknown {
+		t.Errorf("probe of an unreadable hub = %v, want hubWorkerUnknown", got)
+	}
+	if name != "" {
+		t.Errorf("probe of an unreadable hub named %q", name)
+	}
+
+	// That the phase refuses is asserted at source, not by calling it: a
+	// regression here would shell out to provision-flatcar-worker.sh, and a test
+	// that rebuilds a workstation VM to prove it should not have is worse than
+	// the bug.
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func (o *Orchestrator) joinHomeWorkers"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	handled := strings.Index(fn, "case hubWorkerUnknown:")
+	provisions := strings.Index(fn, "resolveScriptPath")
+	if handled < 0 {
+		t.Fatal("joinHomeWorkers does not handle hubWorkerUnknown; an unreadable hub reads as a missing node")
+	}
+	if provisions < 0 || handled > provisions {
+		t.Error("joinHomeWorkers reaches the provisioning script before deciding whether the hub could be read")
+	}
+	if !strings.Contains(fn[handled:provisions], "return fmt.Errorf") {
+		t.Error("the hubWorkerUnknown branch does not refuse; provisioning is destructive and must not run on a guess")
+	}
+}
+
+// The roles gate must ask the database, not only the operator's memory.
+//
+// On 2026-09-15 platform-db's node-local volume was destroyed with the worker VM
+// and CNPG re-ran initdb against an empty disk. The hub-operator's
+// DatabaseRolesProvisioned condition still read True, stamped 10.5 hours earlier
+// against a database that no longer existed. This gate passed on it in ONE
+// SECOND and printed "✓ database roles provisioned", over a cluster in which
+// hub_zitadel did not exist -- and boundary 04 then waited for an identity
+// provider that could not authenticate, behind an operator that would never
+// re-provision the role because its own record said it already had.
+//
+// Source-level, because the defect is what the gate is willing to pass on. A
+// behavioural test would need a Postgres to be convincing, and the claim here is
+// narrower and exact: the condition alone must not be sufficient.
+func TestTheRolesGateDoesNotPassOnTheConditionAlone(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func (o *Orchestrator) awaitDatabaseRolesProvisioned"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	// Strip comments: they quote the condition they explain.
+	var code strings.Builder
+	for _, line := range strings.Split(fn, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	got := code.String()
+
+	if !strings.Contains(got, "missingDatabaseRoles") {
+		t.Error("awaitDatabaseRolesProvisioned never asks the database which roles exist; " +
+			"a stale DatabaseRolesProvisioned=True passes it")
+	}
+	// The success path must require the database's answer too, not just the
+	// condition. Both terms have to appear in the same return.
+	ret := strings.Index(got, "✓ database roles provisioned")
+	if ret < 0 {
+		t.Fatal("success path not found")
+	}
+	guard := got[:ret]
+	last := strings.LastIndex(guard, "if ")
+	if last < 0 || !strings.Contains(guard[last:], "len(missing) == 0") {
+		t.Error("the success path does not require the declared roles to actually exist")
+	}
+}
+
+// Infrastructure objects must be selected by the cluster they belong to.
+//
+// hubIngressAddress asked for `items[0]`, which is a position, not a cluster.
+// That was right only while the hub was the sole HetznerCluster in platform-capi
+// -- and every spoke pool the hub provisions adds one. On acme-hub the hub kept
+// winning only because `acme-hub-gmj6h` sorts before
+// `spoke-pool-hybrid-dev-01-n5r6z`. The hub Gateway would otherwise publish a
+// SPOKE's address for every hub hostname: DNS resolves, the port answers, and it
+// is the wrong cluster.
+func TestInfrastructureIsSelectedByClusterNotByPosition(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	fn := body[strings.Index(body, "func (o *Orchestrator) hubIngressAddress"):]
+	fn = fn[:strings.Index(fn, "\nfunc ")]
+
+	if strings.Contains(fn, "items[0]") {
+		t.Error("hubIngressAddress selects a HetznerCluster by position; " +
+			"spoke pools share that namespace, so position is not identity")
+	}
+	if !strings.Contains(fn, "cluster.x-k8s.io/cluster-name") {
+		t.Error("hubIngressAddress does not select by the CAPI cluster-name label")
+	}
+	if !strings.Contains(fn, "o.ClusterName") {
+		t.Error("hubIngressAddress does not scope its lookup to THIS cluster")
 	}
 }

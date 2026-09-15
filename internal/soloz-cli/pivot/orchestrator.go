@@ -171,7 +171,7 @@ func (o *Orchestrator) WaitForReady(ctx context.Context, mgmtKubeconfig string) 
 	}
 
 	// Wait for providers ready on Management Cluster
-	if err := o.waitForProvidersReady(ctx, mgmtKubeconfig, 5*time.Minute); err != nil {
+	if err := o.waitForProvidersReady(ctx, mgmtKubeconfig, 20*time.Minute); err != nil {
 		return fmt.Errorf("providers not ready after pivot: %w", err)
 	}
 

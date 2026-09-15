@@ -43,6 +43,21 @@ func (o *Orchestrator) phasePostconditions(kubeconfig string) map[state.Bootstra
 		state.PhaseBoundary04: func(ctx context.Context) error {
 			return o.zitadelServing(ctx, kubeconfig)
 		},
+
+		// PivotReady stages the tailnet credential on the hub, because
+		// `clusterctl move` does not carry a plain Secret across the pivot.
+		// Boxes built before it did that recorded this phase complete anyway, and
+		// their hub-operator logs "Source secret not found, skipping" for ever.
+		state.PhasePivotReady: func(ctx context.Context) error {
+			return o.tailnetCredentialStagedOnHub(ctx, kubeconfig)
+		},
+
+		// A box that asked for on-prem nodes and has none did not complete this
+		// phase, whatever the record says -- most often because it was recorded by
+		// a run under a different provider, where "no home workers" was correct.
+		state.PhaseOnPremJoin: func(ctx context.Context) error {
+			return o.onPremWorkersPresent(ctx, kubeconfig)
+		},
 	}
 }
 
