@@ -72,13 +72,13 @@ def main():
                     )
 
     if failures:
-        print("  ❌ PowerShell payload quoting")
+        print("BAD\tPowerShell payload quoting")
         for f in failures:
-            print(f"      {f}")
-        print("      Move prose into bash comments above the payload; inside it use")
-        print("      PowerShell single quotes only.")
+            print(f"BAD\t  {f}")
+        print("BAD\t  Move prose into bash comments above the payload; inside it use")
+        print("BAD\t  PowerShell single quotes only.")
         return 1
-    print(f"  ✅ {checked} PowerShell payload(s): no unescaped quotes or backticks")
+    print(f"OK\t{checked} PowerShell payload(s): no unescaped quotes or backticks")
     return 0
 
 

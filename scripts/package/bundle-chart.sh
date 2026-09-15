@@ -33,12 +33,52 @@ done
 mkdir -p "$CHART/values"
 cp manifests/hub-core-services/identity/zitadel/values.yaml "$CHART/values/zitadel.yaml"
 
-python3 - "$CHART/Chart.yaml" "$VERSION" <<'PY'
+# Provenance: which source produced this artefact.
+#
+# Without it a published bundle records its own version and nothing else, so
+# "what is in 0.1.16-rc.29?" has no answer that does not depend on someone
+# remembering. Both callers build from a WORKING TREE -- the release workflow
+# from a checkout, a developer from whatever is on their laptop -- and a bundle
+# built from uncommitted edits is untraceable by construction: it is in a
+# registry, tenants can pull it, and no commit corresponds to it.
+#
+# Recorded rather than enforced. Refusing to publish from a dirty tree would
+# break the local release path this script exists to support (the whole point of
+# testing a release before committing it), so the dirty state is stamped instead
+# and shows up wherever the chart is inspected.
+GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+GIT_DIRTY=false
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    GIT_DIRTY=true
+fi
+GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+if [ "$GIT_DIRTY" = true ]; then
+    echo "platform-bundle: WARNING -- built from a dirty working tree." >&2
+    echo "  The artefact records commit ${GIT_SHA} plus uncommitted changes that" >&2
+    echo "  nothing else captures. Fine for a local release test; commit before" >&2
+    echo "  publishing a version anyone else will consume." >&2
+fi
+
+python3 - "$CHART/Chart.yaml" "$VERSION" "$GIT_SHA" "$GIT_DIRTY" "$GIT_BRANCH" "$BUILT_AT" <<'PY'
 import sys, re, pathlib
-p, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+p, version, sha, dirty, branch, built = (pathlib.Path(sys.argv[1]),) + tuple(sys.argv[2:7])
 t = p.read_text()
 t = re.sub(r"(?m)^version:.*$", f"version: {version}", t)
 t = re.sub(r"(?m)^appVersion:.*$", f'appVersion: "{version}"', t)
+
+# Annotations, not new top-level keys: Helm rejects fields it does not know, and
+# annotations are the documented place for metadata of this kind.
+t = re.sub(r"(?ms)^annotations:\n(?:[ \t]+.*\n?)*", "", t)
+t = t.rstrip("\n") + "\n"
+t += (
+    "annotations:\n"
+    + f'  zero-ops.io/source-commit: "{sha}"\n'
+    + f'  zero-ops.io/source-dirty: "{dirty}"\n'
+    + f'  zero-ops.io/source-branch: "{branch}"\n'
+    + f'  zero-ops.io/built-at: "{built}"\n'
+)
 p.write_text(t)
 PY
 
