@@ -91,6 +91,93 @@ ADR-047's rejection is retained and its ground is replaced. The original reason 
 
 `workloads.gitRepo` is therefore withdrawn rather than honoured. `workloads.gitPath` and `workloads.gitRevision` are withdrawn with it: a version identifies the content, and a path into a repository identifies only where a copy of it was put.
 
+### The shape of the two halves
+
+This is the contract every workload follows. It is written as a shape rather
+than as an example because it applies to every service in every fleet: a tenant
+adding its fifth application repeats it, and a second tenant onboarded later
+receives the same one.
+
+```
+<application repo>/packages/<service>/
+  Dockerfile
+  charts/<service>/            the chart, versioned with the build
+    Chart.yaml
+    values.yaml
+    templates/
+
+        published ──────►  oci://ghcr.io/<tenant-org>/charts
+                              <service>:<version>-rc.<shortSha>
+                                    │  a version string, and nothing else
+                                    ▼
+<tenant>-gitops/environments/<environment>/<fleet>/workloads/<service>/
+  Chart.yaml                   one dependency, at a version
+  values.yaml                  what this environment runs it with
+```
+
+**`Chart.yaml` in the application repository** carries two versions that mean
+different things. `version` is the chart's own, which CI republishes as
+`<version>-rc.<shortSha>` so two builds of one commit are one artefact and two
+commits are never one. `appVersion` is the image tag, stamped by CI with the
+commit it built.
+
+It ships as `appVersion: "placeholder"`, which never runs: a build that fails to
+stamp it produces a chart whose image does not exist, and fails visibly rather
+than deploying something else.
+
+**`templates/`** holds the objects of the workload class the service belongs to.
+The class fixes the set: a stateless web service renders a `Rollout` (canary
+delivery is the platform's contract under ADR-022, so not a Deployment), a
+`Service`, a `ServiceAccount`, and a `CiliumNetworkPolicy` carrying default-deny
+egress with an explicit allowlist. A class with different objects renders those
+instead; what does not vary is that the class decides, not the service.
+
+Three properties of those templates are contracts rather than style, because each
+has a failure that is silent when it is got wrong:
+
+- **Object names reproduce what the mechanism being replaced produced** --
+  `<service>-workload`, `<service>-workload-sa`,
+  `<service>-strict-egress-contract` for the stateless-web class. Matching names
+  make a migration replace objects in place; different ones stand a second set
+  beside the running one, and both then serve.
+- **The selector labels are fixed.** A Rollout's selector is immutable, so
+  changing `app` or `workload-class` orphans the running ReplicaSets rather than
+  updating them.
+- **The hardening is not the tenant's to weaken.** securityContext, topology
+  spread, resource limits and probes are platform invariants that Kyverno
+  enforces at admission. Values may raise a limit; removing one produces a
+  rejected object, not a degraded workload.
+
+**`values.yaml` in the application repository** holds what the application asks
+for when nothing overrides it. Secret material arrives by reference and never by
+value -- the file is committed, and a literal is a credential in git (ADR-003).
+Platform-owned values are read from where the platform publishes them rather than
+restated here, because a restated value is a second copy free to drift from the
+first. That is not hypothetical: an identity endpoint copied into a workload's
+configuration kept its old value when the platform moved the endpoint, and the
+result was a fleet where authentication appeared to succeed and every
+authenticated call then failed.
+
+**`values.yaml` in the GitOps repository** is keyed by the dependency name,
+because Helm nests a subchart's values under it. A build never writes this file.
+
+### Migrating a workload is verified by rendering, not by inspection
+
+A service moves to this mechanism when its chart renders what the mechanism it
+replaces rendered. Render both, and compare them per object and per field -- a
+text diff reports key ordering as a difference and buries the one that matters.
+
+One difference is expected, and it is the image: a digest written by a build into
+a platform-owned repository becomes a tag resolved inside the chart. Any other
+difference is a porting error.
+
+That trade has a cost worth stating, because it is a reduction. A digest cannot
+be repointed at different content and a tag can, so the tag must be the commit --
+a value the build already produces and never reuses. A chart pinning a branch
+name or a floating tag would give away an immutability guarantee the fleet
+already had, and this decision would have made the platform worse at the thing it
+was changing.
+
 ### Contention is removed rather than retried
 
 Per-tenant repositories end contention between tenants; version pinning and per-application charts end most of what remains within one. A build changes one line in one file, and that file is written by no other application's build.
@@ -161,6 +248,8 @@ A directory and an Application per application is more objects than one per flee
 
 ## References
 
+- ADR-021: Boundary-Driven GitOps and Day-0 Choreography
+- ADR-022: Stable But Not Ready Application Semantics
 - ADR-027: GitOps Workload Separation and Remote Bases
 - ADR-039: Platform Ownership Model
 - ADR-047: Fleet Tenant Deployment Contract
