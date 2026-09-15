@@ -1,12 +1,17 @@
 # What one fleet is, in one environment.
 #
-# Copy to environments/<ENVIRONMENT>/<fleet>/values.yaml. A fleet is a deployment
+# Copy to environments/<ENVIRONMENT>/values.yaml. A fleet is a deployment
 # boundary that gets its own namespace, quota and public hostnames (ADR-047 as
 # amended by ADR-062). Your box may hold several.
 #
-# Boundaries 05 and 06 glob environments/*/*/values.yaml, so this file existing is
-# what makes the fleet real. Its sibling workloads/ directory says what runs in
-# it; see templates/workload/.
+# Boundaries 05 and 06 glob environments/*/values.yaml, so this file existing is
+# what makes the fleet real. Every DIRECTORY beside it is an application and is
+# generated as one; see templates/workload/. A per-fleet concern therefore belongs
+# in this file or in another file, never in a sibling directory.
+#
+# One fleet per environment: the environment directory IS the boundary, following
+# kubefirst's shape (ADR-073). A second fleet in the same environment has nowhere
+# to go until a discriminator is added back.
 #
 # This file is yours. The platform never writes it.
 

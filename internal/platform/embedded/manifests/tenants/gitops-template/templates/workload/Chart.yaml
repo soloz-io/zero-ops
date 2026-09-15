@@ -1,6 +1,6 @@
 # What ONE application runs, in one environment.
 #
-# Copy this to environments/<ENVIRONMENT>/<fleet>/workloads/<APPLICATION>/Chart.yaml
+# Copy this to environments/<ENVIRONMENT>/<APPLICATION>/Chart.yaml
 # -- one directory per application, each with one dependency. Not one file listing
 # every application: that way every build of every application edits the same
 # file, which is the contention this arrangement exists to remove, and it

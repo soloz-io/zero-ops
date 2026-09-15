@@ -41,9 +41,22 @@ What reaches the tenant's repository is a version string. No image digest, no ku
 
 ### One chart per application
 
-The tenant's repository holds `environments/<environment>/<tenant>/workloads/<application>/Chart.yaml` — a directory per application, whose umbrella chart declares exactly one dependency.
+The path is kubefirst's, deliberately: `environments/<environment>/<application>/`,
+two levels, with the cluster and the namespace carried by the generated
+Application rather than by the path. Their `registry/` prefix is dropped because
+this repository's root holds only reconciled content, so it would namespace
+against nothing.
 
-Not one chart per fleet listing every application as a dependency. That arrangement was written here first and does not work: every build of every application edits one file, which is the contention this decision claims to remove and would not have. It also collapses a tenant's applications into a single Application, so they share a sync, a health state and a blast radius — one unresolvable chart version leaves every other workload in the tenant unreconciled, and ArgoCD reports the whole set degraded without naming which member caused it.
+That makes an environment directory the deployment boundary -- one fleet per
+environment. A box holding two fleets in one environment has nowhere to put the
+second, and ADR-047 permits one. Accepted as a starting point rather than
+overlooked: the discriminator can be added when a second fleet exists, and adding
+a path segment later is a move, whereas carrying one nothing uses is a cost paid
+on every workload from the start.
+
+The tenant's repository holds `environments/<environment>/<application>/Chart.yaml` — a directory per application, whose umbrella chart declares exactly one dependency.
+
+Not one chart for the whole fleet listing every application as a dependency. That arrangement was written here first and does not work: every build of every application edits one file, which is the contention this decision claims to remove and would not have. It also collapses a tenant's applications into a single Application, so they share a sync, a health state and a blast radius — one unresolvable chart version leaves every other workload in the tenant unreconciled, and ArgoCD reports the whole set degraded without naming which member caused it.
 
 Per-application directories give each workload its own Application, its own health, and a rollback that touches one line in one file that no other build writes. Taken from kubefirst, whose `registry/environments/<env>/<app>/Chart.yaml` has this shape for these reasons.
 
@@ -53,19 +66,59 @@ A build publishes a chart. A deployment pins a published version into one enviro
 
 Collapsing them into "the build's last step is a commit" — as an earlier draft of this decision did — makes every build a deployment to whatever environment the build happens to target, and leaves promotion undescribed. Separating them makes promotion the same step run again with the same version and a different environment, which is what makes "the artefact that was tested is the artefact that ships" a property of the mechanism rather than a convention. ADR-064's promotion-is-a-proposal rule governs which environments require a pull request to make that change; it does not change what is being changed.
 
-### Charts are published to the tenant's OCI registry
+### Charts are published to the tenant's OCI registry, privately
 
-A workload chart is published to `oci://ghcr.io/<tenant-org>/charts`, in the git organisation that already holds the tenant's repositories.
+A workload chart is published to `oci://ghcr.io/<tenant-org>/charts`, in the git
+organisation that already holds the tenant's repositories, and it is **private**.
 
-This settles a question an earlier draft left open per tenant, and settles it for the same reason the rest of this ADR exists: an unanswered question in a delivery path is answered differently by every tenant that meets it, and the platform then supports every answer.
+The organisation is already the tenant's. ADR-062 creates the tenant's
+repositories there and ADR-065 makes writes to them the tenant acting rather than
+the platform acting, so a chart published beside them needs no new custody
+argument. It is also the mechanism already in use rather than a second one:
+ADR-063 publishes the bundle as OCI artefacts, so the authentication, tooling and
+failure modes are ones the platform already has.
 
-The organisation is already the tenant's. ADR-062 creates the tenant's repositories there and ADR-065 makes writes to them the tenant acting rather than the platform acting, so a chart published beside them needs no new custody argument and no new credential — the same installation that writes the version publishes the chart.
+**A tenant is never asked to publish its applications publicly.** That is not a
+preference. A workload chart carries the shape of a tenant's system -- its
+services, their ports, the secrets they consume by name, the hosts they reach --
+and a platform that made reading it a precondition of deploying it would be
+extracting a disclosure in exchange for a delivery mechanism.
 
-It is also the mechanism already in use rather than a second one. ADR-063 publishes the bundle as OCI artefacts to a registry of this kind, so the authentication, the tooling and the failure modes are ones the platform already has. A tenant reading this runs one kind of artefact store, not two.
+So the box holds a read credential for the registry, delivered as an ArgoCD
+`repo-creds` entry beside the one it already holds for git
+(`manifests/hub-core-services/argocd-github-auth`). `repo-creds` matches by URL
+prefix, so one organisation-scoped entry covers every chart the tenant publishes;
+a `repository` entry matches one exact URL and would need a new Secret for every
+workload added.
 
-**An in-cluster chart registry is rejected.** It is a stateful component in every box, with charts to persist, back up and restore, added to a platform whose maintenance burden is the thing being sold. Its one real advantage — that a registry sharing a failure domain with its cluster cannot fail independently of it — does not apply here: ArgoCD runs on the hub and every spoke deployment already depends on the hub being reachable, so an in-box registry removes no dependency that deployment does not already have. It would buy a failure domain that is already shared, and pay for it with a second artefact store to operate.
+The credential is a real cost and is stated as one: a secret in the cluster that
+can leak and must be rotated. It is the smaller of the two costs available,
+because it introduces no new KIND of secret. The tenant's CI already holds this
+token to push the image the chart references; this is the same token, scoped to
+read, held by the repo-server instead.
 
-`ghcr.io` is named because it is where the platform already publishes and where a tenant scaffolded by ADR-062 already has an organisation. A tenant whose git organisation is elsewhere publishes to that provider's OCI registry instead; what is settled is that it is an OCI registry in the tenant's own organisation, not which vendor hosts it.
+**An in-cluster chart registry is the alternative, and it is not unreasonable.**
+It is what kubefirst does, and its advantage is exactly the cost above: with
+`AUTH_ANONYMOUS_GET` and a cluster-local address, reads never cross a trust
+boundary, so no read credential exists to leak or rotate, and the charts stay
+private because the registry is unreachable from outside. Writes authenticate;
+reads do not need to.
+
+It is rejected here on maintenance rather than on privacy. It is a stateful
+component in every box -- charts to persist, back up and restore, plus the object
+storage kubefirst points it at -- added to a platform whose maintenance burden is
+the thing being sold. Their customer operates its own management cluster, so a
+component in it is a component that customer runs; here it is one the platform
+maintains across the field.
+
+That reasoning should be revisited if the read credential proves to be the
+harder thing to operate. This is a judgement about which cost is smaller, not a
+finding that the alternative is wrong.
+
+`ghcr.io` is named because it is where the platform already publishes and where a
+tenant scaffolded by ADR-062 already has an organisation. A tenant whose git
+organisation is elsewhere publishes to that provider's OCI registry; what is
+settled is that it is a private OCI registry in the tenant's own organisation.
 
 ### A pinned version is present and wrong, never absent
 
@@ -110,7 +163,7 @@ receives the same one.
                               <service>:<version>-rc.<shortSha>
                                     │  a version string, and nothing else
                                     ▼
-<tenant>-gitops/environments/<environment>/<fleet>/workloads/<service>/
+<tenant>-gitops/environments/<environment>/<service>/
   Chart.yaml                   one dependency, at a version
   values.yaml                  what this environment runs it with
 ```
@@ -196,7 +249,9 @@ The retry loop stays, because two builds of the same application still race, but
 
 **Publish workload charts to the platform's own registry.** Rejected. It is simpler by one line and it makes the platform a runtime dependency of the tenant's own applications — a heavier claim than it appears, and one ADR-065 spends the rest of its argument avoiding. A tenant's application should not stop deploying because the platform's registry is unavailable.
 
-**Run a chart registry inside the box.** Rejected, with the reasoning in the decision above. It is kubefirst's answer and it is right there: their customer operates its own management cluster and a component in it is a component that customer runs. Here it is a component the platform maintains in every box, and the failure-domain advantage that justifies it is already provided by the hub.
+**Publish the charts publicly, so no read credential is needed.** Rejected. It is the cheapest arrangement to operate and it charges the tenant for the saving in disclosure: the chart describes the tenant's services, ports, hostnames and the secrets they consume by name. A delivery mechanism must not require publishing that.
+
+**Run a chart registry inside the box.** Rejected on maintenance, not on privacy -- see the decision above, which records that it solves the privacy problem better than the credential does. It is kubefirst's answer and it is right there: their customer operates its own management cluster, so a component in it is a component that customer runs.
 
 ## Ownership
 

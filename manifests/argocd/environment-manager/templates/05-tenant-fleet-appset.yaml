@@ -4,11 +4,11 @@
 # Reconciles the three tenant lifecycle resources for each fleet:
 #   {fleetId}-xr       → AINativeSaaS XR on the Hub (Crossplane data plane)
 #   {fleetId}-spoke    → namespace + Tier-2 platform-rendered capabilities on the spoke
-#   tenant-{fleetId}-workloads → fleet workload app (Tier 3) on the spoke
+#   tenant-{fleetId}-{env}-{app} → one app per fleet workload (Tier 3) on the spoke
 # Fleet values are read from this box's own instance repository (ADR-062) at
-# environments/<env>/<fleet>/values.yaml. Which repository that is comes from Day-0,
+# environments/<env>/values.yaml. Which repository that is comes from Day-0,
 # never from a default: see _instance-repo.tpl.
-# The env slug is derived from the matched path: environments/<env>/<fleet>/,
+# The env slug is derived from the matched path: environments/<env>/,
 # so the environment is segment 1. Env-first keeps every fleet in one
 # environment together, which is the axis promotion moves along (ADR-037).
 
@@ -39,7 +39,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'environments/*/*/values.yaml'
+                - path: 'environments/*/values.yaml'
 
           - clusters:
               selector:
@@ -144,7 +144,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'environments/*/*/values.yaml'
+                - path: 'environments/*/values.yaml'
 
           - clusters:
               selector:
@@ -256,7 +256,7 @@ spec:
 # state, no image digest and no overlay is written here by a build.
 #
 # ONE APPLICATION PER APPLICATION, not one per fleet. A single Application over
-# the whole workloads directory gives a tenant's applications one sync, one
+# the whole fleet directory gives a tenant's applications one sync, one
 # health state and one blast radius: an unresolvable chart version in any of them
 # leaves every other workload unreconciled, and ArgoCD reports the set degraded
 # without naming which member caused it. It also puts every application's build
@@ -291,7 +291,7 @@ spec:
                     repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
                     revision: main
                     files:
-                      - path: 'environments/*/*/values.yaml'
+                      - path: 'environments/*/values.yaml'
 
                 # One entry per application directory under that fleet. A
                 # directory generator rather than a files generator over
@@ -299,11 +299,17 @@ spec:
                 # that is the directory. Reading the chart would also make every
                 # Application re-generate whenever a version changed, which is
                 # the thing builds change most often.
+                #
+                # The glob is every directory beside the environment's
+                # values.yaml, which is a file and so never matches. Anything
+                # added here as a DIRECTORY is generated as an application, so a
+                # future per-environment concern belongs in values.yaml or in
+                # another file, never in a sibling directory.
                 - git:
                     repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
                     revision: main
                     directories:
-                      - path: 'environments/{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}/{{"{{"}} .tenantId {{"}}"}}/workloads/*'
+                      - path: '{{"{{"}} .path.path {{"}}"}}/*'
 
           - clusters:
               selector:
@@ -312,9 +318,9 @@ spec:
 
   template:
     metadata:
-      # .path is now the APPLICATION directory (environments/<env>/<fleet>/
-      # workloads/<app>), so the environment is its third segment and .path.basename
-      # is the application.
+      # .path is now the APPLICATION directory (environments/<env>/<app>), so the
+      # environment is still its second segment and .path.basename is the
+      # application.
       name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .path.basename {{"}}"}}'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'

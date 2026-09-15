@@ -9,3 +9,12 @@
   fields:
     - path: [spec, target, template, data, url]
       value: '{{ .Values.global.gitOrgURL }}'
+
+# The OCI registry this box's ArgoCD reads workload charts from. Same reasoning
+# as the git organisation above: a literal ships the platform's registry to every
+# tenant, and the box then holds a credential for charts it never reads.
+- kind: ExternalSecret
+  name: argocd-chart-registry-creds
+  fields:
+    - path: [spec, target, template, data, url]
+      value: '{{ .Values.global.chartRegistryURL }}'

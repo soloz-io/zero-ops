@@ -48,12 +48,28 @@ owner id, which must be unique per box.
 {{- end -}}
 {{- end -}}
 
+{{/*
+The OCI registry holding this box's workload charts.
+Derived from the git organisation rather than configured separately: a tenant
+publishes its charts beside its repositories, and two settings that must agree
+are two settings that can disagree (ADR-073).
+
+No scheme. ArgoCD strips oci:// when it normalises a repository URL, so a
+credential recorded with one matches nothing and fails as a 401 on a chart that
+is certainly present.
+*/}}
+{{- define "environment-manager.chartRegistryURL" -}}
+{{- $org := last (splitList "/" (include "environment-manager.gitOrgURL" .)) -}}
+{{- printf "ghcr.io/%s" $org -}}
+{{- end -}}
+
 {{- define "environment-manager.globalValues" -}}
 global:
   environmentSlug: {{ .Values.environmentSlug | quote }}
   provider: {{ .Values.provider | quote }}
   hubDomain: {{ include "environment-manager.hubDomain" . | quote }}
   gitOrgURL: {{ include "environment-manager.gitOrgURL" . | quote }}
+  chartRegistryURL: {{ include "environment-manager.chartRegistryURL" . | quote }}
   dns:
     {{- /* The DNS SERVICE this box's zone lives in -- a platform-level choice,
            not external-dns's --provider flag. "hetzner" means Hetzner DNS,

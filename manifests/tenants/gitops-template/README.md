@@ -8,8 +8,8 @@ everything it describes.
 
     clusters/<name>/bundle.yaml              the platform version this cluster runs
     clusters/<name>/values.yaml              your configuration for it
-    environments/<env>/<fleet>/values.yaml   what this fleet is: cell, quotas, hostnames
-    environments/<env>/<fleet>/workloads/    the versions of your applications it runs
+    environments/<env>/values.yaml           what this fleet is: cell, quotas, hostnames
+    environments/<env>/<app>/                the version of one application it runs
     templates/spoke-cluster/                 render this to add a cluster
     templates/fleet/                         render this to add a fleet
     templates/workload/                      render this to run an application
@@ -36,11 +36,11 @@ Your control plane provisions it.
 ## Running an application
 
 A fleet first: copy `templates/fleet/values.yaml` to
-`environments/<env>/<fleet>/values.yaml` and fill in the fleet's id, its cell, and its
+`environments/<env>/values.yaml` and fill in the fleet's id, its cell, and its
 quota. That file existing is what makes the fleet real -- your control plane globs
 for it -- and it gets the fleet a namespace, a quota and its hostnames.
 
-Then copy `templates/workload/` to `environments/<env>/<fleet>/workloads/` and add one
+Then copy `templates/workload/` to `environments/<env>/<app>/` and add one
 dependency per application.
 
 Your application's own repository holds its source and its Helm chart, builds it,

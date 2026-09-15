@@ -25,7 +25,7 @@
 # platform-ops on the fleet's owning spoke, via the tenant-public-tls chart.
 #
 # Ownership chain (each link exactly once):
-#   instance repo environments/<env>/<fleet>/values.yaml public.hosts = intent
+#   instance repo environments/<env>/values.yaml public.hosts = intent
 #   environment bootstrap publicTlsIssuer                  = issuer policy
 #   this ApplicationSet                                    = fan-out + rendering
 #   cert-manager                                           = certificate lifecycle
@@ -65,7 +65,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'environments/*/*/values.yaml'
+                - path: 'environments/*/values.yaml'
 
           - clusters:
               selector:
