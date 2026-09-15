@@ -250,10 +250,17 @@ spec:
 ---
 # ApplicationSet for fleet application workloads (Tier 3).
 # ADR-073: a workload is published as a versioned chart and consumed by this
-# repository naming that version. The path below holds a Chart.yaml declaring
-# those versions as dependencies, and a values.yaml -- the same shape kubefirst
-# renders at registry/environments/<env>/<app>/. No rendered workload state, no
-# image digest and no overlay is written here by a build.
+# repository naming that version. Each application directory holds a Chart.yaml
+# declaring one dependency at a version, and a values.yaml -- the same shape
+# kubefirst renders at registry/environments/<env>/<app>/. No rendered workload
+# state, no image digest and no overlay is written here by a build.
+#
+# ONE APPLICATION PER APPLICATION, not one per fleet. A single Application over
+# the whole workloads directory gives a tenant's applications one sync, one
+# health state and one blast radius: an unresolvable chart version in any of them
+# leaves every other workload unreconciled, and ArgoCD reports the set degraded
+# without naming which member caused it. It also puts every application's build
+# on one Chart.yaml, which is the contention ADR-073 exists to remove.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -268,13 +275,35 @@ spec:
   generators:
     # Matrix: only generate an application when BOTH the fleet values file
     # exists in the instance repository AND the target spoke cluster is registered.
+    #
+    # Nested, because three facts are needed and a matrix takes two children. The
+    # inner matrix pairs each fleet with each of its application directories; the
+    # outer pairs that with the spoke the fleet's cellId selects. cellId is a
+    # property of the fleet and the application name is a property of the
+    # directory, so neither generator can supply both.
     - matrix:
         generators:
-          - git:
-              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
-              revision: main
-              files:
-                - path: 'environments/*/*/values.yaml'
+          - matrix:
+              generators:
+                # One entry per fleet per environment. Supplies tenantId and
+                # cellId, and its path supplies the environment.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    files:
+                      - path: 'environments/*/*/values.yaml'
+
+                # One entry per application directory under that fleet. A
+                # directory generator rather than a files generator over
+                # Chart.yaml: what is needed here is the application's name, and
+                # that is the directory. Reading the chart would also make every
+                # Application re-generate whenever a version changed, which is
+                # the thing builds change most often.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    directories:
+                      - path: 'environments/{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}/{{"{{"}} .tenantId {{"}}"}}/workloads/*'
 
           - clusters:
               selector:
@@ -283,10 +312,14 @@ spec:
 
   template:
     metadata:
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-workloads'
+      # .path is now the APPLICATION directory (environments/<env>/<fleet>/
+      # workloads/<app>), so the environment is its third segment and .path.basename
+      # is the application.
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .path.basename {{"}}"}}'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
+        workload: '{{"{{"}} .path.basename {{"}}"}}'
         resource-type: workload
         target-cluster: '{{"{{"}} .name {{"}}"}}'
 
@@ -310,7 +343,7 @@ spec:
         # versions, in the Chart.yaml that path holds.
         - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
-          path: 'environments/{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}/{{"{{"}} .tenantId {{"}}"}}/workloads'
+          path: '{{"{{"}} .path.path {{"}}"}}'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
