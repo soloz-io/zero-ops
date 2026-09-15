@@ -110,8 +110,20 @@ placement:
 # ownerId keys the TXT records external-dns uses to decide which records are ITS
 # to manage -- and `--policy=sync` means it deletes the ones it believes it owns.
 # Two boxes sharing an ownerId against one zone will therefore delete each
-# other's records. Defaults to the cluster name, which is unique per box; there
-# is no reason to set it, and a reason not to.
+# other's records.
+#
+# Scaffolding pins this per box (see the tenant template's values.yaml). Left
+# empty it falls back to `clusterName | default "<environmentSlug>-<provider>"`,
+# and an earlier version of this comment called that "the cluster name, which is
+# unique per box". It is neither: on the platform's own box the fallback yields
+# `dev-hybrid` while the cluster is named `acme-hub`, and every dev+hybrid box
+# would share it.
+#
+# The mutability is what does the damage. `provider` is tenant-configurable, so
+# changing it re-keys every record the box has published, and external-dns
+# neither adopts nor deletes a record it does not own -- it ignores it, with
+# nothing logged. The hostname keeps resolving to wherever it last pointed. The
+# only repair is deleting the orphaned records from the zone by hand.
 dns:
   provider: hetzner
   ownerId: ""

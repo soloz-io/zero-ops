@@ -105,10 +105,26 @@ placement:
 # ownerId keys the TXT records external-dns uses to decide which records are ITS
 # to manage, and `--policy=sync` means it deletes the ones it believes it owns.
 # Two boxes sharing an ownerId against one zone delete each other's records.
-# Defaults to this cluster's name, which is unique; there is no reason to set it.
+#
+# WRITTEN ONCE, HERE, AND NEVER CHANGED. It is pinned at scaffolding rather than
+# left empty for the chart to derive, because what the chart derived was
+# `clusterName | default "<environmentSlug>-<provider>"` -- and `provider` is a
+# value you are allowed to change. Changing it re-keys every record this box has
+# published, and external-dns does not adopt, update or delete a record whose
+# owner does not match: it ignores it, silently, with nothing in its logs. The
+# hostname keeps resolving to wherever it last pointed, forever.
+#
+# That is not hypothetical. dashboard.dev.nutgraf.in on the platform's own box
+# spent weeks resolving to a decommissioned address because its records were
+# written under an earlier owner id and no later box could claim them. Nothing
+# reported it until a public-endpoint probe tried to open a connection.
+#
+# So: if you ever do change this, the old records are orphaned and must be
+# deleted from the zone by hand before the new owner can publish them. There is
+# no in-cluster fix once it has happened.
 dns:
   provider: hetzner
-  ownerId: ""
+  ownerId: "<CLUSTER_NAME>"
 
 # Capability selection (ADR-066). "A tenant runs what it needs and does not carry
 # the rest."

@@ -16,7 +16,15 @@
     # believes it owns, so two boxes sharing an owner id against one zone delete
     # each other's records. It was the literal `hub-hybrid-dev` on every box --
     # the spoke catalogue already templates its equivalent and its own comment
-    # says why. Defaults to the cluster name, which is unique per box.
+    # says why.
+    #
+    # The records that literal wrote are still in the zone. Templating changed
+    # what this box calls itself, and external-dns silently disowns -- never
+    # adopts or deletes -- every record keyed to the previous name. That is why
+    # dashboard.dev.nutgraf.in still resolves to a decommissioned address. Fixing
+    # it means deleting those records from the zone by hand; nothing in the
+    # cluster can. Scaffolding now pins ownerId per box so the value cannot be
+    # re-derived out from under records that already exist.
     - {replaceAll: {from: hub-hybrid-dev, with: '{{ .Values.global.dns.ownerId }}'}}
     # The DNS service that holds the zone.
     #

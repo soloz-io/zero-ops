@@ -34,6 +34,20 @@ _body() { sed '$d' <<< "$1"; }
 _json_field() { python3 -c "import json,sys; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null; }
 _field() { awk -F'|' -v n="$2" '{gsub(/^[ \t]+|[ \t]+$/,"",$n); print $n}' <<< "$1"; }
 
+# _dns_owner NAME -> the external-dns owner id recorded for a hostname, or "".
+#
+# external-dns records ownership in a TXT sibling of every record it manages
+# (--txt-prefix=extdns-). It is published DNS, so this needs no provider
+# credential and no cluster access -- which matters, because the failure it
+# catches outlives the box that caused it.
+_dns_owner() {
+    local h="$1" txt
+    for txt in "extdns-$h" "extdns-a-$h"; do
+        dig +short +time=3 +tries=1 TXT "$txt" 2>/dev/null \
+            | tr -d '"' | grep -oE 'external-dns/owner=[^,]+' | cut -d= -f2 | head -1
+    done | head -1
+}
+
 validate_public_api_endpoints() {
     section "Public endpoints answer over their published hostnames"
 
@@ -41,7 +55,10 @@ validate_public_api_endpoints() {
     local apex="${zone#*.}"
     [[ "$zone" != *.*.* ]] && apex="$zone"
 
-    local row host path expect plaintext label url code seen_hosts=""
+    local row host path expect plaintext label url code resolved tls_out seen_hosts=""
+    local owner_id record_owner
+    owner_id="$(kc -n platform-edge get deploy external-dns -o jsonpath='{.spec.template.spec.containers[0].args}' \
+        | tr ',' '\n' | grep -oE '\-\-txt-owner-id=[^"]+' | cut -d= -f2 | head -1)"
     for row in "${PUBLIC_ENDPOINTS[@]}"; do
         host=$(_field "$row" 1); path=$(_field "$row" 2)
         expect=$(_field "$row" 3); plaintext=$(_field "$row" 4); label=$(_field "$row" 5)
@@ -53,15 +70,52 @@ validate_public_api_endpoints() {
         if [[ " $seen_hosts " != *" $host "* ]]; then
             seen_hosts="$seen_hosts $host"
 
-            if [[ -z "$(dig +short +time=3 +tries=1 "$host" 2>/dev/null | head -1)" ]]; then
+            resolved="$(dig +short +time=3 +tries=1 "$host" 2>/dev/null | tail -1)"
+            if [[ -z "$resolved" ]]; then
                 hard_fail "$label: $host does not resolve — external-dns has not published its record"
+                continue
+            fi
+
+            # Reachability and certificate validity are separate faults, and
+            # reporting them as one cost an afternoon on 2026-09-15:
+            # dashboard.dev.nutgraf.in resolved to a decommissioned address left
+            # behind by a previous box, nothing answered there, and this check
+            # said "the ACME certificate is missing, expired, or does not cover
+            # this name". The certificate was a valid wildcard covering the name,
+            # issued and served correctly on the address the record SHOULD have
+            # named. So connect first and only then verify: a record pointing
+            # somewhere dead must not read as a cert-manager fault.
+            #
+            # openssl prints CONNECTED(...) the moment TCP is established, before
+            # any handshake, which is exactly the boundary between the two. The
+            # timeout is here because s_client's own -timeout applies to DTLS
+            # only and a black-holed address otherwise hangs the whole module.
+            # Ownership BEFORE reachability, because it explains reachability.
+            # external-dns will not adopt, update or delete a record whose owner
+            # id is not its own -- it ignores it and logs nothing -- so a record
+            # left by an earlier box pins the hostname to whatever it last
+            # resolved to, permanently. Checked here rather than in the
+            # external-dns module because the orphan survives the box that made
+            # it: the deployment's args can be perfectly correct while the zone
+            # still carries records no one can claim.
+            if [[ -n "$owner_id" ]]; then
+                record_owner="$(_dns_owner "$host")"
+                if [[ -n "$record_owner" && "$record_owner" != "$owner_id" ]]; then
+                    hard_fail "$label: $host is owned by external-dns id '$record_owner', not this box's '$owner_id' — external-dns silently ignores it, so the record is frozen at $resolved until it is deleted from the zone by hand"
+                    continue
+                fi
+            fi
+
+            tls_out="$(echo | timeout 15 openssl s_client -servername "$host" -connect "$host:443" -verify_return_error 2>&1)"
+            if ! grep -q 'CONNECTED(' <<< "$tls_out"; then
+                hard_fail "$label: $host resolves to $resolved but nothing accepts TLS on :443 there — the published record points where this box is not"
                 continue
             fi
 
             # TLS separately from HTTP, so an expired or wrong-SAN certificate is
             # named as such rather than surfacing as a bare connection failure.
-            if [[ "$(echo | openssl s_client -servername "$host" -connect "$host:443" -verify_return_error 2>&1 | grep -cE 'Verify return code: 0 \(ok\)')" -eq 0 ]]; then
-                hard_fail "$label: TLS to https://$host failed certificate verification — the ACME certificate is missing, expired, or does not cover this name"
+            if ! grep -qE 'Verify return code: 0 \(ok\)' <<< "$tls_out"; then
+                hard_fail "$label: TLS to https://$host failed certificate verification ($(grep -oE 'Verify return code: .*' <<< "$tls_out" | head -1)) — served $(grep -oE 'subject=.*' <<< "$tls_out" | head -1)"
                 continue
             fi
 
