@@ -308,6 +308,15 @@ spec:
                 - git:
                     repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
                     revision: main
+                    # Both generators in this matrix are git generators, and both
+                    # export `.path`. Without a prefix the two collide and the
+                    # FLEET's path wins, so every Application is named for the
+                    # environment instead of the application and sources the
+                    # fleet directory -- which holds no chart, so it syncs
+                    # nothing and reports Healthy. That is the false green this
+                    # whole arrangement is meant to avoid, produced by the
+                    # arrangement itself.
+                    pathParamPrefix: app
                     directories:
                       - path: '{{"{{"}} .path.path {{"}}"}}/*'
 
@@ -318,14 +327,14 @@ spec:
 
   template:
     metadata:
-      # .path is now the APPLICATION directory (environments/<env>/<app>), so the
-      # environment is still its second segment and .path.basename is the
-      # application.
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .path.basename {{"}}"}}'
+      # .path is the FLEET directory (environments/<env>), from the files
+      # generator; .app.path is the APPLICATION directory beneath it, from the
+      # directories generator under its pathParamPrefix.
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .app.path.basename {{"}}"}}'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
-        workload: '{{"{{"}} .path.basename {{"}}"}}'
+        workload: '{{"{{"}} .app.path.basename {{"}}"}}'
         resource-type: workload
         target-cluster: '{{"{{"}} .name {{"}}"}}'
 
@@ -349,7 +358,7 @@ spec:
         # versions, in the Chart.yaml that path holds.
         - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
-          path: '{{"{{"}} .path.path {{"}}"}}'
+          path: '{{"{{"}} .app.path.path {{"}}"}}'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
