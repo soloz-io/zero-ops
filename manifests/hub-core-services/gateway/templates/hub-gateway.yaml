@@ -33,10 +33,12 @@ metadata:
   {{- end }}
   name: hub-gateway
   namespace: platform-ops
-  # The external-dns target is not written here. It is only known once the
-  # control-plane load balancer exists, so the CLI generates it at bootstrap into
-  # generated/external-dns-target-patch.yaml (ADR-045) and kustomize applies it to
-  # this Gateway and to every route.
+  # The external-dns target is not committed here. It is only known once the
+  # control-plane load balancer exists, so the CLI discovers it at bootstrap and
+  # writes it to the TENANT's GitOps repo as
+  # generated/gateway-dns-target.yaml (ADR-045 artifact, ADR-072 ownership),
+  # which the chart reads back as .Values above. A Day-0 fact about this box
+  # belongs in this box's repo, not in the platform's.
 spec:
   gatewayClassName: cilium
   listeners:
@@ -57,11 +59,16 @@ spec:
     # crash-looped because it fetches auth.dev.nutgraf.in's OIDC discovery
     # document at startup.
     #
-    # Every listener below names hub-wildcard-tls, issued by
-    # ingress/hub-wildcard-certificate.yaml for *.{hubDomain}. One Secret, and no
-    # namespace on the ref -- it resolves in this Gateway's own namespace, which
-    # is why the cross-namespace ReferenceGrants that stood in files/ are gone.
-    # The seven per-host Certificates it replaced are gone with them.
+    # Every HTTPS listener below terminates TLS with the same Secret:
+    # hub-wildcard-tls, one certificate for *.{{ "{{" }} .Values.global.hubDomain
+    # {{ "}}" }} issued by ingress/hub-wildcard-certificate.yaml. Every hostname
+    # here is a single label under that domain, so one certificate covers them
+    # all.
+    #
+    # The ref carries no namespace, so it resolves in this Gateway's own
+    # (platform-ops). The Secret exists there once -- no copies in platform-edge
+    # or platform-identity, and no ReferenceGrants, which is why the three that
+    # stood in files/ are deleted along with the seven per-host Certificates.
     - name: api
       hostname: api.{{ .Values.global.hubDomain }}
       port: 443
@@ -97,9 +104,10 @@ spec:
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
     # Zitadel (evaluation spike), alongside the `auth` listener that fronts Ory.
-    # Separate listener and certificate so the two issuers never share a
-    # hostname — a spike that could take auth.dev.nutgraf.in with it is not a
-    # spike.
+    # A separate HOSTNAME, so a spike that fails takes id.dev.nutgraf.in with it
+    # and leaves auth.dev.nutgraf.in serving. Not a separate certificate: the
+    # wildcard covers both, and it never did isolate the two -- the isolation is
+    # the hostname and the routes behind it.
     - name: id
       hostname: id.{{ .Values.global.hubDomain }}
       port: 443
@@ -151,9 +159,7 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
-    # HTTPS listener for infisical. certificateRefs points at the Secret
-    # cert-manager created via ACME HTTP-01 challenge.
-    # Cross-namespace reference is admitted by a ReferenceGrant in platform-security.
+    # HTTPS listener for infisical.
     - name: infisical
       hostname: infisical.{{ .Values.global.hubDomain }}
       port: 443
@@ -172,7 +178,7 @@ spec:
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
 
-    # Headlamp Kubernetes dashboard. TLS cert issued by cert-manager via DNS-01.
+    # Headlamp Kubernetes dashboard.
     - name: dashboard
       hostname: dashboard.{{ .Values.global.hubDomain }}
       port: 443
