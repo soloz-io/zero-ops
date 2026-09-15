@@ -17,4 +17,4 @@
   name: argocd-chart-registry-creds
   fields:
     - path: [spec, target, template, data, url]
-      value: '{{ .Values.global.chartRegistryURL }}'
+      value: '{{ .Values.global.chartRegistryURL }}/charts'

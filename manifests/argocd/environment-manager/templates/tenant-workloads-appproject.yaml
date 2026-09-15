@@ -13,7 +13,7 @@ spec:
   # sourceRepos matches by EXACT STRING, so a URL and the same URL with a '.git'
   # suffix are two different repositories here.
   #
-  # Both entries are values rather than literals. This file was a static manifest
+  # Every entry is a value rather than a literal. This file was a static manifest
   # naming soloz-io's own two repositories, which every box that installed the
   # bundle then trusted -- and no box but the platform's could read either. It is
   # a chart template so that a box allowlists its own (ADR-062).
@@ -23,9 +23,22 @@ spec:
   # from a fleet's values file (ADR-047 rejected BYOWR), so a fleet cannot name a
   # repository at all -- this list catches a regression in that generator, not the
   # capability itself.
+  #
+  # The chart registry is the third entry, and it is a different KIND of source
+  # from the two above: they hold the umbrella charts naming a version, this
+  # holds the charts those versions resolve to (ADR-073). A workload delivered by
+  # version pinning is unreconcilable without it -- ArgoCD refuses the dependency
+  # with "helm repos ... are not permitted in project", which reads as a
+  # credential fault and is not one.
+  #
+  # Scoped to the tenant's own organisation, so it admits charts the tenant
+  # published and no others. It is not a substitute for the generator pinning
+  # repoURL: this list says which registries may be read, and the generator says
+  # which repository is read from.
   sourceRepos:
     - {{ include "environment-manager.instanceRepoURL" . | quote }}
     - {{ .Values.platformRepoURL | quote }}
+    - {{ printf "%s/*" (include "environment-manager.chartRegistryURL" .) | quote }}
 
   # No cluster-scoped resources — tenant workloads are namespace-scoped only.
   # Cluster-level resources (Namespaces, CRDs, ClusterRoles) are owned by
