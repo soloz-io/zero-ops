@@ -376,11 +376,11 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		return err
 	}
 
+	// Resolved for the CLI-rendered seed only. On a tenant box (ADR-072) the
+	// address is NOT carried in from Day-0 at all: hub-operator reads it from the
+	// HetznerCluster in-cluster and publishes it, so a bundle upgrade alone
+	// delivers the fix. See operators/hub-operator -- ingress address.
 	hubIngressAddress := o.hubIngressAddress(ctx, kubeconfig)
-	if hubIngressAddress == "" {
-		fmt.Println("[seed] ⚠️  could not resolve hub ingress address; the hub Gateway's " +
-			"hostnames will not be published, which breaks public DNS and ACME issuance")
-	}
 	// The address is passed to the chart as hubIngressAddress, which the gateway
 	// component reads as its external-dns target. It used to be written into the
 	// repository as a Kustomize patch and committed -- one cluster's

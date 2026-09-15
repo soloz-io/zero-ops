@@ -48,7 +48,7 @@ type HubEnvironmentReconciler struct {
 //+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=ops.nutgraf.in,resources=hubenvironments/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
@@ -128,6 +128,15 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// before anything else in this reconcile is meaningful.
 	if err := r.ensureInfisicalDBRootCert(ctx); err != nil {
 		logger.Error(err, "Failed to reconcile Infisical DB_ROOT_CERT; continuing")
+	}
+
+	// The hub's public ingress address, read from kube-system/kubeadm-config and
+	// published for the gateway chart (see ingress_address.go). First, because it
+	// depends on nothing else in this reconcile and every public hostname on the
+	// box depends on it -- and because it is the piece that makes a broken box
+	// repairable by a bundle upgrade alone, with no CLI and no repository edit.
+	if err := r.reconcileIngressAddress(ctx, hubEnv, req.Namespace); err != nil {
+		logger.Error(err, "Failed to publish the hub ingress address; continuing")
 	}
 
 	// Phase 1: Generate Bootstrap Secrets Only

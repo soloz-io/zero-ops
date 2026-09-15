@@ -58,6 +58,16 @@ func (o *Orchestrator) phasePostconditions(kubeconfig string) map[state.Bootstra
 		state.PhaseOnPremJoin: func(ctx context.Context) error {
 			return o.onPremWorkersPresent(ctx, kubeconfig)
 		},
+
+		// Every public URL for this box resolves to one address, and the platform
+		// resolves it in-cluster (hub-operator, from kube-system/kubeadm-config).
+		// When it cannot, no hub hostname is published and ACME issues nothing --
+		// a state that used to be a warning the bootstrap printed and walked past,
+		// then reported success over. The operator reports it as a condition; this
+		// is what makes the condition matter.
+		state.PhaseBoundary06: func(ctx context.Context) error {
+			return o.hubIngressAddressResolved(ctx, kubeconfig)
+		},
 	}
 }
 

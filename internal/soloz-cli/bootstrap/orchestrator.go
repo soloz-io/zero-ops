@@ -1522,6 +1522,41 @@ func (o *Orchestrator) missingDatabaseRoles(ctx context.Context, kubeconfig stri
 	return missing, nil
 }
 
+// hubIngressAddressResolved reports whether the platform has worked out the
+// address every public hostname on this box resolves to.
+//
+// hub-operator reads it from kube-system/kubeadm-config and publishes it for
+// external-dns (see operators/hub-operator/internal/controller/ingress_address.go).
+// Unresolved means no hub hostname is published at all: infisical, argocd, auth,
+// id, dashboard and api are NXDOMAIN and ACME can issue for none of them.
+//
+// Asserted rather than assumed because this was a warning once. The bootstrap
+// printed "could not resolve hub ingress address", ran twenty more phases and
+// reported success, and the operator found out from a browser.
+func (o *Orchestrator) hubIngressAddressResolved(ctx context.Context, kubeconfig string) error {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment", "-o",
+		`jsonpath={.status.conditions[?(@.type=="IngressAddressResolved")].status}`).Output()
+	if err != nil {
+		return fmt.Errorf("the HubEnvironment could not be read to confirm the hub's " +
+			"ingress address is known")
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "True":
+		return nil
+	case "":
+		return fmt.Errorf("the hub-operator has not reported IngressAddressResolved.\n" +
+			"  An operator that predates this condition never will -- upgrade the bundle,\n" +
+			"  which is what carries it")
+	default:
+		msg, _ := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "hubenvironment", "hub-environment", "-o",
+			`jsonpath={.status.conditions[?(@.type=="IngressAddressResolved")].message}`).Output()
+		return fmt.Errorf("the hub's ingress address is not resolved: %s",
+			strings.TrimSpace(string(msg)))
+	}
+}
+
 // awaitDatabaseRolesProvisioned waits until the platform's database roles exist
 // AND the hub-operator reports it put them there.
 //

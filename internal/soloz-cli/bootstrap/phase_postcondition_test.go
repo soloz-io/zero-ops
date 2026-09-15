@@ -338,7 +338,13 @@ func TestInfrastructureIsSelectedByClusterNotByPosition(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(src)
-	fn := body[strings.Index(body, "func (o *Orchestrator) hubIngressAddress"):]
+	const sig = "func (o *Orchestrator) hubIngressAddress(ctx context.Context, kubeconfig string) string {"
+	at := strings.Index(body, sig)
+	if at < 0 {
+		t.Fatal("hubIngressAddress not found by its full signature; if it was renamed or " +
+			"resignatured, this test must follow it rather than silently match a neighbour")
+	}
+	fn := body[at:]
 	fn = fn[:strings.Index(fn, "\nfunc ")]
 
 	if strings.Contains(fn, "items[0]") {

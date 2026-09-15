@@ -103,6 +103,33 @@ spec:
             - --policy=sync
             - --interval=1m
             - --log-level=info
+          env:
+            # The address every hub hostname resolves to.
+            #
+            # EXTERNAL_DNS_DEFAULT_TARGETS is the env form of --default-targets:
+            # "Set globally default host/IP that will apply as a target instead of
+            # source addresses". Without it external-dns takes the target from each
+            # source, and the hub Gateway's Service is a ClusterIP (public ingress
+            # rides the CAPH load balancer, ADR-046 §25.3) -- so there is no
+            # publishable address, external-dns reports "All records are already up
+            # to date" against an empty zone, and every hub hostname is NXDOMAIN
+            # with ACME unable to issue.
+            #
+            # Read from a ConfigMap hub-operator writes from
+            # kube-system/kubeadm-config, NOT from a chart value supplied at Day-0.
+            # A chart value only ever reaches clusters built after it was added; a
+            # customer upgrades a bundle and expects the fix. The operator ships in
+            # the same bundle, so the pair arrives together.
+            #
+            # optional: true because the ConfigMap does not exist until the operator
+            # has run once. Missing means unset, which is today's behaviour --
+            # wrong, but running -- rather than a pod that will not start.
+            - name: EXTERNAL_DNS_DEFAULT_TARGETS
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-ingress
+                  key: address
+                  optional: true
           # The credential for whichever DNS service holds this zone.
           #
           # Optional and generic on purpose. external-dns reads every provider's
