@@ -40,6 +40,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			len(spokes), strings.Join(spokes, ", "))
 	}
 
+	// Read the box's DNS identity and credential now, for the same reason: both
+	// live only in the cluster, and the credential arrives by ExternalSecret and
+	// dies with it. The records themselves are released at the end -- external-dns
+	// recreates anything it is still watching.
+	dnsOwn, hasDNS := o.readDNSOwnership(ctx)
+
 	ccmLoadBalancerIPs := o.drainLoadBalancerServices(ctx)
 
 	// Step 2: Strip Kubernetes finalizers & delete CAPI CRs fast (non-blocking)
@@ -50,7 +56,20 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		fmt.Printf("[teardown] ⚠️  Hetzner cloud resource cleanup encountered warnings: %v\n", err)
 	}
 
-	// Step 3: Local Kind, Docker, and state cleanup
+	// Step 4: Release the DNS records this box published, now that nothing is
+	// left to recreate them. A record outliving its cluster is not inert: it
+	// keeps resolving to a decommissioned address, and no later box can correct
+	// it, because external-dns silently ignores records it does not own.
+	if hasDNS {
+		o.releaseDNSRecords(ctx, dnsOwn)
+	} else {
+		fmt.Println("[teardown] ⚠️  DNS ownership could not be read from the cluster, so any")
+		fmt.Println("[teardown]     records it published are left in place. If this box served")
+		fmt.Println("[teardown]     public hostnames, check the zone: an orphaned record cannot")
+		fmt.Println("[teardown]     be reclaimed by a future box and must be deleted by hand.")
+	}
+
+	// Step 5: Local Kind, Docker, and state cleanup
 	if err := o.localCleanup(ctx); err != nil {
 		fmt.Printf("[teardown] ⚠️  Local cleanup encountered warnings: %v\n", err)
 	}

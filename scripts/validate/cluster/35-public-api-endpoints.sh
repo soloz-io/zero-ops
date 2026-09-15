@@ -34,16 +34,38 @@ _body() { sed '$d' <<< "$1"; }
 _json_field() { python3 -c "import json,sys; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null; }
 _field() { awk -F'|' -v n="$2" '{gsub(/^[ \t]+|[ \t]+$/,"",$n); print $n}' <<< "$1"; }
 
+# _authoritative_ns ZONE -> one nameserver authoritative for the zone, or "".
+#
+# Zone state is asked of the zone, never of a cache. A resolver answers with what
+# it was told up to a TTL ago, which is the right answer for "what do users get"
+# and the wrong one for "what does the zone say" -- and the two questions have
+# different fixes. Resolved once and reused; every lookup below is cheap after it.
+_authoritative_ns() {
+    local z="$1"
+    while [[ "$z" == *.*.* ]]; do
+        local ns
+        ns=$(dig +short +time=3 +tries=1 NS "$z" 2>/dev/null | head -1)
+        [[ -n "$ns" ]] && { echo "$ns"; return; }
+        z="${z#*.}"
+    done
+    dig +short +time=3 +tries=1 NS "$z" 2>/dev/null | head -1
+}
+
 # _dns_owner NAME -> the external-dns owner id recorded for a hostname, or "".
 #
 # external-dns records ownership in a TXT sibling of every record it manages
 # (--txt-prefix=extdns-). It is published DNS, so this needs no provider
 # credential and no cluster access -- which matters, because the failure it
 # catches outlives the box that caused it.
+#
+# Asked of the authoritative server: ownership is a property of the zone, and a
+# cached TXT reports the previous owner for as long as its TTL runs. That is not
+# a hypothetical -- correcting an orphaned record on 2026-09-15 left this check
+# reporting the old owner for another 2.5 hours while the zone was already right.
 _dns_owner() {
-    local h="$1" txt
+    local h="$1" txt server="${AUTH_NS:+@$AUTH_NS}"
     for txt in "extdns-$h" "extdns-a-$h"; do
-        dig +short +time=3 +tries=1 TXT "$txt" 2>/dev/null \
+        dig +short +time=3 +tries=1 TXT "$txt" $server 2>/dev/null \
             | tr -d '"' | grep -oE 'external-dns/owner=[^,]+' | cut -d= -f2 | head -1
     done | head -1
 }
@@ -51,12 +73,16 @@ _dns_owner() {
 validate_public_api_endpoints() {
     section "Public endpoints answer over their published hostnames"
 
+    local AUTH_NS
+    AUTH_NS="$(_authoritative_ns "$ENV_ZONE")"
+    AUTH_NS="${AUTH_NS%.}"
+
     local zone="$ENV_ZONE"
     local apex="${zone#*.}"
     [[ "$zone" != *.*.* ]] && apex="$zone"
 
     local row host path expect plaintext label url code resolved tls_out seen_hosts=""
-    local owner_id record_owner
+    local owner_id record_owner authoritative ttl
     owner_id="$(kc -n platform-edge get deploy external-dns -o jsonpath='{.spec.template.spec.containers[0].args}' \
         | tr ',' '\n' | grep -oE '\-\-txt-owner-id=[^"]+' | cut -d= -f2 | head -1)"
     for row in "${PUBLIC_ENDPOINTS[@]}"; do
@@ -102,6 +128,20 @@ validate_public_api_endpoints() {
                 record_owner="$(_dns_owner "$host")"
                 if [[ -n "$record_owner" && "$record_owner" != "$owner_id" ]]; then
                     hard_fail "$label: $host is owned by external-dns id '$record_owner', not this box's '$owner_id' — external-dns silently ignores it, so the record is frozen at $resolved until it is deleted from the zone by hand"
+                    continue
+                fi
+            fi
+
+            # A stale cache and a wrong record look identical from here, and they
+            # have different fixes: one needs nothing, the other needs a human in
+            # the zone. Comparing the two answers tells them apart, so a record
+            # that was just corrected reports as propagating rather than as a
+            # platform fault that will "come back" on its own.
+            if [[ -n "$AUTH_NS" ]]; then
+                authoritative="$(dig +short +time=3 +tries=1 A "$host" "@$AUTH_NS" 2>/dev/null | tail -1)"
+                if [[ -n "$authoritative" && "$authoritative" != "$resolved" ]]; then
+                    ttl="$(dig +time=3 +tries=1 A "$host" 2>/dev/null | awk -v h="$host." '$1==h {print $2; exit}')"
+                    warn "$label: $host is $authoritative in the zone but this resolver still has $resolved${ttl:+ for another ${ttl}s} — propagation, not a fault; nothing to fix"
                     continue
                 fi
             fi
