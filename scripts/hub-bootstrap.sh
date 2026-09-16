@@ -987,7 +987,16 @@ step1c_configure_tailscale() {
     # Same precedence as the Go driver -- environment first, the operator's file
     # second -- so both halves of a hybrid bootstrap enrol from one credential.
     require_credential TS_AUTHKEY "k8-secrets/tailscale/authkey" "a Tailscale auth key"
-    require_credential TS_HOSTNAME "k8-secrets/tailscale/hostname" "the control plane's tailnet hostname"
+    # DERIVED from the SpokePool, not a credential. It is the control plane's
+    # MagicDNS name, which is definitionally "<pool>-cp" -- the operator's
+    # k8-secrets/tailscale/hostname held exactly that. Deriving it means a tenant
+    # needs no secret for a value that is already determined by the pool they
+    # declared, and it cannot drift from the pool the way a second copy can.
+    TS_HOSTNAME="${TS_HOSTNAME:-${SPOKEPOOL_NAME}-cp}"
+    if [[ -z "${SPOKEPOOL_NAME:-}" ]]; then
+        error_exit "cannot derive the control plane's tailnet hostname: no SpokePool is named."
+    fi
+    export TS_HOSTNAME
 
     # Passed explicitly. The CLI's own defaults read k8-secrets/ relative to its
     # WORKING DIRECTORY, which here is the tenant's checkout -- so resolving the

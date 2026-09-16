@@ -207,6 +207,17 @@ jobs:
       # two makes a run that got the hub up and the workload cluster wrong show as
       # one step green and the next red, instead of one green step and a tenant
       # discovering it later.
+      # Checked out at the version being bootstrapped, so the gates and probes
+      # match the bundle. The tenant repository carries no scripts, and this
+      # workflow is already a platform artefact pinned by the caller at
+      # @v<version>. Used by the workload step below and by the endpoint probes.
+      - name: Check out the platform's scripts
+        uses: actions/checkout@v4
+        with:
+          repository: soloz-io/zero-ops
+          ref: v${{ inputs.bundle-version }}
+          path: .platform-validators
+
       - name: Bootstrap the management cluster
         id: bootstrap-mgmt
         env:
@@ -281,7 +292,40 @@ jobs:
             workers=(--workers "${{ inputs.workers }}")
           fi
 
-          ./soloz bootstrap-mgmt \
+          # hub-bootstrap.sh, not `soloz bootstrap-mgmt` directly.
+          #
+          # The CLI builds the management cluster and stops there. The steps that
+          # decide whether the box is USABLE -- Tailscale for a hybrid box, GitHub
+          # access, the namespace and secret waits, Infisical, ESO, the database --
+          # and the gates that refuse to continue on a broken foundation live in
+          # that script, and it runs the CLI itself as its first step.
+          #
+          # Without it a tenant's CI did the hub and none of the rest, so the
+          # developer path ran ten gates and the tenant path ran none: the people
+          # the gates exist to protect were the only ones not getting them. The
+          # workload step below already sources this script for two of its
+          # functions, which made the asymmetry easy to miss.
+          #
+          # --spoke is required by the script and is read from the tenant's own
+          # declaration, because the claim arrives through boundary 03 from this
+          # repository and the cluster is the only thing that knows which pools
+          # this box has.
+          # The SpokePool this box declares, read from the platform manifests --
+          # the same source the developer path uses, and the only one available
+          # before the cluster exists to be asked.
+          pooldir=".platform-validators/manifests/spoke/spoke-pools/${{ inputs.environment }}/${{ inputs.provider }}"
+          pool=$(grep -h -A3 '^kind: SpokePool' "$pooldir"/*.yaml 2>/dev/null \
+                 | grep -m1 '  name:' | awk '{print $2}')
+          if [ -z "$pool" ]; then
+            echo "::error::no SpokePool is declared for ${{ inputs.environment }}/${{ inputs.provider }}"
+            exit 1
+          fi
+          echo "spoke pool: $pool"
+
+          ZERO_OPS_DIR="$PWD" \
+          SOLOZ_BINARY="$PWD/soloz" \
+          bash .platform-validators/scripts/hub-bootstrap.sh \
+            --spoke "$pool" \
             --name "${{ inputs.cluster }}" \
             --provider "${{ inputs.provider }}" \
             --region "${{ inputs.region }}" \
@@ -302,17 +346,6 @@ jobs:
       # run, and continue-on-error so the state report below still runs: what was
       # outstanding is the most useful thing on a failed verify, and losing it to
       # an early exit would leave the tenant with a red cross and no detail.
-      # Checked out at the version being bootstrapped, so the gates and probes
-      # match the bundle. The tenant repository carries no scripts, and this
-      # workflow is already a platform artefact pinned by the caller at
-      # @v<version>. Used by the workload step below and by the endpoint probes.
-      - name: Check out the platform's scripts
-        uses: actions/checkout@v4
-        with:
-          repository: soloz-io/zero-ops
-          ref: v${{ inputs.bundle-version }}
-          path: .platform-validators
-
       - name: Verify the hub converges
         id: verify
         continue-on-error: true
@@ -342,10 +375,19 @@ jobs:
       # from this workflow before, which is why such a cluster could sit
       # Ready=False behind a run that reported success.
       #
-      # Sourced, not executed: the script's main() runs the whole ten-step
-      # sequence, and what is wanted here is two of its functions. Same shape
-      # local-e2e.sh uses, so the developer path and the tenant path exercise the
-      # same code.
+      # Sourced, not executed: the script's main() runs the whole sequence, and
+      # what is wanted here is two of its functions. Same shape local-e2e.sh uses,
+      # so the developer path and the tenant path exercise the same code.
+      #
+      # These two ALSO ran inside the bootstrap step above, which now runs the
+      # whole script. That is deliberate rather than redundant: the workload
+      # cluster is a separate claim from the hub, and a run that satisfied one
+      # should not read as satisfying both -- so it is asserted and reported on its
+      # own. The cost is small and the checks are idempotent. step10_wait_spokepool
+      # is checkpointed in bootstrap-workload.json and returns immediately once the
+      # pool is ready; step10e is deliberately NOT checkpointed, because a home
+      # worker is an unmanaged machine that can stop between one step and the next
+      # (ADR-046 §24.2), so re-checking it here is the point rather than the waste.
       - name: Bring up the workload cluster
         id: bootstrap-workload
         if: steps.verify.outcome == 'success'
