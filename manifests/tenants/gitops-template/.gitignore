@@ -1,0 +1,30 @@
+# What Day-0 writes into this repository and must never be committed.
+#
+# Day-0 runs here (ADR-072) and writes two kinds of thing: the box's own
+# credentials, and its record of what has been done to it. Only the record
+# belongs in git -- the orchestrator adds .state/bootstrap/ explicitly, because
+# that is what lets a re-run resume instead of starting the box over.
+#
+# Nothing below is protected by anything else. Every path here was untracked
+# rather than ignored, which is not the same thing: `git add -A` by a person, a
+# tool, or a future code path commits all of it, and git history is permanent.
+# ADR-076 settles the principle -- ciphertext committed today is readable by
+# whoever holds the key in five years, and plaintext needs no key at all.
+
+# The cluster-admin kubeconfig, the GitHub PAT, the Hetzner token, the Tailscale
+# auth key. ADR-076 keeps the admin credential in the escrow and reaches it with
+# `soloz kubeconfig`; what lands here is a working copy for the duration of a
+# run and is meant to die with the runner.
+k8-secrets/
+
+# Holds clientSecret -- the Day-0 Infisical machine identity, which is the key
+# to this box's secret store.
+.state/infisical-bootstrap.json
+
+# Bootstrap logs. They carry command output, and a --debug run echoes values.
+.state/logs/
+
+# NOT ignored, deliberately: .state/bootstrap/<cluster>.json. It records which
+# phases completed and where the kubeconfig was written -- no credential, and
+# committing it is what makes a resumed bootstrap possible. An ignore rule here
+# would also break the explicit `git add` that commits it.
