@@ -633,6 +633,10 @@ func (o *Orchestrator) localCleanup(ctx context.Context) error {
 	// listing both costs nothing on a box that has only one.
 	stateFiles := []string{
 		filepath.Join(state.TenantStateDir, fmt.Sprintf("%s.json", o.ClusterName)),
+		filepath.Join(".state", "bootstrap-mgmt.json"),
+		filepath.Join(".state", "bootstrap-workload.json"),
+		// The name these two replaced. Still removed, because teardown deleting a
+		// stale file is cleanup rather than acting on it.
 		filepath.Join(".state", "bootstrap-state.json"),
 		filepath.Join(".state", "infisical-bootstrap.json"),
 		filepath.Join(".state", "kind", "kind-config-generated.yaml"),

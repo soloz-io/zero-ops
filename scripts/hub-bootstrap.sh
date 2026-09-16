@@ -79,7 +79,33 @@ LOG_DIR="$ZERO_OPS_DIR/.state/logs"
 # .state/bootstrap/<cluster>.json there, so one directory answers "what has been
 # done to this box". Keeping the step record beside the logs made a durable fact
 # look like a run artefact.
-BOOTSTRAP_STATE_FILE="$ZERO_OPS_DIR/.state/bootstrap-state.json"
+# Two records, one per cluster, because a run builds two.
+#
+# One file held both, so "has this step run" was answered for the box rather than
+# for the cluster the step belongs to — and tearing down a workload cluster left
+# its steps marked complete in the same file the management cluster reads. The
+# legacy script kept them apart and this restores that.
+#
+# Which file a step belongs to is declared once, below, rather than decided at
+# each call site: a step recorded in one file and read from the other is a step
+# that silently re-runs forever, or never runs again.
+MGMT_STATE_FILE="$ZERO_OPS_DIR/.state/bootstrap-mgmt.json"
+WORKLOAD_STATE_FILE="$ZERO_OPS_DIR/.state/bootstrap-workload.json"
+
+# Steps that belong to the WORKLOAD cluster. Everything else is the management
+# cluster's.
+WORKLOAD_STEPS=(wait_spokepool spoke_home_worker)
+
+state_file_for() {
+    local step="$1" w
+    for w in "${WORKLOAD_STEPS[@]}"; do
+        if [[ "$step" == "$w" ]]; then
+            printf '%s' "$WORKLOAD_STATE_FILE"
+            return
+        fi
+    done
+    printf '%s' "$MGMT_STATE_FILE"
+}
 
 # The CLI this script drives.
 #
@@ -216,6 +242,7 @@ dump_cluster_diagnostics() {
 # Generic function to check if a step is completed based on bootstrap state file
 is_step_completed() {
     local step="$1"
+    local BOOTSTRAP_STATE_FILE; BOOTSTRAP_STATE_FILE="$(state_file_for "$step")"
 
     # Create empty state file if it doesn't exist
     if [[ ! -f "$BOOTSTRAP_STATE_FILE" ]]; then
@@ -236,6 +263,7 @@ is_step_completed() {
 # Generic function to mark a step as completed in bootstrap state file
 mark_step_completed() {
     local step="$1"
+    local BOOTSTRAP_STATE_FILE; BOOTSTRAP_STATE_FILE="$(state_file_for "$step")"
 
     mkdir -p "$(dirname "$BOOTSTRAP_STATE_FILE")"
 
@@ -738,6 +766,39 @@ read_kubeconfig_from_state() {
     log "Kubeconfig path: $KUBECONFIG_PATH"
 }
 
+# Resolve a credential the operator owns.
+#
+# The ENVIRONMENT WINS. Both callers that matter already set these: the tenant
+# workflow passes them to the bootstrap step as env, and local-e2e exports them
+# from the platform checkout. The file is for someone running this script by hand.
+#
+# Each of these used to be `export X=$(cat "$ZERO_OPS_DIR/...")`, which is the
+# opposite precedence and silently destructive: `cat` on a missing file prints
+# nothing, `export` masks its exit code, and a correctly supplied credential was
+# replaced with an empty string. The tenant's repository has no k8-secrets/ --
+# it is the OPERATOR's directory, and gitignored in a tenant repo precisely so it
+# never appears there -- so the file was always absent on the tenant path and the
+# clobber always fired. It surfaced as "--ghcr-pat is required" from a command
+# invoked with a credential the caller had provided correctly.
+#
+# Refuses rather than proceeding empty: every step below treats the value as
+# present, and an empty credential fails several commands later with an error
+# naming none of this.
+require_credential() {
+    local var="$1" rel="$2" what="$3"
+    if [[ -n "${!var:-}" ]]; then
+        return 0
+    fi
+    local path; path="$(resolve_owned "$rel")"
+    if [[ -r "$path" ]]; then
+        printf -v "$var" '%s' "$(tr -d '\r\n' < "$path")"
+        export "${var?}"
+        [[ -n "${!var:-}" ]] && return 0
+        error_exit "$path is empty; it must hold $what."
+    fi
+    error_exit "$var is not set and $path does not exist. Export $var, or write $what there."
+}
+
 # Step 1: Bootstrap Hub Cluster
 step1_bootstrap_hub() {
     # Check if step is already completed AND the Go bootstrap state confirms postboot finished
@@ -771,7 +832,7 @@ step1_bootstrap_hub() {
         fi
 
         log "Cleanup: removing stale bootstrap state and logs..."
-        rm -f "$BOOTSTRAP_STATE_FILE"
+        rm -f "$MGMT_STATE_FILE" "$WORKLOAD_STATE_FILE"
         rm -f "$go_state_file"
         rm -f "$LOG_DIR/bootstrap.log"
         rm -f "$LOG_DIR/bootstrap-hub.log"
@@ -827,7 +888,7 @@ step1_bootstrap_hub() {
         fi
     fi
 
-    export HCLOUD_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/hetzner/token")
+    require_credential HCLOUD_TOKEN "k8-secrets/hetzner/token" "the Hetzner API token"
     local env_flag=""
     if [[ -n "${ENVIRONMENT:-}" ]]; then
         env_flag="--environment=${ENVIRONMENT}"
@@ -909,13 +970,31 @@ step1c_configure_tailscale() {
         log "Step 1c: State says completed but tailscale-hybrid-psk missing — re-running"
     fi
 
-    if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/tailscale/authkey" ]]; then
-        log "  ⚠️  k8-secrets/tailscale/authkey not found — skipping Tailscale configuration"
-        return
-    fi
-
     log "Step 1c: Configuring Tailscale credentials..."
+
+    # Mandatory on hybrid, not optional. On-prem nodes reach the control plane
+    # over the tailnet (ADR-046 §21, invariant 6), so a hybrid box without this
+    # is not a box with a missing extra -- it is one whose pod traffic to its own
+    # workers dies in one direction.
+    #
+    # This looked only in ZERO_OPS_DIR and WARNED. ZERO_OPS_DIR is the TENANT's
+    # checkout, and k8-secrets/ is the platform operator's own gitignored
+    # directory, so the file was never there on the tenant path and the step
+    # always skipped. readTailscaleAuthkey in driver_hybrid.go carries the same
+    # fix and records what the warning cost: a control plane that never joined
+    # the tailnet, discovered when traffic to the home workers died.
+    #
+    # Same precedence as the Go driver -- environment first, the operator's file
+    # second -- so both halves of a hybrid bootstrap enrol from one credential.
+    require_credential TS_AUTHKEY "k8-secrets/tailscale/authkey" "a Tailscale auth key"
+    require_credential TS_HOSTNAME "k8-secrets/tailscale/hostname" "the control plane's tailnet hostname"
+
+    # Passed explicitly. The CLI's own defaults read k8-secrets/ relative to its
+    # WORKING DIRECTORY, which here is the tenant's checkout -- so resolving the
+    # paths above and then letting it look them up again would find nothing.
     "$SOLOZ_BINARY" configure-tailscale \
+        --authkey="$TS_AUTHKEY" \
+        --hostname="$TS_HOSTNAME" \
         --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-tailscale failed"
 
     # No tailscale-node-authkey Secret is created here any more. It fed a
@@ -930,6 +1009,33 @@ step1c_configure_tailscale() {
 }
 
 # Step 3: Configure GitHub Access
+# The organisation this box's credential is scoped to.
+#
+# Read from the repository Day-0 runs inside (ADR-072), which is the same source
+# and the same normalisation boxOrgURL uses in the orchestrator -- an SSH remote
+# becomes the https shape, because that is what ArgoCD matches a source against.
+#
+# Not defaulted. configure-github-access requires it for the reason recorded on
+# the flag: a default would be the PLATFORM's organisation, which scopes a
+# tenant's credential to repositories they do not own and away from the one they
+# do (ADR-062).
+box_org_url() {
+    local remote
+    remote="$(git -C "$ZERO_OPS_DIR" remote get-url origin 2>/dev/null || true)"
+    [[ -n "$remote" ]] || error_exit "$ZERO_OPS_DIR has no origin remote, so this box cannot name the organisation its credential is scoped to."
+
+    remote="${remote%.git}"
+    if [[ "$remote" == git@* ]]; then
+        remote="https://${remote#git@}"
+        remote="${remote/:/\/}"
+    fi
+
+    local org; org="$(printf '%s' "$remote" | cut -d/ -f1-4)"
+    [[ "$(printf '%s' "$org" | tr -cd '/' | wc -c)" -eq 3 ]] \
+        || error_exit "cannot read an organisation out of '$remote': expected https://host/org/repo."
+    printf '%s' "$org"
+}
+
 step3_configure_github() {
     if is_step_completed "configure_github"; then
         # Verify the artifact actually exists — the cluster may have been
@@ -944,11 +1050,14 @@ step3_configure_github() {
 
     log "Step 3: Configuring GitHub Access..."
 
-    export GITHUB_TOKEN=$(cat "$ZERO_OPS_DIR/k8-secrets/github/github-pat-token")
+    require_credential GITHUB_TOKEN "k8-secrets/github/github-pat-token" "a GitHub PAT"
 
-    log "Running: $SOLOZ_BINARY configure-github-access --ghcr-pat=\$GITHUB_TOKEN"
+    local org_url; org_url="$(box_org_url)"
+
+    log "Running: $SOLOZ_BINARY configure-github-access --ghcr-pat=\$GITHUB_TOKEN --org-url=$org_url"
     "$SOLOZ_BINARY" configure-github-access \
         --ghcr-pat="$GITHUB_TOKEN" \
+        --org-url="$org_url" \
         --kubeconfig="$KUBECONFIG_PATH" || error_exit "configure-github-access failed"
 
     mark_step_completed "configure_github"
@@ -1104,13 +1213,21 @@ step6_wait_infisical() {
 # half-populated Secret is worse than an absent one.
 #
 # Format: <k8-secrets subdir>|<target namespace>/<secret name>|<file>=<secret key>,...
+# subdir | namespace/secret | file=key=ENV_VAR,...
+#
+# The environment variable is declared beside the file because both are real
+# sources and they must not drift: these are the same credentials, with the same
+# names, that secrets_platform.go reads env-first. This step read the FILE only,
+# under the tenant's checkout -- where k8-secrets/ does not exist -- so on the
+# tenant path it wrote empty placeholders into the tenant's repository and seeded
+# nothing, while the values sat in the environment the whole time.
 SEED_SPECS=(
-    "s3|platform-ops/s3-object-storage|access-key-id=access-key-id,secret-access-key=secret-access-key"
-    "grafana-cloud|platform-ops/grafana-cloud|api-key=api-key,prometheus-url=prometheus-url,prometheus-user=prometheus-user,loki-url=loki-url,loki-user=loki-user"
+    "s3|platform-ops/s3-object-storage|access-key-id=access-key-id=S3_ACCESS_KEY_ID,secret-access-key=secret-access-key=S3_SECRET_ACCESS_KEY"
+    "grafana-cloud|platform-ops/grafana-cloud|api-key=api-key=GRAFANA_CLOUD_API_KEY,prometheus-url=prometheus-url=GRAFANA_CLOUD_PROMETHEUS_URL,prometheus-user=prometheus-user=GRAFANA_CLOUD_PROMETHEUS_USER,loki-url=loki-url=GRAFANA_CLOUD_LOKI_URL,loki-user=loki-user=GRAFANA_CLOUD_LOKI_USER"
 )
 
 step6b_seed_external_credentials() {
-    log "Step 6b: Seeding externally-issued credentials from k8-secrets/..."
+    log "Step 6b: Seeding externally-issued credentials..."
 
     local spec subdir target files_spec ns name
     local seeded=0 skipped=0
@@ -1120,34 +1237,43 @@ step6b_seed_external_credentials() {
         ns="${target%%/*}"
         name="${target##*/}"
 
-        local dir="$ZERO_OPS_DIR/k8-secrets/$subdir"
-        mkdir -p "$dir"
-
-        # Build the kubectl args, creating placeholders for anything absent.
+        # Environment first, then the operator's own file -- the precedence the
+        # Go path uses, and the reason is the same: k8-secrets/ belongs to an
+        # operator's laptop, while a tenant's Day-0 runs in CI under the tenant's
+        # secrets (ADR-072), where that directory does not exist and never will.
+        #
+        # Values are passed on stdin rather than as --from-file or --from-literal:
+        # a literal would put the credential in this process's argument list,
+        # which is world-readable, and writing it to a file to satisfy --from-file
+        # would put it on disk in the tenant's repository.
         local -a args=()
-        local pair file key missing=0
+        local pair file key env_name value missing=0
         local IFS_SAVE="$IFS"
         IFS=','
         for pair in $files_spec; do
             IFS="$IFS_SAVE"
             file="${pair%%=*}"
-            key="${pair##*=}"
-            if [[ ! -f "$dir/$file" ]]; then
-                : > "$dir/$file"
-                log "  created placeholder k8-secrets/$subdir/$file — paste the value in"
-                missing=1
-            elif [[ ! -s "$dir/$file" ]]; then
-                log "  k8-secrets/$subdir/$file is empty — paste the value in"
+            env_name="${pair##*=}"
+            key="${pair#*=}"; key="${key%=*}"
+
+            value="${!env_name:-}"
+            if [[ -z "$value" ]]; then
+                local path; path="$(resolve_owned "k8-secrets/$subdir/$file")"
+                [[ -s "$path" ]] && value="$(tr -d '\r\n' < "$path")"
+            fi
+
+            if [[ -z "$value" ]]; then
+                log "  $target: no $env_name in the environment and no value in k8-secrets/$subdir/$file"
                 missing=1
             else
-                args+=("--from-file=$key=$dir/$file")
+                args+=("--from-literal=$key=$value")
             fi
             IFS=','
         done
         IFS="$IFS_SAVE"
 
         if [[ "$missing" -eq 1 ]]; then
-            log "  ⏭️  $target not seeded — fill the files above and re-run (idempotent)"
+            log "  ⏭️  $target not seeded — set the variables above, or fill the files, and re-run (idempotent)"
             ((skipped++))
             continue
         fi
@@ -1156,16 +1282,16 @@ step6b_seed_external_credentials() {
             create secret generic "$name" "${args[@]}" \
             --dry-run=client -o yaml \
             | kubectl --kubeconfig="$KUBECONFIG_PATH" apply -f - >/dev/null \
-            || error_exit "failed to create $target from k8-secrets/$subdir"
+            || error_exit "failed to create $target"
 
-        log "  ✓ $target seeded from k8-secrets/$subdir"
+        log "  ✓ $target seeded"
         ((seeded++))
     done
 
     log "Step 6b: $seeded seeded, $skipped awaiting values"
     if [[ "$skipped" -gt 0 ]]; then
         log "  Note: hub-operator uploads these to Infisical on its next reconcile,"
-        log "        so re-running this step after filling the files is enough."
+        log "        so re-running this step once the values are present is enough."
     fi
 }
 
@@ -1399,10 +1525,16 @@ step10_wait_spokepool() {
     # The PKI artifacts depend on the HubEnvironment controller finishing Phase 3 (OAuth clients).
     # That phase is gated by Infisical -> ExternalSecrets -> Hydra. We wait for the condition here
     # to avoid race conditions with ArgoCD's retry backoffs.
-    if [[ -x "$ZERO_OPS_DIR/scripts/k8-setup/wait-for-identity.sh" ]]; then
-        "$ZERO_OPS_DIR/scripts/k8-setup/wait-for-identity.sh" "$KUBECONFIG_PATH" "$CERT_TIMEOUT"
+    # resolve_owned, not ZERO_OPS_DIR: this is a PLATFORM script, and the tenant's
+    # checkout has no scripts/ at all (ADR-072). Looked for there it was never
+    # found, so the wait it performs was skipped on every tenant-path run -- and
+    # what it waits for is the precondition of the step immediately below, which
+    # then spun against artifacts nothing had been allowed to create yet.
+    local identity_wait; identity_wait="$(resolve_owned scripts/k8-setup/wait-for-identity.sh)"
+    if [[ -x "$identity_wait" ]]; then
+        "$identity_wait" "$KUBECONFIG_PATH" "$CERT_TIMEOUT"
     else
-        log "⚠️  scripts/k8-setup/wait-for-identity.sh not found or not executable, skipping identity pre-requisite wait."
+        error_exit "wait-for-identity.sh not found at $identity_wait. The PKI wait below depends on it; skipping it turns a missing precondition into a twenty-minute timeout."
     fi
 
     # Step 10d: Wait for bootstrap PKI artifacts (machine-identity + bootstrap-cert CRS wrappers)
@@ -1534,7 +1666,11 @@ step10e_spoke_home_worker() {
         return 0
     fi
 
-    local script="$ZERO_OPS_DIR/scripts/hybrid/provision-flatcar-worker.sh"
+    # resolve_owned: this is a PLATFORM script, and ZERO_OPS_DIR is the TENANT's
+    # checkout, which has no scripts/ at all (ADR-072). Looked for there it is
+    # never found -- the same defect that silently skipped the tailscale step and
+    # the identity wait before it.
+    local script; script="$(resolve_owned scripts/hybrid/provision-flatcar-worker.sh)"
     if [[ ! -x "$script" && ! -f "$script" ]]; then
         error_exit "Step 10e: $script is missing; the spoke has no worker and platform workloads cannot schedule (ADR-014)"
     fi
@@ -1604,7 +1740,7 @@ step10e_spoke_home_worker() {
 # HYBRID_SPOKE_NAME and TAILNET_NAME, and none of those may leak into the
 # bootstrap's own environment.
 spoke_home_worker_registry() {
-    local env_file="$ZERO_OPS_DIR/scripts/hybrid/home-lab.env"
+    local env_file; env_file="$(resolve_owned scripts/hybrid/home-lab.env)"
     [[ -f "$env_file" ]] || return 0
 
     local nodes
@@ -1682,11 +1818,31 @@ spoke_home_worker_ready() {
 # surfacing later as an unrelated symptom in the post-bootstrap summary.
 # mode=gate tolerates resources that have not converged yet; anything that cannot
 # self-heal (a wrong environment slug, an unsubstituted DNS filter) still fails.
+# The zone this box publishes on, read from what it declares.
+#
+# ADR-051 makes HubEnvironment.spec.domain the sole authority, and the gates need
+# it: without it common.sh falls back to the PLATFORM's own zone, so a tenant box
+# is checked against a domain it does not own. That produced a gate failing on a
+# correct box -- "external-dns --domain-filter is not dev.nutgraf.in" on a box
+# whose filter was correctly dev.acme.example, with the line above it confirming
+# the substitution was right.
+box_hub_domain() {
+    kubectl --kubeconfig="$KUBECONFIG_PATH" get hubenvironment hub-environment \
+        -n platform-ops -o jsonpath='{.spec.domain}' 2>/dev/null || true
+}
+
 run_gate() {
     local modules="$1" label="$2"
     log "Gate: $label"
+    local hub_domain; hub_domain="$(box_hub_domain)"
+    if [[ -z "$hub_domain" ]]; then
+        # Refused rather than defaulted. The fallback is the platform's zone, and
+        # checking a tenant's box against it either fails a correct box or passes
+        # a wrong one -- both worse than saying the authority is unreadable.
+        error_exit "Gate '$label': the box declares no domain (HubEnvironment.spec.domain is empty), so there is nothing to validate its hostnames against."
+    fi
     if ! HUB_KUBECONFIG="$KUBECONFIG_PATH" ENVIRONMENT="$ENVIRONMENT" \
-         SPOKEPOOL_NAME="$SPOKEPOOL_NAME" \
+         SPOKEPOOL_NAME="$SPOKEPOOL_NAME" HUB_DOMAIN="$hub_domain" \
          bash "$SCRIPT_DIR/validate/run.sh" cluster --only="$modules" --mode=gate; then
         error_exit "Gate '$label' failed — see above. Continuing would build the rest of the platform on a broken foundation."
     fi
@@ -1922,7 +2078,7 @@ main() {
     # No step 2. AWS Secrets Manager was replaced by the Infisical-based escrow
     # (37f76d84), which the Go orchestrator installs before hub-operator starts
     # reconciling. The step numbering is left alone rather than renumbered: the
-    # names are recorded in bootstrap-state.json on every existing box.
+    # names are recorded in bootstrap-mgmt.json on every existing box.
 
     step3_configure_github
 
@@ -1979,16 +2135,21 @@ main() {
     # is the path that actually serves tenant traffic.
     run_gate "tenant-ingress" "spoke tenant ingress"
 
-    # LAST, and deliberately so. These checks resolve public hostnames, complete a
-    # TLS handshake against a publicly-trusted chain, and speak the protocol —
-    # which depends on external DNS having propagated, ACME having issued, and the
-    # Gateway serving. None of that is settled earlier in this sequence.
+    # NOT a gate. The public endpoints are checked at the END, by the
+    # post-bootstrap validation below, which runs every cluster module at
+    # --mode=final -- module 35 among them.
     #
-    # It sat before step10_wait_spokepool until 2026-09-07 and blocked it: the
-    # module carries no soft failures by design, so a hostname that is legitimately
-    # not up yet ended the run before the spoke was ever provisioned. A final-state
-    # assertion placed mid-sequence does not gate the platform, it truncates it.
-    run_gate "public-api-endpoints" "public API endpoints"
+    # It was a gate here, and that was wrong twice over. It duplicated a check the
+    # final sweep already makes, and it made the LAST thing to converge block
+    # everything after it: DNS propagation and ACME issuance take minutes that the
+    # steps behind this gate do not need to wait for, so a box whose endpoints were
+    # merely not up YET failed here and never reached the validation that would
+    # have said so precisely. A box on a domain that cannot resolve at all never
+    # got past this line.
+    #
+    # The check has not been weakened. --mode=final is the STRICTER of the two
+    # modes, so what was a gate failure is still a failure -- it just happens once,
+    # at the end, after everything that could make it pass has had its chance.
 
     # Assert, do not announce. The previous banner claimed "SpokePool: Provisioned
     # and ready for tenant workloads", "Certificate distribution: Complete" and
@@ -1997,7 +2158,7 @@ main() {
     # pods. The run is only allowed to say what the gates above actually observed.
     log "Zero-Ops Hub Bootstrap Process completed"
     log "  Gates passed: secret resolution, OAuth clients, spoke readiness,"
-    log "                spoke home worker, tenant ingress, public API endpoints"
+    log "                spoke home worker, tenant ingress"
     log "  Post-bootstrap validation runs next and is fatal — the platform is not"
     log "  proven until it passes."
     log "You can now access your hub cluster using: kubectl --kubeconfig=$KUBECONFIG_PATH"
@@ -2005,12 +2166,16 @@ main() {
     # Run post-bootstrap core services validation
     log ""
     log "Running post-bootstrap core services validation..."
-    local validate_script="$SCRIPT_DIR/post-bootstrap-validate.sh"
+    # validate-all.sh, which runs post-bootstrap-validate and records the phase
+    # in .state/validation.json. One entry point: bootstrap, the verify phase and
+    # CI all reach the validators the same way, so "was this box validated" has
+    # one answer wherever it was asked.
+    local validate_script="$SCRIPT_DIR/validate-all.sh"
     if [[ ! -f "$validate_script" ]]; then
         # Not a warning. This is the step that decides whether the platform
         # works, and a bootstrap that cannot run it has not proven anything --
         # which is exactly what the log line here used to say while continuing.
-        error_exit "post-bootstrap-validate.sh not found at $validate_script — the platform cannot be proven."
+        error_exit "validate-all.sh not found at $validate_script — the platform cannot be proven."
     fi
     # Fatal: swallowing this into a warning is how a bootstrap "succeeds"
     # while leaving a platform that does not work.
@@ -2023,7 +2188,8 @@ main() {
          ZERO_OPS_DIR="$ZERO_OPS_DIR" \
          SPOKEPOOL_NAME="$SPOKEPOOL_NAME" \
          ENVIRONMENT="$ENVIRONMENT" \
-         bash "$validate_script"; then
+         CLUSTER_NAME="$CLUSTER_NAME" \
+         bash "$validate_script" --only=platform; then
         error_exit "Post-bootstrap validation FAILED — see the summary above."
     fi
 

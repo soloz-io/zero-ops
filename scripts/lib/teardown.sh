@@ -127,7 +127,7 @@ for item in payload.get('servers', []) or []:
 
     # If that name was only a guess (nothing on disk, nothing left in the cloud),
     # ask the repo which provider this environment is actually defined for.
-    local pooldir="$ZERO_OPS_DIR/manifests/spoke/spoke-pools/${ENVIRONMENT}"
+    local pooldir; pooldir="$(resolve_owned "manifests/spoke/spoke-pools/${ENVIRONMENT}")"
     if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig" && -d "$pooldir" ]]; then
         local providers=()
         local d
@@ -144,7 +144,7 @@ for item in payload.get('servers', []) or []:
 
     if [[ -z "$SPOKEPOOL_NAME" ]]; then
         local spoke_manifest
-        spoke_manifest=$(ls "$ZERO_OPS_DIR/manifests/spoke/spoke-pools/${ENVIRONMENT}/${PROVIDER}/"*.yaml 2>/dev/null | head -1 || true)
+        spoke_manifest=$(ls "$(resolve_owned "manifests/spoke/spoke-pools/${ENVIRONMENT}/${PROVIDER}")/"*.yaml 2>/dev/null | head -1 || true)
         if [[ -n "$spoke_manifest" ]]; then
             SPOKEPOOL_NAME=$(python3 -c "
 import yaml, sys
@@ -257,7 +257,7 @@ _sweep_leftovers() {
 # (flatcar-base.vhdx) is deliberately kept: it is a large download shared by every
 # node and re-fetching it costs minutes on the next provision.
 _teardown_home_workers() {
-    local envfile="$ZERO_OPS_DIR/scripts/hybrid/home-lab.env"
+    local envfile; envfile="$(resolve_owned scripts/hybrid/home-lab.env)"
     if [[ ! -f "$envfile" ]]; then
         log "  no scripts/hybrid/home-lab.env — no home-lab workers registered"
         return 0

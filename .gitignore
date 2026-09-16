@@ -99,3 +99,4 @@ manifests/argocd/environment-manager/descriptors/
 # `git add -A` in this checkout has swept one in before.
 .local-e2e/
 support-agent
+.state
