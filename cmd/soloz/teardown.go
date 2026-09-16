@@ -13,6 +13,8 @@ var (
 	teardownDNSZone  string
 	teardownForce    bool
 	teardownConfirm  bool
+	teardownSpokes   []string
+	teardownGitops   string
 )
 
 func newTeardownCmd() *cobra.Command {
@@ -39,6 +41,19 @@ Kubernetes CAPI resources, Kind/Docker artifacts, and local state.`,
 		"external-dns txt-owner-id whose records to release (default: read from the cluster)")
 	cmd.Flags().StringVar(&teardownDNSZone, "dns-zone", "",
 		"the zone those records live in, e.g. dev.nutgraf.in (default: read from the cluster)")
+	// The spoke list normally comes from the hub. A hub that is already gone
+	// answers nothing, which is exactly when its spokes get stranded: the servers
+	// carry the spoke's name, mention the hub nowhere, and survive the teardown
+	// that was supposed to take them. Naming the pool here is what the box
+	// declares, and it outlives the cluster.
+	// Where the box's state and kubeconfig actually are. bootstrap writes both
+	// under --gitops-dir; teardown resolved them against its own working
+	// directory, so a teardown run from anywhere else read an empty cluster and
+	// tore down nothing while reporting success.
+	cmd.Flags().StringVar(&teardownGitops, "gitops-dir", "",
+		"the tenant repository this box was bootstrapped from (holds its state and kubeconfig)")
+	cmd.Flags().StringSliceVar(&teardownSpokes, "spoke", nil,
+		"spoke cluster(s) this box declares, used when the hub cannot be reached (repeatable)")
 
 	// --name is required for a teardown, which destroys a named cluster. A
 	// --dns-only run destroys no cluster and names records by owner instead.
@@ -73,6 +88,8 @@ func runTeardown(cmd *cobra.Command, args []string) error {
 		Force:       teardownForce,
 		Debug:       debug,
 		DNSOnly:     teardownDNSOnly,
+		GitopsDir:   teardownGitops,
+		Spokes:      teardownSpokes,
 		DNS: teardown.DNSOverride{
 			Owner: teardownDNSOwner,
 			Zone:  teardownDNSZone,

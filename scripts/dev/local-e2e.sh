@@ -278,12 +278,29 @@ do_clean() {
     # Reported and continued rather than fatal: `clean` exists to get back to a
     # buildable state, and a box that is already half-gone must not become
     # unremovable. But it says so, loudly, while the zone can still be checked.
-    if ! "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm 2>&1 | sed 's/^/  /'; then
+    # --spoke is what this box DECLARES, and it is passed because the hub is the
+    # thing being destroyed. teardown asks the hub which spokes it owns, which is
+    # the right source right up until the hub is unreachable -- and then it
+    # returns nothing, the spoke servers go unclaimed, and they are left running
+    # and billing. That is the orphan that had to be deleted by hand after every
+    # run. The declaration answers the same question and survives the cluster.
+    local pool=""
+    pool=$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER") || {
+        echo "local-e2e: cannot name the declared SpokePool; teardown will not be" >&2
+        echo "  able to reclaim spoke servers if the hub is already gone." >&2
+    }
+
+    if ! "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm \
+             --gitops-dir "$WORKSPACE/$repo" \
+             ${pool:+--spoke "$pool"} 2>&1 | sed 's/^/  /'; then
         echo "local-e2e: teardown did not complete cleanly." >&2
         echo "  Records this box published may be left in the zone. They cannot be" >&2
         echo "  reclaimed by a later box -- check now, and release them with:" >&2
         echo "    soloz teardown --name $CLUSTER --confirm --dns-only \\" >&2
         echo "      --dns-owner <owner> --dns-zone <zone>" >&2
+        echo "  Spoke servers may also be left running. Check and remove with:" >&2
+        echo "    soloz teardown --name $CLUSTER --force --confirm \\" >&2
+        echo "      --gitops-dir $WORKSPACE/$repo${pool:+ --spoke $pool}" >&2
     fi
 
     # The ephemeral bootstrap cluster. Left behind, `kind create cluster`
@@ -805,7 +822,7 @@ if wants bootstrap; then
 
 Tear down when finished:
 
-  $ROOT/bin/soloz teardown --name $CLUSTER --force --confirm
+  $ROOT/bin/soloz teardown --name $CLUSTER --force --confirm --gitops-dir $WORKSPACE/$TENANT-gitops
   rm -rf $WORKSPACE/$TENANT-gitops
   gh repo delete $GIT_ORG/$TENANT-gitops --yes
 EOF

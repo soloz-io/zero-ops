@@ -32,6 +32,33 @@ type Orchestrator struct {
 	// ReleasedDNSRecords is how many records the run actually released, so the
 	// caller can report the outcome instead of the intent.
 	ReleasedDNSRecords int
+
+	// GitopsDir is the tenant repository this box was bootstrapped from, and is
+	// where its state and kubeconfig actually live.
+	//
+	// Without it teardown resolved both against its own working directory while
+	// bootstrap wrote them under --gitops-dir, so a teardown launched from
+	// anywhere else found no state, fell through to --context=kind-<cluster>,
+	// and every kubectl call reached localhost:8080. Nothing failed: the cluster
+	// simply answered nothing. It listed no spokes and left their servers
+	// running, read no DNS ownership and left the records orphaned, and reported
+	// a completed teardown -- the box was reachable the whole time.
+	GitopsDir string
+
+	// Spokes names the spoke clusters this box declares, for when the hub cannot
+	// be asked for them.
+	//
+	// spokeClusterNames reads the list from the running hub, which is the right
+	// source while there is one and returns nothing once there is not -- and a
+	// hub that is already gone is exactly when its spokes get stranded. The
+	// servers carry the SPOKE's name and label and mention the hub nowhere, so a
+	// teardown scoped to the hub walks past them, and reportOrphanedSpokes
+	// correctly refuses to delete on a label that proves only "some cluster".
+	//
+	// A name supplied here is different evidence: it comes from what this box
+	// DECLARES, which survives the cluster. It is the same lookup local-e2e and
+	// the tenant workflow use to know which pool a box has.
+	Spokes []string
 }
 
 // Run executes immediate forceful deletion of Kubernetes CAPI resources, Hetzner Cloud infra, Kind/Docker, and local state.
@@ -61,7 +88,33 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// alive. Must run before anything else is destroyed — see the function comment.
 	// Ask the hub which spokes it owns while it can still answer. Everything
 	// below this line destroys, and after it nothing knows.
+	// Whether the box can be reached at all, established once and reported.
+	// Unreachable is not "nothing to do": every read below returns empty, and a
+	// teardown that destroys nothing and says it succeeded is worse than one
+	// that fails, because the servers keep billing and nobody is told.
+	_, reachable := o.resolveKubectlBaseArgs()
+	if !reachable {
+		fmt.Printf("[teardown] ⚠️  No kubeconfig for '%s' under %q.\n",
+			o.ClusterName, o.gitopsDirForMessage())
+		fmt.Println("[teardown]     The cluster cannot be read, so its spokes and DNS")
+		fmt.Println("[teardown]     ownership are unknown. Pass --gitops-dir pointing at the")
+		fmt.Println("[teardown]     tenant repository this box was bootstrapped from.")
+	}
+
 	spokes := o.spokeClusterNames(ctx)
+	if len(spokes) == 0 && len(o.Spokes) > 0 {
+		// The hub could not be asked. Fall back to what the box declares. This is
+		// a last resort and not the mechanism: the hub is the source of truth and
+		// is queried first, above, while it is still alive.
+		spokes = o.Spokes
+		fmt.Printf("[teardown] The hub could not be asked for its spokes; using the "+
+			"declared pool(s): %s\n", strings.Join(spokes, ", "))
+	}
+	if len(spokes) == 0 && len(o.Spokes) == 0 && !reachable {
+		fmt.Println("[teardown] ⚠️  No spoke is known, from the cluster or the command line.")
+		fmt.Println("[teardown]     Any spoke servers this box provisioned will be LEFT RUNNING.")
+		fmt.Println("[teardown]     Name the pool with --spoke to remove them.")
+	}
 	if len(spokes) > 0 {
 		fmt.Printf("[teardown] This hub provisioned %d spoke cluster(s): %s\n",
 			len(spokes), strings.Join(spokes, ", "))
@@ -105,6 +158,19 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	return nil
 }
 
+// gitopsDirForMessage names where teardown looked, so the warning is actionable
+// rather than just negative.
+func (o *Orchestrator) gitopsDirForMessage() string {
+	if o.GitopsDir != "" {
+		return o.GitopsDir
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "the working directory"
+	}
+	return wd
+}
+
 // resolveKubectlBaseArgs locates the kubeconfig (or kind context) for the cluster
 // being torn down and returns the kubectl flags that select it, or ok=false when
 // no usable target exists.
@@ -114,15 +180,20 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 // strips finalizers on another would be worse than doing neither.
 func (o *Orchestrator) resolveKubectlBaseArgs() (baseArgs []string, ok bool) {
 	stateMgr := state.NewStateManager(o.ClusterName)
+	if o.GitopsDir != "" {
+		stateMgr = state.NewTenantStateManager(o.GitopsDir, o.ClusterName)
+	}
 	bootstrapState, _ := stateMgr.Load()
 
 	var kubeconfig string
 	if bootstrapState != nil && bootstrapState.MgmtKubeconfig != "" {
 		kubeconfig = bootstrapState.MgmtKubeconfig
 	} else {
+		// Against the tenant repository, not the working directory. These are
+		// where bootstrap puts them, and it puts them under --gitops-dir.
 		possiblePaths := []string{
-			fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName),
-			fmt.Sprintf("%s.kubeconfig", o.ClusterName),
+			filepath.Join(o.GitopsDir, "k8-secrets", "kubeconfig", o.ClusterName+".kubeconfig"),
+			filepath.Join(o.GitopsDir, o.ClusterName+".kubeconfig"),
 		}
 		for _, path := range possiblePaths {
 			if _, err := os.Stat(path); err == nil {
