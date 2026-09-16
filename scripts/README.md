@@ -59,7 +59,7 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 
 **Exit codes:** `0` = all critical checks passed. `1` = one or more failures.
 
-**Log output:** Written to `.zero-ops/validate-tenant-workloads.log` (cleared on each run).
+**Log output:** Written to `.state/logs/validate-tenant-workloads.log` (cleared on each run).
 
 **Expected output (healthy tenant):**
 
@@ -109,8 +109,15 @@ namespaces, ArgoCD, Crossplane, ESO, Infisical, CNPG, OpenMeter,
 Ory identity stack, hub-operator, kube-sbt, ingress, spoke pool,
 and observability.
 
+SPOKEPOOL_NAME names the SpokePool this box declares. There is no default: one
+used to exist (`spoke-pool-eu-prod-01`), so a run that omitted it validated a dev
+box against the production pool name and reported the spoke checks as failures of
+the box rather than of the invocation.
+
 ```bash
-./scripts/post-bootstrap-validate.sh
+SPOKEPOOL_NAME=spoke-pool-eu-dev-01 ENVIRONMENT=dev \
+  KUBECONFIG=k8-secrets/kubeconfig/<cluster>.kubeconfig \
+  ./scripts/post-bootstrap-validate.sh
 ```
 
 ---

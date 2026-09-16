@@ -20,28 +20,16 @@ func stateDir() string {
 	return filepath.Join(cwd, ".state")
 }
 
-// legacyStateFilePath is the location this replaced.
+// stateFilePath is the one place this record lives.
 //
-// Read, never written. A box bootstrapped by an earlier build has its record
-// there, and losing it means re-running Day-0 Infisical setup against a project
-// that already exists -- which fails rather than being idempotent.
-func legacyStateFilePath() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return filepath.Join(".zero-ops", stateFileName)
-	}
-	return filepath.Join(cwd, ".zero-ops", stateFileName)
-}
-
+// It briefly also read .zero-ops/, the directory this replaced, so a box
+// bootstrapped by an earlier build would still be found. That made the path
+// depend on what happened to exist on disk: nothing has written to .zero-ops
+// since the move, so a file still sitting there is stale by definition, and
+// preferring it silently reused Day-0 Infisical credentials the current box
+// never issued.
 func stateFilePath() string {
-	current := filepath.Join(stateDir(), stateFileName)
-	if _, err := os.Stat(current); err == nil {
-		return current
-	}
-	if legacy := legacyStateFilePath(); func() bool { _, err := os.Stat(legacy); return err == nil }() {
-		return legacy
-	}
-	return current
+	return filepath.Join(stateDir(), stateFileName)
 }
 
 // BootstrapState is the on-disk cache written after a successful Day-0

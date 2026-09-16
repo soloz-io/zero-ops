@@ -434,6 +434,13 @@ do_bootstrap() {
     # pass the name alongside the flag rather than leaving it for the operator to
     # discover. TAILNET_NAME overrides; home-lab.env is where a developer's
     # tailnet is already recorded, so it is read rather than restated here.
+    # The SpokePool this box declares. hub-bootstrap.sh refuses to continue
+    # without one -- main() error_exits immediately before step10_wait_spokepool
+    # -- and this was the only phase that never supplied it. The run therefore
+    # completed every step up to the spoke wait and then died on an unset
+    # variable, unless the caller happened to have SPOKEPOOL_NAME exported.
+    local pool; pool=$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")
+
     local on_prem_flag=""
     if [ "$PROVIDER" = "hybrid" ]; then
         on_prem_flag="--on-prem"
@@ -462,6 +469,7 @@ do_bootstrap() {
          bash "$ROOT/scripts/hub-bootstrap.sh" \
            --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \
            --environment "$ENVIRONMENT" --gitops-dir . \
+           --spoke "$pool" \
            $on_prem_flag )
 }
 
@@ -485,15 +493,12 @@ do_workload() {
         return 1
     }
 
-    # The claim names the cluster. Read it rather than hardcoding, so a box with
-    # a differently named pool works without editing this script.
-    local pool
-    pool=$(KUBECONFIG="$kc" kubectl get spokepools.nutgraf.in -A \
-             -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-    [ -n "$pool" ] || {
-        say "no workload cluster declared on this box; nothing to do"
-        return 0
-    }
+    # Resolved the same way every other phase resolves it: from the manifests
+    # that declare it. This read the live cluster instead, which is a second
+    # answer to one question -- and the two could disagree, with `bootstrap`
+    # having provisioned the pool the manifests name while `workload` waited on
+    # whichever one the cluster happened to list first.
+    local pool; pool=$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")
 
     say "workload cluster: $pool"
     CLUSTER_NAME="$CLUSTER" \
@@ -560,21 +565,40 @@ do_verify() {
     say "validating platform components"
     ZERO_OPS_DIR="$ROOT" KUBECONFIG="$kc" \
         ENVIRONMENT="$ENVIRONMENT" \
-        SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")}" \
+        SPOKEPOOL_NAME="$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")" \
         bash "$validator"
 }
 
 # The spoke this environment+provider provisions, mirroring the burstSpokePool
 # table in environment-manager values.yaml. Wrong here means the validator checks
 # a spoke this box never creates, and reports a failure that is not one.
+# The SpokePool an environment+provider declares.
+#
+# Read from the manifests, not restated here. It WAS restated, as a case list
+# with a `spoke-pool-<env>-01` default, and it drifted: stg/hetzner declares
+# spoke-pool-eu-stg-01 and the default branch answered spoke-pool-stg-01, so
+# every stg/hetzner run looked for a pool that does not exist -- and the default
+# branch meant it answered confidently instead of admitting it did not know.
+#
+# Unknown is now an error rather than a guess. A name this script invents is one
+# the platform never created, and every check downstream of it fails against the
+# wrong object.
 spoke_pool_for() {
-    case "$1/$2" in
-        dev/hetzner)  echo "spoke-pool-eu-dev-01" ;;
-        dev/hybrid)   echo "spoke-pool-hybrid-dev-01" ;;
-        stg/hybrid)   echo "spoke-pool-hybrid-stg-01" ;;
-        prod/hetzner) echo "spoke-pool-eu-prod-01" ;;
-        *)            echo "spoke-pool-${1}-01" ;;
-    esac
+    local env="$1" provider="$2"
+    local dir="$ROOT/manifests/spoke/spoke-pools/$env/$provider"
+    local name=""
+
+    if [ -d "$dir" ]; then
+        name=$(yq eval 'select(.kind == "SpokePool") | .metadata.name' "$dir"/*.yaml 2>/dev/null \
+                 | grep -vx 'null' | head -1)
+    fi
+
+    if [ -z "$name" ]; then
+        echo "local-e2e: no SpokePool is declared under manifests/spoke/spoke-pools/$env/$provider" >&2
+        echo "  Add the declaration; this is the only place the name comes from." >&2
+        return 1
+    fi
+    printf '%s\n' "$name"
 }
 
 # The acceptance pass. `verify` answers "did this converge"; this answers "does

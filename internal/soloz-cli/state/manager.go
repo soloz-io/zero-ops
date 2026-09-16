@@ -106,33 +106,22 @@ type StateManager struct {
 // two answers and every reader had to know which call had been made. A shell
 // helper that looked in only one of them silently fell through to a convention
 // path and never used the recorded value.
-//
-// A box written by an earlier version is read from the old path when the new one
-// is absent (see statePathFor). Without that a resumed bootstrap finds no state
-// and starts again from phase one, which on a running cluster means re-doing work
-// that has already been done to it.
 func NewStateManager(clusterName string) *StateManager {
 	return &StateManager{
 		statePath: statePathFor("", clusterName),
 	}
 }
 
-// statePathFor resolves where a cluster's state lives, preferring the current
-// layout and falling back to the one it replaced.
+// statePathFor resolves where a cluster's state lives.
 //
-// Only for READING an existing file: a new state file is always written at the
-// current path, so a box migrates the first time it is written to rather than
-// being migrated by a separate step that could be missed.
+// ONE location. It briefly read .zero-ops/state as well, for boxes written
+// before the move -- which meant the answer to "where is this box's state"
+// depended on what happened to exist on disk, and a stale file left in the old
+// directory silently won over the current one. Nothing has written there since
+// the move, so the only thing the second lookup could still find is a file that
+// should not be acted on.
 func statePathFor(root, clusterName string) string {
-	current := filepath.Join(root, TenantStateDir, clusterName+".json")
-	if _, err := os.Stat(current); err == nil {
-		return current
-	}
-	legacy := filepath.Join(root, ".zero-ops", "state", clusterName+".json")
-	if _, err := os.Stat(legacy); err == nil {
-		return legacy
-	}
-	return current
+	return filepath.Join(root, TenantStateDir, clusterName+".json")
 }
 
 // NewTenantStateManager keeps a cluster's bootstrap state in the tenant's own

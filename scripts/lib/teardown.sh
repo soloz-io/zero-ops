@@ -83,14 +83,14 @@ _print_inventory() {
 # flags, while --name / --spoke still override.
 _resolve_teardown_targets() {
     if [[ -z "$CLUSTER_NAME" || "$CLUSTER_NAME" == "hub" ]]; then
+        # .state/bootstrap, where the CLI writes it. This read .zero-ops/state,
+        # which nothing has written since the move, so the lookup always missed
+        # and teardown fell through to guessing the name from a kubeconfig
+        # filename -- naming a cluster from a file that outlives the cluster.
         local state
-        state=$(ls "$ZERO_OPS_DIR/.zero-ops/state/"*"-${ENVIRONMENT}.json" 2>/dev/null | head -1 || true)
+        state=$(ls "$ZERO_OPS_DIR/.state/bootstrap/"*"-${ENVIRONMENT}.json" 2>/dev/null | head -1 || true)
         if [[ -n "$state" ]]; then
             CLUSTER_NAME="$(basename "$state" .json)"
-        else
-            local kcfg
-            kcfg=$(ls "$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub-"*"-${ENVIRONMENT}.kubeconfig" 2>/dev/null | head -1 || true)
-            [[ -n "$kcfg" ]] && CLUSTER_NAME="$(basename "$kcfg" .kubeconfig)"
         fi
     fi
     if [[ -z "$CLUSTER_NAME" || "$CLUSTER_NAME" == "hub" ]]; then
@@ -392,7 +392,7 @@ _local_cleanup() {
         docker network rm kind >/dev/null 2>&1 || log "    (still in use)"
     fi
 
-    local state="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    local state="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
     if [[ -f "$state" ]]; then
         rm -f "$state"
         log "  removed bootstrap state: ${CLUSTER_NAME}.json"

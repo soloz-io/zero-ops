@@ -8,16 +8,35 @@ set -uo pipefail
 # ─── Configuration ───────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-ZERO_OPS_DIR="$PROJECT_ROOT"
-LOG_DIR="$ZERO_OPS_DIR/.zero-ops"
+# Honours a caller's ZERO_OPS_DIR, which is the workspace the box was
+# bootstrapped from. Hardcoding PROJECT_ROOT wrote this script's logs into the
+# platform checkout even when it was validating a tenant's box.
+ZERO_OPS_DIR="${ZERO_OPS_DIR:-$PROJECT_ROOT}"
+# .state, not .zero-ops. The latter was replaced, and a script still writing to
+# it recreates the directory on every run.
+LOG_DIR="$ZERO_OPS_DIR/.state/logs"
 LOG_FILE="$LOG_DIR/post-bootstrap-validate.log"
-# Auto-detect kubeconfig (cloud providers use hub.kubeconfig)
+# No default. It used to fall back to k8-secrets/kubeconfig/hub.kubeconfig, a
+# cluster named "hub" -- so a run against a box named anything else silently
+# validated the wrong cluster, or a stale kubeconfig belonging to a deleted one.
+# Every caller passes KUBECONFIG; not being told which cluster to check is an
+# error, not something to guess at.
 if [[ -z "${KUBECONFIG:-}" ]]; then
-    KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
+    echo "post-bootstrap-validate: KUBECONFIG is not set." >&2
+    echo "  Pass the kubeconfig of the box to validate; there is no default." >&2
+    exit 2
 fi
 # Provider matrix: cloud providers use hetzner infra and production spoke.
 CAPI_INFRA_PROVIDER="hetzner"
-SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
+# No default. It used to fall back to spoke-pool-eu-prod-01, so a run that
+# forgot to pass one validated a dev box against the PRODUCTION pool name, found
+# nothing, and reported the spoke checks as failures of the box rather than of
+# the invocation. Every caller passes it; not knowing is an error, not a guess.
+if [[ -z "${SPOKEPOOL_NAME:-}" ]]; then
+    echo "post-bootstrap-validate: SPOKEPOOL_NAME is not set." >&2
+    echo "  Pass the SpokePool this box declares; there is no safe default." >&2
+    exit 2
+fi
 
 # Timeout for individual checks (seconds)
 DEPLOY_READY_TIMEOUT="${DEPLOY_READY_TIMEOUT:-120}"

@@ -296,7 +296,6 @@ mark_step_completed() {
 # State-only gate per user request: no hash, no repo drift check.
 is_static_preflight_checkpointed() {
     local go_state="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
-    [[ -f "$go_state" ]] || go_state="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
     [[ -f "$go_state" ]] || return 1
     if command -v jq >/dev/null 2>&1; then
         jq -e '.completedPhases | index("preflight")' "$go_state" >/dev/null 2>&1
@@ -704,36 +703,37 @@ check_prerequisites() {
 # Read the kubeconfig path from the Go bootstrap state file (the result contract).
 # Called after hub bootstrap completes to set KUBECONFIG_PATH for all downstream steps.
 read_kubeconfig_from_state() {
-    # Two layouts, because the CLI writes state in two places depending on how
-    # it was called. With --gitops-dir (ADR-072, which is how a tenant runs it)
-    # state goes in the TENANT's repository at .state/bootstrap/<cluster>.json;
-    # without it, in the checkout at .zero-ops/state/<cluster>.json.
+    # ONE source: the state file the CLI writes, at .state/bootstrap/<cluster>.json
+    # in the workspace (ADR-072 puts it in the TENANT's repository, which is what
+    # ZERO_OPS_DIR names).
     #
-    # Only the second was read here, so a tenant-directory run always missed and
-    # fell through to the convention path below. That happened to be right, which
-    # is why it went unnoticed -- the state file's own answer was never used.
-    local candidates=(
-        "$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
-        "$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
-    )
-    local go_state_file
-    for go_state_file in "${candidates[@]}"; do
-        if [[ -f "$go_state_file" ]]; then
-            KUBECONFIG_PATH=$(jq -r '.mgmtKubeconfig // ""' "$go_state_file" 2>/dev/null || echo "")
-            [[ -n "$KUBECONFIG_PATH" ]] && break
-        fi
-    done
+    # There were three sources before -- this path, a legacy .zero-ops/state one,
+    # and a convention-based guess at k8-secrets/kubeconfig/<cluster>.kubeconfig
+    # if neither answered. The guess is what made the rest untestable: it is
+    # usually right, so a state file that was missing or held a different path
+    # produced a working run against a kubeconfig nobody had chosen, and the two
+    # could not be told apart. A box whose state does not record its kubeconfig
+    # is a box this cannot act on, and it now says so.
+    local go_state_file="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    if [[ ! -f "$go_state_file" ]]; then
+        error_exit "no bootstrap state at $go_state_file — the management cluster has not been bootstrapped from this workspace."
+    fi
+
+    KUBECONFIG_PATH=$(jq -r '.mgmtKubeconfig // ""' "$go_state_file" 2>/dev/null || echo "")
+    if [[ -z "$KUBECONFIG_PATH" ]]; then
+        error_exit "$go_state_file records no mgmtKubeconfig — bootstrap did not finish writing it."
+    fi
+
     # The state file records the path as the CLI saw it, which is relative when
     # the CLI ran with --gitops-dir . from inside the tenant's repository. Resolve
     # it against the workspace rather than the caller's cwd, which is arbitrary.
-    if [[ -n "$KUBECONFIG_PATH" && "$KUBECONFIG_PATH" != /* ]]; then
+    if [[ "$KUBECONFIG_PATH" != /* ]]; then
         KUBECONFIG_PATH="$ZERO_OPS_DIR/$KUBECONFIG_PATH"
     fi
-
-    if [[ -z "$KUBECONFIG_PATH" ]]; then
-        # Fallback: convention-based path
-        KUBECONFIG_PATH="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
+    if [[ ! -r "$KUBECONFIG_PATH" ]]; then
+        error_exit "state names $KUBECONFIG_PATH as the kubeconfig, and it is not readable."
     fi
+
     export KUBECONFIG_PATH
     log "Kubeconfig path: $KUBECONFIG_PATH"
 }
@@ -742,7 +742,6 @@ read_kubeconfig_from_state() {
 step1_bootstrap_hub() {
     # Check if step is already completed AND the Go bootstrap state confirms postboot finished
     local go_state_file="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
-    [[ -f "$go_state_file" ]] || go_state_file="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
     # Handle teardown-on-bootstrap: clean up existing cluster before starting
     # State files are removed unconditionally to prevent stale state from
     # skipping the bootstrap on re-run. If teardown fails (cluster gone etc.),
@@ -778,8 +777,7 @@ step1_bootstrap_hub() {
         rm -f "$LOG_DIR/bootstrap-hub.log"
         rm -f "$LOG_DIR/init-secrets.log"
         rm -f "$LOG_DIR/infisical-bootstrap.json"
-        rm -f "$ZERO_OPS_DIR/.state/kind/kind-config-generated.yaml" \
-              "$ZERO_OPS_DIR/.zero-ops/kind/kind-config-generated.yaml"
+        rm -f "$ZERO_OPS_DIR/.state/kind/kind-config-generated.yaml"
         log "✓ Bootstrap state, logs, and stale kind resources reset for fresh start"
         sleep 10  # let the smoke clear
     fi
@@ -2008,14 +2006,25 @@ main() {
     log ""
     log "Running post-bootstrap core services validation..."
     local validate_script="$SCRIPT_DIR/post-bootstrap-validate.sh"
-    if [[ -f "$validate_script" ]]; then
-        # Fatal: swallowing this into a warning is how a bootstrap "succeeds"
-        # while leaving a platform that does not work.
-        if ! SPOKEPOOL_NAME="$SPOKEPOOL_NAME" ENVIRONMENT="$ENVIRONMENT" bash "$validate_script"; then
-            error_exit "Post-bootstrap validation FAILED — see the summary above."
-        fi
-    else
-        log "⚠️  post-bootstrap-validate.sh not found at $validate_script — skipping validation"
+    if [[ ! -f "$validate_script" ]]; then
+        # Not a warning. This is the step that decides whether the platform
+        # works, and a bootstrap that cannot run it has not proven anything --
+        # which is exactly what the log line here used to say while continuing.
+        error_exit "post-bootstrap-validate.sh not found at $validate_script — the platform cannot be proven."
+    fi
+    # Fatal: swallowing this into a warning is how a bootstrap "succeeds"
+    # while leaving a platform that does not work.
+    #
+    # KUBECONFIG is passed explicitly. The script used to default it to
+    # k8-secrets/kubeconfig/hub.kubeconfig -- a cluster named "hub" -- so a box
+    # named anything else was validated against another cluster's kubeconfig, or
+    # a deleted one.
+    if ! KUBECONFIG="$KUBECONFIG_PATH" \
+         ZERO_OPS_DIR="$ZERO_OPS_DIR" \
+         SPOKEPOOL_NAME="$SPOKEPOOL_NAME" \
+         ENVIRONMENT="$ENVIRONMENT" \
+         bash "$validate_script"; then
+        error_exit "Post-bootstrap validation FAILED — see the summary above."
     fi
 
     report_elapsed "success"
