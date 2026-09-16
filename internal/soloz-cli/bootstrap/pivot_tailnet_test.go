@@ -90,28 +90,29 @@ func TestHybridForwardsEveryAssertedCapability(t *testing.T) {
 		t.Error("HybridDriver does not expose StageTailscaleCredentials; pivot-ready " +
 			"stages no tailnet credential and reports success")
 	}
-	if _, ok := d.(interface{ CAPINodeSelector() map[string]string }); !ok {
-		t.Error("HybridDriver does not expose CAPINodeSelector; CAPI stays on the " +
-			"control plane and pivot-ready reports success")
+	if _, ok := d.(interface{ CAPIPlacement() string }); !ok {
+		t.Error("HybridDriver does not expose CAPIPlacement; the CAPI controllers " +
+			"keep whatever placement they already have and pivot-ready reports success")
 	}
 }
 
 // CAPI placement is hybrid-only, and must stay that way.
 //
-// A pure-Hetzner hub has worker nodes already, so its controllers have somewhere
-// to run; pinning them to workload-location=on-prem, a label that box does not
-// carry, would strand every one of them Pending.
+// Only a box with on-prem nodes has a placement question to answer. On a
+// pure-Hetzner hub every node is cloud, so the rule is a no-op and the driver
+// should not carry it -- one fewer thing that can be wrong on the box that does
+// not need it.
 func TestCAPIPlacementIsHybridOnly(t *testing.T) {
 	var hybrid any = (*HybridDriver)(nil)
-	if _, ok := hybrid.(interface{ CAPINodeSelector() map[string]string }); !ok {
+	if _, ok := hybrid.(interface{ CAPIPlacement() string }); !ok {
 		t.Error("the hybrid driver does not declare CAPI placement; its controllers " +
-			"stay on a control plane that cannot absorb them")
+			"stay wherever the scheduler put them, which on this box is the tenant's premises")
 	}
 
 	var hetzner any = (*HetznerDriver)(nil)
-	if _, ok := hetzner.(interface{ CAPINodeSelector() map[string]string }); ok {
+	if _, ok := hetzner.(interface{ CAPIPlacement() string }); ok {
 		t.Error("the Hetzner driver declares CAPI placement; a pure-cloud hub has " +
-			"worker nodes and no such label, so its controllers would sit Pending")
+			"no on-prem nodes and needs no rule")
 	}
 }
 

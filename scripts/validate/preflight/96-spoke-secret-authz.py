@@ -85,7 +85,24 @@ rendered = run(["helm", "template", CHART,
                 "--set", "environmentRevision=main",
                 # ADR-055: every boundary renders now, so boundary 06's issuer
                 # guard applies here too. ADR-051 gives it no default on purpose.
-                "--set", "publicTlsIssuer=letsencrypt-prod"],
+                "--set", "publicTlsIssuer=letsencrypt-prod",
+                # A placeholder, but a required one. The tenant-workloads
+                # AppProject asks for this and the chart refuses to guess it
+                # (ADR-062: it names the repository holding the box's own
+                # declarations, and a wrong value grants a box trust over
+                # someone else's repository). Without it the render failed on a
+                # missing value and this check reported that instead of what it
+                # tests -- so the spoke ExternalSecret prefixes it exists to
+                # assert were never actually checked.
+                #
+                # The value only has to parse as https://host/org/repo; nothing
+                # here resolves it.
+                "--set", "instanceRepoURL=https://github.com/example-org/example-gitops",
+                # Same reasoning: the chart refuses to default this, because a
+                # box falling back to the platform's own domain would publish
+                # the platform's hostnames (ADR-051, ADR-065).
+                "--set", "hubDomain=example.test",
+                "--set", "global.hubDomain=example.test"],
                "environment-manager chart does not render")
 
 appset = next((d for d in yaml.safe_load_all(rendered)

@@ -35,9 +35,11 @@ func productionZone() []hetznerRRSet {
 	z = append(z, txt("extdns-dashboard.dev", "hub-hybrid-dev", "platform-ops/dashboard"))
 	z = append(z, txt("extdns-a-dashboard.dev", "hub-hybrid-dev", "platform-ops/dashboard"))
 
-	// The spoke's own records. A different box, sharing the zone legitimately.
-	z = append(z, a("waypoint.dev", "65.109.41.89"))
-	z = append(z, txt("extdns-waypoint.dev", "spoke-pool-hybrid-dev-01", "platform-ops/waypoint"))
+	// Another box's records, sharing the zone legitimately. Named for its role
+	// rather than for a tenant: what this asserts is that a record owned by
+	// someone else is refused, and whose it is does not matter.
+	z = append(z, a("app.dev", "65.109.41.89"))
+	z = append(z, txt("extdns-app.dev", "spoke-pool-hybrid-dev-01", "platform-ops/app"))
 
 	// Hand-made, no ownership TXT anywhere.
 	z = append(z, a("infisical", "65.109.41.89"))
@@ -69,7 +71,7 @@ func TestOwnedRecordNamesRefusesEverythingElse(t *testing.T) {
 
 	for name, why := range map[string]string{
 		"dashboard.dev": "owned by a previous box (hub-hybrid-dev)",
-		"waypoint.dev":  "owned by the spoke (spoke-pool-hybrid-dev-01)",
+		"app.dev":       "owned by another box (spoke-pool-hybrid-dev-01)",
 		"infisical":     "created by hand, carries no ownership TXT",
 	} {
 		if owned[name] {

@@ -621,8 +621,23 @@ func (o *Orchestrator) localCleanup(ctx context.Context) error {
 		fmt.Printf("[teardown] ✓ Removed %s\n", talosconfigPath)
 	}
 
-	// Remove state files
+	// Remove state files, in both layouts.
+	//
+	// State moved from .zero-ops to .state, and teardown must clean whichever a
+	// box actually has. Missing one leaves a state file behind that says a
+	// cluster exists after it has been destroyed, and the next bootstrap resumes
+	// against it instead of starting -- the failure is a phase being skipped for
+	// infrastructure that is no longer there.
+	//
+	// os.Remove on an absent path is reported as nothing by the loop below, so
+	// listing both costs nothing on a box that has only one.
 	stateFiles := []string{
+		filepath.Join(state.TenantStateDir, fmt.Sprintf("%s.json", o.ClusterName)),
+		filepath.Join(".state", "bootstrap-state.json"),
+		filepath.Join(".state", "infisical-bootstrap.json"),
+		filepath.Join(".state", "kind", "kind-config-generated.yaml"),
+
+		// The layout these replaced.
 		filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", o.ClusterName)),
 		filepath.Join(".zero-ops", "bootstrap-state.json"),
 		filepath.Join(".zero-ops", "infisical-bootstrap.json"),
