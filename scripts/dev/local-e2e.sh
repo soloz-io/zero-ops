@@ -122,6 +122,17 @@ load_credentials() {
     ESCROW_CLIENT_SECRET="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
         "the escrow machine identity client secret")"
 
+    # The box's own Infisical administrator. Required: the defaults these replace
+    # were a personal email and the literal "Password@123", identical on every box.
+    INFISICAL_ADMIN_EMAIL="$(read_secret "$SECRETS/infisical/INFISICAL_ADMIN_EMAIL" \
+        "the Infisical administrator's email")"
+    INFISICAL_ADMIN_PASSWORD="$(read_secret "$SECRETS/infisical/INFISICAL_ADMIN_PASSWORD" \
+        "the Infisical administrator's password")"
+    # Exported, not passed as flags. fillFromEnvironment reads them by the same
+    # name scaffolding stores on the repository and Day-0 reads at bootstrap --
+    # one spelling for all three, which is what the credential registry is for.
+    export INFISICAL_ADMIN_EMAIL INFISICAL_ADMIN_PASSWORD
+
     # Exported, under the names Day-0 reads.
     #
     # These four were collected for `tenant scaffold`, which takes them as FLAGS

@@ -73,6 +73,34 @@ func platformCredentials() []platformCredential {
 	always := func(Spec, Secrets) bool { return true }
 
 	return []platformCredential{
+		// The administrator of THIS box's own secret store. Always required:
+		// every box runs an Infisical and every box's is administered by someone.
+		//
+		// It was not asked for at all, and both the CLI and hub-operator supplied
+		// a default -- a personal email address and the literal "Password@123",
+		// identical on every box, on the account that can read every secret the
+		// platform manages for this tenant. ADR-003 makes Infisical the system of
+		// record for secret material and ADR-065 says the platform holds no
+		// secret belonging to a tenant; a platform-chosen administrator is both.
+		//
+		// Registered here rather than taken as a flag so it travels the way every
+		// other credential does: one name for the repository secret, the
+		// environment variable Day-0 reads, and the key the operator uploads
+		// under.
+		{
+			Secret: "INFISICAL_ADMIN_EMAIL", Tier: tierCapability,
+			Capability: "administering this box's own secret store",
+			Prompt:     "INFISICAL_ADMIN_EMAIL (the administrator of this box's Infisical): ",
+			Field:      func(s *Secrets) *string { return &s.InfisicalAdminEmail },
+			Needed:     always,
+		},
+		{
+			Secret: "INFISICAL_ADMIN_PASSWORD", Tier: tierCapability,
+			Capability: "administering this box's own secret store",
+			Prompt:     "INFISICAL_ADMIN_PASSWORD: ",
+			Field:      func(s *Secrets) *string { return &s.InfisicalAdminPassword },
+			Needed:     always,
+		},
 		{
 			Secret: "S3_ACCESS_KEY_ID", Tier: tierCapability,
 			Capability: "backups of the platform database",

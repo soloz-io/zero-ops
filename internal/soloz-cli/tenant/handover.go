@@ -67,6 +67,13 @@ type Secrets struct {
 	EscrowClientSecret string
 	EscrowProjectID    string
 
+	// The box's own Infisical administrator. Collected with the rest rather than
+	// defaulted: the defaults these replace were a personal email address and the
+	// literal "Password@123", identical on every box, on the account that can read
+	// every secret the platform manages for this tenant.
+	InfisicalAdminEmail    string
+	InfisicalAdminPassword string
+
 	// What the hub needs to come up healthy, rather than merely up. Defined as
 	// a list in platform_credentials.go so prompting, validation and writing
 	// them into the repository cannot disagree about the set.
@@ -589,6 +596,8 @@ func LocalHandover(ctx context.Context, s Spec, secrets Secrets, w io.Writer) er
 	// an escrow -- the one outcome ADR-076 makes the gate mandatory to prevent.
 	// Day-0 reads them from the environment; nothing here put them there.
 	if secrets.hasEscrow() {
+		fmt.Fprintf(w, "  export INFISICAL_ADMIN_EMAIL=%s\n", shellQuote(secrets.InfisicalAdminEmail))
+		fmt.Fprintf(w, "  export INFISICAL_ADMIN_PASSWORD=%s\n", shellQuote(secrets.InfisicalAdminPassword))
 		fmt.Fprintf(w, "  export INFISICAL_ESCROW_URL=%s\n", shellQuote(secrets.EscrowURL))
 		fmt.Fprintf(w, "  export INFISICAL_ESCROW_PROJECT_ID=%s\n", shellQuote(secrets.EscrowProjectID))
 		fmt.Fprintf(w, "  export INFISICAL_ESCROW_CLIENT_ID=%s\n", shellQuote(secrets.EscrowClientID))

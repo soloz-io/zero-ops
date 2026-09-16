@@ -235,6 +235,11 @@ jobs:
           GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          # The box's own Infisical administrator. Required by Day-0 and by
+          # hub-operator: the defaults they replace were a personal email and the
+          # literal "Password@123" on every box, platform and tenant alike.
+          INFISICAL_ADMIN_EMAIL: ${{ secrets.INFISICAL_ADMIN_EMAIL }}
+          INFISICAL_ADMIN_PASSWORD: ${{ secrets.INFISICAL_ADMIN_PASSWORD }}
           INFISICAL_ESCROW_URL: ${{ secrets.INFISICAL_ESCROW_URL }}
           INFISICAL_ESCROW_PROJECT_ID: ${{ secrets.INFISICAL_ESCROW_PROJECT_ID }}
           INFISICAL_ESCROW_CLIENT_ID: ${{ secrets.INFISICAL_ESCROW_CLIENT_ID }}
