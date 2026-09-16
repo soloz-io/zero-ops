@@ -11,12 +11,82 @@
 set -euo pipefail
 
 # Configuration
+#
+# Two roots, not one, because they stop being the same directory the moment this
+# script is not run from a checkout.
+#
+#   SCRIPT_DIR   where THIS script and its siblings live (lib/, validate/).
+#                Derived from BASH_SOURCE, so it is correct whether the script
+#                was run from a checkout or materialised from the binary that
+#                embeds it.
+#   ZERO_OPS_DIR the WORKSPACE the run operates on: state, kubeconfigs, secrets,
+#                the tenant's gitops repository. In a checkout these coincide;
+#                on a released box the scripts come from the binary and the
+#                workspace is the tenant's own directory.
+#
+# They were one variable (ZERO_OPS_DIR=$(dirname $SCRIPT_DIR)), which silently
+# made every workspace path relative to wherever the script happened to sit. Run
+# from a temp directory that is true and useless: k8-secrets, .zero-ops and
+# bin/soloz would all resolve under the temp copy.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-ZERO_OPS_DIR="$PROJECT_ROOT"
-LOG_DIR="$ZERO_OPS_DIR/.zero-ops"
-SOLOZ_BINARY="$ZERO_OPS_DIR/bin/soloz"
-BOOTSTRAP_STATE_FILE="$LOG_DIR/bootstrap-state.json"
+
+# The workspace. An explicit ZERO_OPS_DIR wins; otherwise fall back to the
+# checkout layout, which is what a developer running ./scripts/hub-bootstrap.sh
+# expects and what every existing invocation relies on.
+if [[ -n "${ZERO_OPS_DIR:-}" ]]; then
+    ZERO_OPS_DIR="$(cd "$ZERO_OPS_DIR" && pwd)"
+else
+    ZERO_OPS_DIR="$(cd "$(dirname "$SCRIPT_DIR")" && pwd)"
+fi
+PROJECT_ROOT="$ZERO_OPS_DIR"
+
+# Where the platform's own files are: the CLI binary, its source, and the
+# developer's provider credentials. Derived from the script's location, so it is
+# the checkout this script came from regardless of which workspace it operates on.
+#
+# Separate from ZERO_OPS_DIR because they are not the same thing once the script
+# is pointed at a tenant's repository: state, logs and kubeconfigs belong to the
+# box, while the binary and the credentials that create it do not.
+PLATFORM_DIR="$(cd "$(dirname "$SCRIPT_DIR")" && pwd)"
+
+# resolve_owned <relative-path> -> the first of workspace, platform that has it.
+#
+# Workspace first, platform second: the same order the CLI uses for the same files
+# (orchestrator.go: "ZERO_OPS_DIR first, then the executable's directory"). A real
+# tenant box carries its own credentials in its own repository and finds them
+# there; a developer's checkout carries them once and every workspace finds them.
+# Falls back to the workspace path so a missing file is reported against the place
+# it is expected to be.
+resolve_owned() {
+    local rel="$1"
+    if [[ -e "$ZERO_OPS_DIR/$rel" ]]; then
+        printf '%s' "$ZERO_OPS_DIR/$rel"
+    elif [[ -e "$PLATFORM_DIR/$rel" ]]; then
+        printf '%s' "$PLATFORM_DIR/$rel"
+    else
+        printf '%s' "$ZERO_OPS_DIR/$rel"
+    fi
+}
+
+# Logs live under .state too, because .zero-ops is retired. One hidden directory
+# holds what a box has recorded about itself; .zero-ops held a durable state file
+# beside run artefacts, so "clear the logs" could clear the record of what had
+# already been done.
+LOG_DIR="$ZERO_OPS_DIR/.state/logs"
+# Step state lives with the other state, not with the logs.
+#
+# .state/ is what the box's state is: the CLI already writes its phase record to
+# .state/bootstrap/<cluster>.json there, so one directory answers "what has been
+# done to this box". Keeping the step record beside the logs made a durable fact
+# look like a run artefact.
+BOOTSTRAP_STATE_FILE="$ZERO_OPS_DIR/.state/bootstrap-state.json"
+
+# The CLI this script drives.
+#
+# SOLOZ_BINARY wins when set: a released run already downloaded a pinned binary,
+# and rebuilding or re-resolving it would discard the version the caller chose.
+# Otherwise the checkout's bin/soloz, which is what build_binary produces.
+SOLOZ_BINARY="${SOLOZ_BINARY:-}"   # resolved in check_prerequisites, once resolve_owned exists
 
 # Defaults (overridable via flags)
 # The cluster name must be stable across runs: the Go state file is the source
@@ -47,14 +117,14 @@ TEARDOWN="${TEARDOWN:-false}"
 SEED_ONLY="${SEED_ONLY:-false}"
 
 # SpokePool Configuration (provider-agnostic)
-SPOKEPOOL_NAME=""
+SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-}"
 SPOKEPOOL_NAMESPACE="${SPOKEPOOL_NAMESPACE:-platform-ops}"
 SPOKEPOOL_TIMEOUT="${SPOKEPOOL_TIMEOUT:-1800}"  # 30 minutes in seconds
 
 # Environment slug for matrix topology (ADR 037). MUST be explicitly set
 # via --environment flag. The Go bootstrap CLI defaults to prod for hetzner,
 # hybrid if omitted.
-ENVIRONMENT=""
+ENVIRONMENT="${ENVIRONMENT:-}"
 # Hybrid provider cell (ADR-046): passed through to `hub bootstrap --provider=hybrid`.
 # HOME_WORKER_ENABLED=1 activates the home-worker join flow; TAILNET_NAME sets
 # the Tailscale MagicDNS tailnet for the spoke control-plane endpoint.
@@ -225,7 +295,8 @@ mark_step_completed() {
 # Returns 0 (true) iff Go checkpoint shows preflight completed.
 # State-only gate per user request: no hash, no repo drift check.
 is_static_preflight_checkpointed() {
-    local go_state="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    local go_state="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    [[ -f "$go_state" ]] || go_state="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
     [[ -f "$go_state" ]] || return 1
     if command -v jq >/dev/null 2>&1; then
         jq -e '.completedPhases | index("preflight")' "$go_state" >/dev/null 2>&1
@@ -539,6 +610,56 @@ check_prerequisites() {
     fi
 
     # --- Hub binary ---
+    #
+    # Resolved here rather than at the top of the file: resolve_owned needs both
+    # roots settled, and ZERO_OPS_DIR is not final until the flags are parsed.
+    if [[ -z "$SOLOZ_BINARY" ]]; then
+        SOLOZ_BINARY="$(resolve_owned bin/soloz)"
+    fi
+    #
+    # A binary that already exists and reports a version is used as-is.
+    #
+    # This is the difference between a developer checkout and a released run. A
+    # released run downloaded a PINNED binary for the bundle version it was asked
+    # for, and there is no source tree beside it; rebuilding would either fail
+    # for want of a toolchain or -- worse, where a toolchain exists -- silently
+    # replace the pinned artefact with a build of whatever source happened to be
+    # present. The version the caller chose is the one thing a release must not
+    # discard.
+    #
+    # SOLOZ_BUILD=always forces a rebuild for the case a developer wants one
+    # despite an existing binary.
+    # Skip the build, NOT the rest of this function. check_prerequisites keeps
+    # checking tokens and the AWS profile after this block, and returning early
+    # would silently drop those -- the same class of bug as a gate that exists
+    # and is never called.
+    local skip_build=""
+    if [[ "${SOLOZ_BUILD:-}" != "always" && -x "$SOLOZ_BINARY" ]]; then
+        local existing_version
+        existing_version="$("$SOLOZ_BINARY" bundle-version 2>/dev/null || true)"
+        if [[ -n "$existing_version" ]]; then
+            log "Using existing binary $SOLOZ_BINARY (bundle ${existing_version})"
+            # A binary reporting a version other than the one requested is the
+            # drift this check exists for.
+            if [[ -n "$BUNDLE_VERSION" && "$existing_version" != "$BUNDLE_VERSION" ]]; then
+                log "ERROR: binary at $SOLOZ_BINARY reports bundle '${existing_version}', expected '${BUNDLE_VERSION}'"
+                log "       Set SOLOZ_BUILD=always to rebuild, or point SOLOZ_BINARY at the right one."
+                failed=1
+            fi
+            skip_build=1
+        else
+            log "Existing binary $SOLOZ_BINARY reports no version; rebuilding"
+        fi
+    fi
+
+    if [[ -z "$skip_build" && ! -d "$(resolve_owned cmd/soloz)" ]]; then
+        log "ERROR: no usable soloz binary, and no source to build one"
+        log "       (no cmd/soloz under $ZERO_OPS_DIR or $PLATFORM_DIR). Set SOLOZ_BINARY to a prebuilt CLI."
+        failed=1
+        skip_build=1
+    fi
+
+    if [[ -z "$skip_build" ]]; then
     # The version is injected the same way the release workflow injects it, so
     # a run against a published bundle is not a different build path -- it is
     # this build path with the version set.
@@ -549,7 +670,7 @@ check_prerequisites() {
     else
         log "Building hub binary..."
     fi
-    if (cd "$ZERO_OPS_DIR" && go build -mod=mod -ldflags "$ldflags" -o bin/soloz ./cmd/soloz 2>&1); then
+    if (cd "$(dirname "$(resolve_owned cmd/soloz)")" && go build -mod=mod -ldflags "$ldflags" -o "$SOLOZ_BINARY" ./cmd/soloz 2>&1); then
         log "  ✓ hub binary built"
         if [[ -n "$BUNDLE_VERSION" ]]; then
             # The binary must request what was asked for. A build that still
@@ -557,7 +678,7 @@ check_prerequisites() {
             # on every cluster it bootstrapped, which is the failure this flag
             # exists to avoid rather than introduce.
             local got
-            got=$("$ZERO_OPS_DIR/bin/soloz" bundle-version 2>/dev/null || true)
+            got=$("$SOLOZ_BINARY" bundle-version 2>/dev/null || true)
             if [[ "$got" != "$BUNDLE_VERSION" ]]; then
                 log "ERROR: built CLI reports '${got}', expected '${BUNDLE_VERSION}'"
                 failed=1
@@ -569,10 +690,11 @@ check_prerequisites() {
         log "ERROR: Hub binary build failed"
         failed=1
     fi
+    fi
 
     # --- Secret files ---
     if [[ "$PROVIDER" == "hetzner" || "$PROVIDER" == "hybrid" ]]; then
-        if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/hetzner/token" ]]; then
+        if [[ ! -f "$(resolve_owned k8-secrets/hetzner/token)" ]]; then
             log "ERROR: Hetzner token file not found at k8-secrets/hetzner/token"
             failed=1
         else
@@ -580,7 +702,7 @@ check_prerequisites() {
         fi
     fi
 
-    if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/github/github-pat-token" ]]; then
+    if [[ ! -f "$(resolve_owned k8-secrets/github/github-pat-token)" ]]; then
         log "ERROR: GitHub token file not found at k8-secrets/github/github-pat-token"
         failed=1
     else
@@ -608,10 +730,32 @@ check_prerequisites() {
 # Read the kubeconfig path from the Go bootstrap state file (the result contract).
 # Called after hub bootstrap completes to set KUBECONFIG_PATH for all downstream steps.
 read_kubeconfig_from_state() {
-    local go_state_file="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
-    if [[ -f "$go_state_file" ]]; then
-        KUBECONFIG_PATH=$(jq -r '.mgmtKubeconfig // ""' "$go_state_file" 2>/dev/null || echo "")
+    # Two layouts, because the CLI writes state in two places depending on how
+    # it was called. With --gitops-dir (ADR-072, which is how a tenant runs it)
+    # state goes in the TENANT's repository at .state/bootstrap/<cluster>.json;
+    # without it, in the checkout at .zero-ops/state/<cluster>.json.
+    #
+    # Only the second was read here, so a tenant-directory run always missed and
+    # fell through to the convention path below. That happened to be right, which
+    # is why it went unnoticed -- the state file's own answer was never used.
+    local candidates=(
+        "$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+        "$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    )
+    local go_state_file
+    for go_state_file in "${candidates[@]}"; do
+        if [[ -f "$go_state_file" ]]; then
+            KUBECONFIG_PATH=$(jq -r '.mgmtKubeconfig // ""' "$go_state_file" 2>/dev/null || echo "")
+            [[ -n "$KUBECONFIG_PATH" ]] && break
+        fi
+    done
+    # The state file records the path as the CLI saw it, which is relative when
+    # the CLI ran with --gitops-dir . from inside the tenant's repository. Resolve
+    # it against the workspace rather than the caller's cwd, which is arbitrary.
+    if [[ -n "$KUBECONFIG_PATH" && "$KUBECONFIG_PATH" != /* ]]; then
+        KUBECONFIG_PATH="$ZERO_OPS_DIR/$KUBECONFIG_PATH"
     fi
+
     if [[ -z "$KUBECONFIG_PATH" ]]; then
         # Fallback: convention-based path
         KUBECONFIG_PATH="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
@@ -623,7 +767,8 @@ read_kubeconfig_from_state() {
 # Step 1: Bootstrap Hub Cluster
 step1_bootstrap_hub() {
     # Check if step is already completed AND the Go bootstrap state confirms postboot finished
-    local go_state_file="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
+    local go_state_file="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    [[ -f "$go_state_file" ]] || go_state_file="$ZERO_OPS_DIR/.zero-ops/state/${CLUSTER_NAME}.json"
     # Handle teardown-on-bootstrap: clean up existing cluster before starting
     # State files are removed unconditionally to prevent stale state from
     # skipping the bootstrap on re-run. If teardown fails (cluster gone etc.),
@@ -659,7 +804,8 @@ step1_bootstrap_hub() {
         rm -f "$LOG_DIR/bootstrap-hub.log"
         rm -f "$LOG_DIR/init-secrets.log"
         rm -f "$LOG_DIR/infisical-bootstrap.json"
-        rm -f "$ZERO_OPS_DIR/.zero-ops/kind/kind-config-generated.yaml"
+        rm -f "$ZERO_OPS_DIR/.state/kind/kind-config-generated.yaml" \
+              "$ZERO_OPS_DIR/.zero-ops/kind/kind-config-generated.yaml"
         log "✓ Bootstrap state, logs, and stale kind resources reset for fresh start"
         sleep 10  # let the smoke clear
     fi
@@ -730,18 +876,20 @@ step1_bootstrap_hub() {
     fi
 
     if [[ "$PROVIDER" == "hybrid" ]]; then
+        # --on-prem, not --home-worker-enabled. The CLI names this flag
+        # --on-prem (ADR-075: nodes on the tenant's own premises), and passing a
+        # flag it does not define makes it exit on the argument rather than
+        # bootstrap. HOME_WORKER_TTL has no CLI flag at all and is read from the
+        # SpokePool annotation instead, so it is not forwarded here.
         local hybrid_flags=""
         if [[ -n "${HOME_WORKER_ENABLED:-}" ]]; then
-            hybrid_flags="$hybrid_flags --home-worker-enabled"
-        fi
-        if [[ -n "${HOME_WORKER_TTL:-}" ]]; then
-            hybrid_flags="$hybrid_flags --home-worker-ttl=$HOME_WORKER_TTL"
+            hybrid_flags="$hybrid_flags --on-prem"
         fi
         if [[ -n "${TAILNET_NAME:-}" ]]; then
             hybrid_flags="$hybrid_flags --tailnet-name=$TAILNET_NAME"
         fi
-        log "Running: $SOLOZ_BINARY bootstrap --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $gating_flag $hybrid_flags --debug"
-        (cd "$ZERO_OPS_DIR" && "$SOLOZ_BINARY" bootstrap \
+        log "Running: $SOLOZ_BINARY bootstrap-mgmt --name=${CLUSTER_NAME} --provider=hybrid --region=${REGION} $env_flag $topo_flag $gating_flag $hybrid_flags --debug"
+        (cd "$ZERO_OPS_DIR" && "$SOLOZ_BINARY" bootstrap-mgmt \
             --name="${CLUSTER_NAME}" \
             --provider=hybrid \
             --region="${REGION}" \
@@ -751,8 +899,8 @@ step1_bootstrap_hub() {
             $hybrid_flags \
             --debug 2>&1 | tee "$LOG_DIR/bootstrap-hub.log")
     else
-        log "Running: $SOLOZ_BINARY bootstrap --name=${CLUSTER_NAME} --region=${REGION} $env_flag $gating_flag --debug"
-        (cd "$ZERO_OPS_DIR" && "$SOLOZ_BINARY" bootstrap \
+        log "Running: $SOLOZ_BINARY bootstrap-mgmt --name=${CLUSTER_NAME} --region=${REGION} $env_flag $gating_flag --debug"
+        (cd "$ZERO_OPS_DIR" && "$SOLOZ_BINARY" bootstrap-mgmt \
             --name="${CLUSTER_NAME}" \
             --region="${REGION}" \
             $env_flag \
@@ -1725,7 +1873,10 @@ main() {
                 REGION="$2"
                 shift 2
                 ;;
-            --home-worker-enabled)
+            --on-prem|--home-worker-enabled)
+                # --on-prem is the name the CLI uses and the one to pass.
+                # --home-worker-enabled is kept because existing invocations use
+                # it; both set the same thing.
                 HOME_WORKER_ENABLED="1"
                 shift
                 ;;
@@ -1828,15 +1979,15 @@ main() {
     # what it reports cannot be fixed forward from a half-built platform.
     #
     # Checkpoint-aware: Go infra-preflight is checkpointed via
-    # .zero-ops/state/<cluster>.json (orchestrator.go:99, phaseDone).
+    # .state/bootstrap/<cluster>.json (orchestrator.go:99, phaseDone).
     # Shell static validation (59 checks) is gated only on that state —
     # no hash, per user request. If Go says preflight completed, skip.
     if [[ "${SKIP_PREFLIGHT:-0}" == "1" ]]; then
-        log "⚠️  SKIP_PREFLIGHT=1 — static repo validation bypassed (Go infra-preflight still checkpointed via .zero-ops/state/${CLUSTER_NAME}.json)"
+        log "⚠️  SKIP_PREFLIGHT=1 — static repo validation bypassed (Go infra-preflight still checkpointed via .state/bootstrap/${CLUSTER_NAME}.json)"
     elif is_static_preflight_checkpointed; then
-        log "Static repo validation skipped (checkpointed — Go state shows preflight completed via .zero-ops/state/${CLUSTER_NAME}.json)"
+        log "Static repo validation skipped (checkpointed — Go state shows preflight completed via .state/bootstrap/${CLUSTER_NAME}.json)"
     else
-        log "Running static repo validation (59 checks) — Go infra-preflight is checkpointed via .zero-ops/state/${CLUSTER_NAME}.json..."
+        log "Running static repo validation (59 checks) — Go infra-preflight is checkpointed via .state/bootstrap/${CLUSTER_NAME}.json..."
         if ! ENVIRONMENT="$ENVIRONMENT" bash "$SCRIPT_DIR/validate/run.sh" preflight; then
             error_exit "Pre-bootstrap validation failed — nothing was created. Fix the reported invariants and re-run (SKIP_PREFLIGHT=1 overrides)."
         fi
@@ -1965,5 +2116,19 @@ main() {
 # Handle script interruption
 trap 'log "Script interrupted"; report_elapsed "interrupted"; exit 1' INT TERM
 
-# Run main function
-main "$@"
+# Run main function, unless this file was sourced.
+#
+# Sourcing is how a single step gets exercised against a box whose other steps
+# already passed:
+#
+#   CLUSTER_NAME=... PROVIDER=... ENVIRONMENT=... SPOKEPOOL_NAME=... \
+#   ZERO_OPS_DIR=... bash -c 'source scripts/hub-bootstrap.sh
+#                             read_kubeconfig_from_state
+#                             export KUBECONFIG="$KUBECONFIG_PATH"
+#                             step10_wait_spokepool'
+#
+# Without the guard that runs the whole sequence instead, which is the opposite
+# of what a caller sourcing the file is asking for.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

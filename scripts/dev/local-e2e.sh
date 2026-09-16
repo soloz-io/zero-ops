@@ -13,7 +13,7 @@
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean           # tear the last run down
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean publish cli scaffold bootstrap
 #
-# Phases: clean  publish  cli  scaffold  bootstrap  verify  adr
+# Phases: clean  publish  cli  scaffold  bootstrap  workload  verify  adr
 #         (default: the last five. `clean` is opt-in: it destroys a running
 #          cluster and deletes a GitHub repository, so it is never implied.)
 #
@@ -58,12 +58,12 @@ phases=()
 for arg in "$@"; do
     case "$arg" in
         --dry|--skip-push) DRY=1 ;;
-        clean|publish|cli|scaffold|bootstrap|verify|adr) phases+=("$arg") ;;
+        clean|publish|cli|scaffold|bootstrap|workload|verify|adr) phases+=("$arg") ;;
         -h|--help) usage 0 ;;
         *) echo "unknown argument: $arg" >&2; usage 1 ;;
     esac
 done
-[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap verify adr)
+[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap workload verify adr)
 
 wants() { printf '%s\n' "${phases[@]}" | grep -qx "$1"; }
 say()   { printf '\n\033[1m[local-e2e] %s\033[0m\n' "$*"; }
@@ -443,10 +443,75 @@ do_bootstrap() {
         fi
         [ -n "$tailnet" ] && on_prem_flag="$on_prem_flag --tailnet-name $tailnet"
     fi
-    ( cd "$WORKSPACE/$repo" && "$ROOT/bin/soloz" bootstrap \
-        --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \
-        --environment "$ENVIRONMENT" --gitops-dir . \
-        $on_prem_flag )
+    # hub-bootstrap.sh, not the CLI directly.
+    #
+    # The CLI builds the management cluster and stops there. The ten steps that
+    # decide whether the box is usable -- secrets present, Infisical reachable,
+    # ESO wired, the database provisioned, the workload cluster actually up --
+    # live in that script, with the state tracking and the error_exit gates that
+    # make a failure stop the run.
+    #
+    # Calling the CLI here skipped all of it. That is why on 2026-09-15 a
+    # workload cluster whose control plane never started sat Ready=False for
+    # sixteen hours behind a bootstrap that reported success: nothing was
+    # waiting on it, because the thing that waits was never invoked.
+    #
+    # The script runs the CLI itself, as its first step.
+    ( cd "$WORKSPACE/$repo" \
+      && ZERO_OPS_DIR="$WORKSPACE/$repo" SOLOZ_BINARY="$ROOT/bin/soloz" \
+         bash "$ROOT/scripts/hub-bootstrap.sh" \
+           --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \
+           --environment "$ENVIRONMENT" --gitops-dir . \
+           $on_prem_flag )
+}
+
+# The workload cluster alone, against a management cluster that already exists.
+#
+# Calls hub-bootstrap.sh's own step functions rather than reimplementing them:
+# the script is sourced, which loads the functions without running the ten-step
+# sequence, and the two workload gates are invoked directly. Those gates are
+# where a workload cluster that never came up is caught -- on 2026-09-15 one sat
+# Ready=False for sixteen hours because nothing invoked them.
+#
+# Separate from do_bootstrap because it is separately re-runnable: a workload
+# cluster that failed can be retried without rebuilding the management cluster,
+# which is thirty minutes and a fresh set of servers.
+do_workload() {
+    local repo="$TENANT-gitops"
+    local ws="$WORKSPACE/$repo"
+    local kc="$ws/k8-secrets/kubeconfig/$CLUSTER.kubeconfig"
+    [ -r "$kc" ] || {
+        echo "local-e2e: no kubeconfig at $kc; the management cluster must exist first" >&2
+        return 1
+    }
+
+    # The claim names the cluster. Read it rather than hardcoding, so a box with
+    # a differently named pool works without editing this script.
+    local pool
+    pool=$(KUBECONFIG="$kc" kubectl get spokepools.nutgraf.in -A \
+             -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    [ -n "$pool" ] || {
+        say "no workload cluster declared on this box; nothing to do"
+        return 0
+    }
+
+    say "workload cluster: $pool"
+    CLUSTER_NAME="$CLUSTER" \
+    PROVIDER="$PROVIDER" \
+    ENVIRONMENT="$ENVIRONMENT" \
+    SPOKEPOOL_NAME="$pool" \
+    ZERO_OPS_DIR="$ws" \
+    SOLOZ_BINARY="$ROOT/bin/soloz" \
+    bash -c '
+        source "'"$ROOT"'/scripts/hub-bootstrap.sh"
+        read_kubeconfig_from_state
+        export KUBECONFIG="$KUBECONFIG_PATH"
+        step10_wait_spokepool || exit 1
+        # WORKLOAD_SKIP_NODES=1 gates on the cluster without joining its nodes.
+        # The node gate is live state, not a one-shot fact (ADR-046 §24.2), so
+        # skipping it is a deliberate narrowing rather than a shortcut.
+        [ -n "${WORKLOAD_SKIP_NODES:-}" ] || step10e_spoke_home_worker "$SPOKEPOOL_NAME"
+    '
 }
 
 # Bootstrap returning success means every phase completed, not that the platform
@@ -482,7 +547,7 @@ do_verify() {
     #
     # Run from HERE and not from the CLI, deliberately. ADR-063 fails a release that
     # references the platform's repository at runtime, and these scripts live in it,
-    # so a tenant's released `soloz bootstrap` cannot call them (ADR-072 moved Day-0
+    # so a tenant's released `soloz bootstrap-mgmt` cannot call them (ADR-072 moved Day-0
     # into the tenant's own repository). This script IS a platform checkout, so the
     # check runs where it is runnable without putting a repository reference into
     # the artefact. Carrying these checks to tenants is separate work: they would
@@ -602,7 +667,7 @@ preflight() {
 
 preflight
 
-for p in clean publish cli scaffold bootstrap verify adr; do
+for p in clean publish cli scaffold bootstrap workload verify adr; do
     wants "$p" && "do_$p"
 done
 

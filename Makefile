@@ -1,4 +1,4 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean e2e-verify
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean e2e-verify e2e-workload
 
 # Build variables
 AUTH_PROXY_BINARY=auth-proxy
@@ -69,7 +69,23 @@ e2e:
 # so is the confirmation; nothing about `make e2e` should be able to reach it.
 e2e-fresh:
 	@test -n "$(VERSION)" || { echo "usage: make e2e-fresh VERSION=0.1.16-rc.4"; exit 1; }
-	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli scaffold bootstrap verify adr
+	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli scaffold bootstrap workload verify adr
+
+# The workload cluster alone, against a management cluster that already exists.
+#
+# Separately re-runnable on purpose: a workload cluster that failed to come up is
+# retried without rebuilding the management cluster, which is thirty minutes and
+# a fresh set of servers.
+#
+# Runs hub-bootstrap.sh's own gates (step10 + step10e) by sourcing it. Those are
+# where a workload cluster that never started is caught -- the gates existed all
+# along and nothing invoked them, which is how one sat Ready=False for sixteen
+# hours behind a bootstrap that reported success.
+#
+# WORKLOAD_SKIP_NODES=1 gates on the cluster without joining its nodes.
+e2e-workload:
+	@test -n "$(VERSION)" || { echo "usage: PROVIDER=hybrid make e2e-workload VERSION=0.1.16-rc.37 [WORKLOAD_SKIP_NODES=1]"; exit 1; }
+	./scripts/dev/local-e2e.sh "$(VERSION)" workload
 
 # Watch the running hub until it converges, or until the deadline.
 # VERIFY_DEADLINE=<duration> overrides the default 15m, e.g. VERIFY_DEADLINE=5m.

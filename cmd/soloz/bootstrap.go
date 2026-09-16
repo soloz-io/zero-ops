@@ -160,10 +160,23 @@ func hcloudTokenPaths(rel string) []string {
 
 func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "bootstrap",
-		Short: "Bootstrap a Hub Cluster",
+		Use:   "bootstrap-mgmt",
+		Short: "Bootstrap the management cluster (one step of a box)",
 		Long: `Bootstrap a self-hosted Hub (Management) Cluster using Cluster API (CAPI).
-Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab workers).`,
+Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab workers).
+
+Naming follows kubefirst: the MANAGEMENT cluster runs the platform, WORKER
+clusters run tenant workloads. This command builds the former.
+
+This is ONE STEP of a box. It stands up the management control plane and stops there:
+the gates that decide whether the box is usable -- secrets present, Infisical
+reachable, the database provisioned, the declared worker clusters actually up --
+are separate steps, and ` + "`soloz bootstrap`" + ` runs all of them in order.
+
+Running this directly gives you a reconciled management cluster and no assurance about anything
+else. That is a legitimate thing to want while developing; it is not a bootstrapped
+box, and on 2026-09-15 the difference was a worker cluster that had been dead for
+sixteen hours behind a run that reported success.`,
 		PreRunE: validateFlags,
 		RunE:    runBootstrap,
 	}
