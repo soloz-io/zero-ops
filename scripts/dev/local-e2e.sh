@@ -28,7 +28,6 @@ ROOT="$PWD"
 
 # ── What is being built ─────────────────────────────────────────────────────
 # Overridable from the environment; the defaults describe a throwaway dev box.
-TENANT="${TENANT:-acme}"
 GIT_ORG="${GIT_ORG:-soloz-io}"
 # MANDATORY. No default, and `acme.example` is not one.
 #
@@ -42,8 +41,52 @@ GIT_ORG="${GIT_ORG:-soloz-io}"
 # passing DOMAIN=example.org to a run without that phase set a variable that was
 # never used, while the box went on publishing the domain it was scaffolded with.
 # An input accepted and discarded is worse than one refused.
+# It is mandatory for EVERY phase, not just scaffold, because the box's identity
+# now derives from it -- see TENANT below. A phase that does not scaffold still
+# has to know which box it is talking about, and the domain is the only input
+# that says so.
 DOMAIN="${DOMAIN:-}"
-CLUSTER="${CLUSTER:-acme-hub}"
+if [[ -z "$DOMAIN" ]]; then
+    echo "local-e2e: DOMAIN is required." >&2
+    echo "  It is the base domain the box publishes on, every public hostname derives" >&2
+    echo "  from it (ADR-051), and it names the box: the tenant and cluster are taken" >&2
+    echo "  from it. There is no default." >&2
+    echo "    DOMAIN=example.org ./scripts/dev/local-e2e.sh $*" >&2
+    exit 1
+fi
+case "$DOMAIN" in
+    *.example|*.test|*.invalid|*.localhost)
+        echo "local-e2e: DOMAIN=$DOMAIN is a reserved domain (RFC 2606) and cannot resolve." >&2
+        echo "  Use a domain whose zone you control, or the box cannot publish." >&2
+        exit 1 ;;
+esac
+
+# The tenant IS the domain. Derived, never given.
+#
+# TENANT and CLUSTER were two independent literals defaulting to acme and
+# acme-hub, and CLUSTER did not even derive from TENANT -- setting TENANT=foo
+# still produced acme-hub. So a run carrying DOMAIN=nutgraf.in scaffolded a box
+# that published on nutgraf.in while every path, repository and cluster name in
+# the run said acme. Three names for one box, agreeing only by coincidence, and
+# the logs showed .local-e2e/acme-gitops for a domain nobody had called acme.
+#
+# One input, one identity. A name that cannot disagree with the domain cannot
+# point a phase at the wrong box.
+TENANT="${DOMAIN%%.*}"
+if ! printf '%s' "$TENANT" | grep -Eq '^[a-z]([-a-z0-9]*[a-z0-9])?$'; then
+    echo "local-e2e: DOMAIN=$DOMAIN yields tenant '$TENANT', which is not a DNS label." >&2
+    echo "  The tenant names a repository and a cluster; it must be lowercase" >&2
+    echo "  alphanumeric with hyphens, starting with a letter." >&2
+    exit 1
+fi
+# Refused rather than ignored. An explicit TENANT that disagrees with the domain
+# is the exact split this removes, and silently overriding it would restore it.
+if [[ -n "${TENANT_OVERRIDE:-}" && "$TENANT_OVERRIDE" != "$TENANT" ]]; then
+    echo "local-e2e: TENANT_OVERRIDE=$TENANT_OVERRIDE disagrees with DOMAIN=$DOMAIN (tenant '$TENANT')." >&2
+    echo "  The tenant is derived from the domain. Change the domain." >&2
+    exit 1
+fi
+CLUSTER="$TENANT-hub"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 PROVIDER="${PROVIDER:-hetzner}"
 REGION="${REGION:-hel1}"
@@ -730,40 +773,25 @@ fi
 # had already pushed. ADR-063 consumes a version by publishing it, so that cost a
 # version -- twice -- for a leftover directory a one-second test would have found.
 preflight() {
-    # DOMAIN, checked before anything runs.
-    #
-    # Two failures, both silent before this: scaffolding a box on no domain at
-    # all, and passing a DOMAIN to a run that cannot apply it. The second is the
-    # one that cost a full bootstrap -- the box kept dev.acme.example while every
-    # command carried DOMAIN=<something else>, and nothing said so until the
-    # public-endpoint gate failed on eleven hostnames twenty minutes in.
-    if wants scaffold; then
-        if [[ -z "$DOMAIN" ]]; then
-            echo "local-e2e: DOMAIN is required to scaffold a box." >&2
-            echo "  It is the base domain the box publishes on and every public hostname" >&2
-            echo "  derives from it (ADR-051). There is no default: a reserved domain" >&2
-            echo "  (.example, .test, .invalid, .localhost) cannot resolve, so a box" >&2
-            echo "  scaffolded on one can never publish a record or obtain a certificate." >&2
-            return 1
-        fi
-        case "$DOMAIN" in
-            *.example|*.test|*.invalid|*.localhost)
-                echo "local-e2e: DOMAIN=$DOMAIN is a reserved domain (RFC 2606) and cannot resolve." >&2
-                echo "  Use a domain whose zone you control, or the box cannot publish." >&2
-                return 1 ;;
-        esac
-    elif [[ -n "$DOMAIN" ]]; then
-        # Set, but this run cannot apply it. Say so rather than ignoring it.
+    # DOMAIN is present and resolvable by the time anything runs -- it is checked
+    # where it is read, because the box's identity derives from it. What is left
+    # for preflight is the question only a scaffolded box can answer: does this
+    # domain match the box the run is about to touch?
+    if ! wants scaffold; then
         local declared=""
         if [[ -r "$WORKSPACE/$TENANT-gitops/clusters/$CLUSTER/values.yaml" ]]; then
             declared=$(grep -m1 '^hubDomain:' "$WORKSPACE/$TENANT-gitops/clusters/$CLUSTER/values.yaml" 2>/dev/null | awk '{print $2}')
         fi
+        # This cost a full bootstrap once: the box kept dev.acme.example while
+        # every command carried DOMAIN=<something else>, and nothing said so
+        # until the public-endpoint gate failed on eleven hostnames twenty
+        # minutes in.
         if [[ -n "$declared" && "$declared" != *"$DOMAIN"* ]]; then
-            echo "local-e2e: DOMAIN=$DOMAIN was passed, and this run cannot apply it." >&2
+            echo "local-e2e: DOMAIN=$DOMAIN does not match the box at $WORKSPACE/$TENANT-gitops." >&2
             echo "  $CLUSTER publishes on $declared, fixed when it was scaffolded." >&2
-            echo "  DOMAIN is read only by the scaffold phase; a box's domain cannot be" >&2
-            echo "  changed afterwards (every certificate and DNS record derives from it)." >&2
-            echo "  Drop DOMAIN from this command, or rebuild the box: clean scaffold ..." >&2
+            echo "  A box's domain cannot be changed afterwards: every certificate and" >&2
+            echo "  DNS record derives from it." >&2
+            echo "  Pass the domain this box was built on, or rebuild: clean scaffold ..." >&2
             return 1
         fi
     fi
