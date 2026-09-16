@@ -30,21 +30,10 @@ go build -o bin/soloz ./cmd/hub
 # New way
 ./scripts/hub-bootstrap.sh
 
-# Step 2: Configure AWS Secrets Manager for Infisical encryption key recovery (REQUIRED)
-# This must be done BEFORE init-secrets to enable disaster recovery
-# Prerequisites: AWS CLI configured with IAM admin permissions (aws configure or export AWS_PROFILE=<admin-profile>)
-# This command will:
-# 1. Create IAM user: hub-operator-secrets-manager-production
-# 2. Create IAM policy with Secrets Manager permissions
-# 3. Generate access keys and inject into Kubernetes secret
-export AWS_PROFILE=zerotouch-platform-admin  # Use profile with IAM admin permissions
-./bin/soloz configure-aws-secrets-manager \
-  --environment=development \
-  --aws-region=ap-south-1 \
-  --kubeconfig=k8-secrets/kubeconfig/hub.kubeconfig
-
-# Only for DEV, If IAM user already exists with access keys, delete old key first:
-# aws iam delete-access-key --user-name hub-operator-secrets-manager-production --access-key-id <OLD_KEY_ID>
+# There is no step 2. Infisical encryption-key recovery used to go through AWS
+# Secrets Manager and an IAM user; it is now the Infisical-based escrow, which
+# bootstrap installs itself before hub-operator starts reconciling. No AWS
+# profile, no IAM user, no command to run.
 
 # Step 3: Configure GitHub Access (Secret Zero)
 # This enables ArgoCD to sync manifests from ALL repositories in the soloz-io organization
@@ -100,12 +89,11 @@ export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/soloz spoke teardow
 
 **Command Execution Order (CRITICAL):**
 
-1. **`hub bootstrap`** - Creates Kubernetes cluster and deploys ArgoCD
-2. **`hub configure-aws-secrets-manager`** - Injects AWS credentials for disaster recovery
-3. **`hub configure-github-access`** - Injects GitHub credentials (enables ArgoCD sync and namespace creation)
-4. **Wait for namespaces** - ArgoCD creates platform-data, platform-security, etc.
-5. **`hub init-secrets`** - Generates CA, Infisical keys, AND bootstraps Infisical (Org/Project/Machine Identity)
-6. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
+1. **`soloz bootstrap-mgmt`** - Creates Kubernetes cluster and deploys ArgoCD
+2. **`soloz configure-github-access`** - Injects GitHub credentials (enables ArgoCD sync and namespace creation)
+3. **Wait for namespaces** - ArgoCD creates platform-data, platform-security, etc.
+4. **`soloz init-secrets`** - Generates CA, Infisical keys, AND bootstraps Infisical (Org/Project/Machine Identity)
+5. **Wait for Database** - ArgoCD syncs and deploys PostgreSQL cluster with TLS
 
 **Why this order matters:**
 - GitHub credentials must be injected BEFORE `init-secrets` (ArgoCD needs to create platform-data namespace)
@@ -116,7 +104,9 @@ export HCLOUD_TOKEN=$(cat k8-secrets/hetzner/token) && ./bin/soloz spoke teardow
 - Infisical uses the same CA for TLS verification (via DB_ROOT_CERT)
 - Both CNPG and Infisical start with TLS enabled on first boot - no restart loops
 - `init-secrets` also creates the `infisical-auth` Secret and patches `hub-bootstrap-config`
-- If you skip `configure-aws-secrets-manager`, disaster recovery will not work
+- Escrow for disaster recovery is installed by bootstrap itself, before hub-operator
+  starts reconciling: a Secret that appears later means every backup until then was
+  skipped, including the one covering the window where the box is least recoverable
 - If you skip `configure-github-access`, ArgoCD cannot sync and namespaces won't be created
 - GitHub credentials are organization-scoped (repo-creds type) to support multiple repositories (zero-ops, fleet-registry, etc.)
 

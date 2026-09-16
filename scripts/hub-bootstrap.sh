@@ -305,32 +305,6 @@ is_static_preflight_checkpointed() {
     fi
 }
 
-# Function to delete all access keys for an IAM user
-delete_iam_access_keys() {
-    local iam_user="$1"
-
-    log "Deleting all access keys for $iam_user"
-
-    # Get all access keys (both active and inactive)
-    local all_keys=$(aws iam list-access-keys --user-name "$iam_user" --query 'AccessKeyMetadata[?Status==`Active`].AccessKeyId' --output text 2>/dev/null || echo "")
-
-    if [[ -z "$all_keys" ]] || [[ "$all_keys" == "None" ]]; then
-        # Try getting all keys regardless of status
-        all_keys=$(aws iam list-access-keys --user-name "$iam_user" --query 'AccessKeyMetadata[].AccessKeyId' --output text 2>/dev/null || echo "")
-    fi
-
-    if [[ -n "$all_keys" ]] && [[ "$all_keys" != "None" ]]; then
-        for key_id in $all_keys; do
-            if [[ -n "$key_id" ]] && [[ "$key_id" != "None" ]] && [[ ${#key_id} -ge 16 ]]; then
-                aws iam delete-access-key --user-name "$iam_user" --access-key-id "$key_id" 2>/dev/null || true
-            fi
-        done
-        log "All existing access keys deleted"
-    else
-        log "No access keys found to delete"
-    fi
-}
-
 # Auto-install kind and clusterctl into ~/bin on Windows/Git Bash if missing
 auto_install_tool() {
     local tool="$1"
@@ -955,75 +929,6 @@ step1c_configure_tailscale() {
 
     mark_step_completed "configure_tailscale"
     log "Tailscale credentials configuration completed"
-}
-
-# Step 2: Configure AWS Secrets Manager
-step2_configure_aws_secrets() {
-    if is_step_completed "configure_aws_secrets"; then
-        # Verify the artifact actually exists — the cluster may have been
-        # recreated since the state was saved.
-        if kubectl get secret -n platform-ops hub-operator-aws-credentials \
-            --kubeconfig="$KUBECONFIG_PATH" >/dev/null 2>&1; then
-            log "Step 2: AWS Secrets Manager already configured, skipping"
-            return
-        fi
-        log "Step 2: State says completed but hub-operator-aws-credentials missing — re-running"
-    fi
-
-    log "Step 2: Configuring AWS Secrets Manager for disaster recovery..."
-
-    export AWS_PROFILE=zerotouch-platform-admin
-
-    # Check if IAM user already exists and has access keys
-    local iam_user="hub-operator-secrets-manager-development"
-    log "Checking for existing IAM user: $iam_user"
-
-    if aws iam get-user --user-name "$iam_user" >/dev/null 2>&1; then
-        log "IAM user $iam_user already exists"
-
-        # Check for existing access keys
-        local access_keys=$(aws iam list-access-keys --user-name "$iam_user" --query 'AccessKeys[?Status==`Active`].AccessKeyId' --output text 2>/dev/null || echo "")
-
-        if [[ -n "$access_keys" ]]; then
-            log "Found existing active access keys for $iam_user"
-
-            # Try to use existing keys first
-            log "Attempting to use existing access keys..."
-            if "$SOLOZ_BINARY" configure-aws-secrets-manager \
-                --environment=development \
-                --aws-region=ap-south-1 \
-                --kubeconfig="$KUBECONFIG_PATH" 2>&1 | grep -q "already exists"; then
-                log "Existing keys work, using them"
-                mark_step_completed "configure_aws_secrets"
-                log "AWS Secrets Manager configuration completed"
-                return
-            else
-                log "Existing keys may be invalid, attempting to recreate..."
-                delete_iam_access_keys "$iam_user"
-
-                # Retry configuration after deleting keys
-                log "Retrying AWS Secrets Manager configuration after deleting keys..."
-                "$SOLOZ_BINARY" configure-aws-secrets-manager \
-                    --environment=development \
-                    --aws-region=ap-south-1 \
-                    --kubeconfig="$KUBECONFIG_PATH"
-
-                mark_step_completed "configure_aws_secrets"
-                log "AWS Secrets Manager configuration completed"
-                return
-            fi
-        fi
-    fi
-
-    # If no existing keys or user doesn't exist, proceed normally
-    log "Running: $SOLOZ_BINARY configure-aws-secrets-manager --environment=development --aws-region=ap-south-1"
-    "$SOLOZ_BINARY" configure-aws-secrets-manager \
-        --environment=development \
-        --aws-region=ap-south-1 \
-        --kubeconfig="$KUBECONFIG_PATH"
-
-    mark_step_completed "configure_aws_secrets"
-    log "AWS Secrets Manager configuration completed"
 }
 
 # Step 3: Configure GitHub Access
@@ -2016,7 +1921,10 @@ main() {
 
     step1c_configure_tailscale
 
-    step2_configure_aws_secrets
+    # No step 2. AWS Secrets Manager was replaced by the Infisical-based escrow
+    # (37f76d84), which the Go orchestrator installs before hub-operator starts
+    # reconciling. The step numbering is left alone rather than renumbered: the
+    # names are recorded in bootstrap-state.json on every existing box.
 
     step3_configure_github
 

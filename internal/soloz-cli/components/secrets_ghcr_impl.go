@@ -61,15 +61,3 @@ func (i *Installer) InstallGHCRPullSecret(ctx context.Context, username, token s
 
 	return nil
 }
-
-// InstallAWSSecretsManagerAuth creates the AWS credentials secret for hub-operator
-// This is Secret Zero - it enables hub-operator to backup/restore Infisical master keys.
-// CRITICAL: This secret MUST be injected via client-go, NEVER stored in Git.
-//
-// Production Workflow:
-// 1. Developer creates IAM user with restricted Secrets Manager permissions
-// 2. Developer runs: hub configure-aws-secrets-manager --aws-access-key-id=<id> --aws-secret-access-key=<secret> --aws-region=<region>
-// 3. This method uses client-go to inject the secret directly into the cluster
-// 4. Hub-operator deployment references this secret via secretKeyRef environment variables
-// 5. Operator uses AWS SDK to backup/restore ENCRYPTION_KEY and AUTH_SECRET
-// 6. Future credential rotations happen via Infisical + ESO (GitOps)
