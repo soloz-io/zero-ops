@@ -30,7 +30,19 @@ ROOT="$PWD"
 # Overridable from the environment; the defaults describe a throwaway dev box.
 TENANT="${TENANT:-acme}"
 GIT_ORG="${GIT_ORG:-soloz-io}"
-DOMAIN="${DOMAIN:-acme.example}"
+# MANDATORY. No default, and `acme.example` is not one.
+#
+# It used to default to acme.example, which is an RFC 2606 reserved TLD: it
+# cannot resolve, for anyone, ever. A box scaffolded on it can never publish a
+# DNS record, never obtain a certificate, and fails the public-endpoint gate by
+# construction -- so the loop whose purpose is to exercise the whole path could
+# not complete, and the reason was a default nobody chose.
+#
+# Worse, the default was silent. DOMAIN is read ONLY by the scaffold phase, so
+# passing DOMAIN=example.org to a run without that phase set a variable that was
+# never used, while the box went on publishing the domain it was scaffolded with.
+# An input accepted and discarded is worse than one refused.
+DOMAIN="${DOMAIN:-}"
 CLUSTER="${CLUSTER:-acme-hub}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 PROVIDER="${PROVIDER:-hetzner}"
@@ -109,6 +121,23 @@ load_credentials() {
         "the escrow machine identity client id")"
     ESCROW_CLIENT_SECRET="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
         "the escrow machine identity client secret")"
+
+    # Exported, under the names Day-0 reads.
+    #
+    # These four were collected for `tenant scaffold`, which takes them as FLAGS
+    # and satisfies RequireEscrow with them. Day-0 reads them from the
+    # ENVIRONMENT, and nothing put them there -- so every box built by this
+    # script passed the escrow gate during scaffolding and was then bootstrapped
+    # without one. It printed "no escrow configured" and carried on.
+    #
+    # The dispatch path never had the bug: scaffolding writes these as repository
+    # secrets and the workflow passes them to the bootstrap step as env. Only the
+    # local path collected them and dropped them, which is why the platform's own
+    # runs hid it.
+    export INFISICAL_ESCROW_URL="$ESCROW_URL"
+    export INFISICAL_ESCROW_PROJECT_ID="$ESCROW_PROJECT_ID"
+    export INFISICAL_ESCROW_CLIENT_ID="$ESCROW_CLIENT_ID"
+    export INFISICAL_ESCROW_CLIENT_SECRET="$ESCROW_CLIENT_SECRET"
 
     # The tenant's registry credential (ADR-066: workloads are theirs).
     #
@@ -557,16 +586,26 @@ do_verify() {
     # check runs where it is runnable without putting a repository reference into
     # the artefact. Carrying these checks to tenants is separate work: they would
     # have to travel inside the binary, as manifests/ already do.
-    local validator="$ROOT/scripts/post-bootstrap-validate.sh"
+    # Through validate-all.sh, not post-bootstrap-validate.sh directly. It runs
+    # the same validator; what it adds is the record -- .state/validation.json,
+    # one entry per phase with its status, counts and log. Without it a verify
+    # that passed and a verify that was never reached look identical afterwards,
+    # which is the question this loop exists to answer.
+    local validator="$ROOT/scripts/validate-all.sh"
     [ -r "$validator" ] || {
         echo "local-e2e: $validator is missing; component validation cannot run" >&2
         return 1
     }
-    say "validating platform components"
-    ZERO_OPS_DIR="$ROOT" KUBECONFIG="$kc" \
+    say "validating the platform"
+    # ZERO_OPS_DIR is the WORKSPACE, not the platform checkout. The report and its
+    # logs belong beside the box's own state, with everything else Day-0 wrote
+    # about it -- writing them into the platform repository put one box's record
+    # in a tree shared by every run.
+    ZERO_OPS_DIR="$WORKSPACE/$repo" KUBECONFIG="$kc" \
         ENVIRONMENT="$ENVIRONMENT" \
+        CLUSTER_NAME="$CLUSTER" \
         SPOKEPOOL_NAME="$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")" \
-        bash "$validator"
+        bash "$validator" --only=platform
 }
 
 # The spoke this environment+provider provisions, mirroring the burstSpokePool
@@ -647,6 +686,44 @@ fi
 # had already pushed. ADR-063 consumes a version by publishing it, so that cost a
 # version -- twice -- for a leftover directory a one-second test would have found.
 preflight() {
+    # DOMAIN, checked before anything runs.
+    #
+    # Two failures, both silent before this: scaffolding a box on no domain at
+    # all, and passing a DOMAIN to a run that cannot apply it. The second is the
+    # one that cost a full bootstrap -- the box kept dev.acme.example while every
+    # command carried DOMAIN=<something else>, and nothing said so until the
+    # public-endpoint gate failed on eleven hostnames twenty minutes in.
+    if wants scaffold; then
+        if [[ -z "$DOMAIN" ]]; then
+            echo "local-e2e: DOMAIN is required to scaffold a box." >&2
+            echo "  It is the base domain the box publishes on and every public hostname" >&2
+            echo "  derives from it (ADR-051). There is no default: a reserved domain" >&2
+            echo "  (.example, .test, .invalid, .localhost) cannot resolve, so a box" >&2
+            echo "  scaffolded on one can never publish a record or obtain a certificate." >&2
+            return 1
+        fi
+        case "$DOMAIN" in
+            *.example|*.test|*.invalid|*.localhost)
+                echo "local-e2e: DOMAIN=$DOMAIN is a reserved domain (RFC 2606) and cannot resolve." >&2
+                echo "  Use a domain whose zone you control, or the box cannot publish." >&2
+                return 1 ;;
+        esac
+    elif [[ -n "$DOMAIN" ]]; then
+        # Set, but this run cannot apply it. Say so rather than ignoring it.
+        local declared=""
+        if [[ -r "$WORKSPACE/$TENANT-gitops/clusters/$CLUSTER/values.yaml" ]]; then
+            declared=$(grep -m1 '^hubDomain:' "$WORKSPACE/$TENANT-gitops/clusters/$CLUSTER/values.yaml" 2>/dev/null | awk '{print $2}')
+        fi
+        if [[ -n "$declared" && "$declared" != *"$DOMAIN"* ]]; then
+            echo "local-e2e: DOMAIN=$DOMAIN was passed, and this run cannot apply it." >&2
+            echo "  $CLUSTER publishes on $declared, fixed when it was scaffolded." >&2
+            echo "  DOMAIN is read only by the scaffold phase; a box's domain cannot be" >&2
+            echo "  changed afterwards (every certificate and DNS record derives from it)." >&2
+            echo "  Drop DOMAIN from this command, or rebuild the box: clean scaffold ..." >&2
+            return 1
+        fi
+    fi
+
     if wants publish; then
         require_helm3
         if [ -z "$DRY" ]; then

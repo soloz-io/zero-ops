@@ -122,6 +122,7 @@ func TestEnsureCRSWrapperRendersClientSecretKey(t *testing.T) {
 
 // missing machine identity material -> no wrapper is ever published (fail-closed)
 func TestEnsureClusterIssuerCRSWrapperEmptyIdentityNotPublished(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "20958df6-ac81-4e11-8259-d1ddd1becb5c"}
@@ -140,6 +141,7 @@ func TestEnsureClusterIssuerCRSWrapperEmptyIdentityNotPublished(t *testing.T) {
 
 // empty projectId -> no wrapper is published
 func TestEnsureClusterIssuerCRSWrapperEmptyProjectNotPublished(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c} // ProjectID empty
@@ -158,6 +160,7 @@ func TestEnsureClusterIssuerCRSWrapperEmptyProjectNotPublished(t *testing.T) {
 
 // initial identity + project -> correct clientId and projectId rendered
 func TestEnsureClusterIssuerCRSWrapperInitialRendersCompletedIssuer(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "20958df6-ac81-4e11-8259-d1ddd1becb5c"}
@@ -176,7 +179,10 @@ func TestEnsureClusterIssuerCRSWrapperInitialRendersCompletedIssuer(t *testing.T
 		"name: infisical-auth",
 		"key: client-secret",
 		"certificateTemplateName: infrastructure-services",
-		"url: https://infisical.dev.nutgraf.in",
+		// The BOX's Infisical, from INFISICAL_URL. It was asserted as a literal
+		// platform host, which is what let the hardcoded constant survive: the
+		// test passed precisely because the value was wrong in the same way.
+		"url: https://infisical.dev.acme.example",
 	} {
 		if !strings.Contains(yamlBody, want) {
 			t.Errorf("rendered ClusterIssuer missing %q in:\n%s", want, yamlBody)
@@ -186,6 +192,7 @@ func TestEnsureClusterIssuerCRSWrapperInitialRendersCompletedIssuer(t *testing.T
 
 // spec-level projectId overrides the operator flag projectId
 func TestEnsureClusterIssuerCRSWrapperSpecProjectIDOverrides(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "flag-project-id"}
@@ -208,6 +215,7 @@ func TestEnsureClusterIssuerCRSWrapperSpecProjectIDOverrides(t *testing.T) {
 
 // reconciliation with same values -> no unnecessary update (idempotent)
 func TestEnsureClusterIssuerCRSWrapperIdempotentNoUpdate(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&identityv1alpha1.SpokeMachineIdentity{}).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "20958df6-ac81-4e11-8259-d1ddd1becb5c"}
@@ -232,6 +240,7 @@ func TestEnsureClusterIssuerCRSWrapperIdempotentNoUpdate(t *testing.T) {
 // secret rotation keeps the same clientId (rotation-stable): wrapper must NOT be
 // regenerated and the rendered clientId must remain stable across rotation.
 func TestEnsureClusterIssuerCRSWrapperClientSecretRotationNoRegen(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&identityv1alpha1.SpokeMachineIdentity{}).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "20958df6-ac81-4e11-8259-d1ddd1becb5c"}
@@ -263,6 +272,7 @@ func TestEnsureClusterIssuerCRSWrapperClientSecretRotationNoRegen(t *testing.T) 
 // clientId actually changes (identity recreated): wrapper updates so future
 // (re)provisioned spokes receive the new identifier.
 func TestEnsureClusterIssuerCRSWrapperClientIDChangesUpdatesWrapper(t *testing.T) {
+	t.Setenv("INFISICAL_URL", "https://infisical.dev.acme.example")
 	scheme := newSchemeForTest(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&identityv1alpha1.SpokeMachineIdentity{}).Build()
 	r := &SpokeMachineIdentityReconciler{Client: c, ProjectID: "20958df6-ac81-4e11-8259-d1ddd1becb5c"}

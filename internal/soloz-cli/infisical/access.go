@@ -37,8 +37,8 @@ func GetAccessInfo(ctx context.Context) *AccessInfo {
 	}
 
 	info := &AccessInfo{
-		AdminEmail: adminEmail,
-		Password:   adminPassword,
+		AdminEmail: adminEmail(),
+		Password:   adminPassword(),
 		PodName:    podName,
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -20,6 +21,29 @@ import (
 	identityv1alpha1 "github.com/soloz-io/zero-ops/operators/spoke-identity-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/spoke-identity-operator/internal/infisical"
 )
+
+// clusterIssuerURL is the Infisical this box's spokes get their certificates
+// signed by: its own, at infisical.<the box's domain>.
+//
+// It was the compile-time constant "https://infisical.dev.nutgraf.in" -- the
+// PLATFORM's. So every spoke on every box was issued a ClusterIssuer pointing at
+// an Infisical it has no identity in and, for a tenant, cannot even reach. The
+// issuer reports "healthcheck failed: ... EOF" and every Certificate naming it
+// stays pending forever: argocd-agent-client-cert, alloy-client-cert and
+// support-agent-client-cert among them, which surface as three unrelated
+// "certificate not Ready" warnings with nothing pointing here.
+//
+// INFISICAL_URL is supplied to the operator's Deployment from the box's own
+// HubEnvironment domain (ADR-051, the sole authority). No default: a wrong
+// Infisical is not a degraded mode, it is another tenant's secret store.
+func clusterIssuerURLFor() (string, error) {
+	if v := strings.TrimSpace(os.Getenv("INFISICAL_URL")); v != "" {
+		return v, nil
+	}
+	return "", fmt.Errorf("INFISICAL_URL is not set, so the spoke's ClusterIssuer has no signer. " +
+		"It is this box's own Infisical (infisical.<the box's domain>); there is no default, " +
+		"because the one that existed pointed every box at the platform's")
+}
 
 const (
 	smiFinalizer                  = "identity.zeroops.io/finalizer"
@@ -38,11 +62,6 @@ const (
 )
 
 const (
-	// clusterIssuerURL is the fleet Infisical endpoint for spoke-side ClusterIssuer
-	// bootstrap (ADR-035). The spoke catalog's ClusterIssuer, previously a static
-	// GitOps placeholder with empty clientId, is replaced by the lifecycle-delivered
-	// completed issuer rendered here (ADR-048 two-stage injection).
-	clusterIssuerURL = "https://infisical.dev.nutgraf.in"
 	// clusterIssuerTemplate is the Infisical PKI certificate template backed by the
 	// Fleet Intermediate CA chain (Offline Root -> Fleet Intermediate -> Leaf).
 	clusterIssuerTemplate = "infrastructure-services"
@@ -600,6 +619,15 @@ func (r *SpokeMachineIdentityReconciler) ensureClusterIssuerCRSWrapper(ctx conte
 		return nil
 	}
 
+	issuerURL, err := clusterIssuerURLFor()
+	if err != nil {
+		// Deferred, not defaulted -- same reasoning as the empty clientId above:
+		// a half-rendered artifact must not reach the spoke, and an issuer naming
+		// the wrong Infisical is worse than none, because it looks configured.
+		logger.Error(err, "Deferring ClusterIssuer CRS wrapper", "wrapper", wrapperName)
+		return err
+	}
+
 	clusterIssuerYAML := fmt.Sprintf(`apiVersion: infisical-issuer.infisical.com/v1alpha1
 kind: ClusterIssuer
 metadata:
@@ -614,7 +642,7 @@ spec:
         key: client-secret
   certificateTemplateName: %s
   projectId: %s
-`, clusterIssuerURL, clientID, clusterIssuerTemplate, projectID)
+`, issuerURL, clientID, clusterIssuerTemplate, projectID)
 
 	wrapper := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

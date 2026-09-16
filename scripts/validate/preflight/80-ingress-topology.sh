@@ -72,10 +72,23 @@ validate_hostname_zoning() {
 
     [[ "$ENVIRONMENT" == "prod" ]] && { pass "prod uses the un-prefixed zone — nothing to check"; return 0; }
 
+    # HUB_DOMAIN minus its environment prefix, i.e. the apex the box publishes
+    # under. Without it there is no zone to look for a doubling of.
+    local zone_suffix="${HUB_DOMAIN#"$ENVIRONMENT".}"
+    if [[ -z "$zone_suffix" ]]; then
+        warn "HUB_DOMAIN is not set, so doubled hostnames cannot be looked for (preflight has no cluster to read the box's domain from)"
+        return 0
+    fi
+
     local double
-    double=$(cd "$VALIDATE_ROOT" && grep -rn "${ENVIRONMENT}\.${ENVIRONMENT}\.nutgraf\.in" manifests/ 2>/dev/null || true)
+    # The pattern is derived, not written out. It was "<env>.<env>.nutgraf.in",
+    # which finds a doubled zone only on the PLATFORM's own domain -- a tenant box
+    # doubling its own would have passed. Preflight has no cluster to read
+    # HubEnvironment from, so a literal zone is supplied or the check says it
+    # could not run.
+    double=$(cd "$VALIDATE_ROOT" && grep -rn "${ENVIRONMENT}\.${ENVIRONMENT}\.${zone_suffix}" manifests/ 2>/dev/null || true)
     if [[ -z "$double" ]]; then
-        pass "no double-zoned hostnames (${ENVIRONMENT}.${ENVIRONMENT}.nutgraf.in)"
+        pass "no double-zoned hostnames (${ENVIRONMENT}.${ENVIRONMENT}.${zone_suffix})"
     else
         while IFS= read -r line; do hard_fail "double-zoned hostname — $line"; done <<< "$double"
     fi

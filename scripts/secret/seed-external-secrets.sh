@@ -32,7 +32,16 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SECRETS_DIR="${SECRETS_DIR:-${REPO_ROOT}/k8-secrets}"
-INFISICAL_URL="${INFISICAL_BASE_URL:-https://infisical.dev.nutgraf.in}"
+# No default. The one that was here pointed at the PLATFORM's Infisical, so a
+# tenant running this seeded the platform's secret store instead of their own
+# (ADR-065). It is this box's instance -- infisical.<the box's domain> -- or a
+# port-forward to it.
+INFISICAL_URL="${INFISICAL_BASE_URL:-}"
+if [[ -z "$INFISICAL_URL" ]]; then
+    echo "seed-external-secrets: INFISICAL_BASE_URL is not set." >&2
+    echo "  It names THIS box's Infisical. There is no default." >&2
+    exit 2
+fi
 PROJECT_SLUG="${INFISICAL_PROJECT_SLUG:-hub-secrets}"
 ENVIRONMENT="${INFISICAL_ENVIRONMENT:-dev}"
 

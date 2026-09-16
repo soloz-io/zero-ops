@@ -72,6 +72,9 @@ _dns_owner() {
 
 validate_public_api_endpoints() {
     section "Public endpoints answer over their published hostnames"
+    # Every hostname below derives from the zone; without it there is nothing
+    # to check against, and the platform's own zone is not a substitute.
+    require_zone || return 0
 
     local AUTH_NS
     AUTH_NS="$(_authoritative_ns "$ENV_ZONE")"

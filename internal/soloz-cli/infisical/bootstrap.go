@@ -16,10 +16,42 @@ import (
 )
 
 var (
-	adminEmail    = envOrDefault("INFISICAL_ADMIN_EMAIL", "arun4infra@gmail.com")
-	adminPassword = envOrDefault("INFISICAL_ADMIN_PASSWORD", "Password@123")
-	orgName       = envOrDefault("INFISICAL_ORG_NAME", "Zero-Ops")
+	// Resolved on USE, not at package init. Initialising these eagerly made every
+	// soloz subcommand panic before it parsed its flags -- `soloz --help` included
+	// -- because a package-level var is evaluated when the package is imported,
+	// not when Infisical is reached.
+	adminEmail    = func() string { return mustEnv("INFISICAL_ADMIN_EMAIL", "the administrator's email address") }
+	adminPassword = func() string { return mustEnv("INFISICAL_ADMIN_PASSWORD", "the administrator's password") }
+	// The organisation NAME is not a credential and not per-box: it is a label
+	// inside the box's own Infisical, the same on every one by design.
+	orgName = envOrDefault("INFISICAL_ORG_NAME", "Zero-Ops")
 )
+
+// Required. No defaults, and the ones removed here were a personal email address
+// and the literal password "Password@123" -- on EVERY box, platform and tenant
+// alike, because nothing set these variables anywhere in the repository.
+//
+// That is a shared, known credential on the administrator account of each
+// tenant's secret store: the account that can read every secret the platform
+// manages for them. ADR-003 makes Infisical the system of record for secret
+// material, and ADR-065 says the platform holds no secret belonging to a tenant
+// -- a default admin the platform chose, identical on every box, is both.
+//
+// Mandatory rather than generated here: these must be collected with the
+// tenant's other credentials and stored on their repository, the way the escrow
+// credentials are (ADR-076), so the platform never holds them.
+func mustEnv(key, what string) string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		// Empty, and every caller checks. Returning "" rather than exiting keeps
+		// the refusal at the point Infisical is actually reached, with the
+		// surrounding operation's context, instead of killing an unrelated command.
+		fmt.Fprintf(os.Stderr, "\n%s is not set. It is %s for THIS box's Infisical.\n"+
+			"There is no default: the one that existed was identical on every box,\n"+
+			"so every tenant's secret store shared one administrator credential.\n\n", key, what)
+	}
+	return v
+}
 
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -142,7 +174,7 @@ type createClientSecretResponse struct {
 // a non-2xx response surfaces immediately as a non-nil error.
 func getExistingOrgData(ctx context.Context, podName string) (*bootstrapOutput, error) {
 	// 1. Log in as the bootstrap admin to get a JWT.
-	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, adminEmail, adminPassword)
+	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, adminEmail(), adminPassword())
 	loginOut, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-f", "-X", "POST",
 		"http://localhost:"+infisicalPort+PathAuthLoginV3,
@@ -577,8 +609,8 @@ func GetInfisicalPodName(ctx context.Context) (string, error) {
 func runBootstrapCLI(ctx context.Context, podName string) (string, error) {
 	output, err := kubectlExec(ctx, podName,
 		"infisical", "bootstrap",
-		"--email", adminEmail,
-		"--password", adminPassword,
+		"--email", adminEmail(),
+		"--password", adminPassword(),
 		"--organization", orgName,
 		"--domain", "http://localhost:"+infisicalPort,
 		"--ignore-if-bootstrapped",
@@ -890,7 +922,7 @@ func grantProjectAdminRole(ctx context.Context, podName, adminJWT, projectID, id
 //     to embed the org ID before calling the PATCH endpoint.
 func grantOrgAdminRole(ctx context.Context, podName, orgID, identityID string) error {
 	// 1. Log in as the admin user to get a user-level JWT.
-	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, adminEmail, adminPassword)
+	loginPayload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, adminEmail(), adminPassword())
 	loginOut, err := kubectlExec(ctx, podName,
 		"curl", "-s", "-f", "-X", "POST",
 		"http://localhost:"+infisicalPort+PathAuthLoginV3,
@@ -1144,7 +1176,7 @@ func WaitForCertificateProfile(ctx context.Context, podName, adminJWT, projectID
 			fmt.Println("       svc/infisical-standalone-infisical 8080:8080")
 			fmt.Println()
 			fmt.Println("  2. Open http://localhost:8080 in your browser")
-			fmt.Println("  3. Log in as admin@nutgraf.in / secretzero123")
+			fmt.Printf("  3. Log in as %s with the password this box was bootstrapped with\n", adminEmail())
 			fmt.Println("  4. Navigate to: Certificates → Profiles → Create Profile")
 			fmt.Println("  5. Slug: argocd-bootstrap")
 			fmt.Println("  6. CA: Fleet Intermediate CA (NOT platform-db-ca — per ADR-035)")

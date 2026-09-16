@@ -20,6 +20,17 @@ spec:
       - name: manager
         image: controller
         env:
+        # THIS box's Infisical. The spoke ClusterIssuer this operator renders used
+        # to name the platform's, from a compile-time constant, so every spoke's
+        # certificates were signed by a stranger -- or, on a tenant's box, not
+        # signed at all: the issuer reports "healthcheck failed: ... EOF" and every
+        # Certificate naming it stays pending. Written into infisical-auth by Day-0
+        # from the box's own HubEnvironment domain (ADR-051).
+        - name: INFISICAL_URL
+          valueFrom:
+            secretKeyRef:
+              name: infisical-auth
+              key: url
         - name: INFISICAL_CLIENT_ID
           valueFrom:
             secretKeyRef:

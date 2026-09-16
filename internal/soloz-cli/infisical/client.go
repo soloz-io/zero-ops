@@ -52,10 +52,24 @@ type Config struct {
 // It retrieves the Infisical URL and authenticates using Universal Auth
 // Reuses the same credentials that ESO uses (infisical-auth in external-secrets-system)
 func NewClient(ctx context.Context, clientset *kubernetes.Clientset) (*Client, error) {
-	// Allow override for local port-forwarding or custom DNS
-	baseURL := os.Getenv("INFISICAL_API_URL")
+	// INFISICAL_API_URL, or nothing. There is no default.
+	//
+	// It defaulted to https://infisical.dev.nutgraf.in -- the PLATFORM's own
+	// Infisical. On a tenant's box that is not a fallback, it is a different
+	// tenant's secret store: the CLI would authenticate against the platform's
+	// instance, read or write the platform's secrets, and report success. ADR-065
+	// says the platform holds no secret belonging to a tenant, and a default that
+	// points every box at one instance breaks that from the client side.
+	//
+	// Every caller sets it. EnsurePortForward does, for the in-cluster case; a box
+	// reaching its own Infisical over its public hostname derives that from its own
+	// domain. Not knowing which Infisical to talk to is an error, not a guess.
+	baseURL := strings.TrimSpace(os.Getenv("INFISICAL_API_URL"))
 	if baseURL == "" {
-		baseURL = "https://infisical.dev.nutgraf.in"
+		return nil, fmt.Errorf("INFISICAL_API_URL is not set, so there is no Infisical to talk to.\n\n" +
+			"It is this box's own instance -- infisical.<the box's domain>, or a\n" +
+			"port-forward to it. There is no default: the one that existed pointed at\n" +
+			"the platform's Infisical, which is a different tenant's secret store.")
 	}
 
 	// Get Universal Auth credentials from the same secret ESO uses

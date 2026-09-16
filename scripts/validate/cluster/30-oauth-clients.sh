@@ -49,6 +49,9 @@ _oauth_pf_start() {
 
 validate_oauth_clients() {
     section "OAuth client registration (Zitadel)"
+    # Every hostname below derives from the zone; without it there is nothing
+    # to check against, and the platform's own zone is not a substitute.
+    require_zone || return 0
 
     local artifact_issuer="$VALIDATE_ROOT/manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml"
     local artifact_bootstrap="$VALIDATE_ROOT/manifests/environments/base/generated/hub-bootstrap-config-patch.yaml"

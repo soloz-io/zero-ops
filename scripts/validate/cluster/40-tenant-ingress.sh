@@ -6,6 +6,9 @@
 # so each is asserted directly rather than inferred from pod status.
 validate_tenant_ingress() {
     section "Tenant ingress path (ADR-050/051)"
+    # Every hostname below derives from the zone; without it there is nothing
+    # to check against, and the platform's own zone is not a substitute.
+    require_zone || return 0
 
     if ! ensure_spoke_kubeconfig; then
         soft_fail "spoke unreachable — tenant ingress path not verified"

@@ -74,13 +74,43 @@ ENVIRONMENT="${ENVIRONMENT:-dev}"
 # ADR-051 makes the base domain the authority every public host derives from, and
 # hubDomain is that value: environment-prefixed except in prod, which uses the
 # apex. So it is used as-is rather than re-prefixed here.
-if [[ -n "${HUB_DOMAIN:-}" ]]; then
-    ENV_ZONE="$HUB_DOMAIN"
-elif [[ "$ENVIRONMENT" == "prod" ]]; then
-    ENV_ZONE="nutgraf.in"
+# ENV_ZONE_SOURCE is carried so the banner can say WHERE the zone came from.
+# The literal below is the platform's own, and a check that silently falls back
+# to it judges a tenant's box by hostnames it does not own -- which failed a
+# correct box with "external-dns --domain-filter is not dev.nutgraf.in" while the
+# line above it confirmed the filter was correctly dev.acme.example. The value
+# was wrong and nothing said so, because the banner printed a zone either way.
+# HUB_DOMAIN, or nothing. There is no default.
+#
+# It used to fall back to the PLATFORM's own zone, so every check on a tenant box
+# was made against a domain that box does not own. That failed a correct box --
+# "external-dns --domain-filter is not dev.nutgraf.in" on a box whose filter was
+# correctly dev.acme.example -- and it would equally have PASSED a box misconfigured
+# to publish on the platform's zone, which is the worse direction.
+#
+# Only the cluster modules read ENV_ZONE, and every caller with a cluster can read
+# HubEnvironment.spec.domain, which ADR-051 makes the sole authority. A caller that
+# cannot is a caller with nothing to check hostnames against, and it is told so
+# rather than handed the platform's.
+if [[ -z "${HUB_DOMAIN:-}" ]]; then
+    ENV_ZONE=""
+    ENV_ZONE_SOURCE="UNSET"
 else
-    ENV_ZONE="${ENVIRONMENT}.nutgraf.in"
+    ENV_ZONE="$HUB_DOMAIN"
+    ENV_ZONE_SOURCE="the box's HubEnvironment"
 fi
+
+# require_zone is called by any check that derives a hostname. Declared here so a
+# module cannot quietly proceed with an empty zone and probe "https://api." --
+# which resolves to nothing and reads as a platform failure.
+require_zone() {
+    if [[ -z "$ENV_ZONE" ]]; then
+        hard_fail "HUB_DOMAIN is not set, so there is no zone to check hostnames against. \
+The box declares it as HubEnvironment.spec.domain (ADR-051); the caller must pass it."
+        return 1
+    fi
+    return 0
+}
 
 # Hetzner exposes no quota endpoint, so the project's load balancer ceiling is a
 # declared constant rather than something that can be read. Raise it here if the
