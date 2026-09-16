@@ -198,7 +198,13 @@ helmValues: |
   # ingress-nginx controller is healthy). This avoids the webhook
   # race: ingress-nginx controller must be running before any Ingress
   # resource is applied, otherwise the validating webhook rejects.
+  # The application controller: a StatefulSet holding a leader-election lease
+  # and watching every managed cluster. The component that suffers most from a
+  # lossy path to the API server, and the one with no values section until now.
+  controller:
+    {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
   server:
+    {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
     ingress:
       enabled: false
     service:
@@ -212,6 +218,7 @@ helmValues: |
       # The Gateway's HTTPRoute uses port 80 regardless.
       servicePortHttpsName: http-no-tls
   applicationSet:
+    {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
     metrics:
       # Off by chart default, which leaves the platform's most
       # dangerous failure mode unobservable.
@@ -242,6 +249,7 @@ helmValues: |
       # quiet instead of alerting on day one.
       enabled: true
   repoServer:
+    {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
     env:
       # Default is 90s. Boundary 01 renders charts whose manifest sets are
       # large enough to exceed it -- the argo-cd chart itself, kyverno, and

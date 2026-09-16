@@ -50,32 +50,31 @@ type HybridDriver struct {
 
 func (d *HybridDriver) Name() string { return "hybrid" }
 
-// CAPINodeSelector places the CAPI controllers on this cell's own hardware.
+// CAPIPlacement keeps this cell's CAPI controllers off the tenant's premises.
 //
-// ADR-046's Scheduling Contract puts default workloads on the home nodes
-// ("home" meaning on-prem per this ADR's own header note), and on a hybrid hub
-// that is where the capacity is. §22 established that some cluster
-// infrastructure must stay on the Hetzner node -- the CSI controller, because
-// "a label-less home worker matches and gets a driver that cannot reach block
-// devices". That is a HARDWARE constraint and CAPI does not share it: its
-// controllers talk to the Kubernetes API and to Hetzner's HTTP API, both
-// reachable from an on-prem node.
+// Returns the shared rule in placement.go, which mirrors
+// environment-manager.cloudControlPlacement in _placement.tpl. One rule, two
+// expressions, because CAPI is installed before the chart that would render it.
 //
-// Left where they land, they concentrate on the one node that cannot absorb
-// them. Measured on a hybrid hub whose control plane is a cpx22:
+// This method used to return {workload-location: on-prem} and pin the
+// controllers TO the on-prem node. That was measured and correct at the time:
+// the cpx22 control plane sat at 89% memory with etcd, the apiserver and six
+// CAPI controllers on it, and every controller was restarting on "leader
+// election lost" -- 85, 85, 73, 67 restarts -- because it could not renew a
+// lease on a saturated node.
 //
-//	control plane  26 pods  55% CPU  89% memory   ← etcd, apiserver, 6x CAPI
-//	on-prem        55 pods  40% CPU  53% memory   ← 13 GB, 6 vCPU, half idle
+// It is reversed because the reason expired, not because it was wrong. The
+// control plane's leader election was fixed at its source by raising the lease
+// timeouts in the ClusterClass (lease-duration 60s, renew-deadline 40s,
+// retry-period 10s; verified zero restarts over 79 minutes), so saturation no
+// longer decides the placement. What decides it now is the network: an on-prem
+// node reaches the API server over VXLAN-over-Tailscale, and CAPH was losing its
+// lease across that link instead.
 //
-// Every CAPI controller was restarting on "leader election lost" -- 85, 85, 73,
-// 67 restarts -- because it could not renew a lease on a saturated node. That
-// also plausibly explains a 44-minute machine join observed earlier.
-//
-// nil for pure Hetzner, deliberately. That hub has Hetzner worker nodes, so the
-// controllers already have somewhere to go, and pinning them to a label that
-// box does not carry would strand them Pending.
-func (d *HybridDriver) CAPINodeSelector() map[string]string {
-	return map[string]string{"workload-location": "on-prem"}
+// Nothing for pure Hetzner, still. That hub's nodes are all cloud, so the rule
+// is a no-op there and the driver need not implement it.
+func (d *HybridDriver) CAPIPlacement() string {
+	return cloudControlPlacementPatch
 }
 
 // PlannedWorkerReplicas is zero for every hybrid box regardless of environment:

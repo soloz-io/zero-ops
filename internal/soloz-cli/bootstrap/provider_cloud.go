@@ -358,20 +358,14 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 // capi-operator owns those Deployments and reconciles them, so a patch applied
 // directly would be reverted the next time it looked.
 func (p *CloudProvider) placeCAPIControllers(ctx context.Context, kubeconfig string) error {
-	placer, ok := p.driver.(interface{ CAPINodeSelector() map[string]string })
+	placer, ok := p.driver.(interface{ CAPIPlacement() string })
 	if !ok {
 		return nil
 	}
-	selector := placer.CAPINodeSelector()
-	if len(selector) == 0 {
+	patch := placer.CAPIPlacement()
+	if patch == "" {
 		return nil
 	}
-
-	pairs := make([]string, 0, len(selector))
-	for k, v := range selector {
-		pairs = append(pairs, fmt.Sprintf("%q:%q", k, v))
-	}
-	patch := fmt.Sprintf(`{"spec":{"deployment":{"nodeSelector":{%s}}}}`, strings.Join(pairs, ","))
 
 	// Every provider kind the operator manages. Named rather than discovered so a
 	// provider added later is a compile-time edit here, not a silent omission.
@@ -398,7 +392,7 @@ func (p *CloudProvider) placeCAPIControllers(ctx context.Context, kubeconfig str
 			}
 		}
 	}
-	fmt.Printf("[pivot-ready] ✓ CAPI controllers placed on %v\n", selector)
+	fmt.Println("[pivot-ready] ✓ CAPI controllers placed off the tenant's premises (see placement.go)")
 	return nil
 }
 
