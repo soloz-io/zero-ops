@@ -14,3 +14,19 @@ data:
   CLUSTER_REGION: ""
   INFISICAL_ENVIRONMENT_SLUG: ""
   INFISICAL_BOOTSTRAP_PROFILE_SLUG: "argocd-bootstrap"
+  # The box's own Infisical identity. Declared here, empty, so this ConfigMap
+  # holds every key it will ever hold and ONE Application renders all of them.
+  #
+  # These arrived through a kustomize patch instead, and that is what allowed two
+  # owners: the tenant's generated artifact applied a ConfigMap carrying the
+  # identity and not CLUSTER_ID, hub-environment applied one carrying CLUSTER_ID
+  # and not the identity, and each apply replaced the other's data wholesale. The
+  # box alternated between an operator that could not start and an operator
+  # authenticating against the wrong Infisical.
+  #
+  # Values, not a patch: templated-fields.yaml turns these into Helm expressions
+  # at packaging time, so a box supplies them the way it supplies its domain, and
+  # nothing competes with the object it was patching.
+  INFISICAL_ORGANIZATION_ID: ""
+  INFISICAL_PROJECT_ID: ""
+  INFISICAL_SECRETS_PROJECT_ID: ""

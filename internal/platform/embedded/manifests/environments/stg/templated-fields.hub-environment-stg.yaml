@@ -17,3 +17,35 @@
   fields:
     - replaceAll: {from: stg.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
     - replaceAll: {from: nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
+# The box's own Infisical identity, for the same reason as the domain above: a
+# per-box fact must not be a literal in a published chart.
+#
+# manifests/environments/<env>/ is packaged whole as hub-environment-<env>, so
+# the platform's own organisation and project ids shipped to every tenant.
+# hub-operator then authenticated against projects its machine identity cannot
+# read, every SpokePool reconcile ended in "Project <id> not found", and no spoke
+# PKI was ever created on any box — while everything reported healthy, because a
+# ConfigMap holding the wrong id is as healthy as one holding the right one.
+#
+# `| default dict` is load-bearing. These render inside the `platform` umbrella
+# chart, where hub-environment is a SUBCHART -- and a subchart's own values.yaml
+# defaults for `global` are not merged by Helm, so a default declared there never
+# applies. Without the guard, a box that has not yet written its identity values
+# fails the whole render with "nil pointer evaluating interface {}.organizationId"
+# and hub-environment cannot sync at all, which is worse than the wrong id.
+#
+# Templating also settles ownership. These keys used to arrive through a kustomize
+# patch, and in a tenant's repository that same file is applied as a whole object
+# by the Application owning generated/ — which REPLACES the ConfigMap's data. So
+# two owners each held half the keys and alternately deleted the other's. Reading
+# them from values leaves hub-environment rendering the complete object, alone.
+- kind: ConfigMap
+  name: hub-bootstrap-config
+  fields:
+    - path: [data, INFISICAL_ORGANIZATION_ID]
+      value: '{{ (.Values.global.infisical | default dict).organizationId }}'
+    - path: [data, INFISICAL_PROJECT_ID]
+      value: '{{ (.Values.global.infisical | default dict).projectId }}'
+    - path: [data, INFISICAL_SECRETS_PROJECT_ID]
+      value: '{{ (.Values.global.infisical | default dict).secretsProjectId }}'

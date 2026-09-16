@@ -87,6 +87,47 @@ global:
          alternative was the component carrying one box's spoke name as a
          literal. */}}
   burstSpokePool: {{ include "environment-manager.burstSpokePool" . | quote }}
+  {{- /* The box's own Infisical organisation and projects.
+
+         A global for the same reason as hubDomain: it is a fact about the box,
+         and the component that needs it (hub-environment, which renders
+         hub-bootstrap-config) is reached through this helper rather than through
+         the tenant's own values.
+
+         That indirection is the whole bug this closes. The identity arrived in
+         the tenant's repository, was passed to environment-manager as $values,
+         and stopped here -- every child Application got a `global:` block this
+         helper wrote, and this helper did not know about it. hub-environment
+         therefore rendered the ConfigMap with empty ids while the correct ones
+         sat one chart away, and hub-operator answered every SpokePool reconcile
+         with "Project  not found" against the empty string.
+
+         `default dict` because a box that has not bootstrapped Infisical yet has
+         no identity to declare, and a nil map here fails the render of every
+         boundary rather than of the one component that cares. */}}
+  {{- /* BOTH levels guarded. environment-manager declares no `global` in its own
+         values.yaml, so `.Values.global` is nil unless a box supplies one, and
+         `.Values.global.infisical` on a nil map fails every boundary's render --
+         not just this component's. */}}
+  {{- $infisical := (.Values.global | default dict).infisical | default dict }}
+  infisical:
+    organizationId: {{ $infisical.organizationId | default "" | quote }}
+    projectId: {{ $infisical.projectId | default "" | quote }}
+    secretsProjectId: {{ $infisical.secretsProjectId | default "" | quote }}
+    {{- /* The FLEET PKI project and the machine identity that signs against it.
+           A different project from the two above -- this is where the issuer that
+           signs spoke certificates lives -- and it arrives from the ADR-045
+           artifact platform-pki-values.yaml, NOT under .global.
+
+           Passed on because the SPOKE needs it. Its infisical-fleet-issuer shipped
+           the platform's url, clientId and projectId as literals, so every spoke
+           asked the PLATFORM's Infisical to sign its certificates, got EOF, and
+           left every certificate naming that issuer pending forever -- the
+           argocd-agent, alloy and support-agent client certs among them. */}}
+    {{- $fleet := (.Values.infisical | default dict).fleet | default dict }}
+    fleet:
+      projectId: {{ $fleet.projectId | default "" | quote }}
+      clientId: {{ $fleet.clientId | default "" | quote }}
 {{- end -}}
 
 {{/*

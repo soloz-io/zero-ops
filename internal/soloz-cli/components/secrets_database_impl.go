@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/constants"
@@ -25,6 +27,33 @@ import (
 // 4. Grants project admin role
 // 5. Creates the `infisical-auth` Secret in platform-ops
 // 6. Generates ADR-045 artifacts (infisical-fleet-issuer-patch.yaml, hub-bootstrap-config-patch.yaml)
+// infisicalURL is where THIS box's Infisical answers: infisical.<its domain>.
+//
+// Read from the box's HubEnvironment, which ADR-051 makes the sole authority for
+// the base domain, rather than plumbed through as a field -- the cluster is
+// already reachable here and the CR is the thing that decides.
+//
+// It is carried in infisical-auth because a consumer needed it and could not
+// derive it. spoke-identity-operator renders every spoke's ClusterIssuer, and its
+// URL was a compile-time constant naming the PLATFORM's Infisical -- so each
+// spoke asked a stranger to sign its certificates, the issuer reported
+// "healthcheck failed: ... EOF", and every Certificate naming it stayed pending.
+// On a tenant's box that host is not merely wrong, it is another tenant's secret
+// store.
+func infisicalURL(ctx context.Context, kubeconfig string) (string, error) {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment", "-n", constants.NamespaceOps,
+		"-o", "jsonpath={.spec.domain}").Output()
+	if err != nil {
+		return "", fmt.Errorf("cannot read the box's domain from its HubEnvironment: %w", err)
+	}
+	domain := strings.TrimSpace(string(out))
+	if domain == "" {
+		return "", fmt.Errorf("the box's HubEnvironment declares no domain, so its Infisical has no address")
+	}
+	return "https://infisical." + domain, nil
+}
+
 func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", i.Kubeconfig)
 	if err != nil {
@@ -46,6 +75,11 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 		return false, fmt.Errorf("infisical bootstrap failed: %w", err)
 	}
 
+	infisicalAddr, err := infisicalURL(ctx, i.Kubeconfig)
+	if err != nil {
+		return false, err
+	}
+
 	fmt.Println("[bootstrap-secrets] Creating infisical-auth secret...")
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -64,6 +98,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 			"orgId":            result.OrgID,
 			"projectId":        result.ProjectID,
 			"secretsProjectId": result.SecretsProjectID,
+			"url":              infisicalAddr,
 		},
 	}
 
@@ -100,6 +135,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 			"orgId":            result.OrgID,
 			"projectId":        result.ProjectID,
 			"secretsProjectId": result.SecretsProjectID,
+			"url":              infisicalAddr,
 		},
 	}
 	_, err = clientset.CoreV1().Secrets(constants.NamespaceSecurity).Create(ctx, securitySecret, metav1.CreateOptions{})
@@ -145,36 +181,47 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 	// the platform's own tree holds them under the environment overlay that
 	// renders them (ADR-045, ADR-072). Same file, addressed by whose repository
 	// it is in.
-	configPath := filepath.Join(projectRoot, "manifests", "environments", env, "generated", "hub-bootstrap-config-patch.yaml")
+	// VALUES, not a ConfigMap.
+	//
+	// This wrote a partial ConfigMap and called it a patch. On the platform's own
+	// tree kustomize merged it into the base and that was true; in a tenant's
+	// repository the same file is applied as a whole object by the Application
+	// that owns generated/, and applying a ConfigMap REPLACES its data. So the
+	// tenant's copy deleted CLUSTER_ID, hub-environment's copy deleted the
+	// identity, and the two alternated -- an operator that could not start, then
+	// an operator authenticating against the wrong Infisical.
+	//
+	// hub-environment now renders the whole ConfigMap and reads these through
+	// global.infisical (templated-fields.yaml on the environment overlay), so
+	// there is one writer and this file competes with nothing.
+	configPath := filepath.Join(projectRoot, "manifests", "environments", env, "generated", "values", "infisical-identity.yaml")
 	if i.GitopsDir != "" {
 		if i.ClusterName == "" {
 			return false, fmt.Errorf("cannot write the ADR-045 bootstrap config into " +
 				"the tenant repository: no cluster name, and these artifacts belong to " +
 				"one cluster rather than to the repository")
 		}
-		configPath = filepath.Join(projectRoot, "clusters", i.ClusterName, "generated", "hub-bootstrap-config-patch.yaml")
+		configPath = filepath.Join(projectRoot, "clusters", i.ClusterName, "generated", "values", "infisical-identity.yaml")
 	}
-	configPatch := fmt.Sprintf(`apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: hub-bootstrap-config
-  namespace: platform-ops
-data:
-  INFISICAL_ORGANIZATION_ID: "%s"
-  INFISICAL_PROJECT_ID: "%s"
-  INFISICAL_PROJECT_SLUG: "%s"
-  INFISICAL_SECRETS_PROJECT_ID: "%s"
-  INFISICAL_SECRETS_PROJECT_SLUG: "%s"
-  INFISICAL_ENVIRONMENT_SLUG: "%s"
-`, result.OrgID, result.ProjectID, result.ProjectSlug, result.SecretsProjectID, result.SecretsProjectSlug, "dev")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return false, fmt.Errorf("failed to create %s: %w", filepath.Dir(configPath), err)
+	}
+	configPatch := fmt.Sprintf(`# This box's own Infisical identity, read by hub-environment through
+# global.infisical. Not an object: see secrets_database_impl.go.
+global:
+  infisical:
+    organizationId: "%s"
+    projectId: "%s"
+    secretsProjectId: "%s"
+`, result.OrgID, result.ProjectID, result.SecretsProjectID)
 	if err := os.WriteFile(configPath, []byte(configPatch), 0644); err != nil {
 		return false, fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
-	fmt.Printf("[bootstrap-secrets] ✓ manifests/environments/%s/generated/hub-bootstrap-config-patch.yaml\n", env)
+	fmt.Printf("[bootstrap-secrets] ✓ %s\n", configPath)
 
 	// Validate all artifacts exist
 	if _, err := os.Stat(configPath); err != nil {
-		return false, fmt.Errorf("hub-bootstrap-config-patch.yaml not found after generation: %w", err)
+		return false, fmt.Errorf("infisical-identity.yaml not found after generation: %w", err)
 	}
 
 	fmt.Println("[bootstrap-secrets]")
@@ -183,7 +230,7 @@ data:
 	fmt.Println("[bootstrap-secrets]  Generated artifacts:")
 
 	fmt.Printf("[bootstrap-secrets]    manifests/environments/%s/generated/\n", env)
-	fmt.Println("[bootstrap-secrets]      └── hub-bootstrap-config-patch.yaml")
+	fmt.Println("[bootstrap-secrets]      └── values/infisical-identity.yaml")
 	fmt.Println("[bootstrap-secrets]  Commit and push before platform readiness checks pass.")
 	fmt.Println("[bootstrap-secrets] ═══════════════════════════════════════════════════════")
 	fmt.Println("[bootstrap-secrets]")

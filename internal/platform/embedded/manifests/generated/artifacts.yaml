@@ -24,15 +24,14 @@ artifacts:
   # under environments/base while the Application reconciles environments/<slug>
   # and reaches it through a Kustomize ../base reference, so matching an
   # Application's source path against the artifact's path finds nothing.
-  - file: manifests/environments/{env}/generated/hub-bootstrap-config-patch.yaml
+  - file: manifests/environments/{env}/generated/values/infisical-identity.yaml
     consumedBy: hub-environment
     requiredFields:
-      - data.INFISICAL_ORGANIZATION_ID
-      - data.INFISICAL_PROJECT_ID
-      - data.INFISICAL_PROJECT_SLUG
-      - data.INFISICAL_SECRETS_PROJECT_ID
-      - data.INFISICAL_SECRETS_PROJECT_SLUG
-      - data.INFISICAL_ENVIRONMENT_SLUG
+      # A values file now, not a ConfigMap: hub-environment renders the object
+      # from these and is its only writer.
+      - global.infisical.organizationId
+      - global.infisical.projectId
+      - global.infisical.secretsProjectId
   # This box's Infisical PKI coordinates, as chart values.
   #
   # The security boundary emits a ClusterIssuer only when fleet.projectId and

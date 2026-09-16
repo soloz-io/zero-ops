@@ -98,6 +98,19 @@ package_path() {
 # supplies it, and one that does not is refused upstream by the hubDomain helper.
 global:
   hubDomain: ""
+  # The box's own Infisical identity, empty for the same reason: a chart with no
+  # default for a key its templates read renders NOTHING -- the lookup is a nil
+  # map and helm fails the whole render, which emit_chart reports as a component
+  # producing no objects and blames the component.
+  #
+  # Empty is also the correct value to ship. These identify one box's Infisical
+  # organisation and projects; a default here would be whichever box was
+  # bootstrapped when it was written, which is exactly how the platform's own ids
+  # reached every tenant.
+  infisical:
+    organizationId: ""
+    projectId: ""
+    secretsProjectId: ""
 VALS
         fi
     fi
