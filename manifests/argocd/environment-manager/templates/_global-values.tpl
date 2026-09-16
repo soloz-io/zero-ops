@@ -88,3 +88,24 @@ global:
          literal. */}}
   burstSpokePool: {{ include "environment-manager.burstSpokePool" . | quote }}
 {{- end -}}
+
+{{/*
+The same globals, with `provider` resolved to the ADR-046 §11 placement class.
+
+For the three stateful components the variant selector must follow where the
+DATA is placed, not what the box is: the subchart resolves files/<env>-<provider>
+then files/<env> then files/<provider>, and a hybrid box placing its data on-prem
+would otherwise render the cloud overlay and pin a storage class its nodes cannot
+provision (ADR-075).
+
+Those elements used to emit globalValues and then restate `provider:` under the
+same `global:` mapping. It produced the right answer only because YAML takes the
+last of a duplicated key -- a correctness that depended on emission order, in a
+document nothing parsed strictly. One emitter, so the override cannot be undone
+by moving a line.
+*/}}
+{{- define "environment-manager.placementGlobalValues" -}}
+{{- $g := fromYaml (include "environment-manager.globalValues" .) -}}
+{{- $_ := set $g.global "provider" (include "environment-manager.placementClass" .) -}}
+{{- toYaml $g -}}
+{{- end -}}

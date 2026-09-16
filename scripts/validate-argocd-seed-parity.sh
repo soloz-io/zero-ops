@@ -49,9 +49,17 @@ echo "Validating Day-0 ArgoCD seed parity..."
 # explicitly), so supply a representative combination. None of them influence
 # the platform-argocd element.
 rendered="$(mktemp)"
-trap 'rm -f "$rendered"' EXIT
+staged_root="$(mktemp -d)"
+trap 'rm -f "$rendered"; rm -rf "$staged_root"' EXIT
 
-helm template seed-parity "$env_mgr" \
+# Staged, then rendered, because platform-argocd is a descriptor and descriptors
+# are copied into the chart at package time rather than committed inside it.
+# bundleVersion selects the released path, which is the only one that reads them.
+# shellcheck source=lib/stage-bundle-chart.sh
+source "$repo_root/scripts/lib/stage-bundle-chart.sh"
+stage_bundle_chart "$env_mgr" "$staged_root/environment-manager"
+
+helm template seed-parity "$staged_root/environment-manager" \
   --set environmentSlug=dev \
   --set provider=hybrid \
   --set instanceRepoURL=https://github.com/example-org/example-gitops \
@@ -59,30 +67,27 @@ helm template seed-parity "$env_mgr" \
   --set topology=single \
   --set publicTlsIssuer=letsencrypt-prod \
   --set oidcIssuer=https://auth.example.invalid \
+  --set bundleVersion=0.0.0-seed-parity \
   >"$rendered"
 
-# Since ADR-061 a component's declaration may be a descriptor file rather than an
-# inline element of the boundary. Prefer the descriptor and fall back to the
-# inline list, so this check keeps working for boundaries on either side of the
-# conversion.
+# Read from the RENDER, whether platform-argocd is declared inline or (since
+# ADR-061) as a descriptor. This used to read the descriptor file directly, which
+# is wrong for the same reason it was convenient: a descriptor's helmValues is
+# run through `tpl` before it ships, so it may carry Helm actions and is not YAML
+# on its own. Once one did, `yq` could not parse it and every value below was
+# reported as UNDECLARED -- a check that fails closed reading the wrong input is
+# still a check reading the wrong input. The render is what the cluster receives.
 #
-# The `select(. != null)` on the inline path is load-bearing: yq emits a null
-# document for every input document a `select` rejects, and this render carries
-# more than a dozen. Without it the extraction concatenates those nulls with the
-# one real match and every downstream query reads a multi-document string.
-argocd_descriptor="$repo_root/manifests/argocd/components/01/platform-argocd.yaml"
-
-if [[ -f "$argocd_descriptor" ]]; then
-  argocd_element="$(cat "$argocd_descriptor")"
-  source_desc="descriptor manifests/argocd/components/01/platform-argocd.yaml"
-else
-  argocd_element="$(yq \
-    'select(.kind == "ApplicationSet" and .metadata.name == "01-platform-infra")
-     | .spec.generators[]? | select(has("list")) | .list.elements[]
-     | select(.appName == "platform-argocd")' "$rendered" \
-    | yq 'select(. != null)')"
-  source_desc="inline element of 01-platform-infra"
-fi
+# The `select(. != null)` is load-bearing: yq emits a null document for every
+# input document a `select` rejects, and this render carries more than a dozen.
+# Without it the extraction concatenates those nulls with the one real match and
+# every downstream query reads a multi-document string.
+argocd_element="$(yq \
+  'select(.kind == "ApplicationSet" and .metadata.name == "01-platform-infra")
+   | .spec.generators[]? | select(has("list")) | .list.elements[]
+   | select(.appName == "platform-argocd")' "$rendered" \
+  | yq 'select(. != null)')"
+source_desc="rendered element of 01-platform-infra"
 
 if [[ -z "$argocd_element" ]]; then
   fail "no 'platform-argocd' declaration found, as a descriptor or as an inline element -- ArgoCD is not declared in Git at all, so nothing supersedes the Day-0 seed"

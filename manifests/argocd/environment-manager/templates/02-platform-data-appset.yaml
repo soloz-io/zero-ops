@@ -38,14 +38,10 @@ spec:
               # nothing and reports the Application healthy.
               platform-database:
                 enabled: true
-              {{- include "environment-manager.globalValues" $ | nindent 14 }}
-                # The variant selector inside the distribution: the subchart
-                # resolves files/<env>-<provider>, then files/<env>, then
-                # files/<provider>. For these three that lookup must follow the
-                # placement class, or a box placing its data on-prem would still
-                # render the cloud overlay and pin a storage class its nodes
-                # cannot provision (ADR-046 §11, ADR-075).
-                provider: {{ include "environment-manager.placementClass" $ | quote }}
+              # global.provider here is the PLACEMENT CLASS, not the box's
+              # provider: the variant selector must follow where the data is
+              # placed (ADR-046 §11, ADR-075). See placementGlobalValues.
+              {{- include "environment-manager.placementGlobalValues" $ | nindent 14 }}
               {{- end }}
             helmReleaseName: ''
           {{- end }}
@@ -70,14 +66,10 @@ spec:
               # nothing and reports the Application healthy.
               platform-redis:
                 enabled: true
-              {{- include "environment-manager.globalValues" $ | nindent 14 }}
-                # The variant selector inside the distribution: the subchart
-                # resolves files/<env>-<provider>, then files/<env>, then
-                # files/<provider>. For these three that lookup must follow the
-                # placement class, or a box placing its data on-prem would still
-                # render the cloud overlay and pin a storage class its nodes
-                # cannot provision (ADR-046 §11, ADR-075).
-                provider: {{ include "environment-manager.placementClass" $ | quote }}
+              # global.provider here is the PLACEMENT CLASS, not the box's
+              # provider: the variant selector must follow where the data is
+              # placed (ADR-046 §11, ADR-075). See placementGlobalValues.
+              {{- include "environment-manager.placementGlobalValues" $ | nindent 14 }}
               {{- end }}
             helmReleaseName: ''
   template:

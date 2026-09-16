@@ -17,21 +17,19 @@ OUTDIR="${2:-dist/charts}"
 SRC="manifests/argocd/environment-manager"
 CHART="$OUTDIR/platform-bundle"
 
-rm -rf "$CHART"; mkdir -p "$OUTDIR"
-cp -R "$SRC" "$CHART"
-rm -rf "$CHART/descriptors"
+# Staging lives in scripts/lib so the validators assemble the chart exactly as
+# this does. They render it to check what a tenant installs, and a second copy
+# of these few lines is how a validator ends up checking something else.
+#
+# It also copies the values files a boundary installs a third-party chart with.
+# Those are inlined into the Application in a released bundle, so the second
+# source that exists only to make $values resolve -- and which names this
+# repository -- disappears.
+# shellcheck source=../lib/stage-bundle-chart.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/stage-bundle-chart.sh"
 
-for boundary_dir in manifests/argocd/components/*/; do
-    boundary=$(basename "$boundary_dir")
-    mkdir -p "$CHART/descriptors/$boundary"
-    cp "$boundary_dir"*.yaml "$CHART/descriptors/$boundary/" 2>/dev/null || true
-done
-
-# Values files a boundary installs a third-party chart with. They are inlined
-# into the Application in a released bundle, so the second source that exists
-# only to make $values resolve -- and which names this repository -- disappears.
-mkdir -p "$CHART/values"
-cp manifests/hub-core-services/identity/zitadel/values.yaml "$CHART/values/zitadel.yaml"
+mkdir -p "$OUTDIR"
+stage_bundle_chart "$SRC" "$CHART"
 
 # Provenance: which source produced this artefact.
 #

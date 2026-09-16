@@ -48,13 +48,46 @@ lint_values=(--set environmentRevision=dry-run --set environmentSlug=prod \
              --set publicTlsIssuer=letsencrypt-prod \
              --set instanceRepoURL=https://github.com/example-org/example-gitops --set hubDomain=dev.example.test)
 
-if ! rendered=$(helm template environment-manager "$chart_dir" "${lint_values[@]}" 2>&1); then
-    echo "❌ helm template failed — chart has a template-level YAML error."
+# Any value but "development" selects the released path. Synthetic on purpose:
+# pinning a real version here would make the linter fail on the day it is bumped.
+lint_bundle_version="0.0.0-lint"
+
+# Rendered from a STAGED copy. The descriptors live under
+# manifests/argocd/components/ and are copied into the chart at package time, so
+# rendering the source tree shows this script none of them -- which is why it
+# used to raw-parse the descriptor files instead. A descriptor's helmValues is
+# run through `tpl` (_distribution.tpl), so it may carry Helm actions and is not
+# plain YAML; parsing the file reported template text as a syntax error while
+# the thing that ships renders clean.
+# shellcheck source=lib/stage-bundle-chart.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/stage-bundle-chart.sh"
+staged_chart=$(mktemp -d)/environment-manager
+stage_bundle_chart "$chart_dir" "$staged_chart"
+
+# Rendered TWICE, because the boundaries carry two element shapes and linting one
+# leaves the other unchecked. `bundleVersion: development` takes the inline path
+# that names this repository; any other value takes the released path, which
+# resolves the published distribution and is the only one that reads descriptors.
+# A tenant installs the released form, so it is not optional here.
+render_mode() {
+  helm template environment-manager "$staged_chart" "${lint_values[@]}" \
+    --set bundleVersion="$1" 2>&1
+}
+
+if ! rendered_dev=$(render_mode development); then
+    echo "❌ helm template failed (bundleVersion=development) — template-level YAML error."
     echo "   Run the following to debug:"
-    echo "     helm template environment-manager $chart_dir ${lint_values[*]} --debug"
+    echo "     helm template environment-manager $staged_chart ${lint_values[*]} --set bundleVersion=development --debug"
     exit 1
 fi
-echo "✓ Chart renders successfully"
+if ! rendered_released=$(render_mode "$lint_bundle_version"); then
+    echo "❌ helm template failed (bundleVersion=$lint_bundle_version) — template-level YAML error."
+    echo "   Run the following to debug:"
+    echo "     helm template environment-manager $staged_chart ${lint_values[*]} --set bundleVersion=$lint_bundle_version --debug"
+    exit 1
+fi
+rendered=$(printf '%s\n---\n%s\n' "$rendered_dev" "$rendered_released")
+echo "✓ Chart renders successfully (development and released)"
 
 passed=true
 file_count=0
@@ -104,10 +137,20 @@ for blk in "$extract_dir"/*; do
   lint_block "rendered:$app_name" "$(cat "$blk")" || passed=false
 done
 
-# Component descriptors (ADR-061). These are plain YAML, so the file itself is
-# linted by yamllint-all — but helmValues inside it is still a string, and this
-# is the only thing that looks in it.
+# Component descriptors (ADR-061) reach the render through descriptors/<boundary>/,
+# so they were linted above as `rendered:<appName>` blocks -- already templated,
+# which is the form the cluster receives.
+#
+# What is asserted here is that they got there. Staging is the only thing putting
+# a descriptor in front of this linter, and staging that silently copies nothing
+# would leave every descriptor unchecked while the script still reported success.
+# So: every descriptor declaring helmValues must appear in the render by name.
 if [ -d "$components_dir" ]; then
+  rendered_names=$(printf '%s\n' "$rendered_released" | yq -r \
+    'select(.kind == "ApplicationSet") | .spec.generators[]? | select(has("list"))
+     | .list.elements[]? | select(.helmValues != null and .helmValues != "") | .appName' \
+    2>/dev/null | sort -u)
+
   for desc in "$components_dir"/*/*.yaml; do
     [ -f "$desc" ] || continue
     helm_values=$(yq eval -r '.helmValues // ""' "$desc" 2>/dev/null || echo "")
@@ -116,8 +159,11 @@ if [ -d "$components_dir" ]; then
     fi
     app_name=$(yq eval -r '.appName // "unknown"' "$desc" 2>/dev/null)
     descriptor_files=$((descriptor_files + 1))
-    element_count=$((element_count + 1))
-    lint_block "$desc:$app_name" "$helm_values" || passed=false
+    if ! printf '%s\n' "$rendered_names" | grep -qxF "$app_name"; then
+      echo "❌ [$desc:$app_name] declares helmValues but no rendered element carries them."
+      echo "   The descriptor never reached the chart, so nothing linted it."
+      passed=false
+    fi
   done
 fi
 
@@ -131,12 +177,13 @@ fi
 if [ "$element_count" -eq 0 ]; then
   echo ""
   echo "FAIL: no helmValues blocks were found at all."
-  echo "  Looked in: $appset_dir/*-appset.yaml (inline list elements)"
-  echo "         and: $components_dir/*/*.yaml (component descriptors)"
+  echo "  Looked in: the rendered chart -- inline list elements of"
+  echo "             $appset_dir/*-appset.yaml, plus the descriptors under"
+  echo "             $components_dir/*/ staged in as the bundle stages them."
   echo "  The platform declares Helm values somewhere; finding none means this"
   echo "  script is looking in the wrong place, not that there is nothing to check."
   exit 1
 fi
 
-echo "✅ All $element_count helmValues blocks passed linting ($file_count appset file(s), $descriptor_files descriptor(s))."
+echo "✅ All $element_count rendered helmValues blocks passed linting ($descriptor_files descriptor(s) confirmed present)."
 exit 0
