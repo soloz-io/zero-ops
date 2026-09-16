@@ -104,6 +104,17 @@ type ProvisionConfig struct {
 	// one (ADR-072), so the topology it provisions can be recorded there and
 	// changed afterwards. Empty for the platform's own box.
 	GitopsDir string
+
+	// OIDCIssuerURL and OIDCClientID name the identity provider the API server
+	// accepts tokens from (ADR-076). Empty on a first build, because the issuer
+	// runs on the cluster being created and does not exist yet.
+	//
+	// Carried so a REBUILD of an environment whose issuer is already running can
+	// declare them at creation, instead of provisioning without them and then
+	// replacing the control plane to add them. The ClusterClass patch is
+	// conditioned on both, so supplying one is refused rather than half-applied.
+	OIDCIssuerURL string
+	OIDCClientID  string
 }
 
 // PivotConfig carries state from the orchestrator into Phase 6.

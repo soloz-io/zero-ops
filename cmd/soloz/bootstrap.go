@@ -14,10 +14,12 @@ import (
 
 var (
 	// Required flags
-	clusterName string
-	gitopsDir   string
-	region      string
-	imageID     string
+	clusterName   string
+	gitopsDir     string
+	oidcIssuerURL string
+	oidcClientID  string
+	region        string
+	imageID       string
 
 	// Optional flags
 	provider          string
@@ -183,6 +185,15 @@ sixteen hours behind a run that reported success.`,
 
 	// Required flags
 	cmd.Flags().StringVar(&clusterName, "name", "", "Hub Cluster name (alphanumeric + hyphens)")
+	// ADR-076. Empty on a first build: the issuer runs on the cluster being
+	// created, so at this moment it does not exist and cannot be pointed at.
+	// Supplied on a REBUILD of an environment whose issuer already runs, which is
+	// the case where declaring them here avoids provisioning without them and then
+	// replacing the control plane to add them.
+	cmd.Flags().StringVar(&oidcIssuerURL, "oidc-issuer-url", "",
+		"identity provider the API server accepts tokens from (ADR-076); requires --oidc-client-id")
+	cmd.Flags().StringVar(&oidcClientID, "oidc-client-id", "",
+		"OIDC client the API server names; requires --oidc-issuer-url")
 	cmd.Flags().StringVar(&gitopsDir, "gitops-dir", "",
 		"a checkout of the tenant's own repository; the cluster is seeded with the declaration it holds (ADR-072)")
 	cmd.Flags().StringVar(&provider, "provider", "hetzner", "Infrastructure provider: hetzner (default) or hybrid (home-lab)")
@@ -222,6 +233,15 @@ sixteen hours behind a run that reported success.`,
 }
 
 func validateFlags(cmd *cobra.Command, args []string) error {
+	// Both or neither. The ClusterClass patch is conditioned on both being set,
+	// so one alone is not a partial configuration -- it is silently no
+	// configuration, and the API server comes up trusting nothing while the flag
+	// that was passed suggests otherwise (ADR-076).
+	if (oidcIssuerURL == "") != (oidcClientID == "") {
+		return fmt.Errorf("--oidc-issuer-url and --oidc-client-id are supplied together or not at all; " +
+			"one alone configures no OIDC at all and looks as though it did")
+	}
+
 	// Validate provider
 	validProviders := map[string]bool{
 		"hetzner": true,
@@ -403,6 +423,8 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		Topology:         topology,
 		Gating:           gatingMode,
 		GitopsDir:        gitopsDir,
+		OIDCIssuerURL:    oidcIssuerURL,
+		OIDCClientID:     oidcClientID,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {

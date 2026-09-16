@@ -51,6 +51,13 @@ type Orchestrator struct {
 	Provider    Provider
 	ClusterName string
 
+	// OIDCIssuerURL and OIDCClientID name the identity provider this box's API
+	// server accepts tokens from (ADR-076). Empty on a first build; supplied on a
+	// rebuild of an environment whose issuer already runs, to avoid provisioning
+	// without them and replacing the control plane afterwards.
+	OIDCIssuerURL string
+	OIDCClientID  string
+
 	// GitopsDir is a checkout of the tenant's own repository.
 	//
 	// Set, the cluster is seeded with the Application that repository declares
@@ -229,6 +236,8 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapContext:    bootstrapCtx,
 		Debug:               o.Debug,
 		GitopsDir:           o.GitopsDir,
+		OIDCIssuerURL:       o.OIDCIssuerURL,
+		OIDCClientID:        o.OIDCClientID,
 	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
 		"",

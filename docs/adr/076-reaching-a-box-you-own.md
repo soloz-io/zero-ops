@@ -60,14 +60,126 @@ the tenant controls.**
 
 ### Day-to-day access is OIDC, not a kubeconfig
 
-The hub's API server is configured for OIDC from the ClusterClass -- `oidcIssuerURL`
-and `oidcClientID`, applied together or not at all -- and the box runs an identity
-provider. Access is therefore a person authenticating as themselves, with the
+The box runs an identity provider, and the ClusterClass carries the means to point
+the API server at it -- `oidcIssuerURL` and `oidcClientID`, applied together or not
+at all. Access is therefore a person authenticating as themselves, with the
 authorisation their role carries, revocable by removing them.
 
 This is what makes ownership real rather than stated. A shared admin credential is
 not owned by anyone: it cannot be attributed, it cannot be revoked for one person,
 and the act of giving someone access is the act of copying it.
+
+The capability is not the configuration. Both values default to empty and the patch
+is conditioned on both being set, so a box is delivered with the mechanism present
+and unset, and until it is set the API server trusts no issuer. That is deliberate
+-- the issuer runs on the cluster and does not exist when the control plane is
+created -- but it means the admin credential below is the only way in until the
+values are supplied, which is the state every box built so far is in.
+
+### A generated kubeconfig authenticates through an approved credential plugin
+
+OIDC access is delivered by a kubeconfig that obtains credentials dynamically
+rather than carrying a static token, so the question of what it is permitted to
+execute arises the moment the platform generates one.
+
+Any generated kubeconfig that uses exec-based authentication names an explicitly
+approved credential plugin. An arbitrary executable path is not permitted.
+
+The reason is upstream, not local. A kubeconfig's exec configuration names a
+program to run and is trusted by whoever holds the file, so a kubeconfig obtained
+from somewhere else is a request to execute something; Kubernetes has moved
+toward constraining which plugins may be invoked, and the exact mechanism is
+version-dependent. This decision records the invariant rather than the mechanism,
+so it holds across versions that implement the constraint differently and across
+those that do not implement it at all.
+
+Nothing today generates an exec-based kubeconfig: Day-0 writes the admin
+credential, which is a static kubeconfig and break-glass. The constraint applies
+when kubeconfig generation is built, and is recorded now because that is when it
+is cheap to honour.
+
+### Enabling OIDC is a desired-state change, not an act performed on a cluster
+
+The values belong to the cluster topology recorded in the tenant's repository, and
+that record is authoritative: it is reconciled continuously and self-healed, so a
+change made directly against the API server's configuration is reverted to what the
+repository says. Supplying them is therefore the same class of change as altering
+worker capacity -- an edit to the declared topology, reconciled like any other.
+
+This follows from ADR-039 rather than adding to it. The topology has one System of
+Record; a second path that writes the same fields would be a second source for one
+question, and the reconciler would resolve the disagreement by discarding whichever
+was not in the repository.
+
+It is not part of Day-0. Beyond the ordering problem -- the issuer is not running
+when the control plane is created -- the API server's authentication configuration
+is carried by the control plane machines, so supplying these values replaces them.
+A box has one control-plane node, so the change costs a control-plane rollout and
+the API server returns on a different endpoint. ADR-040 puts continuous change in
+Day-1+, and this is a Day-1 change to a Day-0 artefact's declared state.
+
+### Identity-provider administration is a separate plane from cluster configuration
+
+Two credentials are involved in human access and they are deliberately not the same
+credential, nor held in the same place.
+
+The first is the human's, minted per login by the identity provider and carrying
+only the authorisation their role grants. The second administers the identity
+provider itself: registering the client that the API server names is an operation
+against the identity provider's management plane, and that credential can rewrite
+how the box authenticates.
+
+The hub holds neither permanently. Once the client exists, what the API server needs
+is an issuer URL and a client identifier -- both public, both belonging in the
+repository with the rest of the topology. Nothing privileged has to live on the box
+for a person to log in.
+
+Keeping the management credential off the box is the point. Storing it there to
+spare a separate administrative step would place the identity provider's
+administration inside the system it authenticates, and give every box a standing
+credential capable of altering its own login. ADR-003 already forbids a Kubernetes
+Secret being the System of Record for secret material; this says something stronger
+about this particular credential, which is that the box has no reason to hold it at
+all.
+
+Where this is automated, it is automated against the identity provider's management
+interface. The initial-instance configuration is applied once, when an instance is
+first created, and does not reach an instance that already exists -- so building on
+it would leave existing and new boxes on different paths to the same outcome, and
+would route the most privileged credential on the box through a setup path whose
+default destination is the job's own output.
+
+### The credential that registers the client is borrowed, never held
+
+The client the API server names has to be registered in the identity provider,
+and that is an operation against its management plane. The box does not hold a
+credential for it.
+
+A dedicated service account is created for the registration, its token carries an
+explicit expiry, and it is revoked as soon as the client exists -- on every path,
+including a failed registration and an abandoned run, because those are the paths
+where a credential is most likely to be left behind. Revocation failing is
+reported as a failure of the whole operation even when the client was created: a
+box that kept a live management token has not reached the state this describes,
+whatever else succeeded.
+
+The token's identifiers are as mandatory as the token. A credential that cannot
+be revoked is refused before it is used rather than discovered afterwards.
+
+The current user and application services are used rather than the deprecated
+management endpoints, and that is not only currency: on the current service an
+expiration date is a required field, so a token without one cannot be created by
+accident. The property this decision depends on is enforced by the interface
+instead of remembered by whoever calls it.
+
+Nothing about this is a secret-management problem, so no secret store is
+introduced for it. Routing a single-use bootstrap token through the box's own
+secret store would give it a durable home, a lifecycle, and a second system that
+must be reasoned about -- for a credential whose entire purpose is to stop
+existing. It is received as an input, used, and destroyed.
+
+What survives is public: a client identifier, recorded with the topology. That is
+the reason the box needs no management credential at runtime.
 
 ### The admin credential is escrowed, not distributed
 
@@ -192,13 +304,22 @@ cannot be selectively revoked, and is copied by the act of granting access.
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
 |---|---|---|---|---|---|
 | Human access to a box | tenant's identity provider | Tenant | — | People | Day-1+ |
-| API server OIDC configuration | `zero-ops` ClusterClass | Platform | CAPI | kube-apiserver | Day-0 |
+| API server OIDC capability | `zero-ops` ClusterClass | Platform | CAPI | kube-apiserver | Day-0 |
+| API server OIDC configuration | the cluster topology in the `<tenant>-gitops` repository | Tenant | ArgoCD, then CAPI | kube-apiserver | Day-1+ |
+| Client registration for cluster access | tenant's identity provider | Tenant | — | kube-apiserver, People | Day-1+ |
+| Client registration credential | tenant's identity provider | Tenant | — | registration only, then revoked | Day-1+ |
 | Admin kubeconfig | the cluster's CAPI Secret | Tenant | CAPI | break-glass only | Day-0 |
 | Escrowed copy | tenant's Infisical (Cloud or self-run) | Tenant | hub-operator | break-glass only | Day-1+ |
 | Escrow credentials | `<tenant>-gitops` repository secrets | Tenant | — | hub-operator | Day-0 |
 
-The platform appears in no row but the one describing what it builds. See ADR-039
-for the complete ownership matrix.
+The platform appears in no row but the one describing what it builds. The capability
+and the configuration are separate rows on purpose: the platform ships the means to
+trust an issuer, and which issuer a box trusts is the tenant's, recorded in their
+repository. The registration credential has a row whose consumer is an
+operation rather than a component, which is the ownership statement -- it exists
+for the length of one registration and nothing runs on it afterwards.
+
+See ADR-039 for the complete ownership matrix.
 
 ## Consequences
 
@@ -215,6 +336,16 @@ cannot read. Losing the cluster stops being the same as losing its secrets.
 
 One escrow mechanism serves both the Infisical master keys and the admin kubeconfig,
 rather than a second one appearing for the second secret.
+
+Which issuer a box trusts is declared in the tenant's repository and reconciled,
+so it is reviewable, revertible, and has one source. Enabling human access is not
+an operation performed against a running cluster and therefore does not depend on
+holding the credential it exists to stop needing.
+
+No box holds a credential capable of altering how it authenticates. What the API
+server needs is public, which is why it can live in a repository at all, and the
+credential that registers the client is revoked as part of the operation that
+uses it rather than by a later step someone has to remember.
 
 ### Negative
 
@@ -242,6 +373,17 @@ normal path and one of the two reasons the break-glass path exists. The escrow
 covers it, which is why the escrow is not optional in practice for anyone who cares
 about recovery.
 
+Supplying the OIDC values replaces the control-plane machines, and a box has one
+control-plane node, so enabling human access costs an interruption and a changed API
+server endpoint. That cost is why it is not done during Day-0 and not done
+implicitly.
+
+Registering the client that the API server names remains a separate operation
+against the identity provider, so a box is not reachable by a person until both
+halves are done. Delivering the mechanism unset is what makes the gap possible, and
+a box in that state looks configured -- the variables exist, the binding exists --
+while the API server trusts nothing.
+
 ### Positive and negative at once
 
 Making the escrow optional keeps the platform usable by a tenant with one cloud, and
@@ -263,12 +405,20 @@ the second is stated at scaffold time rather than discovered.
   an Infisical account rather than a second cloud vendor precisely so that floor
   moves as little as possible: free at the size these boxes start at, and the same
   product the box already runs.
+- **Amends ADR-040.** The API server's OIDC configuration is a Day-1+ change to state
+  a Day-0 artefact declares. Day-0 creates the cluster and the topology record; the
+  values are supplied afterwards, because the issuer they name does not exist while
+  the control plane is being created.
+- **Confirms ADR-039.** The cluster topology has one System of Record, and the OIDC
+  values are part of it. No second path writes them.
 - No change to ADR-063 or ADR-064: nothing here travels with the bundle or moves
   with a version.
 
 ## References
 
+- ADR-003: Secret Lifecycle
 - ADR-039: Platform Ownership Model
+- ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-045: Bootstrap-Generated GitOps Artifacts
 - ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-065: The Control Plane Ships Into the Box

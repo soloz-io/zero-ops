@@ -98,6 +98,10 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	clusterCfg.ClusterName = p.clusterName
 	clusterCfg.Namespace = constants.NamespaceCAPI
 	clusterCfg.GitopsDir = cfg.GitopsDir
+	// Shared, not driver-specific: which issuer a box trusts is a property of the
+	// box, not of the cloud underneath it.
+	clusterCfg.OIDCIssuerURL = cfg.OIDCIssuerURL
+	clusterCfg.OIDCClientID = cfg.OIDCClientID
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
 	//
