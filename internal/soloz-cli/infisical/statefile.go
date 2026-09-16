@@ -10,16 +10,38 @@ import (
 const stateFileName = "infisical-bootstrap.json"
 
 func stateDir() string {
-	// Use the project-level .zero-ops directory (same as bootstrap-state.json).
+	// .state, the one place a box keeps what has been done to it. This was
+	// .zero-ops, which also held logs and a generated kind config, so a durable
+	// record sat among run artefacts and "delete the logs" could delete it.
 	cwd, err := os.Getwd()
 	if err != nil {
-		return ".zero-ops"
+		return ".state"
 	}
-	return filepath.Join(cwd, ".zero-ops")
+	return filepath.Join(cwd, ".state")
+}
+
+// legacyStateFilePath is the location this replaced.
+//
+// Read, never written. A box bootstrapped by an earlier build has its record
+// there, and losing it means re-running Day-0 Infisical setup against a project
+// that already exists -- which fails rather than being idempotent.
+func legacyStateFilePath() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return filepath.Join(".zero-ops", stateFileName)
+	}
+	return filepath.Join(cwd, ".zero-ops", stateFileName)
 }
 
 func stateFilePath() string {
-	return filepath.Join(stateDir(), stateFileName)
+	current := filepath.Join(stateDir(), stateFileName)
+	if _, err := os.Stat(current); err == nil {
+		return current
+	}
+	if legacy := legacyStateFilePath(); func() bool { _, err := os.Stat(legacy); return err == nil }() {
+		return legacy
+	}
+	return current
 }
 
 // BootstrapState is the on-disk cache written after a successful Day-0

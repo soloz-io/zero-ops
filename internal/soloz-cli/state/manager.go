@@ -98,13 +98,41 @@ type StateManager struct {
 	statePath string
 }
 
-// NewStateManager creates a new StateManager for the given cluster
+// NewStateManager creates a new StateManager for the given cluster.
+//
+// State goes under .state, the same root NewTenantStateManager uses. These were
+// two different directories -- .zero-ops/state here, .state/bootstrap there --
+// chosen by whether --gitops-dir was passed, so "where is this box's state" had
+// two answers and every reader had to know which call had been made. A shell
+// helper that looked in only one of them silently fell through to a convention
+// path and never used the recorded value.
+//
+// A box written by an earlier version is read from the old path when the new one
+// is absent (see statePathFor). Without that a resumed bootstrap finds no state
+// and starts again from phase one, which on a running cluster means re-doing work
+// that has already been done to it.
 func NewStateManager(clusterName string) *StateManager {
-	// Use .zero-ops/state directory in workspace root
-	statePath := filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", clusterName))
 	return &StateManager{
-		statePath: statePath,
+		statePath: statePathFor("", clusterName),
 	}
+}
+
+// statePathFor resolves where a cluster's state lives, preferring the current
+// layout and falling back to the one it replaced.
+//
+// Only for READING an existing file: a new state file is always written at the
+// current path, so a box migrates the first time it is written to rather than
+// being migrated by a separate step that could be missed.
+func statePathFor(root, clusterName string) string {
+	current := filepath.Join(root, TenantStateDir, clusterName+".json")
+	if _, err := os.Stat(current); err == nil {
+		return current
+	}
+	legacy := filepath.Join(root, ".zero-ops", "state", clusterName+".json")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return current
 }
 
 // NewTenantStateManager keeps a cluster's bootstrap state in the tenant's own
@@ -120,7 +148,7 @@ func NewStateManager(clusterName string) *StateManager {
 // useful to a tenant asking how far its bootstrap got.
 func NewTenantStateManager(gitopsDir, clusterName string) *StateManager {
 	return &StateManager{
-		statePath: filepath.Join(gitopsDir, TenantStateDir, clusterName+".json"),
+		statePath: statePathFor(gitopsDir, clusterName),
 	}
 }
 
