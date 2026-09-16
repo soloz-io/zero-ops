@@ -365,6 +365,7 @@ jobs:
             exit 0
           fi
           echo "workload cluster: $pool"
+          echo "pool=$pool" >> "$GITHUB_OUTPUT"
 
           CLUSTER_NAME="${{ inputs.cluster }}" \
           PROVIDER="${{ inputs.provider }}" \
@@ -380,23 +381,62 @@ jobs:
             step10e_spoke_home_worker "$SPOKEPOOL_NAME"
           '
 
-      - name: Verify the published endpoints answer
-        id: endpoints
+      # Step 3 of three: the box as a whole, after both clusters exist.
+      #
+      # This is the same script hub-bootstrap.sh runs as its own final, fatal
+      # step, and the same one local-e2e's `verify` phase runs -- one
+      # implementation, so the developer path and the tenant path make the same
+      # claim. It checks the platform components, then runs EVERY module under
+      # validate/cluster/ at --mode=final.
+      #
+      # --mode=final is the stricter half of the severity model: `soft_fail` is a
+      # warning mid-bootstrap, where a resource that has not appeared yet is not
+      # a defect, and a hard failure here, where it is.
+      #
+      # This step used to probe one module (35-public-api-endpoints) and nothing
+      # else, so a tenant run asserted far less about the box than a developer
+      # running the same version locally -- including 40-tenant-ingress, which is
+      # the path that actually serves tenant traffic under ADR-051.
+      - name: Validate the platform
+        id: validate
         if: steps.verify.outcome == 'success'
         continue-on-error: true
         env:
-          HUB_KUBECONFIG: k8-secrets/kubeconfig/${{ inputs.cluster }}.kubeconfig
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
+          kc="$PWD/k8-secrets/kubeconfig/${{ inputs.cluster }}.kubeconfig"
+
           # The zone the box actually publishes on, read from what it declares
-          # rather than assumed from the environment name (ADR-051).
-          HUB_DOMAIN=$(./soloz kubeconfig --cluster "${{ inputs.cluster }}" >/dev/null 2>&1; \
-            kubectl --kubeconfig "$HUB_KUBECONFIG" get hubenvironment hub-environment \
-              -n platform-ops -o jsonpath='{.spec.domain}')
-          echo "probing endpoints on $HUB_DOMAIN"
-          HUB_DOMAIN="$HUB_DOMAIN" bash .platform-validators/scripts/validate/run.sh \
-            cluster --mode=final --only=35-public-api-endpoints
+          # rather than assumed from the environment name (ADR-051). Without it
+          # the probes fall back to the PLATFORM's own zone, and a tenant's box
+          # would be judged by hostnames that are not its own.
+          ./soloz kubeconfig --cluster "${{ inputs.cluster }}" >/dev/null 2>&1 || true
+          HUB_DOMAIN=$(kubectl --kubeconfig "$kc" get hubenvironment hub-environment \
+            -n platform-ops -o jsonpath='{.spec.domain}')
+          if [ -z "$HUB_DOMAIN" ]; then
+            echo "::error::the hub declares no domain; the endpoint probes would target the platform's zone"
+            exit 1
+          fi
+          echo "validating $HUB_DOMAIN"
+
+          # The pool the step above resolved, and only that. It read the cluster
+          # once; a second read here would be a second answer to the same
+          # question, free to disagree with the cluster that was actually
+          # brought up.
+          pool="${{ steps.bootstrap-workload.outputs.pool }}"
+          if [ -z "$pool" ]; then
+            echo "::error::the workload step resolved no SpokePool; there is nothing to validate against"
+            exit 1
+          fi
+
+          KUBECONFIG="$kc" \
+          HUB_DOMAIN="$HUB_DOMAIN" \
+          ENVIRONMENT="${{ inputs.environment }}" \
+          SPOKEPOOL_NAME="$pool" \
+          ZERO_OPS_DIR="$PWD" \
+          CLUSTER_NAME="${{ inputs.cluster }}" \
+          bash .platform-validators/scripts/validate-all.sh --only=platform
 
       # The workload cluster reported separately from the hub, because "the box
       # is bootstrapped" is two claims and a run that satisfies one of them
@@ -447,6 +487,51 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # Reported, because it was not. The endpoint probe this replaces had no
+      # summary at all: it could fail and the run surfaced nothing about it.
+      # The record, not just the outcome. A summary line says whether it passed;
+      # this says which phases ran, which were skipped and why -- the distinction
+      # that matters when a box is reported healthy and was never checked.
+      - name: Publish the validation record
+        if: always()
+        run: |
+          f=".state/validation.json"
+          if [[ -f "$f" ]]; then
+            {
+              echo "### Validation record"
+              echo
+              echo '```json'
+              cat "$f"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Say whether the platform validated
+        if: always()
+        run: |
+          case "${{ steps.validate.outcome }}" in
+            success)
+              {
+                echo "### ✅ Platform validated"
+                echo "Every component check and every validate/cluster module passed at --mode=final: public endpoints answer over a trusted chain, tenant ingress serves, secrets resolve, the spoke is joined."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            skipped)
+              {
+                echo "### ⏭️ Platform not validated"
+                echo "The hub did not converge, so the strict checks had nothing settled to assert against."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              {
+                echo "### ❌ Platform validation FAILED"
+                echo
+                echo "Both clusters exist and the box does not work. The step above names every"
+                echo "check that failed; at --mode=final a check that would be 'still converging'"
+                echo "mid-bootstrap is a defect, because bootstrap is over."
+                echo
+                echo "Re-running is safe: the validation reads, it does not change the box."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
 
       - name: Report where the bootstrap reached
         # Always, because the state is most useful when the run failed: it says
