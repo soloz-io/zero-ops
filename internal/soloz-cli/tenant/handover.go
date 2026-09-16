@@ -559,7 +559,7 @@ func missingWord(s Secrets, credName, provider string) string {
 // What it buys is not having to publish. A version is consumed by any release that
 // begins publishing it (ADR-063), so testing a change through the dispatch path
 // spends a version number on every iteration.
-func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
+func LocalHandover(ctx context.Context, s Spec, secrets Secrets, w io.Writer) error {
 	dir := s.RepoName()
 	if _, err := os.Stat(dir); err == nil {
 		return fmt.Errorf("%s already exists here.\n\n"+
@@ -583,8 +583,19 @@ func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
 	// lives in the platform checkout, and the command below runs from the
 	// tenant's clone.
 	fmt.Fprintf(w, "  export HCLOUD_TOKEN=$(cat <your checkout>/k8-secrets/hetzner/token)\n")
+	// The escrow, which the dispatch path delivers as repository secrets and this
+	// path delivered not at all. RequireEscrow accepted these values a few lines
+	// earlier, so a box built this way passed the gate and was then built without
+	// an escrow -- the one outcome ADR-076 makes the gate mandatory to prevent.
+	// Day-0 reads them from the environment; nothing here put them there.
+	if secrets.hasEscrow() {
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_URL=%s\n", shellQuote(secrets.EscrowURL))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_PROJECT_ID=%s\n", shellQuote(secrets.EscrowProjectID))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_CLIENT_ID=%s\n", shellQuote(secrets.EscrowClientID))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_CLIENT_SECRET=%s\n", shellQuote(secrets.EscrowClientSecret))
+	}
 	fmt.Fprintf(w, "  cd %s\n", dir)
-	fmt.Fprintf(w, "  %s bootstrap \\\n", "soloz")
+	fmt.Fprintf(w, "  %s bootstrap-mgmt \\\n", "soloz")
 	fmt.Fprintf(w, "    --name %s \\\n", s.ClusterName)
 	fmt.Fprintf(w, "    --provider %s \\\n", s.Provider)
 	fmt.Fprintf(w, "    --region %s \\\n", s.Region)
@@ -611,4 +622,13 @@ func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
 	fmt.Fprintf(w, "That is the path a tenant runs. Your working tree is not in it:\n")
 	fmt.Fprintf(w, "changing a manifest means publishing the next prerelease.\n\n")
 	return nil
+}
+
+// shellQuote renders a value safe to paste into the shell lines above.
+//
+// A client secret is generated material and may hold any byte; unquoted, one
+// containing a space or a dollar sign produces a command that runs and exports
+// something else, which surfaces much later as an escrow that cannot authenticate.
+func shellQuote(v string) string {
+	return "'" + strings.ReplaceAll(strings.TrimSpace(v), "'", `'\''`) + "'"
 }

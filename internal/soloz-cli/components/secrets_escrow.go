@@ -47,13 +47,29 @@ func (i *Installer) InstallEscrowCredentials(ctx context.Context) error {
 	}
 
 	if len(missing) == len(escrowEnv) {
-		// Whether a box may be built without an escrow is decided before this
-		// point. Reaching here with none means that decision was made, so this
-		// reports rather than refuses -- and reports plainly, because nothing
-		// later will mention it again.
-		fmt.Println("[bootstrap] no escrow configured — this box's Infisical master keys")
-		fmt.Println("[bootstrap]   exist only inside it, and are lost with the cluster")
-		return nil
+		// Refused, not reported. This used to print a notice and continue, on the
+		// reasoning that whether a box may be built without an escrow is decided
+		// before this point -- and the decision made before this point is
+		// RequireEscrow, which runs in a DIFFERENT PROCESS during scaffolding and
+		// checks values passed to it as flags. Passing it proves the values were
+		// typed, not that they reached the box.
+		//
+		// They did not, on the local path: scaffolding accepted them, wrote them
+		// nowhere, and Day-0 read an empty environment. The notice was printed,
+		// nothing failed, and the box ran for weeks with its master keys existing
+		// only inside it -- which is the single outcome ADR-076 makes the escrow
+		// mandatory to prevent.
+		//
+		// A gate whose failure mode is a line of output is not a gate. This is the
+		// last point at which the absence is still cheap to fix, so it is the
+		// point that refuses.
+		return fmt.Errorf("no escrow is configured for this box.\n\n"+
+			"hub-operator copies this box's Infisical master keys -- the root secret\n"+
+			"without which its secret store cannot be decrypted -- to an Infisical you\n"+
+			"control. Without it, losing this cluster loses every secret the platform\n"+
+			"manages for it, and the escrow cannot be added after the fact (ADR-076).\n\n"+
+			"Set these in the environment Day-0 runs in:\n  %s",
+			strings.Join(escrowEnv, "\n  "))
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("the escrow is partially configured; missing %s.\n"+

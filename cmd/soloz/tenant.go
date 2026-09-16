@@ -320,7 +320,7 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 	// version is consumed by any release that begins publishing it (ADR-063), so
 	// testing a one-line fix by the dispatch path burns a version number.
 	if scaffoldLocal {
-		return tenant.LocalHandover(ctx, scaffoldSpec, os.Stdout)
+		return tenant.LocalHandover(ctx, scaffoldSpec, secrets, os.Stdout)
 	}
 
 	if err := tenant.Dispatch(ctx, scaffoldSpec); err != nil {
