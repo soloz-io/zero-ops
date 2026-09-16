@@ -1,5 +1,14 @@
-// Package identity registers the OIDC client a cluster's API server names, and
-// destroys the credential it used to do it.
+// Registering the OIDC client a cluster's API server names, and destroying the
+// credential used to do it.
+//
+// Lives beside the tenant-identity code rather than in a package of its own. It
+// was written as internal/soloz-cli/identity and duplicated what is here: a
+// second HTTP client against the same API, and a second definition of
+// OIDC_AUTH_METHOD_TYPE_NONE twelve directories away from the first. Two
+// implementations of one operation is the drift this repository has been paying
+// for elsewhere, and the boundary that seemed to justify it -- Day-0 bootstrap
+// versus SaaS tenant identity -- is a naming question, not a reason for two
+// clients.
 //
 // ADR-076 separates two planes. Cluster configuration -- which issuer the API
 // server trusts -- is desired state in the tenant's repository. Administering the
@@ -19,14 +28,11 @@
 // property this design depends on structural rather than remembered: on
 // `AddPersonalAccessToken` the expiration date is a required field, so a token
 // without an expiry cannot be created by accident.
-package identity
+package zitadel
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -40,10 +46,20 @@ import (
 // could not be revoked for one person -- which is the property this whole ADR
 // exists to obtain.
 const (
-	appTypeNative     = "OIDC_APP_TYPE_NATIVE"
-	authMethodNone    = "OIDC_AUTH_METHOD_TYPE_NONE"
-	grantAuthCode     = "OIDC_GRANT_TYPE_AUTHORIZATION_CODE"
-	responseTypeCode  = "OIDC_RESPONSE_TYPE_CODE"
+	// appTypeNative is a CLI, not a browser app. Zitadel then requires PKCE and
+	// permits loopback redirects, which is the flow kubelogin uses.
+	//
+	// authMethodNone is declared with the tenant-identity constants in tenant.go
+	// and reused here rather than restated: one spelling of the enum, whoever
+	// creates the application.
+	appTypeNative    = "OIDC_APP_TYPE_NATIVE"
+	grantAuthCode    = "OIDC_GRANT_TYPE_AUTHORIZATION_CODE"
+	responseTypeCode = "OIDC_RESPONSE_TYPE_CODE"
+
+	// The CURRENT service. The tenant-identity path above still creates
+	// applications through /management/v1, which is deprecated; this one does not
+	// inherit that, and migrating the other is a separate change with live
+	// callers behind it.
 	createApplication = "/zitadel.application.v2.ApplicationService/CreateApplication"
 )
 
@@ -62,6 +78,16 @@ type Bootstrap struct {
 	ProjectID string
 
 	HTTP *http.Client
+}
+
+// client borrows the package's API client, so this path and the tenant-identity
+// path speak to the issuer the same way.
+func (b *Bootstrap) client() *apiClient {
+	h := b.HTTP
+	if h == nil {
+		h = &http.Client{Timeout: 30 * time.Second}
+	}
+	return &apiClient{base: strings.TrimSuffix(b.Issuer, "/"), token: b.Token, http: h}
 }
 
 // Result is what survives the operation: public metadata, and nothing else.
@@ -141,7 +167,10 @@ func (b *Bootstrap) register(ctx context.Context, appName string, redirectURIs [
 			ClientID string `json:"clientId"`
 		} `json:"oidcConfiguration"`
 	}
-	if err := b.do(ctx, http.MethodPost, createApplication, body, &out); err != nil {
+	// Through the package's own client: one place that sets the bearer header,
+	// applies the timeout and turns a non-2xx into an error naming the body --
+	// which is where a missing permission is explained, and a bare 403 is not.
+	if err := b.client().do(ctx, http.MethodPost, createApplication, "", body, &out); err != nil {
 		return Result{}, fmt.Errorf("register the cluster's OIDC client: %w", err)
 	}
 	if out.OIDCConfiguration.ClientID == "" {
@@ -160,45 +189,5 @@ func (b *Bootstrap) register(ctx context.Context, appName string, redirectURIs [
 // record of what registered the application.
 func (b *Bootstrap) revoke(ctx context.Context) error {
 	path := fmt.Sprintf("/v2/users/%s/pats/%s", b.UserID, b.TokenID)
-	return b.do(ctx, http.MethodDelete, path, nil, nil)
-}
-
-func (b *Bootstrap) do(ctx context.Context, method, path string, in, out any) error {
-	var rdr io.Reader
-	if in != nil {
-		raw, err := json.Marshal(in)
-		if err != nil {
-			return err
-		}
-		rdr = bytes.NewReader(raw)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimSuffix(b.Issuer, "/")+path, rdr)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+b.Token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := b.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// The body is included because the identity provider explains refusals
-		// there -- a missing permission reads as a bare 403 otherwise, and the
-		// fix (a role the service account lacks) is not guessable from the code.
-		return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(payload)))
-	}
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal(payload, out)
+	return b.client().do(ctx, http.MethodDelete, path, "", nil, nil)
 }
