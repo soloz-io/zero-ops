@@ -324,14 +324,16 @@ func txtOwner(value string) string {
 // Runs AFTER the cloud resources are gone, deliberately. external-dns recreates
 // anything it is still watching, so deleting while the cluster is alive is a
 // no-op that looks like it worked -- the records come back within the minute.
-func (o *Orchestrator) releaseDNSRecords(ctx context.Context, own dnsOwnership) {
+// Returns how many records it actually released, so a caller reports what
+// happened rather than that it ran.
+func (o *Orchestrator) releaseDNSRecords(ctx context.Context, own dnsOwnership) int {
 	ctx, cancel := context.WithTimeout(ctx, dnsReclaimTimeout)
 	defer cancel()
 
 	zoneID, zoneName, err := own.zoneID(ctx)
 	if err != nil {
 		o.reportDNSResidue(own, fmt.Sprintf("the zone could not be resolved: %v", err))
-		return
+		return 0
 	}
 
 	var page struct {
@@ -339,12 +341,12 @@ func (o *Orchestrator) releaseDNSRecords(ctx context.Context, own dnsOwnership) 
 	}
 	if err := own.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%d/rrsets?per_page=500", zoneID), &page); err != nil {
 		o.reportDNSResidue(own, fmt.Sprintf("the zone's records could not be listed: %v", err))
-		return
+		return 0
 	}
 
 	owned := ownedRecordNames(page.RRSets, own)
 	if len(owned) == 0 {
-		return
+		return 0
 	}
 
 	fmt.Printf("[teardown] Releasing DNS records owned by '%s' in %s...\n", own.ownerID, zoneName)
@@ -376,6 +378,7 @@ func (o *Orchestrator) releaseDNSRecords(ctx context.Context, own dnsOwnership) 
 		}
 		fmt.Printf("[teardown]     Delete them from the %s zone by hand.\n", zoneName)
 	}
+	return released
 }
 
 // reportDNSResidue says plainly that records were left behind, and why it

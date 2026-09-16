@@ -83,6 +83,21 @@ func runTeardown(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("teardown failed: %w", err)
 	}
 
-	fmt.Printf("\n✓ Cluster '%s' successfully torn down\n", clusterName)
+	// Says what happened, not what the command is called. A --dns-only run tore
+	// down no cluster, and announcing that it did is how a report stops being
+	// evidence -- the same defect as a bootstrap banner listing gates it no
+	// longer runs.
+	if teardownDNSOnly {
+		n := orchestrator.ReleasedDNSRecords
+		if n == 0 {
+			fmt.Printf("\n✓ No records in %s are owned by '%s'. Nothing to release, and no cluster was torn down.\n",
+				teardownDNSZone, teardownDNSOwner)
+		} else {
+			fmt.Printf("\n✓ Released %d DNS record(s) owned by '%s'. No cluster was torn down.\n", n, teardownDNSOwner)
+			fmt.Println("  Resolvers may serve the old answers until their TTL expires.")
+		}
+	} else {
+		fmt.Printf("\n✓ Cluster '%s' successfully torn down\n", clusterName)
+	}
 	return nil
 }

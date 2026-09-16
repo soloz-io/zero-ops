@@ -28,6 +28,10 @@ type Orchestrator struct {
 	// already gone and left records behind: there is no cluster to tear down, and
 	// the records are the only thing remaining.
 	DNSOnly bool
+
+	// ReleasedDNSRecords is how many records the run actually released, so the
+	// caller can report the outcome instead of the intent.
+	ReleasedDNSRecords int
 }
 
 // Run executes immediate forceful deletion of Kubernetes CAPI resources, Hetzner Cloud infra, Kind/Docker, and local state.
@@ -42,7 +46,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				"For a box that still exists these are read from it. For one that does not,\n" +
 				"state them: --dns-owner, --dns-zone, and HETZNER_DNS_API_TOKEN in the environment.")
 		}
-		o.releaseDNSRecords(ctx, own)
+		o.ReleasedDNSRecords = o.releaseDNSRecords(ctx, own)
 		return nil
 	}
 
