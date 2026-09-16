@@ -25,6 +25,11 @@ repos:
         entry: scripts/validate-argocd-seed-parity.sh
         language: system
         pass_filenames: false
+      - id: shipped-artifacts
+        name: No Per-Box Identity In Shipped Artifacts
+        entry: scripts/validate-shipped-artifacts.sh
+        language: system
+        pass_filenames: false
         files: '(manifests/argocd/environment-manager/.*|internal/soloz-cli/(components/installer\.go|versions/versions\.go))'
       - id: component-descriptors
         name: Component Descriptors
