@@ -327,13 +327,16 @@ func (s Spec) chartSource() string {
           # the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
           # its enrolment.
-          - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
+          - $values/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
+          # The box's own Infisical organisation and projects. hub-environment
+          # renders hub-bootstrap-config from these, and is its only writer.
+          - $values/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
           # The address every public hostname on this box resolves to -- the CAPH
           # control-plane load balancer, which exists only once the cluster does.
           # Day-0 records it here; the hub Gateway and its routes take their
           # external-dns target from it. Without it external-dns finds no target,
           # publishes nothing, and every hub hostname is NXDOMAIN.
-          - $values/clusters/` + s.ClusterName + `/generated/gateway-dns-target.yaml
+          - $values/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
           - $values/clusters/` + s.ClusterName + `/values.yaml`
 	}
 	return `repoURL: ` + s.BundleRegistry + `
@@ -378,13 +381,16 @@ func (s Spec) chartSource() string {
           # the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
           # its enrolment.
-          - $values/clusters/` + s.ClusterName + `/generated/platform-pki-values.yaml
+          - $values/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
+          # The box's own Infisical organisation and projects. hub-environment
+          # renders hub-bootstrap-config from these, and is its only writer.
+          - $values/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
           # The address every public hostname on this box resolves to -- the CAPH
           # control-plane load balancer, which exists only once the cluster does.
           # Day-0 records it here; the hub Gateway and its routes take their
           # external-dns target from it. Without it external-dns finds no target,
           # publishes nothing, and every hub hostname is NXDOMAIN.
-          - $values/clusters/` + s.ClusterName + `/generated/gateway-dns-target.yaml
+          - $values/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
           - $values/clusters/` + s.ClusterName + `/values.yaml`
 }
 

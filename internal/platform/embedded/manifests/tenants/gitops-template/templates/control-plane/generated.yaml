@@ -33,7 +33,19 @@ spec:
     targetRevision: main
     path: clusters/<CLUSTER_NAME>/generated
     directory:
-      recurse: true
+      # NOT recursive, and that is the object/values boundary.
+      #
+      # This directory holds objects to apply. generated/values/ holds Helm
+      # values files the bundle reads through $values -- they carry no `kind`,
+      # and applying one fails with "Object 'Kind' is missing", which takes the
+      # whole Application to ComparisonError and stops the objects beside it from
+      # reconciling too.
+      #
+      # Recursing was safe only while nothing had been written into a
+      # subdirectory. Separating them by directory means a new values file cannot
+      # break the objects, and a new object cannot be mistaken for values,
+      # without anyone having to remember which is which.
+      recurse: false
       # An empty directory is the state before Day-0 writes, not an error.
       include: '*.yaml'
   destination:

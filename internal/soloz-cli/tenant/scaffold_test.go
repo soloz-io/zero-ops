@@ -335,7 +335,11 @@ func TestBundleToleratesTheGeneratedValuesFileNotExistingYet(t *testing.T) {
 				PlatformRepoURL: "https://github.com/soloz-io/zero-ops",
 			}
 			src := spec.chartSource()
-			if !strings.Contains(src, "generated/platform-pki-values.yaml") {
+			// generated/values/, where Day-0 writes it. Values files are kept
+			// out of generated/ because the Application reconciling that
+			// directory applies what it finds there as objects, and a values
+			// file has no kind.
+			if !strings.Contains(src, "generated/values/platform-pki-values.yaml") {
 				t.Fatal("the bundle does not read the generated PKI values at all")
 			}
 			if !strings.Contains(src, "ignoreMissingValueFiles: true") {

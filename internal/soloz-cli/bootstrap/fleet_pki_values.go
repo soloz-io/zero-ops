@@ -48,7 +48,12 @@ func (o *Orchestrator) writeFleetPKIValues(ctx context.Context, kubeconfig strin
 	// makes every hand-written value something a later run might rewrite.
 	// Generated facts live beside the other generated facts, and bundle.yaml
 	// reads both.
-	dir := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, "generated")
+	// generated/values/, not generated/. The Application that reconciles
+	// generated/ applies what it finds there as Kubernetes objects, and this
+	// file is a Helm values file consumed through $values -- it has no `kind`,
+	// so applying it fails with "Object 'Kind' is missing". Keeping values in
+	// their own directory is what makes the two impossible to confuse.
+	dir := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, "generated", "values")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("cannot create %s: %w", dir, err)
 	}
