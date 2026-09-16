@@ -201,7 +201,14 @@ jobs:
             exit 1
           fi
 
-      - name: Bootstrap
+      # Step 1 of two. This builds the MANAGEMENT cluster and stops there:
+      # `soloz bootstrap-mgmt` returns when the hub's phases are done, which says
+      # nothing about the workload cluster the hub then composes. Splitting the
+      # two makes a run that got the hub up and the workload cluster wrong show as
+      # one step green and the next red, instead of one green step and a tenant
+      # discovering it later.
+      - name: Bootstrap the management cluster
+        id: bootstrap-mgmt
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITOPS_TOKEN }}
@@ -269,7 +276,7 @@ jobs:
             workers=(--workers "${{ inputs.workers }}")
           fi
 
-          ./soloz bootstrap \
+          ./soloz bootstrap-mgmt \
             --name "${{ inputs.cluster }}" \
             --provider "${{ inputs.provider }}" \
             --region "${{ inputs.region }}" \
@@ -290,6 +297,17 @@ jobs:
       # run, and continue-on-error so the state report below still runs: what was
       # outstanding is the most useful thing on a failed verify, and losing it to
       # an early exit would leave the tenant with a red cross and no detail.
+      # Checked out at the version being bootstrapped, so the gates and probes
+      # match the bundle. The tenant repository carries no scripts, and this
+      # workflow is already a platform artefact pinned by the caller at
+      # @v<version>. Used by the workload step below and by the endpoint probes.
+      - name: Check out the platform's scripts
+        uses: actions/checkout@v4
+        with:
+          repository: soloz-io/zero-ops
+          ref: v${{ inputs.bundle-version }}
+          path: .platform-validators
+
       - name: Verify the hub converges
         id: verify
         continue-on-error: true
@@ -306,13 +324,61 @@ jobs:
       # Checked out at the version being bootstrapped, so the probes match the
       # bundle. The tenant repository carries no scripts, and this workflow is
       # already a platform artefact pinned by the caller at @v<version>.
-      - name: Check out the platform's validators
+      # Step 2 of two: the WORKLOAD cluster.
+      #
+      # After the hub converges, because the workload cluster is composed there
+      # by Crossplane from a claim in the tenant's repository -- there is nothing
+      # to wait for until the hub is reconciling.
+      #
+      # Runs the platform's own gates rather than reimplementing them. They are
+      # the ones that catch a workload cluster whose control plane never started:
+      # the claim reporting Ready AND Synced, and the CAPI Cluster reporting
+      # ControlPlaneReady, which a claim can contradict. Nothing invoked them
+      # from this workflow before, which is why such a cluster could sit
+      # Ready=False behind a run that reported success.
+      #
+      # Sourced, not executed: the script's main() runs the whole ten-step
+      # sequence, and what is wanted here is two of its functions. Same shape
+      # local-e2e.sh uses, so the developer path and the tenant path exercise the
+      # same code.
+      - name: Bring up the workload cluster
+        id: bootstrap-workload
         if: steps.verify.outcome == 'success'
-        uses: actions/checkout@v4
-        with:
-          repository: soloz-io/zero-ops
-          ref: v${{ inputs.bundle-version }}
-          path: .platform-validators
+        continue-on-error: true
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+          kc="k8-secrets/kubeconfig/${{ inputs.cluster }}.kubeconfig"
+          if [ ! -r "$kc" ]; then
+            echo "no kubeconfig at $kc; the management cluster did not finish" >&2
+            exit 1
+          fi
+
+          # The claim names the cluster. Read it rather than taking it as an
+          # input: the claim arrives through boundary 03 from this repository, so
+          # the cluster is the only thing that knows which ones this box has.
+          pool=$(KUBECONFIG="$kc" kubectl get spokepools.nutgraf.in -A \
+                   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -z "$pool" ]; then
+            echo "no workload cluster declared on this box; nothing to bring up"
+            exit 0
+          fi
+          echo "workload cluster: $pool"
+
+          CLUSTER_NAME="${{ inputs.cluster }}" \
+          PROVIDER="${{ inputs.provider }}" \
+          ENVIRONMENT="${{ inputs.environment }}" \
+          SPOKEPOOL_NAME="$pool" \
+          ZERO_OPS_DIR="$PWD" \
+          SOLOZ_BINARY="$PWD/soloz" \
+          bash -c '
+            source .platform-validators/scripts/hub-bootstrap.sh
+            read_kubeconfig_from_state
+            export KUBECONFIG="$KUBECONFIG_PATH"
+            step10_wait_spokepool || exit 1
+            step10e_spoke_home_worker "$SPOKEPOOL_NAME"
+          '
 
       - name: Verify the published endpoints answer
         id: endpoints
@@ -331,6 +397,36 @@ jobs:
           echo "probing endpoints on $HUB_DOMAIN"
           HUB_DOMAIN="$HUB_DOMAIN" bash .platform-validators/scripts/validate/run.sh \
             cluster --mode=final --only=35-public-api-endpoints
+
+      # The workload cluster reported separately from the hub, because "the box
+      # is bootstrapped" is two claims and a run that satisfies one of them
+      # should not read as satisfying both.
+      - name: Say whether the workload cluster is up
+        if: always()
+        run: |
+          case "${{ steps.bootstrap-workload.outcome }}" in
+            success)
+              {
+                echo "### ✅ Workload cluster up"
+                echo "Its claim reports Ready and Synced, its CAPI Cluster reports ControlPlaneReady, and its nodes are joined."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            skipped)
+              {
+                echo "### ⏭️ Workload cluster not checked"
+                echo "The hub did not converge, so there was nothing reconciling the claim yet."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              {
+                echo "### ❌ Workload cluster is NOT usable"
+                echo
+                echo "The hub is up; the cluster it composes is not. Workloads targeting it cannot be scheduled."
+                echo "The step above names which gate failed and what it last observed."
+                echo
+                echo "A claim that is Synced but not Ready means the composition reconciled and the"
+                echo "infrastructure it created did not come up -- most often a control plane that"
+                echo "never started. The node's /var/log/cloud-init-output.log says why."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
 
       - name: Say whether the hub is serving
         if: always()
