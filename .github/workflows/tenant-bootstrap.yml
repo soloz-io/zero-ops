@@ -585,7 +585,7 @@ jobs:
         # which phase stopped it and what a re-run will skip.
         if: always()
         run: |
-          f=".state/bootstrap/${{ inputs.cluster }}.json"
+          f=".state/${{ inputs.cluster }}.json"
           if [[ -f "$f" ]]; then
             {
               echo "### Bootstrap state"

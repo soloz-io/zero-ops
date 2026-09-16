@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -71,6 +72,51 @@ type hetznerRRSet struct {
 	Name    string          `json:"name"`
 	Type    string          `json:"type"`
 	Records []hetznerRecord `json:"records"`
+}
+
+// DNSOwner, DNSZone and DNSToken let a caller state the box's DNS identity when
+// the cluster can no longer be asked.
+//
+// readDNSOwnership reads all three from the running cluster, which is right while
+// there is one and useless afterwards -- and "afterwards" is exactly when records
+// are orphaned. A box torn down by a build with no reclaim, or one whose teardown
+// could not reach the API server, leaves records nothing will ever delete:
+// external-dns ignores a record whose owner does not match, silently, so no later
+// box can correct it and the hostname resolves to a decommissioned address
+// forever.
+//
+// Supplied explicitly, these make that recoverable.
+type DNSOverride struct {
+	Owner string
+	Zone  string
+	Token string
+}
+
+// resolveDNSOwnership prefers what the caller stated, and falls back to the
+// cluster. Stated values win because the only reason to state them is that the
+// cluster's answer is unavailable or wrong.
+func (o *Orchestrator) resolveDNSOwnership(ctx context.Context) (dnsOwnership, bool) {
+	if o.DNS.Owner != "" && o.DNS.Zone != "" {
+		token := o.DNS.Token
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("HCLOUD_DNS_TOKEN"))
+		}
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("HETZNER_DNS_API_TOKEN"))
+		}
+		if token == "" {
+			fmt.Println("[teardown] ⚠️  a DNS owner and zone were given but no token; set")
+			fmt.Println("[teardown]     HETZNER_DNS_API_TOKEN (or HCLOUD_DNS_TOKEN) to release them")
+			return dnsOwnership{}, false
+		}
+		return dnsOwnership{
+			token:     token,
+			ownerID:   o.DNS.Owner,
+			zoneHost:  o.DNS.Zone,
+			txtPrefix: "extdns-",
+		}, true
+	}
+	return o.readDNSOwnership(ctx)
 }
 
 // readDNSOwnership pulls the DNS credential and this box's external-dns identity

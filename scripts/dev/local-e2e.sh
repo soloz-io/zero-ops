@@ -268,7 +268,23 @@ do_clean() {
     # The cloud cluster first: teardown needs the kubeconfig the clone holds, so
     # removing the clone before it would strand the servers with nothing left
     # that knows their names.
-    "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm 2>&1 | sed 's/^/  /' || true
+    # NOT `|| true`. The exit code was discarded, which threw away the one warning
+    # that says records were orphaned -- at the exact moment the evidence is being
+    # deleted, because the lines below remove the workspace and the kubeconfig with
+    # it. A teardown that could not reach the cluster cannot read the box's DNS
+    # ownership, and external-dns ignores a record whose owner does not match, so
+    # an orphan is permanent: no later box can claim it.
+    #
+    # Reported and continued rather than fatal: `clean` exists to get back to a
+    # buildable state, and a box that is already half-gone must not become
+    # unremovable. But it says so, loudly, while the zone can still be checked.
+    if ! "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm 2>&1 | sed 's/^/  /'; then
+        echo "local-e2e: teardown did not complete cleanly." >&2
+        echo "  Records this box published may be left in the zone. They cannot be" >&2
+        echo "  reclaimed by a later box -- check now, and release them with:" >&2
+        echo "    soloz teardown --name $CLUSTER --confirm --dns-only \\" >&2
+        echo "      --dns-owner <owner> --dns-zone <zone>" >&2
+    fi
 
     # The ephemeral bootstrap cluster. Left behind, `kind create cluster`
     # short-circuits on the next run and writes no kubeconfig, and every kubectl

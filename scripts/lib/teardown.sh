@@ -88,7 +88,7 @@ _resolve_teardown_targets() {
         # and teardown fell through to guessing the name from a kubeconfig
         # filename -- naming a cluster from a file that outlives the cluster.
         local state
-        state=$(ls "$ZERO_OPS_DIR/.state/bootstrap/"*"-${ENVIRONMENT}.json" 2>/dev/null | head -1 || true)
+        state=$(ls "$ZERO_OPS_DIR/.state/"*"-${ENVIRONMENT}.json" 2>/dev/null | head -1 || true)
         if [[ -n "$state" ]]; then
             CLUSTER_NAME="$(basename "$state" .json)"
         fi
@@ -392,7 +392,7 @@ _local_cleanup() {
         docker network rm kind >/dev/null 2>&1 || log "    (still in use)"
     fi
 
-    local state="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    local state="$ZERO_OPS_DIR/.state/${CLUSTER_NAME}.json"
     if [[ -f "$state" ]]; then
         rm -f "$state"
         log "  removed bootstrap state: ${CLUSTER_NAME}.json"

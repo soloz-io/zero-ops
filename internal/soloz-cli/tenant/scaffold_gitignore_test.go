@@ -62,7 +62,7 @@ func TestScaffoldedRepoIgnoresTheCredentialsDayZeroWrites(t *testing.T) {
 		}
 	}
 
-	// The other half of the contract. .state/bootstrap/<cluster>.json records
+	// The other half of the contract. .state/<cluster>.json records
 	// which phases completed and is committed on purpose -- the orchestrator
 	// adds it explicitly, and an ignore rule covering it would both drop the
 	// record a resumed bootstrap reads and make that `git add` fail.
@@ -73,8 +73,8 @@ func TestScaffoldedRepoIgnoresTheCredentialsDayZeroWrites(t *testing.T) {
 	if err := os.WriteFile(resume, []byte(`{"completedPhases":[]}`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if err := exec.Command("git", "-C", dst, "check-ignore", "-q", ".state/bootstrap/acme-hub.json").Run(); err == nil {
-		t.Error(".state/bootstrap/<cluster>.json is ignored; a resumed bootstrap would start the box over")
+	if err := exec.Command("git", "-C", dst, "check-ignore", "-q", ".state/acme-hub.json").Run(); err == nil {
+		t.Error(".state/<cluster>.json is ignored; a resumed bootstrap would start the box over")
 	}
 
 	// And nothing that must ship was caught by the same rules.
@@ -101,10 +101,10 @@ func TestScaffoldedRepoShipsNoCredentialDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .gitignore: %v", err)
 	}
-	// Guards the comment that explains why .state/bootstrap/ is excluded from
+	// Guards the comment that explains why .state/ is excluded from
 	// the rules. Someone adding `.state/` wholesale would pass every assertion
 	// above except the resume one, and this says why before they get there.
-	if !strings.Contains(string(b), ".state/bootstrap/") {
-		t.Error(".gitignore does not mention .state/bootstrap/; the exclusion that keeps resume working is undocumented")
+	if !strings.Contains(string(b), ".state/") {
+		t.Error(".gitignore does not mention .state/; the exclusion that keeps resume working is undocumented")
 	}
 }

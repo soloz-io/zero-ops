@@ -19,10 +19,33 @@ type Orchestrator struct {
 	ClusterName string
 	Force       bool
 	Debug       bool
+
+	// DNS states the box's external-dns identity when the cluster cannot be asked
+	// for it. Empty on a normal teardown, which reads it from the live cluster.
+	DNS DNSOverride
+
+	// DNSOnly releases the records and touches nothing else. For a box that is
+	// already gone and left records behind: there is no cluster to tear down, and
+	// the records are the only thing remaining.
+	DNSOnly bool
 }
 
 // Run executes immediate forceful deletion of Kubernetes CAPI resources, Hetzner Cloud infra, Kind/Docker, and local state.
 func (o *Orchestrator) Run(ctx context.Context) error {
+	// Records only. Everything below this assumes a cluster to dismantle; a box
+	// whose records outlived it has none, and running the rest would report
+	// failures for infrastructure that is correctly absent.
+	if o.DNSOnly {
+		own, ok := o.resolveDNSOwnership(ctx)
+		if !ok {
+			return fmt.Errorf("cannot release DNS records: no owner, zone or token.\n\n" +
+				"For a box that still exists these are read from it. For one that does not,\n" +
+				"state them: --dns-owner, --dns-zone, and HETZNER_DNS_API_TOKEN in the environment.")
+		}
+		o.releaseDNSRecords(ctx, own)
+		return nil
+	}
+
 	if o.Debug {
 		fmt.Println("[DEBUG] Teardown.Run() started")
 		fmt.Printf("[DEBUG] ClusterName: %s, Force: %v\n", o.ClusterName, o.Force)
@@ -44,7 +67,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// live only in the cluster, and the credential arrives by ExternalSecret and
 	// dies with it. The records themselves are released at the end -- external-dns
 	// recreates anything it is still watching.
-	dnsOwn, hasDNS := o.readDNSOwnership(ctx)
+	dnsOwn, hasDNS := o.resolveDNSOwnership(ctx)
 
 	ccmLoadBalancerIPs := o.drainLoadBalancerServices(ctx)
 

@@ -2,7 +2,7 @@
 #
 # Day-0 runs here (ADR-072) and writes two kinds of thing: the box's own
 # credentials, and its record of what has been done to it. Only the record
-# belongs in git -- the orchestrator adds .state/bootstrap/ explicitly, because
+# belongs in git -- the orchestrator adds .state/ explicitly, because
 # that is what lets a re-run resume instead of starting the box over.
 #
 # Nothing below is protected by anything else. Every path here was untracked
@@ -24,7 +24,7 @@ k8-secrets/
 # Bootstrap logs. They carry command output, and a --debug run echoes values.
 .state/logs/
 
-# NOT ignored, deliberately: .state/bootstrap/<cluster>.json. It records which
+# NOT ignored, deliberately: .state/<cluster>.json. It records which
 # phases completed and where the kubeconfig was written -- no credential, and
 # committing it is what makes a resumed bootstrap possible. An ignore rule here
 # would also break the explicit `git add` that commits it.

@@ -76,7 +76,7 @@ LOG_DIR="$ZERO_OPS_DIR/.state/logs"
 # Step state lives with the other state, not with the logs.
 #
 # .state/ is what the box's state is: the CLI already writes its phase record to
-# .state/bootstrap/<cluster>.json there, so one directory answers "what has been
+# .state/<cluster>.json there, so one directory answers "what has been
 # done to this box". Keeping the step record beside the logs made a durable fact
 # look like a run artefact.
 # Two records, one per cluster, because a run builds two.
@@ -323,7 +323,7 @@ mark_step_completed() {
 # Returns 0 (true) iff Go checkpoint shows preflight completed.
 # State-only gate per user request: no hash, no repo drift check.
 is_static_preflight_checkpointed() {
-    local go_state="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    local go_state="$ZERO_OPS_DIR/.state/${CLUSTER_NAME}.json"
     [[ -f "$go_state" ]] || return 1
     if command -v jq >/dev/null 2>&1; then
         jq -e '.completedPhases | index("preflight")' "$go_state" >/dev/null 2>&1
@@ -731,7 +731,7 @@ check_prerequisites() {
 # Read the kubeconfig path from the Go bootstrap state file (the result contract).
 # Called after hub bootstrap completes to set KUBECONFIG_PATH for all downstream steps.
 read_kubeconfig_from_state() {
-    # ONE source: the state file the CLI writes, at .state/bootstrap/<cluster>.json
+    # ONE source: the state file the CLI writes, at .state/<cluster>.json
     # in the workspace (ADR-072 puts it in the TENANT's repository, which is what
     # ZERO_OPS_DIR names).
     #
@@ -742,7 +742,7 @@ read_kubeconfig_from_state() {
     # produced a working run against a kubeconfig nobody had chosen, and the two
     # could not be told apart. A box whose state does not record its kubeconfig
     # is a box this cannot act on, and it now says so.
-    local go_state_file="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    local go_state_file="$ZERO_OPS_DIR/.state/${CLUSTER_NAME}.json"
     if [[ ! -f "$go_state_file" ]]; then
         error_exit "no bootstrap state at $go_state_file — the management cluster has not been bootstrapped from this workspace."
     fi
@@ -802,7 +802,7 @@ require_credential() {
 # Step 1: Bootstrap Hub Cluster
 step1_bootstrap_hub() {
     # Check if step is already completed AND the Go bootstrap state confirms postboot finished
-    local go_state_file="$ZERO_OPS_DIR/.state/bootstrap/${CLUSTER_NAME}.json"
+    local go_state_file="$ZERO_OPS_DIR/.state/${CLUSTER_NAME}.json"
     # Handle teardown-on-bootstrap: clean up existing cluster before starting
     # State files are removed unconditionally to prevent stale state from
     # skipping the bootstrap on re-run. If teardown fails (cluster gone etc.),
@@ -2047,15 +2047,15 @@ main() {
     # what it reports cannot be fixed forward from a half-built platform.
     #
     # Checkpoint-aware: Go infra-preflight is checkpointed via
-    # .state/bootstrap/<cluster>.json (orchestrator.go:99, phaseDone).
+    # .state/<cluster>.json (orchestrator.go:99, phaseDone).
     # Shell static validation (59 checks) is gated only on that state —
     # no hash, per user request. If Go says preflight completed, skip.
     if [[ "${SKIP_PREFLIGHT:-0}" == "1" ]]; then
-        log "⚠️  SKIP_PREFLIGHT=1 — static repo validation bypassed (Go infra-preflight still checkpointed via .state/bootstrap/${CLUSTER_NAME}.json)"
+        log "⚠️  SKIP_PREFLIGHT=1 — static repo validation bypassed (Go infra-preflight still checkpointed via .state/${CLUSTER_NAME}.json)"
     elif is_static_preflight_checkpointed; then
-        log "Static repo validation skipped (checkpointed — Go state shows preflight completed via .state/bootstrap/${CLUSTER_NAME}.json)"
+        log "Static repo validation skipped (checkpointed — Go state shows preflight completed via .state/${CLUSTER_NAME}.json)"
     else
-        log "Running static repo validation (59 checks) — Go infra-preflight is checkpointed via .state/bootstrap/${CLUSTER_NAME}.json..."
+        log "Running static repo validation (59 checks) — Go infra-preflight is checkpointed via .state/${CLUSTER_NAME}.json..."
         if ! ENVIRONMENT="$ENVIRONMENT" bash "$SCRIPT_DIR/validate/run.sh" preflight; then
             error_exit "Pre-bootstrap validation failed — nothing was created. Fix the reported invariants and re-run (SKIP_PREFLIGHT=1 overrides)."
         fi
