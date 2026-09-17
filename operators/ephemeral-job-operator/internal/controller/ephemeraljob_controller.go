@@ -68,6 +68,12 @@ const (
 	// The workload container's name, which readiness is judged on.
 	workloadContainerName = "workload"
 
+	// Where spec.input reaches the workload. The field is opaque to this
+	// operator: it is passed through verbatim, never read, never reshaped.
+	// Without this the field was accepted, stored, and then dropped — a
+	// workload started with no idea what it had been asked to do.
+	envJobInput = "EPHEMERAL_JOB_INPUT"
+
 	// The envelope a request gets when it names none. See the comment at the
 	// assignment for why an absent value cannot be left absent.
 	defaultRequestCPU    = "2"
@@ -647,9 +653,18 @@ func (r *EphemeralJobReconciler) fireCallback(
 // both modes: a sandbox and a render job differ in lifecycle, not in how the
 // workload container itself is assembled.
 func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.EphemeralJob) corev1.Container {
-	env := make([]corev1.EnvVar, 0, len(ej.Spec.Env))
+	env := make([]corev1.EnvVar, 0, len(ej.Spec.Env)+1)
 	for k, v := range ej.Spec.Env {
 		env = append(env, corev1.EnvVar{Name: k, Value: v})
+	}
+
+	// spec.input, serialised as the field documents. A request that sets its
+	// own EPHEMERAL_JOB_INPUT in spec.env keeps it: what a caller states wins
+	// over what the platform derives.
+	if raw := ej.Spec.Input; raw != nil && len(raw.Raw) > 0 {
+		if _, stated := ej.Spec.Env[envJobInput]; !stated {
+			env = append(env, corev1.EnvVar{Name: envJobInput, Value: string(raw.Raw)})
+		}
 	}
 
 	container := corev1.Container{
