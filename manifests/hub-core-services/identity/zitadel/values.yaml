@@ -88,6 +88,48 @@ resources:
 
 replicaCount: 1
 
+# Readiness tolerance, because a slow answer is not an unhealthy service.
+#
+# The probe hits /debug/ready with a ONE SECOND timeout -- Kubernetes' default,
+# and not settable through this chart (it exposes enabled, initialDelaySeconds,
+# periodSeconds and failureThreshold, and nothing else). At the chart's default
+# failureThreshold of 3 with a 5s period, fifteen seconds of answers slower than
+# one second removes the pod from the Service.
+#
+# Removed from the Service, with replicaCount 1, there is no endpoint behind the
+# Gateway, and Envoy answers 503 on every hostname Zitadel serves. The pod does
+# not restart -- liveness is a separate probe -- so nothing in `kubectl get pods`
+# shows it: the identity provider reads 1/1 Running with zero restarts while OIDC
+# discovery is failing. Observed 2026-09-17, where
+# /.well-known/openid-configuration returned 503 in one validation run while the
+# JWKS and login endpoints on the same host answered 200 seconds later, with the
+# pod up fifty minutes and never restarted. The event confirming it:
+#
+#   Readiness probe failed: Get "http://.../debug/ready": context deadline
+#   exceeded (Client.Timeout exceeded while awaiting headers)
+#
+# /debug/ready is not a liveness ping: it queries the database. Measured
+# in-cluster it answered in 0.007s, 0.462s, 0.463s, 0.233s, 0.008s and 0.689s --
+# six samples against a one-second budget.
+#
+# The slowness has a cause. platform-db shares its node with Zitadel and runs on
+# local-path, and while its WAL archive prefix collided it retried barman
+# continuously -- 36 wal-archive log lines in 120 seconds -- loading the node and
+# the database this endpoint reads. The per-box archive prefix (ADR-014) is the
+# root fix; the archiver going quiet is what removes the 503. This is the
+# tolerance that should have been here anyway.
+#
+# More replicas would not help: a second replica queries the same database, is
+# slow at the same moment, and goes unready at the same moment. The failure is
+# correlated, so redundancy does not cover it.
+#
+# Six failures rather than three: thirty seconds of consecutive slow answers
+# before traffic is withdrawn. This raises TOLERANCE and does not hide a failure
+# -- liveness still restarts a genuinely wedged container on its own threshold,
+# and a service that cannot answer at all still fails every probe.
+readinessProbe:
+  failureThreshold: 6
+
 # Long-lived prerequisites are ArgoCD-managed resources, NOT Helm hooks.
 #
 # The chart's DEFAULTS annotate the ServiceAccounts, Role, RoleBinding and config
@@ -151,6 +193,14 @@ configMap:
 # The login UI is its own Deployment and Service in Zitadel v4. It shares the
 # hostname and takes the longer prefix, which Gateway API matches first.
 login:
+  # The login UI carries its own probe block, so the top-level readinessProbe
+  # above does not reach it. Same one-second timeout, same consequence: the
+  # login pod leaves the Service and every interactive sign-in gets a 503 while
+  # the pod reads Running. Its probe was observed failing the same way and on the
+  # same box as Zitadel's.
+  readinessProbe:
+    failureThreshold: 6
+
   # Same reasoning as the two above: prerequisites, not hooks.
   serviceAccount:
     annotations: null
