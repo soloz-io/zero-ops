@@ -46,7 +46,18 @@ import (
 //	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
 //	Phase 11e: boundary-03            Services (Infisical, hub Gateway, apps)
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
+//	           adr045-commit          Commit + push the generated artifacts
+//	Phase 11g: boundary-04            Tenant services (READS the artifacts above, through git)
+//	Phase 11h: boundary-05            Fleet provisioning (ADR-047)
+//	Phase 11i: boundary-06            Public tenant TLS (ADR-051)
+//	Phase 11j: adr045-verify          Wait for the consuming Applications to reconcile
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
+//
+// The commit sits between the phase that WRITES the generated artifacts and the
+// first that reads them. It is listed because it was not: this map ran 11f
+// straight into 12, the commit and the three boundaries between them were absent
+// from it, and the commit was consequently ordered after its own consumers --
+// two phases both labelled 11g, which is what that looks like in code.
 type Orchestrator struct {
 	Provider    Provider
 	ClusterName string
@@ -555,6 +566,29 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 	fmt.Println("[bootstrap-infisical-api] ✓ seed re-applied with PKI coordinates")
 
+	// ── Commit the generated artifacts ────────────────────────────────
+	//
+	// HERE, not after the boundaries.
+	//
+	// Everything above this line wrote artifacts into the tenant's repository.
+	// Boundary 04 is the first phase that READS them, and it reads them the only
+	// way anything in a GitOps box can: through git, rendered by ArgoCD. The
+	// commit used to run after boundaries 04, 05 and 06, which meant boundary 04
+	// waited on values that were sitting uncommitted on disk a few lines above
+	// it. hub-bootstrap-config rendered INFISICAL_PROJECT_ID="", the hub-operator
+	// shut down waiting for it and crash-looped, DatabaseRolesProvisioned was
+	// never published, and the gate timed out after 45 minutes on a condition
+	// that could not arrive. A fresh box could not pass it, ever -- and no run
+	// had ever reached this phase to find out.
+	//
+	// The verification that the consuming Applications reconciled stays where it
+	// was, after the boundaries. An artifact is complete when it is written, but
+	// the Applications that consume it are not deployed until later, so that is
+	// the earliest point the question can be asked.
+	if err := o.commitGeneratedArtifacts(ctx); err != nil {
+		return err
+	}
+
 	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
 	//
 	// The postcondition is the identity provider serving, not the boundary having
@@ -598,38 +632,11 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return err
 	}
 
-	// ── Phase 11g: Commit + verify ADR-045 artifacts ─────────────────
-	// Auto-commits generated artifacts, then polls ArgoCD until the
-	// affected apps reconcile (Synced+Healthy). This ensures the
-	// platform is in a GitOps-consistent state before Finalize.
-	fmt.Println("\n[adr045-commit] Validating and committing ADR-045 artifacts...")
-	if err := o.validateADR045Artifacts(ctx); err != nil {
-		return fmt.Errorf("[adr045-commit] %w", err)
-	}
-
-	// Derived from the registry rather than listed again beside it.
-	//
-	// This was a second hard-coded list of the same paths, and the two drifted
-	// the moment one artifact stopped being generated: the registry no longer
-	// named manifests/hub-core-services/security/generated/, this list still did,
-	// and `git add` on a directory that no longer exists fails the whole commit
-	// step with exit status 128 -- taking the artifacts that ARE still generated
-	// down with it. One declaration means removing an artifact removes it here
-	// too.
-	generatedPaths, err := o.adr045GeneratedDirs()
-	if err != nil {
-		return fmt.Errorf("[adr045-commit] %w", err)
-	}
-
-	// Try to auto-commit (local-only — git remote not required)
-	if err := o.gitCommitArtifacts(ctx, generatedPaths); err != nil {
-		fmt.Printf("[adr045-commit] ⚠️  Auto-commit failed: %v\n", err)
-		fmt.Println("[adr045-commit] Manual commit required. Run:")
-		fmt.Println("  git add manifests/*/generated/")
-		fmt.Println("  git commit -m \"chore: bootstrap-generated-gitops-artifacts [skip ci]\"")
-		fmt.Println("  git push")
-	}
-
+	// ── Phase 11j: Verify the ADR-045 consumers reconciled ───────────
+	// The artifacts were committed and pushed before boundary 04, which is the
+	// first phase that reads them. What is left to establish is that the
+	// Applications consuming them actually converged -- which could not be asked
+	// earlier, because those Applications are deployed by the boundaries above.
 	// Poll ArgoCD apps for health. The apps will not reconcile until
 	// the generated files are in Git (committed + pushed). If the
 	// auto-commit succeeded, only a git push is needed.
@@ -2484,6 +2491,48 @@ func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
 // ADR-045: auto-commit + wait for ArgoCD
 // ──────────────────────────────────────────────────────────────────────────
 
+// commitGeneratedArtifacts validates the ADR-045 artifacts and gets them into
+// the tenant's repository, where the phases that consume them can read them.
+//
+// Failure is fatal, which it was not when this ran after the boundaries. Then,
+// nothing later in the run depended on it and "the user can commit manually" was
+// a reasonable thing to print. Now boundary 04 reads these values through ArgoCD
+// on the next line, so a warning here buys a 45-minute timeout on a condition
+// that cannot arrive, reported against the hub-operator rather than against the
+// commit that never happened.
+func (o *Orchestrator) commitGeneratedArtifacts(ctx context.Context) error {
+	fmt.Println("\n[adr045-commit] Validating and committing ADR-045 artifacts...")
+	if err := o.validateADR045Artifacts(ctx); err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+
+	// Derived from the registry rather than listed again beside it.
+	//
+	// This was a second hard-coded list of the same paths, and the two drifted
+	// the moment one artifact stopped being generated: the registry no longer
+	// named manifests/hub-core-services/security/generated/, this list still did,
+	// and `git add` on a directory that no longer exists fails the whole commit
+	// step with exit status 128 -- taking the artifacts that ARE still generated
+	// down with it. One declaration means removing an artifact removes it here
+	// too.
+	generatedPaths, err := o.adr045GeneratedDirs()
+	if err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+
+	if err := o.gitCommitArtifacts(ctx, generatedPaths); err != nil {
+		return fmt.Errorf("[adr045-commit] the generated artifacts could not be "+
+			"committed, and boundary 04 reads them from git: %w\n\n"+
+			"  Commit them and re-run; the bootstrap resumes from this phase:\n"+
+			"    cd %s\n"+
+			"    git add %s\n"+
+			"    git commit -m \"chore: bootstrap-generated-gitops-artifacts [skip ci]\"\n"+
+			"    git push",
+			err, o.GitopsDir, strings.Join(generatedPaths, " "))
+	}
+	return nil
+}
+
 // gitCommitArtifacts runs git add + git commit for the generated artifact
 // directories. It only requires local Git — no remote access. If git is
 // unavailable or the working tree is dirty, it returns an error but does
@@ -2517,15 +2566,20 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 	cmd := git("commit", "-m",
 		"chore: bootstrap-generated-gitops-artifacts [skip ci]")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		// Check if it's just "nothing to commit"
+		// Nothing to commit is the resume case: a previous run already staged and
+		// committed these. It does NOT mean there is nothing to do -- that run may
+		// have committed and failed to push, and ArgoCD reads the remote. Falling
+		// through to the push is what makes a resumed run able to finish the job
+		// the last one started; returning here left the box permanently one push
+		// short, with a local commit that looked like success.
 		if bytes.Contains(out, []byte("nothing to commit")) {
-			fmt.Println("[adr045-commit]   Nothing new to commit (already up to date)")
-			return nil
+			fmt.Println("[adr045-commit]   Nothing new to commit; ensuring the remote has it")
+		} else {
+			return fmt.Errorf("git commit: %w\n%s", err, out)
 		}
-		return fmt.Errorf("git commit: %w\n%s", err, out)
+	} else {
+		fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
 	}
-
-	fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
 
 	// Try git pull --rebase before pushing to avoid non-fast-forward errors
 	// (e.g. if another agent or user pushed commits to this branch while we were bootstrapping)
@@ -2543,7 +2597,13 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 		fmt.Printf("[adr045-commit]   ⚠️  Auto-pull (rebase) failed, continuing to push: %s\n", strings.TrimSpace(string(out)))
 	}
 
-	// Try git push (non-fatal — user may need to push manually)
+	// The push is the point of the whole step, so its failure is returned.
+	//
+	// It was a warning, from when this ran after every phase that could care. It
+	// no longer does: ArgoCD renders what is in the REMOTE, so an artifact that
+	// is committed locally and not pushed is, to every consumer of it, absent.
+	// Reporting that as a warning and continuing is what turns a one-line git
+	// error into a 45-minute timeout somewhere else.
 	pushCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	pushCmd := exec.CommandContext(pushCtx, "git", "push")
@@ -2551,11 +2611,9 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 		pushCmd.Dir = o.GitopsDir
 	}
 	if out, err := pushCmd.CombinedOutput(); err != nil {
-		fmt.Printf("[adr045-commit]   ⚠️  Auto-push failed (manual push required): %s\n",
-			strings.TrimSpace(string(out)))
-	} else {
-		fmt.Println("[adr045-commit]   ✓ Generated artifacts pushed")
+		return fmt.Errorf("git push: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
+	fmt.Println("[adr045-commit]   ✓ Generated artifacts pushed")
 
 	return nil
 }
