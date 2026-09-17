@@ -14,6 +14,25 @@ tenantId: <TENANT_ID>
 
 environmentSlug: <ENVIRONMENT>
 provider: <CLOUD_PROVIDER>
+
+# This cluster's name, pinned at scaffolding for the same reason dns.ownerId is
+# (see below) and never changed afterwards.
+#
+# Written here rather than left for the chart to derive. What the chart derives
+# when this is absent is `<environmentSlug>-<provider>` -- which is identical on
+# every box built from the same pair, and is therefore not a name but a category.
+# Three things key on it and each fails the same way:
+#
+#   * the escrow path holding this box's Infisical master keys and its admin
+#     kubeconfig (ADR-076). Two boxes sharing it overwrite each other's, and a
+#     restore hands one box the other's encryption key.
+#   * the WAL archive prefix for the management cluster's database (ADR-014).
+#     barman refuses a prefix holding another database's segments, so the first
+#     box to use it archives and every later one never backs up at all.
+#   * the external-dns owner id, when dns.ownerId is not pinned separately.
+#
+# Changing it after the box exists orphans everything written under the old name.
+clusterName: <CLUSTER_NAME>
 environmentRevision: <BUNDLE_VERSION>
 # The ACME issuer this environment's public certificates come from.
 #
