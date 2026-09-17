@@ -83,7 +83,7 @@ _print_inventory() {
 # flags, while --name / --spoke still override.
 _resolve_teardown_targets() {
     if [[ -z "$CLUSTER_NAME" || "$CLUSTER_NAME" == "hub" ]]; then
-        # .state/bootstrap, where the CLI writes it. This read .zero-ops/state,
+        # .state, where the CLI writes it. This read .zero-ops/state,
         # which nothing has written since the move, so the lookup always missed
         # and teardown fell through to guessing the name from a kubeconfig
         # filename -- naming a cluster from a file that outlives the cluster.
