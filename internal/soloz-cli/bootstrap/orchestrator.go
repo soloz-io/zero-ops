@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -2577,21 +2576,32 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 	}
 
 	// git commit (idempotent — fails cleanly if nothing to commit)
-	cmd := git("commit", "-m",
-		"chore: bootstrap-generated-gitops-artifacts [skip ci]")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// Nothing to commit is the resume case: a previous run already staged and
-		// committed these. It does NOT mean there is nothing to do -- that run may
-		// have committed and failed to push, and ArgoCD reads the remote. Falling
-		// through to the push is what makes a resumed run able to finish the job
-		// the last one started; returning here left the box permanently one push
-		// short, with a local commit that looked like success.
-		if bytes.Contains(out, []byte("nothing to commit")) {
-			fmt.Println("[adr045-commit]   Nothing new to commit; ensuring the remote has it")
-		} else {
+	// Asked of git's index, not of its prose.
+	//
+	// This matched the string "nothing to commit", which is one of at least two
+	// things git says: a tree with nothing staged and no untracked files reports
+	// "nothing to commit, working tree clean", but the same tree with an untracked
+	// file reports "nothing added to commit but untracked files present" -- no
+	// substring in common. So a resumed run whose artifacts were already committed
+	// failed here, and the message it failed with was git explaining that there
+	// was nothing wrong.
+	//
+	// `git diff --cached --quiet` exits 0 when the index holds no changes. It is
+	// the same question, asked of the only thing that actually knows, and it does
+	// not change wording between git versions or locales.
+	if out, err := git("diff", "--cached", "--quiet").CombinedOutput(); err == nil {
+		_ = out
+		// Nothing new to commit is the resume case, and it does NOT mean there is
+		// nothing to do: the run that committed these may have failed to push, and
+		// ArgoCD reads the remote. Falling through to the push is what lets a
+		// resumed run finish the job the last one started.
+		fmt.Println("[adr045-commit]   Nothing new to commit; ensuring the remote has it")
+	} else {
+		cmd := git("commit", "-m",
+			"chore: bootstrap-generated-gitops-artifacts [skip ci]")
+		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("git commit: %w\n%s", err, out)
 		}
-	} else {
 		fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
 	}
 

@@ -68,6 +68,7 @@ global:
   environmentSlug: {{ .Values.environmentSlug | quote }}
   provider: {{ .Values.provider | quote }}
   hubDomain: {{ include "environment-manager.hubDomain" . | quote }}
+  clusterName: {{ include "environment-manager.clusterName" . | quote }}
   gitOrgURL: {{ include "environment-manager.gitOrgURL" . | quote }}
   chartRegistryURL: {{ include "environment-manager.chartRegistryURL" . | quote }}
   dns:

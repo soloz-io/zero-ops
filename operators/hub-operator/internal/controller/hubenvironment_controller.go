@@ -139,6 +139,47 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Error(err, "Failed to publish the hub ingress address; continuing")
 	}
 
+	// The escrow, on every reconcile.
+	//
+	// It used to be built inside the Phase 1 block, which is entered only while
+	// BootstrapSecretsGenerated is stale or infisical-secrets is missing. So the
+	// escrow was written at most once, on the pass that generated the keys, and
+	// never again -- which made two claims false at once. The kubeconfig escrow
+	// said "every reconcile rather than once ... a rotated credential replaces a
+	// stale escrowed copy", and it did not run at all after bootstrap. And an
+	// escrow that was empty for any reason -- a write that failed, credentials
+	// supplied later, the keys written under a different name -- stayed empty for
+	// the life of the box, because the only code that would have filled it was
+	// behind a condition that never came true again.
+	//
+	// Hoisted here it is a reconciler like any other: it states what must be true
+	// and makes it true on every pass, rather than acting once and assuming.
+	clusterID := strings.TrimSpace(hubEnv.Spec.ClusterName)
+	if clusterID == "" {
+		err := fmt.Errorf("spec.clusterName is empty: this box's master keys and " +
+			"admin kubeconfig would be escrowed under a name nothing reads back")
+		logger.Error(err, "Refusing to reconcile an unnamed cluster")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
+	// Fatal. This was an Info log and a nil client, which meant a box whose escrow
+	// credentials were missing, wrong, or unreachable bootstrapped normally and
+	// reported healthy while nothing was ever escrowed -- the master keys existing
+	// only inside the cluster they decrypt, which is the one state ADR-076 exists
+	// to prevent.
+	escrowClient, err := escrow.NewEscrowClient(ctx, infisical.InfisicalBaseURL)
+	if err != nil {
+		logger.Error(err, "escrow unavailable")
+		return ctrl.Result{RequeueAfter: 30 * time.Second},
+			fmt.Errorf("escrow unavailable, and this box's irreplaceable material must "+
+				"not exist only inside the cluster (ADR-076): %w", err)
+	}
+
+	if err := r.reconcileEscrow(ctx, escrowClient, clusterID); err != nil {
+		logger.Error(err, "Failed to reconcile the escrow", "clusterID", clusterID)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+
 	// Phase 1: Generate Bootstrap Secrets Only
 	// MUST run before Phase 0 (Infisical bootstrap) because Infisical itself depends on
 	// secrets created here (infisical-db-credentials, infisical-postgres-connection).
@@ -217,26 +258,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		isFirstTime := !isConditionTrueAndUpToDate(hubEnv.Status.Conditions, "BootstrapSecretsGenerated", hubEnv.Generation)
 		logger.Info("Bootstrap detection", "isFirstTime", isFirstTime, "infisicalSecretExists", infisicalSecretExists)
 
-		// The escrow holds this box's Infisical master keys outside the box
-		// (ADR-076). Without it the keys exist only inside the cluster they
-		// decrypt, and losing the cluster loses every secret the platform manages.
-		var escrowClient escrow.EscrowClient
-		escrowImpl, err := escrow.NewEscrowClient(ctx, infisical.InfisicalBaseURL)
-		if err != nil {
-			// Not fatal here. Whether a box may run without an escrow is decided at
-			// scaffold time, and by the time this reconciles the cluster exists --
-			// refusing now would leave it running and unmanaged rather than running
-			// and unprotected.
-			logger.Info("escrow unavailable; the Infisical master keys exist only in "+
-				"this cluster and will be lost with it", "reason", err.Error())
-			escrowClient = nil
-		} else {
-			escrowClient = escrowImpl
-		}
-
-		// REQ-7: the HubEnvironment name is the cluster ID the escrow is keyed by
-		clusterID := hubEnv.Name
-		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID, "escrowEnabled", escrowClient != nil)
+		logger.Info("Starting bootstrap secrets generation", "clusterID", clusterID)
 
 		// Generate Bootstrap Secrets with AWS backup/restore support
 		result, err := secrets.GenerateBootstrapSecrets(ctx, dataNamespace, securityNamespace, dbHost, owner, existingSecrets, isFirstTime, clusterID, escrowClient)
@@ -245,7 +267,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 
-		logger.Info("Bootstrap secrets generated successfully", "escrowEnabled", escrowClient != nil)
+		logger.Info("Bootstrap secrets generated successfully")
 
 		// Create bootstrap secrets only
 		secretsToCreate := []*corev1.Secret{
@@ -276,25 +298,15 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// kubeadm's one-year default, and re-reading each pass means a rotated
 		// credential replaces a stale escrowed copy without anyone remembering to.
 		// A copy that silently expired is the failure this is guarding against.
-		if escrowClient != nil {
-			if err := r.escrowKubeconfig(ctx, escrowClient, clusterID); err != nil {
-				// Not fatal. The cluster is running and reconciling; refusing here
-				// would stop managing a box to protest that its break-glass copy is
-				// stale, which trades a working cluster for a backup.
-				logger.Info("could not escrow the admin kubeconfig; break-glass access "+
-					"may be stale or absent", "error", err.Error())
-			} else {
-				logger.Info("admin kubeconfig escrowed", "clusterID", clusterID)
-			}
-		}
 
-		statusMessage := "Bootstrap secrets generated successfully"
-		if escrowClient != nil {
-			if isFirstTime {
-				statusMessage = "Bootstrap secrets generated and escrowed"
-			} else {
-				statusMessage = "Bootstrap secrets restored from the escrow"
-			}
+		// Reaching here means every escrow write above succeeded, so the message
+		// states it plainly. It used to say "generated and escrowed" whenever a
+		// client merely existed, which was true of a run whose only escrow write
+		// had failed and been logged at Info -- a status claiming the backup that
+		// the same reconcile had just not made.
+		statusMessage := "Bootstrap secrets generated and escrowed"
+		if !isFirstTime {
+			statusMessage = "Bootstrap secrets restored from the escrow"
 		}
 
 		meta.SetStatusCondition(&hubEnv.Status.Conditions, metav1.Condition{
@@ -309,7 +321,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 
-		logger.Info("Phase 1 complete: Bootstrap secrets generated", "escrow", escrowClient != nil, "isFirstTime", isFirstTime)
+		logger.Info("Phase 1 complete: Bootstrap secrets generated and escrowed", "clusterID", clusterID, "isFirstTime", isFirstTime)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -861,6 +873,103 @@ func (r *HubEnvironmentReconciler) restartStatefulSet(ctx context.Context, name,
 // cannot be used (ADR-076). Day-0 wrote it to a runner that no longer exists, so
 // the copy inside the cluster is the only one -- which is no use for reaching a
 // cluster that is broken.
+// reconcileEscrow makes the escrow hold what this box cannot regenerate, and
+// does it on every pass rather than once.
+//
+// Two artifacts, for two different reasons:
+//
+//   - The Infisical master keys. Escrowed only at the moment they were generated,
+//     so a box whose escrow write failed, whose credentials arrived afterwards, or
+//     whose keys were written under a different name, had no copy and no code path
+//     that would ever make one. The keys still exist in the cluster, so the repair
+//     is to read them back and escrow those rather than declare the box unfixable.
+//
+//   - The admin kubeconfig. CAPI issues it on kubeadm's one-year client
+//     certificate, so the escrowed copy expires; re-reading each pass replaces a
+//     stale copy without anyone remembering to.
+//
+// Writing an existing key back is not a rotation: BackupMasterKeys stores what is
+// already in use, so a box that is working keeps working and a box that was one
+// disk failure from unrecoverable stops being so.
+func (r *HubEnvironmentReconciler) reconcileEscrow(ctx context.Context, store escrow.EscrowClient, clusterID string) error {
+	logger := log.FromContext(ctx)
+
+	backup, err := store.RestoreMasterKeys(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("read the escrow for %s: %w", clusterID, err)
+	}
+
+	if backup == nil {
+		// No copy. The cluster's own are authoritative -- Infisical is decrypting
+		// with them right now -- so they are what gets escrowed.
+		var sec corev1.Secret
+		key := types.NamespacedName{Name: "infisical-secrets", Namespace: infisical.InfisicalServiceNamespace}
+		if err := r.UncachedClient.Get(ctx, key, &sec); err != nil {
+			// Before Day-0 has written it there is nothing to escrow and nothing
+			// wrong: Phase 1 below generates the keys and escrows them itself.
+			if errors.IsNotFound(err) {
+				logger.Info("the escrow holds no master keys and the cluster has none "+
+					"yet; Phase 1 will generate and escrow them", "clusterID", clusterID)
+				return nil
+			}
+			return fmt.Errorf("read %s: %w", key, err)
+		}
+
+		encryptionKey := strings.TrimSpace(string(sec.Data["ENCRYPTION_KEY"]))
+		authSecret := strings.TrimSpace(string(sec.Data["AUTH_SECRET"]))
+
+		// Validated before storing. An escrow holding a malformed key is worse than
+		// one holding nothing: it reports a backup exists and fails on restore, at
+		// the one moment there is no other copy left to try.
+		if err := secrets.ValidateEncryptionKey(encryptionKey); err != nil {
+			return fmt.Errorf("%s holds an ENCRYPTION_KEY that cannot be escrowed: %w", key, err)
+		}
+		if err := secrets.ValidateAuthSecret(authSecret); err != nil {
+			return fmt.Errorf("%s holds an AUTH_SECRET that cannot be escrowed: %w", key, err)
+		}
+
+		if err := store.BackupMasterKeys(ctx, clusterID, map[string]interface{}{
+			"encryptionKey": encryptionKey,
+			"authSecret":    authSecret,
+			"createdAt":     time.Now().UTC(),
+			"clusterId":     clusterID,
+			"version":       "1",
+		}); err != nil {
+			return fmt.Errorf("escrow the master keys for %s: %w", clusterID, err)
+		}
+		logger.Info("master keys escrowed from the cluster's own copy", "clusterID", clusterID)
+	}
+
+	// The admin kubeconfig, once CAPI has issued one.
+	//
+	// Absent is not a failure here and must not be treated as one: on a fresh box
+	// CAPI has not written <cluster>-kubeconfig until the control plane is up, and
+	// failing the reconcile for it would block Phase 1 -- which generates the
+	// secrets that box needs to come up at all. A deadlock in the name of a backup.
+	//
+	// It is safe to pass over precisely because this runs every reconcile: the
+	// secret appears and the next pass escrows it. What is NOT passed over is a
+	// secret that exists and cannot be escrowed -- an unreadable one, an empty
+	// one, a write the escrow rejected -- which is a real failure of the guarantee
+	// and is returned.
+	var capiSecret corev1.Secret
+	capiKey := types.NamespacedName{Name: clusterID + "-kubeconfig", Namespace: "platform-capi"}
+	if err := r.UncachedClient.Get(ctx, capiKey, &capiSecret); err != nil {
+		if errors.IsNotFound(err) {
+			logger.Info("CAPI has not issued the admin kubeconfig yet; it will be "+
+				"escrowed on a later pass", "secret", capiKey.String())
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", capiKey, err)
+	}
+
+	if err := r.escrowKubeconfig(ctx, store, clusterID); err != nil {
+		return fmt.Errorf("escrow the admin kubeconfig for %s: %w", clusterID, err)
+	}
+	logger.Info("admin kubeconfig escrowed", "clusterID", clusterID)
+	return nil
+}
+
 func (r *HubEnvironmentReconciler) escrowKubeconfig(ctx context.Context, store escrow.EscrowClient, clusterID string) error {
 	var secret corev1.Secret
 	key := types.NamespacedName{Name: clusterID + "-kubeconfig", Namespace: "platform-capi"}

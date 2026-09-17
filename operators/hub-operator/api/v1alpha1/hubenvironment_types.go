@@ -60,6 +60,22 @@ type HubEnvironmentSpec struct {
 	// +kubebuilder:validation:Enum=dev;stg;prod;ephemeral
 	Environment string `json:"environment"`
 
+	// ClusterName is this box's cluster, as CAPI and the escrow know it
+	// (e.g. nutgraf-hub).
+	//
+	// Declared rather than derived from metadata.name. HubEnvironment is a
+	// cluster-scoped singleton always named "hub-environment", and that name was
+	// being used as the cluster's identity: the admin kubeconfig was looked for at
+	// platform-capi/hub-environment-kubeconfig, which CAPI never creates, so it
+	// was never escrowed on any box; and the master keys went to the escrow path
+	// /hub-operator/hub-environment, a constant, so every box in a shared escrow
+	// project overwrote the same entry while `soloz kubeconfig` read
+	// /hub-operator/<cluster> and found nothing.
+	//
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	ClusterName string `json:"clusterName,omitempty"`
+
 	// Domain is the base domain for the Hub cluster (e.g., nutgraf.in)
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`

@@ -11,6 +11,14 @@ spec:
   environment: prod
   # Domain is sourced from hub-bootstrap-config ConfigMap
   domain: nutgraf.in
+  # The cluster this box is, as CAPI names it and as the escrow is keyed by.
+  #
+  # Declared because the operator will not infer it: metadata.name is the
+  # singleton "hub-environment" on every box, and keying the escrow by that put
+  # every box's master keys at one shared path and looked for the admin
+  # kubeconfig at platform-capi/hub-environment-kubeconfig, which CAPI never
+  # creates. Templated per box like the domain above.
+  clusterName: prod-hetzner
   tls:
     issuer: letsencrypt-prod
     email: ops@nutgraf.in

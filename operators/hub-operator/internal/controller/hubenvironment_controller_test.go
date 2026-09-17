@@ -72,6 +72,12 @@ var _ = Describe("HubEnvironment Controller", func() {
 					Spec: opsv1alpha1.HubEnvironmentSpec{
 						Domain:      "dev.example.com",
 						Environment: "dev",
+						// The cluster this box is, which is what keys the escrow. Not
+						// metadata.name: that is the singleton "hub-environment" on every
+						// box, and using it put the master keys at one constant escrow
+						// path and looked for the admin kubeconfig at a secret CAPI never
+						// creates.
+						ClusterName: "test-hub",
 						// database is a required struct; omitting it leaves the reconciler
 						// addressing objects with an empty namespace, which the API server
 						// rejects on create.
@@ -94,7 +100,16 @@ var _ = Describe("HubEnvironment Controller", func() {
 			By("Cleanup the specific resource instance HubEnvironment")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
+		// The escrow is not optional, and this is the assertion that says so.
+		//
+		// It read "should successfully reconcile the resource" and asserted only
+		// that Reconcile returned no error -- which it did, on a box with no
+		// escrow, by logging that fact at Info and continuing with a nil client.
+		// So the test passed for exactly the configuration in which the Infisical
+		// master keys are generated, used, and kept nowhere but inside the cluster
+		// they decrypt. envtest configures no escrow, so the refusal is what this
+		// environment must produce.
+		It("refuses to generate master keys when there is no escrow", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &HubEnvironmentReconciler{
 				Client: k8sClient,
@@ -108,9 +123,8 @@ var _ = Describe("HubEnvironment Controller", func() {
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("escrow"))
 		})
 	})
 })
