@@ -1603,6 +1603,46 @@ step10_wait_spokepool() {
         fi
     done
 
+    # Step 10f: the spoke's own database.
+    #
+    # Step 9 waits up to 1800s for the HUB's CNPG cluster and nothing waited for
+    # the spoke's, so bootstrap reported complete while shared-cnpg was still
+    # electing a primary -- and post-bootstrap validation, which samples once,
+    # read that as a failure and ended the run on a box that was minutes from
+    # correct.
+    #
+    # The instinct there is to sleep between bootstrap and validation. This is
+    # the gate that makes the sleep unnecessary: validation was not too eager,
+    # bootstrap was declaring done on a component it never waited for.
+    log "Step 10f: Waiting for the spoke's database to report healthy..."
+    local spoke_kc; spoke_kc="$(mktemp)"
+    if ! kubectl get secret "${SPOKEPOOL_NAME}-kubeconfig" -n platform-capi \
+        --kubeconfig="$KUBECONFIG_PATH" -o jsonpath='{.data.value}' 2>/dev/null \
+        | base64 -d > "$spoke_kc" 2>/dev/null || [[ ! -s "$spoke_kc" ]]; then
+        rm -f "$spoke_kc"
+        error_exit "Step 10f: cannot read ${SPOKEPOOL_NAME}-kubeconfig — the spoke's database cannot be verified"
+    fi
+
+    local cnpg_deadline=900 cnpg_waited=0 cnpg_ready="" cnpg_phase=""
+    while (( cnpg_waited < cnpg_deadline )); do
+        # readyInstances, not phase text. The phase is a human-facing string that
+        # changes between CNPG releases; the instance count is the fact.
+        cnpg_ready=$(kubectl --kubeconfig="$spoke_kc" get clusters.postgresql.cnpg.io \
+            shared-cnpg -n platform-data -o jsonpath='{.status.readyInstances}' 2>/dev/null || echo "")
+        [[ -n "$cnpg_ready" && "$cnpg_ready" -ge 1 ]] && break
+        sleep 10
+        cnpg_waited=$(( cnpg_waited + 10 ))
+    done
+
+    cnpg_phase=$(kubectl --kubeconfig="$spoke_kc" get clusters.postgresql.cnpg.io \
+        shared-cnpg -n platform-data -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+    rm -f "$spoke_kc"
+
+    if [[ -z "$cnpg_ready" || "$cnpg_ready" -lt 1 ]]; then
+        error_exit "Step 10f: the spoke's shared-cnpg has no ready instance after ${cnpg_deadline}s (phase='${cnpg_phase}')"
+    fi
+    log "✅ Spoke database ready: ${cnpg_ready} instance(s), phase='${cnpg_phase}' (after ${cnpg_waited}s)"
+
     # Step 10e is NOT called here: it is invoked from main(), outside this
     # function's completed-step skip, because worker convergence is live state and
     # must be re-evaluated on every run (ADR-046 §24.2).

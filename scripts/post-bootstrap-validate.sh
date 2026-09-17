@@ -64,6 +64,48 @@ log_fail()  { log "  ❌ $1"; FAILURES+=("$1"); ((FAIL++)); }
 log_warn()  { log "  ⚠️  $1"; WARNINGS+=("$1"); ((WARN++)); }
 log_section() { log ""; log "══════════════════════════════════════════"; log "  $1"; log "══════════════════════════════════════════"; }
 
+# ─── Waiting for converging state ────────────────────────────────────────────
+#
+# Every check below sampled the cluster exactly once. This script runs the
+# instant bootstrap returns, so a component still converging -- a CNPG cluster
+# electing its primary, an Application mid-sync -- was reported as a failure and
+# ended the run on a box that was minutes from correct. On 2026-09-17 three of
+# the five reported failures were healthy by the time anyone looked.
+#
+# The obvious repair is to sleep before validating. This is the better one. A
+# sleep is a guess that does not generalise across a cold image cache or a slower
+# node; it adds its full cost to runs that were going to fail anyway; and after
+# it, a pass means "ready, or we waited long enough" with no way to tell which.
+# settle() waits only as long as it must and reports the condition rather than a
+# timestamp, so "converging" stays distinguishable from "broken".
+#
+# Use it ONLY where waiting can change the answer. A namespace no manifest
+# declares and an image reference that 404s are answers now and in ten minutes;
+# waiting on those turns a correct, instant failure into a slow one.
+SETTLE_DEADLINE="${SETTLE_DEADLINE:-180}"
+SETTLE_INTERVAL="${SETTLE_INTERVAL:-10}"
+
+# settle <what> <command...> — poll until the command succeeds or the deadline
+# passes. Returns 0 if it became true.
+settle() {
+    local what="$1"; shift
+    local waited=0
+
+    "$@" && return 0
+    (( SETTLE_DEADLINE <= 0 )) && return 1
+
+    log "     waiting up to ${SETTLE_DEADLINE}s for $what"
+    while (( waited < SETTLE_DEADLINE )); do
+        sleep "$SETTLE_INTERVAL"
+        waited=$(( waited + SETTLE_INTERVAL ))
+        if "$@"; then
+            log "     $what after ${waited}s"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # ─── kubectl wrapper ──────────────────────────────────────────────────────────
 kc() { kubectl --kubeconfig="$KUBECONFIG" "$@" 2>/dev/null; }
 
@@ -150,6 +192,15 @@ check_deployment() {
 check_argocd_app() {
     local app="$1"
     local severity="${2:-FAIL}"   # FAIL or WARN
+    # Synced+Healthy is a converging state, so it is waited for rather than
+    # sampled. platform-database was reported OutOfSync on an ExternalSecret that
+    # was Synced a minute later, and that one line failed the run.
+    _app_converged() {
+        [[ "$(kc get application "$app" -n platform-ops -o jsonpath='{.status.sync.status}' 2>/dev/null)" == "Synced" ]] &&
+        [[ "$(kc get application "$app" -n platform-ops -o jsonpath='{.status.health.status}' 2>/dev/null)" == "Healthy" ]]
+    }
+    settle "ArgoCD app $app to reach Synced+Healthy" _app_converged || true
+
     local sync
     sync=$(kc get application "$app" -n platform-ops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
     local health
@@ -676,13 +727,23 @@ check_kyverno_crd_established() {
 }
 
 check_spoke_cnpg() {
+    # readyInstances, not the phase string. The phase is human-facing text that
+    # changes between CNPG releases; a ready instance count is the fact, and it is
+    # what "the database works" actually means.
+    _spoke_cnpg_ready() {
+        local ready
+        ready=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
+            -o jsonpath='{.status.readyInstances}' 2>/dev/null || echo "")
+        [[ -n "$ready" && "$ready" -ge 1 ]]
+    }
+
     local phase
-    phase=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
-        -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-    if [[ "$phase" == "Cluster in healthy state" ]]; then
+    if settle "the spoke's database to report a ready instance" _spoke_cnpg_ready; then
         log_pass "Spoke CNPG shared-cnpg: healthy"
     else
-        log_fail "Spoke CNPG shared-cnpg: phase='$phase' (needs healthy storage driver + operator)"
+        phase=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        log_fail "Spoke CNPG shared-cnpg: no ready instance after ${SETTLE_DEADLINE}s (phase='$phase'; needs healthy storage driver + operator)"
     fi
 }
 

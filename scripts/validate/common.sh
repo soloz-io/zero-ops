@@ -118,6 +118,61 @@ The box declares it as HubEnvironment.spec.domain (ADR-051); the caller must pas
 # as right as this number.
 HETZNER_LB_QUOTA="${HETZNER_LB_QUOTA:-5}"
 
+# ─── Waiting for converging state ────────────────────────────────────────────
+#
+# VALIDATE_SETTLE bounds how long a check will wait for a condition that is
+# expected to become true. 0 disables waiting entirely, which is what a run
+# wants when it is asking "is this box ready RIGHT NOW" rather than "will it
+# become ready".
+VALIDATE_SETTLE="${VALIDATE_SETTLE:-180}"
+VALIDATE_SETTLE_INTERVAL="${VALIDATE_SETTLE_INTERVAL:-5}"
+
+# wait_until <seconds> <what> <command...>
+#
+# Polls until the command succeeds or the deadline passes. Returns 0 if it
+# became true, 1 if it never did.
+#
+# This exists instead of a sleep between bootstrap and validation, which is the
+# obvious thing to reach for and the wrong one. Every check here sampled the
+# cluster once, so a component still converging -- a CNPG cluster electing its
+# primary, an Application mid-sync -- was reported as a failure, and the run
+# died on a box that was seconds from correct.
+#
+# A blanket sleep would have hidden that, and hidden more besides. It is a guess
+# that does not generalise across a cold image cache or a slower node; it adds
+# its full cost to runs that were going to fail anyway; and after it, a pass
+# means "ready, or we waited long enough" with no way to tell which. This waits
+# only as long as it must, fails with the condition named rather than a
+# timestamp, and leaves "converging" distinguishable from "broken" -- which is
+# the distinction the whole validation surface exists to make.
+#
+# Use it ONLY for state that converges. A namespace no manifest declares, an
+# image reference that 404s, an allowlist that does not match: waiting cannot
+# change those answers, and a check that waits on one turns an instant, correct
+# failure into a slow one.
+wait_until() {
+    local deadline="$1" what="$2"; shift 2
+    local waited=0
+
+    if "$@"; then
+        return 0
+    fi
+    if (( deadline <= 0 )); then
+        return 1
+    fi
+
+    note "waiting up to ${deadline}s for $what"
+    while (( waited < deadline )); do
+        sleep "$VALIDATE_SETTLE_INTERVAL"
+        waited=$(( waited + VALIDATE_SETTLE_INTERVAL ))
+        if "$@"; then
+            note "$what after ${waited}s"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # ─── Cluster access (cluster/ modules only) ──────────────────────────────────
 HUB_KUBECONFIG="${HUB_KUBECONFIG:-${KUBECONFIG_PATH:-${KUBECONFIG:-}}}"
 SPOKE_KUBECONFIG="${SPOKE_KUBECONFIG:-}"
