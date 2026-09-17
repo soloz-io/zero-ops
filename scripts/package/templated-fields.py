@@ -243,6 +243,27 @@ def main() -> int:
 
     templated, verbatim, missing = [], [], []
     claimed = set()
+    # Documents already escaped, and those already collected for output.
+    #
+    # A declaration file may name one object more than once -- the spoke
+    # catalogue's ClusterSecretStore is declared twice, once for the environment
+    # slug and once for the hub's address, because they are separate decisions
+    # with separate reasons. Both are legitimate and the file reads better for it.
+    #
+    # Processing them independently was not. Each pass re-escaped the whole
+    # document, so the SECOND declaration protected the live Helm expression the
+    # FIRST had just assigned: the shipped chart carried
+    #   environmentSlug: '{{ "{{" }} .Values.global.environmentSlug {{ "}}" }}'
+    # which renders to that expression as literal text. Every spoke therefore got
+    # a ClusterSecretStore whose environmentSlug was the string
+    # "{{ .Values.global.environmentSlug }}", external-secrets rejected the store
+    # with InvalidProviderConfig, and every ExternalSecret behind it stayed
+    # Progressing forever -- the spoke's S3 credential among them, so its database
+    # could not authenticate to object storage and never backed up.
+    #
+    # Each pass also appended the document again, so the object was emitted twice.
+    protected = set()
+    collected = set()
     for spec in wanted:
         key = (spec["kind"], spec["name"])
         doc = index.get(key)
@@ -250,9 +271,12 @@ def main() -> int:
             missing.append(f"{spec['kind']}/{spec['name']}")
             continue
         # Escape first, then assign: the values being assigned are Helm
-        # expressions and must stay live.
-        for field_name in list(doc):
-            doc[field_name] = protect(doc[field_name])
+        # expressions and must stay live. ONCE per document, however many
+        # declarations name it -- see above.
+        if id(doc) not in protected:
+            protected.add(id(doc))
+            for field_name in list(doc):
+                doc[field_name] = protect(doc[field_name])
         for field in spec["fields"]:
             try:
                 if "replaceAll" in field:
@@ -276,7 +300,9 @@ def main() -> int:
                          if "path" in field else "anywhere in the object")
                 missing.append(f"{spec['kind']}/{spec['name']} {where}: {exc}")
         claimed.add(key)
-        templated.append(doc)
+        if id(doc) not in collected:
+            collected.add(id(doc))
+            templated.append(doc)
 
     if missing:
         print("the templated-field declaration names content this component does "
