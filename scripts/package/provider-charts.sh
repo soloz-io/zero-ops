@@ -63,6 +63,42 @@ CHART
 {{- end }}
 TMPL
 
+        # Objects whose content depends on the box become templates, the same way
+        # inline-charts.sh and component-chart.sh do it.
+        #
+        # This was absent here, so anything packaged by this script kept its
+        # literals however carefully a declaration was written -- the identical gap
+        # inline-charts.sh had, with the identical consequence. The hub's CNPG
+        # cluster is packaged through here, and its WAL archive prefix
+        # (s3://hub-db-backups/hub/ with serverName platform-db-v2) was therefore
+        # the same on every box that pulled the bundle. barman refuses to archive
+        # into a prefix holding another database's WALs, so the first box to use it
+        # worked and every box after it had ContinuousArchiving=False permanently,
+        # no base backup behind it, and the root-of-trust database on local-path
+        # storage with no copy anywhere.
+        decl="$component_dir/templated-fields.${name}.yaml"
+        [[ -f "$decl" ]] || decl="$component_dir/templated-fields.yaml"
+        if [[ -f "$decl" ]]; then
+            tf=("$chart"/files/*.yaml)
+            if [[ -e "${tf[0]}" ]]; then
+                if ! scripts/package/templated-fields.py "$decl" "$chart" "${tf[@]}"; then
+                    rm -rf "$chart"; exit 1
+                fi
+                # The templated objects read .Values.global.*, and a chart with no
+                # default for it renders nothing at all: `global` is absent, so the
+                # lookup is a nil map and helm fails the whole render -- which the
+                # object count below reports as a component producing no objects,
+                # naming the wrong cause.
+                cat > "$chart/values.yaml" <<'VALS'
+# Supplied by the environment-manager from the cluster's own values. Empty here
+# because a per-box fact must not be a literal in a published chart, and because
+# a chart with no default for a key its templates read renders nothing at all.
+global:
+  clusterName: ""
+VALS
+            fi
+        fi
+
         objects=$(helm template "$name" "$chart" 2>/dev/null | grep -c '^kind:' || true)
         if [[ "${objects:-0}" -eq 0 ]]; then
             echo "$name: renders no objects; refusing to produce it" >&2

@@ -26,6 +26,23 @@ that by removing it. OpenMeter, which used it as its event store, is retained an
 now has no aggregation backend configured — choosing one is a metering decision
 this ADR does not make (see ADR-078, "Out of scope").
 
+## Addendum 2: the archive prefix is per cluster (2026-09-17, ADR-082)
+
+The backup contract's archive prefix derives from the cluster's name rather than a
+literal path with a manually incremented server name.
+
+The literal was packaged into the bundle (ADR-063), so every box that pulled it
+archived to one prefix. barman refuses to archive into a prefix already holding
+another database's write-ahead logs, so the first box to use it worked and every
+later one had continuous archiving permanently false, no base backup behind it, and
+the management cluster's root-of-trust database on node-local storage with no copy
+anywhere. Observed on 2026-09-17 with an archive holding backups from boxes that no
+longer existed, while the running box had never archived a segment.
+
+Incrementing a suffix by hand remains necessary in one case the derivation cannot
+distinguish: one named cluster rebuilt from an empty database, whose predecessor's
+segments are still under the same prefix.
+
 ## Context
 
 Applications requiring stateful infrastructure (PostgreSQL, Redis, ClickHouse) can either deploy embedded databases via Helm chart dependencies or consume platform-provided centralized services.
