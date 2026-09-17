@@ -62,6 +62,22 @@ echo "    Rendering Helm chart..."
 CHART_URL="${CHART_REPO}/kyverno-${NEW_VERSION}.tgz"
 curl -fsSL "$CHART_URL" -o "$WORK_DIR/kyverno.tgz"
 tar -xzf "$WORK_DIR/kyverno.tgz" -C "$WORK_DIR"
+# The cleanup jobs run kubectl, and the chart defaults all seven of them to
+# docker.io/bitnami/kubectl. Bitnami withdrew that namespace from Docker Hub, so
+# the tag 404s: every cleanup CronJob on every spoke sat in ImagePullBackOff
+# while kyverno's own controllers ran fine, which made it look like a kyverno
+# fault rather than a withdrawn image.
+#
+# registry.k8s.io/kubectl is the Kubernetes project's own registry -- no Docker
+# Hub rate limits, and not subject to a vendor renaming its namespace, which is
+# the failure being repaired. The tag tracks the cluster version rather than the
+# chart's default 1.28.5, which was three minors outside kubectl's supported skew
+# against a 1.31 cluster.
+#
+# Overridden HERE and not in the rendered output: controller.yaml carries a
+# sha256 provenance header and verify-vendor-digest.sh exists to catch manual
+# edits to it. A fix applied to the render would be reverted by the next
+# re-vendor and fail the digest gate in the meantime.
 helm template kyverno "$WORK_DIR/kyverno" \
   --namespace kyverno \
   --kube-version 1.28.0 \
@@ -70,6 +86,27 @@ helm template kyverno "$WORK_DIR/kyverno" \
   --set cleanupController.enabled=true \
   --set reportsController.enabled=true \
   --set webhooksCleanup.enabled=true \
+  --set webhooksCleanup.image.registry=registry.k8s.io \
+  --set webhooksCleanup.image.repository=kubectl \
+  --set webhooksCleanup.image.tag=v1.31.6 \
+  --set policyReportsCleanup.image.registry=registry.k8s.io \
+  --set policyReportsCleanup.image.repository=kubectl \
+  --set policyReportsCleanup.image.tag=v1.31.6 \
+  --set cleanupJobs.admissionReports.image.registry=registry.k8s.io \
+  --set cleanupJobs.admissionReports.image.repository=kubectl \
+  --set cleanupJobs.admissionReports.image.tag=v1.31.6 \
+  --set cleanupJobs.clusterAdmissionReports.image.registry=registry.k8s.io \
+  --set cleanupJobs.clusterAdmissionReports.image.repository=kubectl \
+  --set cleanupJobs.clusterAdmissionReports.image.tag=v1.31.6 \
+  --set cleanupJobs.updateRequests.image.registry=registry.k8s.io \
+  --set cleanupJobs.updateRequests.image.repository=kubectl \
+  --set cleanupJobs.updateRequests.image.tag=v1.31.6 \
+  --set cleanupJobs.ephemeralReports.image.registry=registry.k8s.io \
+  --set cleanupJobs.ephemeralReports.image.repository=kubectl \
+  --set cleanupJobs.ephemeralReports.image.tag=v1.31.6 \
+  --set cleanupJobs.clusterEphemeralReports.image.registry=registry.k8s.io \
+  --set cleanupJobs.clusterEphemeralReports.image.repository=kubectl \
+  --set cleanupJobs.clusterEphemeralReports.image.tag=v1.31.6 \
   > "$WORK_DIR/rendered.yaml"
 
 # --- Split CRDs and controller resources (Python, not awk) ---

@@ -267,13 +267,19 @@ preflight_check() {
 # ─── 1. PLATFORM NAMESPACES ───────────────────────────────────────────────────
 check_namespaces() {
     log_section "1. PLATFORM NAMESPACES"
+    # platform-messaging is NOT here, and was.
+    #
+    # Nothing declares it: the platform ships no messaging component, and the
+    # only mention of that namespace left in the tree is a .test.bak file. So
+    # this required a namespace no manifest creates, and every box failed
+    # post-bootstrap validation on it -- a check asserting a component that does
+    # not exist, which reports the platform broken rather than itself.
     local required_ns=(
         platform-ops
         platform-capi
         platform-data
         platform-identity
         platform-billing
-        platform-messaging
         platform-observability
         platform-security
         platform-edge

@@ -22,18 +22,25 @@
 # unreachable today and reachable the moment someone relaxes the policy for an
 # unrelated reason, and the review that relaxes it will not be looking for a
 # Service nobody remembers adding.
-set -euo pipefail
+#
+# A module, not a standalone script -- see 82 for the same defect and why it
+# matters: run.sh sources these, so `$1` was the runner's --mode=final, a
+# top-level `exit 1` ended the whole run, and `set -euo pipefail` leaked into the
+# runner's shell.
+validate_support_agent_no_ingress() {
+    section "The Support Agent is egress-only (ADR-077)"
 
-ROOT="${1:-.}"
-# Both agents (ADR-077: one per cluster). The spoke's is a single multi-document
-# file rather than a directory, so the checker takes paths and globs them itself.
-DIR="$ROOT/manifests/hub-core-services/support-agent"
-SPOKE="$ROOT/manifests/spoke/spoke-catalog/infra/support-agent.yaml"
+    # Both agents (ADR-077: one per cluster). The spoke's is a single
+    # multi-document file rather than a directory, so the checker takes paths and
+    # globs them itself.
+    local dir="$VALIDATE_ROOT/manifests/hub-core-services/support-agent"
+    local spoke="$VALIDATE_ROOT/manifests/spoke/spoke-catalog/infra/support-agent.yaml"
 
-[ -d "$DIR" ]   || { echo "83: no support-agent component at $DIR" >&2; exit 1; }
-[ -f "$SPOKE" ] || { echo "83: no spoke support agent at $SPOKE" >&2; exit 1; }
+    [ -d "$dir" ]   || { hard_fail "no support-agent component at $dir"; return 0; }
+    [ -f "$spoke" ] || { hard_fail "no spoke support agent at $spoke"; return 0; }
 
-checker=$(cat <<'PY'
+    local checker
+    checker=$(cat <<'PY'
 import sys, glob, os, yaml
 
 paths = []
@@ -92,15 +99,23 @@ if policies == 0:
         "the component ships no NetworkPolicy at all, so this check would pass "
         "on a component with no network restriction whatsoever")
 
-if problems:
-    print("the Support Agent has an inbound path:")
-    for p in problems:
-        print("  " + p)
-    sys.exit(1)
-
-print(f"83: both support agents are egress-only ({policies} policies, no ingress "
-      f"rules, nothing addressable)")
+for p in problems:
+    print("PROBLEM=" + p)
+print(f"POLICIES={policies}")
 PY
 )
 
-python3 -c "$checker" "$DIR" "$SPOKE"
+    local report
+    report=$(python3 -c "$checker" "$dir" "$spoke") \
+        || { hard_fail "the support-agent manifests could not be inspected"; return 0; }
+
+    local failed=0 line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        hard_fail "${line#PROBLEM=}"
+        failed=1
+    done < <(grep '^PROBLEM=' <<<"$report")
+
+    (( failed )) && return 0
+    pass "both support agents are egress-only ($(sed -n 's/^POLICIES=//p' <<<"$report") policies, no ingress rules, nothing addressable)"
+}

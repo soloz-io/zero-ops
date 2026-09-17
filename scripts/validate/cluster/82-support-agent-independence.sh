@@ -18,21 +18,35 @@
 #     known one, which is a preference and not a boundary.
 #
 # Checked against the shipped allowlist, which is the contract.
-set -euo pipefail
+#
+# A module, not a standalone script. run.sh SOURCES each file and then calls the
+# validate_* functions it defined, so top-level code here ran in the runner's own
+# shell. Three things followed from that, and all three were live:
+#
+#   * `$1` read the RUNNER's first argument, which is --mode=final. This looked
+#     for its allowlist at "--mode=final/manifests/.../allowlist.yaml" and
+#     reported it missing -- while the file sat in the repository, present and
+#     correct.
+#   * a top-level `exit 1` ended the whole validation run, not one check, so a
+#     single failure here took every check after it with it.
+#   * `set -euo pipefail` changed the runner's shell options for everything that
+#     sourced afterwards.
+validate_support_agent_independence() {
+    section "The Support Agent collects from components, not the observability store (ADR-078 §8)"
 
-ROOT="${1:-.}"
-# ADR-077 puts one agent on every cluster, so there are two allowlists: the
-# hub's component and the spoke catalogue's. Both are checked, and they are
-# checked against each other -- a spoke reporting under a different contract
-# would make "the allowlist is what leaves" true of only half the fleet, and
-# nothing else in the repository compares them.
-HUB="$ROOT/manifests/hub-core-services/support-agent/allowlist.yaml"
-SPOKE="$ROOT/manifests/spoke/spoke-catalog/infra/support-agent.yaml"
+    # ADR-077 puts one agent on every cluster, so there are two allowlists: the
+    # hub's component and the spoke catalogue's. Both are checked, and they are
+    # checked against each other -- a spoke reporting under a different contract
+    # would make "the allowlist is what leaves" true of only half the fleet, and
+    # nothing else in the repository compares them.
+    local hub="$VALIDATE_ROOT/manifests/hub-core-services/support-agent/allowlist.yaml"
+    local spoke="$VALIDATE_ROOT/manifests/spoke/spoke-catalog/infra/support-agent.yaml"
 
-[ -f "$HUB" ]   || { echo "82: no hub allowlist at $HUB" >&2; exit 1; }
-[ -f "$SPOKE" ] || { echo "82: no spoke agent at $SPOKE" >&2; exit 1; }
+    [ -f "$hub" ]   || { hard_fail "no hub allowlist at $hub"; return 0; }
+    [ -f "$spoke" ] || { hard_fail "no spoke agent at $spoke"; return 0; }
 
-extract=$(cat <<'PY'
+    local extract
+    extract=$(cat <<'PY'
 import sys, yaml
 for doc in yaml.safe_load_all(open(sys.argv[1])):
     if isinstance(doc, dict) and doc.get("kind") == "ConfigMap" \
@@ -43,41 +57,49 @@ sys.exit(f"no allowlist ConfigMap in {sys.argv[1]}")
 PY
 )
 
-hub_raw=$(python3 -c "$extract" "$HUB")
-spoke_raw=$(python3 -c "$extract" "$SPOKE")
+    local hub_raw spoke_raw
+    hub_raw=$(python3 -c "$extract" "$hub") \
+        || { hard_fail "the hub allowlist could not be read from $hub"; return 0; }
+    spoke_raw=$(python3 -c "$extract" "$spoke") \
+        || { hard_fail "the spoke agent's allowlist could not be read from $spoke"; return 0; }
 
-# The spoke's allowlist may be a SUBSET of the hub's -- a spoke has no database
-# to back up -- but never a superset, and never a different emit set for a
-# collector both carry. Either would mean a field leaves a spoke that a review
-# of the hub's contract would not have shown.
-python3 - <<'PY' "$hub_raw" "$spoke_raw"
+    # The spoke's allowlist may be a SUBSET of the hub's -- a spoke has no
+    # database to back up -- but never a superset, and never a different emit set
+    # for a collector both carry. Either would mean a field leaves a spoke that a
+    # review of the hub's contract would not have shown.
+    local contract
+    contract=$(python3 - "$hub_raw" "$spoke_raw" <<'PY'
 import sys, yaml
 hub = {c["collector"]: c for c in yaml.safe_load(sys.argv[1]) or []}
 spoke = {c["collector"]: c for c in yaml.safe_load(sys.argv[2]) or []}
-bad = []
 for name, c in spoke.items():
     h = hub.get(name)
     if h is None:
-        bad.append(f"spoke collector {name!r} is in no hub allowlist")
+        print(f"PROBLEM=spoke collector {name!r} is in no hub allowlist")
         continue
     extra = set(c.get("emit") or []) - set(h.get("emit") or [])
     if extra:
-        bad.append(f"spoke collector {name!r} emits {sorted(extra)}, which the hub's does not")
+        print(f"PROBLEM=spoke collector {name!r} emits {sorted(extra)}, which the hub's does not")
     if (c.get("source") or {}).get("query") != (h.get("source") or {}).get("query"):
-        bad.append(f"spoke collector {name!r} queries something different from the hub's")
-if bad:
-    print("the spoke agent reports under a different contract from the hub's:")
-    for b in bad:
-        print("  " + b)
-    sys.exit(1)
+        print(f"PROBLEM=spoke collector {name!r} queries something different from the hub's")
 PY
+) || { hard_fail "the hub and spoke allowlists could not be compared"; return 0; }
 
-raw=$(printf '%s\n%s\n' "$hub_raw" "$spoke_raw")
+    local failed=0 line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        hard_fail "${line#PROBLEM=}"
+        failed=1
+    done < <(grep '^PROBLEM=' <<<"$contract")
 
-# python3 -c with the YAML on stdin. `python3 - <<'PY' <<<"$raw"` gives stdin to
-# the LAST redirection, so python would read the YAML as its own program -- the
-# way check 81 silently could never run.
-checker=$(cat <<'PY'
+    local raw
+    raw=$(printf '%s\n%s\n' "$hub_raw" "$spoke_raw")
+
+    # python3 -c with the YAML on stdin. `python3 - <<'PY' <<<"$raw"` gives stdin
+    # to the LAST redirection, so python would read the YAML as its own program --
+    # the way check 81 silently could never run.
+    local checker
+    checker=$(cat <<'PY'
 import sys, yaml
 
 # The observability capability's components (ADR-078 §4) plus the names their
@@ -89,25 +111,31 @@ BACKENDS = (
     "grafana", "loki", "tempo", "mimir", "prometheus", "thanos", "alloy",
 )
 
-bad = []
+count = 0
 for c in yaml.safe_load(sys.stdin) or []:
+    count += 1
     name = c.get("collector", "?")
     src = c.get("source") or {}
     haystack = " ".join(str(src.get(k, "")) for k in ("service", "namespace", "query", "path")).lower()
     for b in BACKENDS:
         if b in haystack:
-            bad.append(f"collector {name!r} reads {b!r} ({haystack.strip()})")
-
-if bad:
-    print("the Support Agent reads the observability backend:")
-    for b in bad:
-        print("  " + b)
-    print()
-    print("ADR-078 s8 keeps the paths independent. Collect from the component's")
-    print("own /metrics, which is the source the store also reads.")
-    sys.exit(1)
-print("82: support agents read no observability component, and the spoke's contract matches the hub's")
+            print(f"PROBLEM=collector {name!r} reads {b!r} ({haystack.strip()}); ADR-078 §8 "
+                  f"keeps the paths independent -- collect from the component's own /metrics, "
+                  f"which is the source the store also reads")
+print(f"COLLECTORS={count}")
 PY
 )
 
-python3 -c "$checker" <<<"$raw"
+    local report
+    report=$(python3 -c "$checker" <<<"$raw") \
+        || { hard_fail "the support-agent allowlists could not be inspected"; return 0; }
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        hard_fail "${line#PROBLEM=}"
+        failed=1
+    done < <(grep '^PROBLEM=' <<<"$report")
+
+    (( failed )) && return 0
+    pass "$(sed -n 's/^COLLECTORS=//p' <<<"$report") collector(s): support agents read no observability component, and the spoke's contract matches the hub's"
+}

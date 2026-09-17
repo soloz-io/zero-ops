@@ -1589,7 +1589,10 @@ step10_wait_spokepool() {
     # Step 10d: Verify certificates exist in target namespaces
     log "Step 10d: Verifying certificates in target namespaces..."
 
-    local target_namespaces=("platform-observability" "platform-messaging" "platform-ops")
+    # platform-messaging dropped: no manifest declares it and the platform ships
+    # no messaging component, so this looked for a namespace nothing creates and
+    # logged "not found yet (may be created later)" on every box, forever.
+    local target_namespaces=("platform-observability" "platform-ops")
     for ns in "${target_namespaces[@]}"; do
         # Check if namespace exists
         if kubectl get namespace "$ns" \
