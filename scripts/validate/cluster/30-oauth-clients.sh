@@ -53,22 +53,32 @@ validate_oauth_clients() {
     # to check against, and the platform's own zone is not a substitute.
     require_zone || return 0
 
-    local artifact_issuer="$VALIDATE_ROOT/manifests/hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml"
-    local artifact_bootstrap="$VALIDATE_ROOT/manifests/environments/base/generated/hub-bootstrap-config-patch.yaml"
-
-    if [[ ! -f "$artifact_issuer" || ! -f "$artifact_bootstrap" ]]; then
-        soft_fail "ADR-045 artifacts absent — bootstrap has not published Infisical's coordinates yet, so the issuer cannot be queried"
-        return 0
-    fi
-
-    # Infisical coordinates, straight from the committed artifacts.
-    local infisical_url secrets_project_id env_slug
-    infisical_url=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_issuer'))['spec']['url'])" 2>/dev/null)
-    secrets_project_id=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_bootstrap'))['data']['INFISICAL_SECRETS_PROJECT_ID'])" 2>/dev/null)
-    env_slug=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$artifact_bootstrap'))['data']['INFISICAL_ENVIRONMENT_SLUG'])" 2>/dev/null)
+    # Infisical's coordinates, read from the ConfigMap the platform itself reads.
+    #
+    # This read two Kustomize patch files --
+    # hub-core-services/security/generated/infisical-fleet-issuer-patch.yaml and
+    # environments/base/generated/hub-bootstrap-config-patch.yaml -- and neither
+    # has existed for some time. manifests/generated/artifacts.yaml records why:
+    # the PKI coordinates "were generated here as a Kustomize patch ... they now
+    # reach the security component as chart values read from the infisical-auth
+    # Secret at seed time. Nothing is written to the tree, so there is no artifact
+    # to register or validate." So this gated on artifacts the design had removed,
+    # reported "bootstrap has not published Infisical's coordinates yet" on a box
+    # where it had, and could never once have passed.
+    #
+    # It is the argument the comment below already makes about the machine
+    # identity, applied to the coordinates as well: a validator that reads a
+    # different source than the platform can pass while the platform is broken, or
+    # fail while it works. hub-bootstrap-config is what hub-operator is wired to,
+    # so it is what this asks.
+    local secrets_project_id env_slug
+    secrets_project_id=$(kc get configmap hub-bootstrap-config -n platform-ops \
+        -o jsonpath='{.data.INFISICAL_SECRETS_PROJECT_ID}' 2>/dev/null)
+    env_slug=$(kc get configmap hub-bootstrap-config -n platform-ops \
+        -o jsonpath='{.data.INFISICAL_ENVIRONMENT_SLUG}' 2>/dev/null)
 
     if [[ -z "$secrets_project_id" ]]; then
-        soft_fail "ADR-045 artifacts carry no Infisical project yet — bootstrap has not reached the Infisical API phase"
+        soft_fail "hub-bootstrap-config carries no INFISICAL_SECRETS_PROJECT_ID — bootstrap has not reached the Infisical API phase, or its generated values are not committed"
         return 0
     fi
 

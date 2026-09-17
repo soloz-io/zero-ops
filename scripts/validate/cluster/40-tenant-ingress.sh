@@ -40,7 +40,26 @@ validate_tenant_ingress() {
     fi
 
     if [[ "${total:-0}" -eq 0 ]]; then
-        soft_fail "no AgentGateway deployment found on the spoke — nothing enforces OIDC in front of tenant workloads"
+        # Zero gateways is only a fault if a tenant exists to need one.
+        #
+        # The comment above already says ONE PER TENANT, rendered by the
+        # universal-tenant chart into the tenant's own namespace -- so on a box
+        # with no tenants, zero is the correct number and this reported "nothing
+        # enforces OIDC in front of tenant workloads" about workloads that do not
+        # exist. Every fresh box failed here, and the message described a security
+        # hole rather than an empty fleet.
+        #
+        # Tenants are AINativeSaaS on the HUB, which is the same source check 30
+        # reads; it printed "no tenants provisioned yet" on the same run this
+        # failed.
+        local tenant_count
+        tenant_count=$(kc get ainativesaas -A -o json 2>/dev/null \
+            | jq -r '[.items[]?] | length' 2>/dev/null)
+        if [[ "${tenant_count:-0}" -eq 0 ]]; then
+            pass "no tenants declared, so no tenant AgentGateway is expected"
+        else
+            soft_fail "$tenant_count tenant(s) declared but no AgentGateway deployment exists on the spoke — nothing enforces OIDC in front of their workloads"
+        fi
     else
         local notready
         notready=$(printf '%s' "$ag_json" | jq -r '[.items[]? | select((.status.readyReplicas // 0) < 1) | .metadata.namespace + "/" + .metadata.name] | join(", ")')
