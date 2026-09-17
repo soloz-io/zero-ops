@@ -74,8 +74,26 @@ spec:
     - repoURL: <GITOPS_REPO_URL>
       targetRevision: main
       ref: values
+  # The WORKLOAD cluster, by name -- not in-cluster.
+  #
+  # This said `server: https://kubernetes.default.svc`, which is whichever
+  # cluster's ArgoCD holds the Application. That Application is held by the
+  # MANAGEMENT cluster (there is one ArgoCD per repository, ADR-072), so the
+  # workload cluster's entire platform was addressed to the management cluster --
+  # a second copy of the platform on the box that provisions it, and nothing at
+  # all on the cluster it was written for.
+  #
+  # `name` resolves against the ArgoCD cluster Secret capi2argo writes when the
+  # CAPI Cluster comes up, and that Secret is named for the cell
+  # (validate-cell-id-contract.sh, links 2-3). So this Application cannot sync
+  # until the cluster it targets exists, which is the correct ordering: the
+  # SpokePool claim beside this file is what brings it into being.
+  #
+  # kubefirst draws the same line -- its 10-infrastructure Application, the one
+  # that CREATES the cluster, is the only one addressed `name: in-cluster`;
+  # everything that runs ON the cluster is addressed to the cluster.
   destination:
-    server: https://kubernetes.default.svc
+    name: <CLUSTER_NAME>
     namespace: platform-ops
   syncPolicy:
     automated:

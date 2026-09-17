@@ -18,6 +18,18 @@
 > tenant's own identity provider; the admin credential is escrowed outside the
 > box, in an account the tenant controls.
 
+*Amended by: ADR-082 (Tenant Repository Layout and Cluster Naming)*
+
+> The layout asserted here stands and is extended. A repository holds exactly one
+> management cluster and any number of workload clusters, and the directory of a
+> workload cluster also holds the declaration that creates it; the management
+> cluster's directory holds the Application that applies it. That declaration was
+> shipped in the bundle, so its name was identical on every box and every identity
+> derived from it collided — including the WAL archive prefix, which left the
+> management cluster's own database with no completed backup on any box. A
+> workload cluster's name is now chosen by the tenant, written once, and is the
+> cell id.
+
 ## Context
 
 ADR-004 establishes a dual-repository contract: platform code in `zero-ops`, tenant runtime state in `fleet-registry`. ADR-007 defines the fleet-registry spoke flow. ADR-047 defines the tenant deployment contract and rejects fleets authoring external workload repositories.

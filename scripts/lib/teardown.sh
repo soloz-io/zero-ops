@@ -125,36 +125,38 @@ for item in payload.get('servers', []) or []:
         PROVIDER="${BASH_REMATCH[1]}"
     fi
 
-    # If that name was only a guess (nothing on disk, nothing left in the cloud),
-    # ask the repo which provider this environment is actually defined for.
-    local pooldir; pooldir="$(resolve_owned "manifests/spoke/spoke-pools/${ENVIRONMENT}")"
-    if [[ ! -f "$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig" && -d "$pooldir" ]]; then
-        local providers=()
-        local d
-        for d in "$pooldir"/*/; do
-            [[ -d "$d" ]] && providers+=("$(basename "$d")")
-        done
-        if [[ "${#providers[@]}" == "1" && "${providers[0]}" != "$PROVIDER" ]]; then
-            PROVIDER="${providers[0]}"
-            CLUSTER_NAME="hub-${PROVIDER}-${ENVIRONMENT}"
-            log "  provider resolved from manifests/spoke/spoke-pools/${ENVIRONMENT}: $PROVIDER"
-        fi
-    fi
     log "  provider: $PROVIDER"
 
-    if [[ -z "$SPOKEPOOL_NAME" ]]; then
-        local spoke_manifest
-        spoke_manifest=$(ls "$(resolve_owned "manifests/spoke/spoke-pools/${ENVIRONMENT}/${PROVIDER}")/"*.yaml 2>/dev/null | head -1 || true)
-        if [[ -n "$spoke_manifest" ]]; then
+    # The workload cluster, read from the box's own repository.
+    #
+    # It was read from manifests/spoke/spoke-pools/<env>/<provider> in the
+    # platform tree, and fell back to a constructed name
+    # ("spoke-pool-<provider>-<env>-01") when that found nothing. Both are gone:
+    # the claim is the tenant's, at clusters/<name>/infrastructure/spokepool.yaml,
+    # because a name shipped in the bundle was the same on every box.
+    #
+    # No fallback replaces the guess. A name this script invents is one the
+    # platform never created, and a TEARDOWN acting on an invented name is worse
+    # than one that stops: it would look for another box's cluster. Unknown is
+    # reported, and the caller names it with --spoke.
+    if [[ -z "$SPOKEPOOL_NAME" && -d "$ZERO_OPS_DIR/clusters" ]]; then
+        local claim
+        for claim in "$ZERO_OPS_DIR"/clusters/*/infrastructure/spokepool.yaml; do
+            [[ -f "$claim" ]] || continue
             SPOKEPOOL_NAME=$(python3 -c "
 import yaml, sys
 for d in yaml.safe_load_all(open(sys.argv[1])):
     if d and d.get('kind') == 'SpokePool':
         print(d['metadata']['name']); break
-" "$spoke_manifest" 2>/dev/null)
-        fi
+" "$claim" 2>/dev/null)
+            [[ -n "$SPOKEPOOL_NAME" ]] && break
+        done
     fi
-    [[ -z "$SPOKEPOOL_NAME" ]] && SPOKEPOOL_NAME="spoke-pool-${PROVIDER}-${ENVIRONMENT}-01"
+    if [[ -z "$SPOKEPOOL_NAME" ]]; then
+        log "  no workload cluster declared in $ZERO_OPS_DIR/clusters/ — pass --spoke to name one"
+    else
+        log "  workload cluster: $SPOKEPOOL_NAME"
+    fi
 
     KUBECONFIG_PATH="$ZERO_OPS_DIR/k8-secrets/kubeconfig/${CLUSTER_NAME}.kubeconfig"
 }
@@ -177,11 +179,19 @@ _release_spoke_claim() {
     # So: strip finalizers first, then delete with --wait=false, and never block.
     local kc=(kubectl --kubeconfig="$KUBECONFIG_PATH" --request-timeout=20s)
 
-    log "  force-deleting ArgoCD Application platform-spoke-pools"
-    "${kc[@]}" patch application platform-spoke-pools -n platform-ops \
-        --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
-    "${kc[@]}" delete application platform-spoke-pools -n platform-ops \
-        --ignore-not-found --wait=false 2>&1 | sed 's/^/    /' || true
+    # Both shapes. platform-spoke-pools is what the bundle used to ship, and a box
+    # built before the claim moved into the tenant's repository still has it;
+    # <cell>-infrastructure is what creates a workload cluster now. Whichever is
+    # absent is ignored, so this works on either.
+    local app
+    for app in platform-spoke-pools "${SPOKEPOOL_NAME}-infrastructure"; do
+        [[ "$app" == "-infrastructure" ]] && continue
+        log "  force-deleting ArgoCD Application $app"
+        "${kc[@]}" patch application "$app" -n platform-ops \
+            --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+        "${kc[@]}" delete application "$app" -n platform-ops \
+            --ignore-not-found --wait=false 2>&1 | sed 's/^/    /' || true
+    done
 
     log "  force-deleting SpokePool ${SPOKEPOOL_NAME}"
     "${kc[@]}" patch spokepool "$SPOKEPOOL_NAME" \

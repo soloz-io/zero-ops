@@ -55,16 +55,34 @@ func TestScaffoldMatrixMatchesTheChart(t *testing.T) {
 	}
 }
 
-// Every supported combination must have the spoke-pool source the chart's refusal
-// message says is the reason it is supported at all.
-func TestEverySupportedCombinationHasASpokePoolSource(t *testing.T) {
+// Every supported provider must have a workload-cluster claim template.
+//
+// This checked manifests/spoke/spoke-pools/<env>/<provider> -- a SpokePool claim
+// in the PLATFORM tree, carrying a literal name, packaged into the published
+// bundle. That is what made every box provision its workload cluster under the
+// same name and every identity derived from it collide, the CNPG archive prefix
+// most damagingly.
+//
+// The claim is now the tenant's, at clusters/<name>/infrastructure/, hydrated
+// from this template by `soloz tenant add-cluster`. So the question the test
+// asks is unchanged -- can a supported combination actually be created -- but
+// the thing that answers it is the template, and it varies by provider rather
+// than by environment: an environment adds no claim of its own.
+func TestEverySupportedCombinationHasAClaimTemplate(t *testing.T) {
 	root := repoRootForTest(t)
+	seen := map[string]bool{}
 	for env, providers := range supportedMatrix {
 		for _, p := range providers {
-			dir := filepath.Join(root, "manifests", "spoke", "spoke-pools", env, p)
-			if _, err := os.Stat(dir); err != nil {
-				t.Errorf("%s+%s is supported but has no spoke-pool source at %s: %v",
-					env, p, dir, err)
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			claim := filepath.Join(root, "manifests", "tenants", "gitops-template",
+				"templates", "spoke-cluster", "infrastructure", "spokepool-"+p+".yaml")
+			if _, err := os.Stat(claim); err != nil {
+				t.Errorf("%s+%s is supported but has no workload-cluster claim template "+
+					"at %s: `soloz tenant add-cluster --provider %s` would refuse, so the "+
+					"combination cannot be created: %v", env, p, claim, p, err)
 			}
 		}
 	}

@@ -353,14 +353,20 @@ infisical:
 # spoke-pool-hybrid-dev-01 as a literal, so a hetzner box ran an autoscaler
 # waiting forever on a kubeconfig for a hybrid spoke it never provisioned, while
 # the pool it did provision had none.
-burstSpokePool:
-  dev:
-    hetzner: spoke-pool-eu-dev-01
-    hybrid: spoke-pool-hybrid-dev-01
-  stg:
-    hetzner: spoke-pool-eu-stg-01
-  prod:
-    hetzner: spoke-pool-eu-prod-01
+# The workload cluster this box's burst autoscaler watches.
+#
+# Empty here, and set per box. It held a table --
+#   dev:  {hetzner: spoke-pool-eu-dev-01, hybrid: spoke-pool-hybrid-dev-01}
+#   stg:  {hetzner: spoke-pool-eu-stg-01}
+#   prod: {hetzner: spoke-pool-eu-prod-01}
+# -- which put workload-cluster names inside the published bundle, so every box
+# that pulled it resolved the same name. And it could not express a box with two
+# workload clusters in one environment on one provider: one key, two answers.
+#
+# A box that declares a burst pool sets this in clusters/<mgmt>/values.yaml to
+# the name it gave that cluster. A box with no cloud burst capacity leaves it
+# empty, which is what a home-lab box genuinely has.
+burstSpokePool: ""
 
 supportedMatrix:
   dev:

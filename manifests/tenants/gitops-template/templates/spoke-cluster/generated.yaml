@@ -31,8 +31,11 @@ spec:
       recurse: true
       # An empty directory is the state before Day-0 writes, not an error.
       include: '*.yaml'
+  # The WORKLOAD cluster, for the same reason as bundle.yaml beside it: these are
+  # this cluster's Day-0 artifacts and they belong on this cluster, not on the
+  # management cluster whose ArgoCD holds the Application.
   destination:
-    server: https://kubernetes.default.svc
+    name: <CLUSTER_NAME>
     namespace: platform-ops
   syncPolicy:
     automated:

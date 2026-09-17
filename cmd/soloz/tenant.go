@@ -39,7 +39,73 @@ func newTenantCmd() *cobra.Command {
 		Short: "Onboard and maintain tenant boxes",
 	}
 	cmd.AddCommand(newTenantScaffoldCmd())
+	cmd.AddCommand(newAddWorkloadClusterCmd())
 	return cmd
+}
+
+var workloadCluster tenant.WorkloadCluster
+
+// newAddWorkloadClusterCmd declares an additional workload cluster in a
+// repository that already holds a management cluster.
+//
+// One management cluster per repository, as many workload clusters as it
+// declares -- kubefirst's layout, where registry/clusters/NAME/ exists once per
+// cluster and the management cluster's ArgoCD reaches into each.
+//
+// The name is given, not derived. It was a literal shipped in the bundle, so
+// every box provisioned a workload cluster under the same name and every
+// identity derived from it collided across boxes -- the CNPG archive prefix most
+// damagingly, where barman refused each new box's WALs with "Expected empty
+// archive" and no backup ever completed anywhere.
+func newAddWorkloadClusterCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add-cluster",
+		Short: "Declare an additional workload cluster in a tenant's repository",
+		Long: `Declare a workload cluster and the Application that creates it.
+
+Writes clusters/<name>/ -- the platform this cluster runs, addressed to this
+cluster -- and clusters/<mgmt>/<name>-infrastructure.yaml, the Application that
+brings it into being, addressed to the management cluster. Commit and push, and
+the management cluster provisions it.
+
+The name is this cell's id (ADR-047): the SpokePool composition derives
+metadata.labels.cell-id from it and the fleet ApplicationSets select on it, so
+choose something meaningful -- it names the cluster for its whole life.`,
+		RunE: runAddWorkloadCluster,
+	}
+	f := cmd.Flags()
+	f.StringVar(&workloadCluster.GitopsDir, "gitops-dir", ".", "the tenant repository")
+	f.StringVar(&workloadCluster.MgmtCluster, "mgmt-cluster", "", "the management cluster that creates this one (required)")
+	f.StringVar(&workloadCluster.Name, "name", "", "the workload cluster, and this cell's id (required)")
+	f.StringVar(&workloadCluster.Provider, "provider", "hetzner", "cloud provider")
+	f.StringVar(&workloadCluster.Region, "region", "hel1", "cloud region")
+	f.StringVar(&workloadCluster.Environment, "environment", "dev", "environment slug")
+	f.StringVar(&workloadCluster.BundleVersion, "bundle-version", "", "platform version this cluster starts on (required)")
+	f.StringVar(&workloadCluster.TenantID, "tenant", "", "the tenant that owns it (required)")
+	f.StringVar(&workloadCluster.GitopsRepoURL, "gitops-repo-url", "", "this repository's URL (required)")
+	f.StringVar(&workloadCluster.PlatformRepoURL, "platform-repo-url", "", "the platform repository URL")
+	f.StringVar(&workloadCluster.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts", "the chart registry")
+	f.StringVar(&workloadCluster.ChartSource, "chart-source", "", "chart source, as the management cluster was scaffolded with")
+	f.StringVar(&workloadCluster.PublicTLSIssuer, "public-tls-issuer", "letsencrypt-prod", "ACME issuer for public certificates")
+	f.IntVar(&workloadCluster.Workers, "workers", 2, "cloud workers this cluster starts with")
+
+	for _, required := range []string{"mgmt-cluster", "name", "bundle-version", "tenant", "gitops-repo-url"} {
+		_ = cmd.MarkFlagRequired(required)
+	}
+	return cmd
+}
+
+func runAddWorkloadCluster(cmd *cobra.Command, args []string) error {
+	written, err := workloadCluster.Add()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("✓ workload cluster %q declared\n", workloadCluster.Name)
+	for _, p := range written {
+		fmt.Printf("  %s\n", p)
+	}
+	fmt.Println("\nCommit and push; the management cluster provisions it.")
+	return nil
 }
 
 func newTenantScaffoldCmd() *cobra.Command {

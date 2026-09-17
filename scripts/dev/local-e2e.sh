@@ -328,7 +328,7 @@ do_clean() {
     # and billing. That is the orphan that had to be deleted by hand after every
     # run. The declaration answers the same question and survives the cluster.
     local pool=""
-    pool=$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER") || {
+    pool=$(spoke_pool_for) || {
         echo "local-e2e: cannot name the declared SpokePool; teardown will not be" >&2
         echo "  able to reclaim spoke servers if the hub is already gone." >&2
     }
@@ -497,6 +497,40 @@ do_scaffold() {
         return 1
     fi
     echo "bundle names oci://ghcr.io/$OWNER/charts at $VERSION"
+
+    # The workload cluster, declared by the box rather than shipped in the bundle.
+    #
+    # Scaffolding writes the MANAGEMENT cluster; a repository holds one of those
+    # and as many workload clusters as it declares, each hydrated from
+    # templates/spoke-cluster (kubefirst's layout). The bundle used to ship a
+    # SpokePool whose name was a literal, so every box provisioned its workload
+    # cluster under the same name -- and the CNPG archive prefix derived from that
+    # name collided across boxes, which is why barman refused every WAL with
+    # "Expected empty archive" and no backup ever completed anywhere.
+    #
+    # Named from the cell, not the provider: CELL is the box's to choose and is
+    # what the fleet ApplicationSets select on (ADR-047).
+    local cell="${CELL:-$TENANT-01}"
+    say "declaring workload cluster $cell"
+    "$ROOT/bin/soloz" tenant add-cluster \
+        --gitops-dir "$WORKSPACE/$repo" \
+        --mgmt-cluster "$CLUSTER" --name "$cell" \
+        --provider "$PROVIDER" --region "$REGION" --environment "$ENVIRONMENT" \
+        --tenant "$TENANT" --bundle-version "$VERSION" \
+        --bundle-registry "ghcr.io/$OWNER/charts" \
+        --gitops-repo-url "https://github.com/$GIT_ORG/$repo" \
+        || return 1
+
+    ( cd "$WORKSPACE/$repo" \
+      && git add clusters \
+      && git commit -q -m "feat: declare workload cluster $cell" \
+      && git push -q ) || {
+        echo "local-e2e: could not commit the workload cluster declaration." >&2
+        echo "  The management cluster reads it from git; an uncommitted claim" >&2
+        echo "  provisions nothing." >&2
+        return 1
+    }
+    echo "workload cluster $cell declared and pushed"
 }
 
 # The bundle names charts by version and ArgoCD pulls them itself. If they are not
@@ -555,7 +589,7 @@ do_bootstrap() {
     # -- and this was the only phase that never supplied it. The run therefore
     # completed every step up to the spoke wait and then died on an unset
     # variable, unless the caller happened to have SPOKEPOOL_NAME exported.
-    local pool; pool=$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")
+    local pool; pool=$(spoke_pool_for)
 
     local on_prem_flag=""
     if [ "$PROVIDER" = "hybrid" ]; then
@@ -614,7 +648,7 @@ do_workload() {
     # answer to one question -- and the two could disagree, with `bootstrap`
     # having provisioned the pool the manifests name while `workload` waited on
     # whichever one the cluster happened to list first.
-    local pool; pool=$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")
+    local pool; pool=$(spoke_pool_for)
 
     say "workload cluster: $pool"
     CLUSTER_NAME="$CLUSTER" \
@@ -691,40 +725,60 @@ do_verify() {
     ZERO_OPS_DIR="$WORKSPACE/$repo" KUBECONFIG="$kc" \
         ENVIRONMENT="$ENVIRONMENT" \
         CLUSTER_NAME="$CLUSTER" \
-        SPOKEPOOL_NAME="$(spoke_pool_for "$ENVIRONMENT" "$PROVIDER")" \
+        SPOKEPOOL_NAME="$(spoke_pool_for)" \
         bash "$validator" --only=platform
 }
 
 # The spoke this environment+provider provisions, mirroring the burstSpokePool
 # table in environment-manager values.yaml. Wrong here means the validator checks
 # a spoke this box never creates, and reports a failure that is not one.
-# The SpokePool an environment+provider declares.
+# The workload clusters THIS BOX declares, newline-separated.
 #
-# Read from the manifests, not restated here. It WAS restated, as a case list
-# with a `spoke-pool-<env>-01` default, and it drifted: stg/hetzner declares
-# spoke-pool-eu-stg-01 and the default branch answered spoke-pool-stg-01, so
-# every stg/hetzner run looked for a pool that does not exist -- and the default
-# branch meant it answered confidently instead of admitting it did not know.
+# Read from the tenant's repository, which is the only place they exist. They
+# used to be read from manifests/spoke/spoke-pools/<env>/<provider> in the
+# platform tree -- a SpokePool claim with a literal name, packaged into the
+# published bundle, so every box that pulled it provisioned a workload cluster
+# under the same name and every identity derived from that name collided across
+# boxes.
 #
-# Unknown is now an error rather than a guess. A name this script invents is one
-# the platform never created, and every check downstream of it fails against the
+# A repository holds one management cluster and as many workload clusters as it
+# declares, each at clusters/<name>/infrastructure/spokepool.yaml (kubefirst's
+# layout; `soloz tenant add-cluster` writes them). So this returns a LIST, and
+# callers that can only act on one say which.
+#
+# Unknown is an error rather than a guess. A name this script invents is one the
+# platform never created, and every check downstream of it fails against the
 # wrong object.
-spoke_pool_for() {
-    local env="$1" provider="$2"
-    local dir="$ROOT/manifests/spoke/spoke-pools/$env/$provider"
-    local name=""
+workload_clusters() {
+    local repo="$WORKSPACE/$TENANT-gitops"
+    local names=""
 
-    if [ -d "$dir" ]; then
-        name=$(yq eval 'select(.kind == "SpokePool") | .metadata.name' "$dir"/*.yaml 2>/dev/null \
-                 | grep -vx 'null' | head -1)
+    if [ -d "$repo/clusters" ]; then
+        names=$(yq eval 'select(.kind == "SpokePool") | .metadata.name' \
+                   "$repo"/clusters/*/infrastructure/spokepool.yaml 2>/dev/null \
+                 | grep -vx 'null' || true)
     fi
 
-    if [ -z "$name" ]; then
-        echo "local-e2e: no SpokePool is declared under manifests/spoke/spoke-pools/$env/$provider" >&2
-        echo "  Add the declaration; this is the only place the name comes from." >&2
+    if [ -z "$names" ]; then
+        echo "local-e2e: $repo declares no workload cluster." >&2
+        echo "  A management cluster provisions the workload clusters its repository" >&2
+        echo "  declares, and this one declares none. Add one:" >&2
+        echo "    $ROOT/bin/soloz tenant add-cluster --gitops-dir $repo \\" >&2
+        echo "      --mgmt-cluster $CLUSTER --name <cell> --provider $PROVIDER \\" >&2
+        echo "      --environment $ENVIRONMENT --tenant $TENANT \\" >&2
+        echo "      --bundle-version $VERSION --gitops-repo-url <url>" >&2
         return 1
     fi
-    printf '%s\n' "$name"
+    printf '%s\n' "$names"
+}
+
+# The first workload cluster, for the steps that can only address one.
+#
+# hub-bootstrap.sh takes a single --spoke and waits on it; teardown reclaims one
+# at a time. Naming the first is honest about that limit -- it is not a claim
+# that a box has only one.
+spoke_pool_for() {
+    workload_clusters | head -1
 }
 
 # The acceptance pass. `verify` answers "did this converge"; this answers "does

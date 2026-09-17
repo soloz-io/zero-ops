@@ -221,26 +221,35 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
-          - boundary: '03'
-            appName: 'platform-spoke-pools'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: ''
-            targetRevision: ''
-            path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: |
-              {{- if $released }}
-              platform-spoke-pools:
-                enabled: true
-              {{- include "environment-manager.globalValues" $ | nindent 14 }}
-              {{- else }}
-              {{- end }}
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: ''
+          # platform-spoke-pools is NOT a component here, and was.
+          #
+          # It rendered manifests/spoke/spoke-pools/<env>/<provider>, whose SpokePool
+          # claim carried a literal name -- spoke-pool-eu-<env>-01 -- inside the
+          # published bundle. Every box that pulled the bundle therefore provisioned
+          # its workload cluster under the same name, and every identity derived from
+          # that name collided across boxes. The CNPG archive prefix was the damaging
+          # one: s3://spoke-pool-backups/<name>/ held a previous box's WALs, barman
+          # refused the next box's with "Expected empty archive", and no backup
+          # completed on any box for as long as this shipped.
+          #
+          # The name cannot be fixed by rendering it here. templated-fields refuses to
+          # rewrite metadata.name -- renaming an object by value makes the resource
+          # ArgoCD prunes depend on that value, and for a SpokePool that means
+          # destroying and reprovisioning a cluster. A workload cluster's name has to
+          # be written once, by the tenant, and never computed.
+          #
+          # So the claim is the tenant's, at clusters/<name>/infrastructure/, hydrated
+          # by `soloz tenant add-cluster`: one management cluster per repository and as
+          # many workload clusters as it declares -- kubefirst's layout, which
+          # cmd/soloz/bootstrap.go already names as ours. The Application that CREATES
+          # each one sits in the management cluster's own directory, addressed
+          # in-cluster; everything that runs ON the cluster is addressed to it.
+          #
+          # UPGRADING ACROSS THIS CHANGE IS DESTRUCTIVE. This Application had
+          # prune: true, so a box whose workload cluster came from the bundle must
+          # declare that cluster in its own repository BEFORE taking a bundle that no
+          # longer ships it. Otherwise the Application goes, the claim with it, and
+          # the cluster is deleted.
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
