@@ -2328,8 +2328,22 @@ func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
 				"cannot be resolved")
 		}
 		for i := range reg.Artifacts {
+			// Everything below generated/, not just the file name.
+			//
+			// filepath.Base threw the rest away, so an artifact declared at
+			// generated/values/infisical-identity.yaml relocated to
+			// generated/infisical-identity.yaml -- one directory above where the
+			// writers put it and where bundle.yaml's valueFiles reads it. The
+			// validator then reported a file that had been written correctly as
+			// missing, naming a path nothing writes.
+			_, below, ok := strings.Cut(reg.Artifacts[i].File, "/generated/")
+			if !ok {
+				return reg, fmt.Errorf("ADR-045 artifact %q is not under a "+
+					"generated/ directory, so its place in the tenant's repository "+
+					"cannot be derived", reg.Artifacts[i].File)
+			}
 			reg.Artifacts[i].File = filepath.Join("clusters", o.ClusterName,
-				"generated", filepath.Base(reg.Artifacts[i].File))
+				"generated", below)
 		}
 	}
 	return reg, nil

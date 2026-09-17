@@ -35,9 +35,20 @@ func TestADR045ArtifactsBelongToTheTenantRepository(t *testing.T) {
 		t.Fatal("the registry declares no artifacts; this test would prove nothing")
 	}
 	for _, a := range treg.Artifacts {
-		want := filepath.Join("clusters", "acme-hub", "generated")
-		if filepath.Dir(a.File) != want {
-			t.Errorf("a tenant's artifact belongs in %s, got %q", want, a.File)
+		// Under clusters/<cluster>/generated/, not directly in it.
+		//
+		// This asserted the directory exactly, which made the flat layout the
+		// contract: relocation had to flatten generated/values/x.yaml to
+		// generated/x.yaml to satisfy it, one directory above where the writers
+		// put the file and where bundle.yaml's valueFiles reads it. The test
+		// passed and the bootstrap reported the artifact missing.
+		//
+		// What ADR-062 and ADR-072 actually require is the repository and the
+		// cluster, which is what is checked here. How the artifacts are arranged
+		// beneath that is the registry's business.
+		want := filepath.Join("clusters", "acme-hub", "generated") + "/"
+		if !strings.HasPrefix(a.File, want) {
+			t.Errorf("a tenant's artifact belongs under %s, got %q", want, a.File)
 		}
 		if strings.Contains(a.File, "manifests/") {
 			t.Errorf("a tenant's repository has no manifests/ tree, got %q", a.File)

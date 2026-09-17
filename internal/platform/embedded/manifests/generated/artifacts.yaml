@@ -48,7 +48,7 @@ artifacts:
   # Declared under manifests/ like every other artifact; the registry reader
   # relocates it to clusters/<cluster>/generated/ when a tenant repository is
   # present, which is where bundle.yaml's valueFiles reads it from.
-  - file: manifests/environments/{env}/generated/platform-pki-values.yaml
+  - file: manifests/environments/{env}/generated/values/platform-pki-values.yaml
     consumedBy: hub-environment
     requiredFields:
       - infisical.fleet.projectId
