@@ -349,6 +349,18 @@ func runTenantScaffold(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Usable, not merely supplied -- and after the presence check, so a box with
+	// no escrow gets that refusal's guidance rather than a connection error.
+	//
+	// An Infisical project has a TYPE, and only a secret-manager project accepts
+	// what an escrow does; a kms project authenticates perfectly and then refuses
+	// every read and write. Checked here, where the value was just given and can
+	// still be corrected, rather than by the hub-operator forty minutes into a
+	// bootstrap with the box stalled on database roles that cannot be created.
+	if err := secrets.VerifyEscrow(); err != nil {
+		return err
+	}
+
 	// What this box's own configuration calls for, and only that. A development
 	// box is not asked for object storage; a tenant running public images is
 	// never asked for a registry credential. Asking for either anyway would turn

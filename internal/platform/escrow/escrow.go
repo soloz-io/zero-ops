@@ -157,7 +157,48 @@ func NewEscrowClient(ctx context.Context, inClusterURL string) (EscrowClient, er
 	if err := e.authenticate(ctx); err != nil {
 		return nil, err
 	}
+	if err := e.verifyProject(ctx); err != nil {
+		return nil, err
+	}
 	return e, nil
+}
+
+// verifyProject proves the project can actually hold secrets, once, at
+// construction.
+//
+// Authenticating proves the machine identity is valid and proves nothing about
+// the project. An Infisical project has a TYPE, and only a secret-manager
+// project accepts the operations an escrow performs; a kms project authenticates
+// perfectly and then refuses every read and write with
+//
+//	400 The project is of type kms. Operations of type secret-manager are not
+//	    allowed.
+//
+// Without this the first failure came from a reconcile deep inside a bootstrap.
+// The box built for forty minutes, HubEnvironment never published
+// DatabaseRolesProvisioned, and boundary-04 waited on database roles that could
+// not be created -- three layers away from a project created as the wrong type
+// days earlier, and accepted at scaffold time on nothing more than a presence
+// check.
+//
+// The probe is a read of a path that does not exist: one request, no write
+// access needed to establish the type, and 404 is the healthy answer.
+func (e *infisicalEscrow) verifyProject(ctx context.Context) error {
+	_, err := e.RestoreArtifact(ctx, "__escrow_preflight__", escrowSecretName)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "of type kms") ||
+		strings.Contains(err.Error(), "secret-manager are not allowed") {
+		return fmt.Errorf("escrow project %s is a KMS project, and an escrow needs a "+
+			"SECRET MANAGER project.\n\n"+
+			"They authenticate identically, so the credentials are not the problem: a KMS\n"+
+			"project simply refuses the read and the write an escrow is made of.\n\n"+
+			"Create a Secret Manager project at %s, give this machine identity write\n"+
+			"access to it, and use that project's id.\n\noriginal error: %w",
+			e.projectID, e.baseURL, err)
+	}
+	return fmt.Errorf("escrow project %s is not usable: %w", e.projectID, err)
 }
 
 // authenticate exchanges the machine identity for a token.

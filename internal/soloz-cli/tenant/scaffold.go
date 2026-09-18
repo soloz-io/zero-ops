@@ -9,6 +9,7 @@
 package tenant
 
 import (
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"io/fs"
 	"sort"
@@ -141,6 +142,68 @@ func (s Secrets) RequireEscrow() error {
 		"Create a project, add a machine identity with write access to it, and pass\n" +
 		"--escrow-url, --escrow-project-id, --escrow-client-id and\n" +
 		"--escrow-client-secret, or answer the prompts.")
+}
+
+// VerifyEscrow proves the escrow works before a box is built on it.
+//
+// Separate from RequireEscrow because they answer different questions and have
+// different costs: presence is a property of the arguments and needs nothing,
+// usability is a property of someone else's account and needs a request. Callers
+// do both; only this one reaches the network.
+//
+// Presence was the whole check anywhere: four non-empty values, never exercised. An
+// Infisical project has a TYPE, and only a secret-manager project accepts what an
+// escrow does -- a kms project authenticates perfectly and refuses every read and
+// write. Nothing noticed until the hub-operator tried it, forty minutes into a
+// bootstrap, and the box stalled at boundary-04 waiting on database roles that
+// could not be created.
+//
+// The cost of accepting an unusable escrow is the same as accepting none, and
+// RequireEscrow already refuses none. Verifying costs one request and moves the
+// failure to the moment the value is given, which is the only moment it can be
+// corrected cheaply.
+func (s Secrets) VerifyEscrow() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// The env is what the escrow client reads, and what the box will be given.
+	for k, v := range map[string]string{
+		"INFISICAL_ESCROW_URL":           s.EscrowURL,
+		"INFISICAL_ESCROW_PROJECT_ID":    s.EscrowProjectID,
+		"INFISICAL_ESCROW_CLIENT_ID":     s.EscrowClientID,
+		"INFISICAL_ESCROW_CLIENT_SECRET": s.EscrowClientSecret,
+	} {
+		restore, err := setEnvFor(k, v)
+		if err != nil {
+			return err
+		}
+		defer restore()
+	}
+
+	// "" because there is no cluster yet to compare against; the same-Infisical
+	// refusal applies to a running box and cannot be evaluated here.
+	if _, err := escrow.NewEscrowClient(ctx, ""); err != nil {
+		return fmt.Errorf("the escrow this box would use does not work.\n\n%w\n\n"+
+			"Nothing is scaffolded on an escrow that cannot hold the master keys: the\n"+
+			"box behaves identically for months and the difference appears on the day\n"+
+			"the cluster is gone (ADR-076).", err)
+	}
+	return nil
+}
+
+// setEnvFor sets one variable and returns a function restoring what was there.
+func setEnvFor(key, value string) (func(), error) {
+	prev, had := os.LookupEnv(key)
+	if err := os.Setenv(key, value); err != nil {
+		return nil, fmt.Errorf("set %s: %w", key, err)
+	}
+	return func() {
+		if had {
+			_ = os.Setenv(key, prev)
+			return
+		}
+		_ = os.Unsetenv(key)
+	}, nil
 }
 
 // supportedMatrix is the environment/provider combinations the platform ships a
@@ -726,7 +789,7 @@ func authorize(r *http.Request, c Credential) {
 // tenant reading `git log` should see its own box being created rather than the
 // platform's development.
 func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
-	remote := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git",
+	remote := fmt.Sprintf("https://x-access-token:%s\ngithub.com/%s/%s.git",
 		cred.Token, s.GitOrg, s.RepoName())
 
 	// A repository that already has history is not scaffolded over.
@@ -762,7 +825,7 @@ func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
 	steps := [][]string{
 		{"init", "-q", "-b", "main"},
 		{"add", "."},
-		{"-c", "user.name=zero-ops", "-c", "user.email=platform@zero-ops.local",
+		{"-c", "user.name=zero-ops", "-c", "user.email=platform\nzero-ops.local",
 			"commit", "-q", "-m", "Scaffold " + s.RepoName()},
 		{"remote", "add", "origin", remote},
 		{"push", "-q", "-u", "origin", "main"},
