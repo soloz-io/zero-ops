@@ -45,6 +45,27 @@ type Orchestrator struct {
 	// a completed teardown -- the box was reachable the whole time.
 	GitopsDir string
 
+	// TenantPrefix is the box's own name, and everything it owns starts with it.
+	//
+	// A box derives every cluster name from its domain (ADR-082): nutgraf.in
+	// gives nutgraf-hub and nutgraf-01, and CAPH names each server for the
+	// cluster that owns it. So one prefix identifies every server this box
+	// created, without needing the hub alive or the tenant repository present.
+	//
+	// That matters because both of the other sources fail at exactly the moment
+	// teardown runs. spokeClusterNames asks the hub, which is the thing being
+	// destroyed; --spoke comes from the tenant repository, which `clean` removes
+	// in the same breath and which never existed at all if scaffolding failed. On
+	// a run that got as far as provisioning a spoke and no further, neither
+	// source knows the spoke's name, so its servers were left running and
+	// billing -- reported by reportOrphanedSpokes and deleted by nobody.
+	//
+	// It is safe to delete on where the other evidence is not: a caph-cluster
+	// label proves a server belongs to SOME cluster, while this prefix is the
+	// name of THIS box, and a Hetzner project holding two boxes holds two
+	// prefixes.
+	TenantPrefix string
+
 	// Spokes names the spoke clusters this box declares, for when the hub cannot
 	// be asked for them.
 	//
@@ -455,6 +476,18 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	owned := append([]string{o.ClusterName}, spokes...)
 
 	matchesCluster := func(name string, labels map[string]string) bool {
+		// The box's own prefix first: it needs neither the hub nor the tenant
+		// repository, and both are gone or going by the time this runs.
+		if o.TenantPrefix != "" {
+			if strings.HasPrefix(name, o.TenantPrefix+"-") {
+				return true
+			}
+			for k := range labels {
+				if strings.HasPrefix(k, "caph-cluster-"+o.TenantPrefix+"-") {
+					return true
+				}
+			}
+		}
 		for _, cluster := range owned {
 			if strings.Contains(name, cluster) {
 				return true

@@ -340,7 +340,15 @@ do_clean() {
         echo "  able to reclaim spoke servers if the hub is already gone." >&2
     }
 
+    # --tenant is the reliable one. --spoke reads the tenant repository, which the
+    # lines below delete and which never existed if scaffolding failed; the hub's
+    # own spoke list dies with the hub. TENANT is derived from DOMAIN and is
+    # present whatever state the box is in, and every cluster this box creates is
+    # named from it (ADR-082), so it matches the hub's servers and the spokes'
+    # alike. Without it, a run that provisioned a spoke and then failed left those
+    # servers running and billing.
     if ! "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm \
+             --tenant "$TENANT" \
              --gitops-dir "$WORKSPACE/$repo" \
              ${pool:+--spoke "$pool"} 2>&1 | sed 's/^/  /'; then
         echo "local-e2e: teardown did not complete cleanly." >&2
@@ -349,7 +357,7 @@ do_clean() {
         echo "    soloz teardown --name $CLUSTER --confirm --dns-only \\" >&2
         echo "      --dns-owner <owner> --dns-zone <zone>" >&2
         echo "  Spoke servers may also be left running. Check and remove with:" >&2
-        echo "    soloz teardown --name $CLUSTER --force --confirm \\" >&2
+        echo "    soloz teardown --name $CLUSTER --force --confirm --tenant $TENANT \\" >&2
         echo "      --gitops-dir $WORKSPACE/$repo${pool:+ --spoke $pool}" >&2
     fi
 
@@ -971,7 +979,7 @@ if wants bootstrap; then
 
 Tear down when finished:
 
-  $ROOT/bin/soloz teardown --name $CLUSTER --force --confirm --gitops-dir $WORKSPACE/$TENANT-gitops
+  $ROOT/bin/soloz teardown --name $CLUSTER --force --confirm --tenant $TENANT --gitops-dir $WORKSPACE/$TENANT-gitops
   rm -rf $WORKSPACE/$TENANT-gitops
   gh repo delete $GIT_ORG/$TENANT-gitops --yes
 EOF

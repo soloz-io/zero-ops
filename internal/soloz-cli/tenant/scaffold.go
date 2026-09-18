@@ -826,7 +826,7 @@ func authorize(r *http.Request, c Credential) {
 // tenant reading `git log` should see its own box being created rather than the
 // platform's development.
 func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
-	remote := fmt.Sprintf("https://x-access-token:%s\ngithub.com/%s/%s.git",
+	remote := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git",
 		cred.Token, s.GitOrg, s.RepoName())
 
 	// A repository that already has history is not scaffolded over.

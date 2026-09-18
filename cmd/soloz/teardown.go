@@ -15,6 +15,7 @@ var (
 	teardownConfirm  bool
 	teardownSpokes   []string
 	teardownGitops   string
+	teardownTenant   string
 )
 
 func newTeardownCmd() *cobra.Command {
@@ -52,6 +53,12 @@ Kubernetes CAPI resources, Kind/Docker artifacts, and local state.`,
 	// tore down nothing while reporting success.
 	cmd.Flags().StringVar(&teardownGitops, "gitops-dir", "",
 		"the tenant repository this box was bootstrapped from (holds its state and kubeconfig)")
+	// The box's own name. Every cluster it creates derives from the domain
+	// (ADR-082), so one prefix names every server it owns -- and unlike the hub's
+	// spoke list or the tenant repository, it is still available once both are
+	// gone, which is precisely when a teardown needs it.
+	cmd.Flags().StringVar(&teardownTenant, "tenant", "",
+		"the box's name prefix; every server whose name or caph-cluster label starts with it is this box's")
 	cmd.Flags().StringSliceVar(&teardownSpokes, "spoke", nil,
 		"spoke cluster(s) this box declares, used when the hub cannot be reached (repeatable)")
 
@@ -84,12 +91,13 @@ func runTeardown(cmd *cobra.Command, args []string) error {
 	}
 
 	orchestrator := &teardown.Orchestrator{
-		ClusterName: clusterName,
-		Force:       teardownForce,
-		Debug:       debug,
-		DNSOnly:     teardownDNSOnly,
-		GitopsDir:   teardownGitops,
-		Spokes:      teardownSpokes,
+		ClusterName:  clusterName,
+		Force:        teardownForce,
+		Debug:        debug,
+		DNSOnly:      teardownDNSOnly,
+		GitopsDir:    teardownGitops,
+		TenantPrefix: teardownTenant,
+		Spokes:       teardownSpokes,
 		DNS: teardown.DNSOverride{
 			Owner: teardownDNSOwner,
 			Zone:  teardownDNSZone,
