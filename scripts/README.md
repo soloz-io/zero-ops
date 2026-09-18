@@ -45,7 +45,7 @@ waiting for ArgoCD to sync.
 
 # Override kubeconfig or spoke name
 KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
-  SPOKE_NAME=spoke-pool-eu-prod-01 \
+  WORKLOAD_CLUSTER=<your-workload-cluster> \
   ./scripts/validate-tenant-workloads.sh app-creator
 ```
 
@@ -54,7 +54,7 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KUBECONFIG` | `k8-secrets/kubeconfig/hub.kubeconfig` | Hub cluster kubeconfig |
-| `SPOKE_NAME` | `spoke-pool-eu-prod-01` | ArgoCD cluster name for the spoke |
+| `WORKLOAD_CLUSTER` | _(required)_ | ArgoCD cluster name of the workload cluster; the tenant chooses it (ADR-082), so there is no default |
 | `ARGOCD_NS` | `platform-ops` | Namespace where ArgoCD runs |
 
 **Exit codes:** `0` = all critical checks passed. `1` = one or more failures.
@@ -98,7 +98,7 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 | AINativeSaaS XR not Ready | Crossplane composition error | `kubectl describe ainativesaas <tenant>` on hub |
 | AtlasMigration not Ready | Pooler secret not yet created | Wait for TenantDatabase XR to complete; check `{tenant}-pooler-app` secret |
 | Rollout not found | Workload ApplicationSet not synced | Check `{tenant}-workloads` ArgoCD app; verify `workloads.gitPath` in values.yaml |
-| Kyverno ClusterPolicy missing | `spoke-infrastructure` app not synced | Check `spoke-pool-eu-prod-01-infrastructure` ArgoCD app |
+| Kyverno ClusterPolicy missing | `spoke-infrastructure` app not synced | Check `<workload-cluster>-infrastructure` ArgoCD app |
 
 ---
 
@@ -115,7 +115,7 @@ box against the production pool name and reported the spoke checks as failures o
 the box rather than of the invocation.
 
 ```bash
-SPOKEPOOL_NAME=spoke-pool-eu-dev-01 ENVIRONMENT=dev \
+SPOKEPOOL_NAME=<your-workload-cluster> ENVIRONMENT=dev \
   KUBECONFIG=k8-secrets/kubeconfig/<cluster>.kubeconfig \
   ./scripts/post-bootstrap-validate.sh
 ```
