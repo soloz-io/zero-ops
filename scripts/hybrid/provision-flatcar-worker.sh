@@ -635,6 +635,49 @@ stringData:
   usage-bootstrap-signing: "true"
   auth-extra-groups: "system:bootstrappers:kubeadm:default-node-token"
 EOF
+    if [[ ${PIPESTATUS[1]:-1} -ne 0 ]]; then
+      echo "    ✗ could not create bootstrap-token-${TOKEN_ID} on the hub" >&2
+      echo "      HUB_KUBECONFIG=${HUB_KUBECONFIG}" >&2
+      return 1
+    fi
+
+    # The token is only usable once the controller has signed cluster-info with
+    # it. kubeadm join reads jws-kubeconfig-<id> from the kube-public
+    # cluster-info ConfigMap and retries until it appears; if it never does, the
+    # node loops for the full join timeout on
+    #
+    #   could not find a JWS signature in the cluster-info ConfigMap for token ID
+    #
+    # which is what a node gets when the token it was handed does not exist on
+    # the cluster it is joining. That happened: the apply above was unchecked and
+    # its output discarded, so a failed create still produced an ISO carrying the
+    # token, the VM booted with it, and ten minutes of retries later the phase
+    # failed pointing at the node. Meanwhile the only tokens on the hub were
+    # kubeadm's own rotating ones, which look exactly like a token that had been
+    # created and had expired.
+    #
+    # Waited for here, before the ISO is built, so a token that will never work
+    # is caught while the cause is still on screen.
+    echo "    → Waiting for the hub to sign cluster-info with ${TOKEN_ID}..."
+    local _jws_ok=0 _jws_wait=0
+    while (( _jws_wait < 60 )); do
+      if kubectl --kubeconfig="${HUB_KUBECONFIG}" get cm -n kube-public cluster-info \
+           -o "jsonpath={.data.jws-kubeconfig-${TOKEN_ID}}" 2>/dev/null | grep -q .; then
+        _jws_ok=1
+        break
+      fi
+      sleep 3
+      _jws_wait=$(( _jws_wait + 3 ))
+    done
+    if [[ $_jws_ok -eq 0 ]]; then
+      echo "    ✗ the hub never signed cluster-info with token ${TOKEN_ID} (${_jws_wait}s)." >&2
+      echo "      The node would retry 'could not find a JWS signature' until it gave up." >&2
+      echo "      Check that HUB_KUBECONFIG names the cluster the node joins:" >&2
+      echo "        HUB_KUBECONFIG=${HUB_KUBECONFIG}" >&2
+      echo "        endpoint the node is given: ${CONTROL_PLANE_ENDPOINT:-<resolved below>}" >&2
+      return 1
+    fi
+    echo "    ✓ cluster-info signed for ${TOKEN_ID}"
 
     CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" get cm -n kube-system kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null \
       | openssl x509 -pubkey -noout 2>/dev/null \
@@ -1187,8 +1230,69 @@ EOF
   echo "    → Uploading Ignition config and binary ISO bundle to host..."
   local REMOTE_IGN="C:/ProgramData/soloz/flatcar/${VM_NAME}-config.ign"
   local REMOTE_ISO="C:/ProgramData/soloz/flatcar/${VM_NAME}-ignition.iso"
-  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$IGN_FILE" "${SSH_TARGET}:${REMOTE_IGN}" >/dev/null </dev/null
-  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$ISO_OUT" "${SSH_TARGET}:${REMOTE_ISO}" >/dev/null </dev/null
+  # The previous VM must let go of the ISO first.
+  #
+  # Hyper-V holds an open handle on a mounted DVD image, so writing over
+  # ${VM_NAME}-ignition.iso while the old VM still exists fails -- and both scps
+  # below were unchecked, so it failed silently and left YESTERDAY'S ISO in place.
+  # The VM was then destroyed and recreated around that stale image, booting with
+  # the bootstrap token from an earlier run. The node retried
+  #
+  #   could not find a JWS signature in the cluster-info ConfigMap for token ID
+  #
+  # for the full join timeout, against a token the hub had never been given. The
+  # giveaway was on the host: the .ign written this run, the .iso a day older.
+  #
+  # Removing the VM here rather than where it is recreated: the handle has to be
+  # gone before the upload, and that is this side of the call.
+  # One statement, not a multi-line block. win_ps feeds the script to
+  # `powershell -Command -`, which reads stdin a line at a time; a multi-line
+  # if/for is evaluated as it arrives and did not run, while `|| true` swallowed
+  # the evidence. Semicolons keep it to one line, and the result is CHECKED below
+  # rather than assumed.
+  win_ps "$SSH_TARGET" \
+    "Stop-VM -Name '${VM_NAME}' -Force -TurnOff -ErrorAction SilentlyContinue; Remove-VM -Name '${VM_NAME}' -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3" \
+    >/dev/null 2>&1 || true
+
+  # The precondition is not "the VM is gone", it is "the file can be written".
+  # Ask that directly: an open handle from anything at all produces the same
+  # silent scp refusal, and this is the question the upload actually depends on.
+  local _iso_writable
+  _iso_writable=$(win_ps "$SSH_TARGET" \
+    "if (Test-Path '${REMOTE_ISO}') { try { \$f=[IO.File]::Open('${REMOTE_ISO}','Open','Write'); \$f.Close(); 'WRITABLE' } catch { 'LOCKED' } } else { 'ABSENT' }" \
+    2>/dev/null | tr -d '\r' | grep -oE 'WRITABLE|LOCKED|ABSENT' | head -1)
+  if [[ "$_iso_writable" == "LOCKED" ]]; then
+    echo "    ✗ ${REMOTE_ISO} is held open on the host, so the new image cannot replace it." >&2
+    echo "      A VM with it mounted as a DVD does this. Remove it and re-run:" >&2
+    echo "        Remove-VM -Name '${VM_NAME}' -Force" >&2
+    return 1
+  fi
+
+  if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$IGN_FILE" "${SSH_TARGET}:${REMOTE_IGN}" >/dev/null </dev/null; then
+    echo "    ✗ could not upload the Ignition config to ${SSH_TARGET}" >&2
+    return 1
+  fi
+  if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$ISO_OUT" "${SSH_TARGET}:${REMOTE_ISO}" >/dev/null </dev/null; then
+    echo "    ✗ could not upload the config ISO to ${SSH_TARGET}" >&2
+    echo "      Most often the VM still holds it as a mounted DVD. Remove it and re-run:" >&2
+    echo "        Remove-VM -Name '${VM_NAME}' -Force" >&2
+    return 1
+  fi
+
+  # Uploaded is not the same as landed. Compare the size the host reports with
+  # the size just built, because a partial or refused write leaves a file that
+  # still exists and is still bootable -- which is exactly how a day-old ISO went
+  # on being used without anything reporting a failure.
+  local _local_iso_size _remote_iso_size
+  _local_iso_size=$(wc -c < "$ISO_OUT" | tr -d ' ')
+  _remote_iso_size=$(win_ps "$SSH_TARGET" \
+    "(Get-Item '${REMOTE_ISO}').Length" 2>/dev/null | tr -d '\r' | grep -oE '^[0-9]+$' | head -1)
+  if [[ "$_remote_iso_size" != "$_local_iso_size" ]]; then
+    echo "    ✗ ${REMOTE_ISO} is ${_remote_iso_size:-absent} bytes; the ISO just built is ${_local_iso_size}." >&2
+    echo "      The host is not holding the image this run produced, so the VM would" >&2
+    echo "      boot someone else's join token." >&2
+    return 1
+  fi
   echo "    ✓ Ignition config & ISO bundle uploaded"
 
   # kvpctl.exe injects the Ignition config over Hyper-V KVP. It ships with neither
