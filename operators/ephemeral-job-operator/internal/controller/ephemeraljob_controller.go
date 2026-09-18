@@ -74,6 +74,11 @@ const (
 	// workload started with no idea what it had been asked to do.
 	envJobInput = "EPHEMERAL_JOB_INPUT"
 
+	// Where spec.output reaches the workload. A workload writes its own result,
+	// so it has to be told where — the field said so and nothing carried it,
+	// which left results landing at the bucket root.
+	envJobOutput = "EPHEMERAL_JOB_OUTPUT"
+
 	// The envelope a request gets when it names none. See the comment at the
 	// assignment for why an absent value cannot be left absent.
 	defaultRequestCPU    = "2"
@@ -664,6 +669,15 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 	if raw := ej.Spec.Input; raw != nil && len(raw.Raw) > 0 {
 		if _, stated := ej.Spec.Env[envJobInput]; !stated {
 			env = append(env, corev1.EnvVar{Name: envJobInput, Value: string(raw.Raw)})
+		}
+	}
+
+	// spec.output, on the same terms: serialised as stated, never interpreted.
+	if out := ej.Spec.Output; out != nil {
+		if _, stated := ej.Spec.Env[envJobOutput]; !stated {
+			if encoded, err := json.Marshal(out); err == nil {
+				env = append(env, corev1.EnvVar{Name: envJobOutput, Value: string(encoded)})
+			}
 		}
 	}
 

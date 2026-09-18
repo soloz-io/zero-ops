@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -71,6 +72,29 @@ func TestStatedEnvWinsOverDerivedInput(t *testing.T) {
 	}
 	if got, _ := envValue(c, envJobInput); got != "stated" {
 		t.Errorf("derived value overrode the stated one: got %q", got)
+	}
+}
+
+// A workload writes its own result, so it has to be told where. Nothing carried
+// spec.output to the container, and results landed at the bucket root.
+func TestWorkloadOutputReachesTheContainer(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	ej := jobWithInput(`{"s3_url":"https://example.test/request.json"}`, nil)
+	ej.Spec.Output = &computev1alpha1.OutputSpec{ObjectPrefix: "sessions/s1/"}
+
+	got, ok := envValue(r.buildWorkloadContainer(ej), envJobOutput)
+	if !ok {
+		t.Fatalf("%s missing: spec.output was accepted and then dropped", envJobOutput)
+	}
+	if !strings.Contains(got, "sessions/s1/") {
+		t.Errorf("output prefix did not survive: got %q", got)
+	}
+}
+
+func TestNoOutputAddsNoVariable(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	if _, ok := envValue(r.buildWorkloadContainer(jobWithInput(`{}`, nil)), envJobOutput); ok {
+		t.Errorf("%s set for a job that declared no output", envJobOutput)
 	}
 }
 
