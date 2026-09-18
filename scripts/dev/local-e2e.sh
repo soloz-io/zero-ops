@@ -726,6 +726,11 @@ do_workload() {
         # The node gate is live state, not a one-shot fact (ADR-046 §24.2), so
         # skipping it is a deliberate narrowing rather than a shortcut.
         [ -n "${WORKLOAD_SKIP_NODES:-}" ] || step10e_spoke_home_worker "$SPOKEPOOL_NAME"
+        # The database gate follows the workers, never precedes them: it needs a
+        # schedulable node, and 10e is what provides one. Skipped along with the
+        # nodes under WORKLOAD_SKIP_NODES, since a cluster deliberately left
+        # without workers has nowhere to run a database either.
+        [ -n "${WORKLOAD_SKIP_NODES:-}" ] || step10f_spoke_database
     '
 }
 

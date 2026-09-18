@@ -39,8 +39,26 @@ spec:
       provider: <CLOUD_PROVIDER>
   region: <CLOUD_REGION>
   nodePool:
-    # Hetzner burst capacity: 0 by default, because home workers provide the
-    # default capacity on this provider (ADR-075).
+    # ZERO, and not a declared count: a hybrid pool runs on the tenant's own
+    # hardware and NOTHING ELSE. Cloud workers are the hetzner provider's
+    # arrangement; buying them here would silently put a hybrid tenant's
+    # workloads on metal they did not choose and are billed for.
+    #
+    # So this is inert by design, and the hybrid composition reflects that --
+    # it carries no replicas patch, because the only MachineDeployment on a
+    # hybrid spoke is the ADR-052 burst pool, tainted workload-class=burst and
+    # owned by cluster-autoscaler for ephemeral jobs alone.
+    #
+    # Which means home-workers above is not a convenience. It is the whole of
+    # this cluster's general capacity, and an empty list is a cluster that can
+    # run nothing. That is not hypothetical: nutgraf-01, 2026-09-18, sat with
+    # its tainted control plane as the only node -- 13 pods Pending forever,
+    # ArgoCD sync waves never Healthy, the wave carrying shared-cnpg never
+    # applied, and a bootstrap that failed an hour later reporting "the spoke's
+    # shared-cnpg has no ready instance", a database that had nowhere to run.
+    #
+    # `soloz tenant add-cluster` now says so at declaration, and step 10f of
+    # hub-bootstrap.sh refuses to wait on a database when no node can schedule.
     count: 0
     instanceType: cx33
   maxTenantCapacity: 20

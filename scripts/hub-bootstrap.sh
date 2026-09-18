@@ -1603,7 +1603,33 @@ step10_wait_spokepool() {
         fi
     done
 
-    # Step 10f: the spoke's own database.
+    # Step 10f -- the spoke's database -- deliberately does NOT run here.
+    #
+    # It used to, and that made a fresh hybrid spoke impossible to bootstrap:
+    # this function runs at main():2200 and step10e_spoke_home_worker, which
+    # brings up the spoke's ONLY general capacity, runs at 2213. So the database
+    # wait sat ahead of the thing that creates the nodes the database needs, and
+    # spent 900s proving it. Not a race -- an ordering inversion that failed the
+    # same way every time, reporting "shared-cnpg has no ready instance" about a
+    # cluster whose one node was a tainted control plane.
+    #
+    # It is now step10f_spoke_database, called from main() after 10e.
+
+    # Step 10e is NOT called here: it is invoked from main(), outside this
+    # function's completed-step skip, because worker convergence is live state and
+    # must be re-evaluated on every run (ADR-046 §24.2).
+    mark_step_completed "wait_spokepool"
+    log "✅ Spoke provisioning gates passed"
+}
+
+# Step 10f: the spoke's own database, gated AFTER its workers exist.
+#
+# Ordering is the whole point of this being a separate function. It ran inside
+# step10_wait_spokepool, which main() calls before step10e_spoke_home_worker --
+# so it waited for a database on a cluster that had no schedulable node yet, and
+# the step that would give it one came afterwards. Every fresh hybrid spoke
+# failed here, and the message named CNPG rather than the empty node pool.
+step10f_spoke_database() {
     #
     # Step 9 waits up to 1800s for the HUB's CNPG cluster and nothing waited for
     # the spoke's, so bootstrap reported complete while shared-cnpg was still
@@ -1622,6 +1648,35 @@ step10_wait_spokepool() {
         rm -f "$spoke_kc"
         error_exit "Step 10f: cannot read ${SPOKEPOOL_NAME}-kubeconfig — the spoke's database cannot be verified"
     fi
+
+    # Capacity BEFORE the database, because a spoke with nowhere to schedule
+    # cannot produce one and the wait below would spend 900s proving it.
+    #
+    # On 2026-09-18 nutgraf-01 had a single node -- its control plane, tainted
+    # NoSchedule -- because the hybrid claim carried 0 cloud workers and an empty
+    # home-workers list. Thirteen pods sat Pending, ArgoCD's sync waves never
+    # turned Healthy, and the wave carrying shared-cnpg was therefore never
+    # applied. The run then failed on "shared-cnpg has no ready instance", which
+    # sends the reader to CNPG, to storage, to the operator -- everywhere except
+    # the empty node pool an hour upstream.
+    #
+    # A node that tolerates nothing is not capacity. Count only nodes that are
+    # Ready AND carry no NoSchedule taint.
+    local schedulable
+    schedulable=$(kubectl --kubeconfig="$spoke_kc" get nodes \
+        -o jsonpath='{range .items[*]}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{" "}{range .spec.taints[?(@.effect=="NoSchedule")]}{.key}{end}{"\n"}{end}' 2>/dev/null \
+        | awk '$1=="True" && NF==1' | wc -l | tr -d ' ')
+
+    if [[ "${schedulable:-0}" -lt 1 ]]; then
+        kubectl --kubeconfig="$spoke_kc" get nodes -o wide 2>&1 | sed 's/^/    /' >&2
+        rm -f "$spoke_kc"
+        error_exit "Step 10f: the spoke has no schedulable node -- every node is either NotReady or carries a NoSchedule taint.
+    Nothing can run there, so shared-cnpg will never be created and waiting for it would tell you nothing.
+    A hybrid pool gets its default capacity from home workers (ADR-075); check that
+    registry/clusters/${SPOKEPOOL_NAME}/infrastructure/spokepool-hybrid.yaml names real hardware
+    in home-workers, or set nodePool.count above 0 for Hetzner burst capacity."
+    fi
+    log "✅ Spoke has ${schedulable} schedulable node(s)"
 
     local cnpg_deadline=900 cnpg_waited=0 cnpg_ready="" cnpg_phase=""
     while (( cnpg_waited < cnpg_deadline )); do
@@ -1643,11 +1698,6 @@ step10_wait_spokepool() {
     fi
     log "✅ Spoke database ready: ${cnpg_ready} instance(s), phase='${cnpg_phase}' (after ${cnpg_waited}s)"
 
-    # Step 10e is NOT called here: it is invoked from main(), outside this
-    # function's completed-step skip, because worker convergence is live state and
-    # must be re-evaluated on every run (ADR-046 §24.2).
-    mark_step_completed "wait_spokepool"
-    log "✅ Spoke provisioning gates passed"
 }
 
 # Bring the spoke's home-lab worker into service, mirroring the hub's
@@ -2182,6 +2232,13 @@ main() {
     # on every run rather than trusting a completed-phase marker. The SpokePool wait
     # above stays checkpointed; the worker gate must not be.
     step10e_spoke_home_worker "$SPOKEPOOL_NAME" || return 1
+
+    # AFTER 10e, because the spoke's database needs a node to run on and 10e is
+    # what puts one there. Ordered the other way -- which it was, inside
+    # step10_wait_spokepool above -- this waited 900s for a Postgres instance on
+    # a cluster whose only node was a tainted control plane, then failed naming
+    # the database instead of the missing capacity.
+    step10f_spoke_database || return 1
 
     # The spoke is Ready, so its ingress path is decidable — and under ADR-051 it
     # is the path that actually serves tenant traffic.

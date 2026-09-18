@@ -85,6 +85,29 @@ func (w WorkloadCluster) Add() ([]string, error) {
 			"a name", w.Name)
 	}
 
+	// Capacity is refused at declaration, and what counts as capacity differs by
+	// provider -- so this asks the right question of each rather than one
+	// question of both.
+	//
+	// hetzner buys its workers: 0 means nothing will ever schedule, and there is
+	// no second source. hybrid buys none at all (ADR-075) -- its capacity is the
+	// home-workers list, which is '[]' in the template and is the operator's to
+	// fill in, so a count here is not what makes it valid. cmd/soloz refuses
+	// --workers on hybrid and prints what to edit instead.
+	//
+	// Getting this wrong is expensive because nothing downstream reports it.
+	// nutgraf-01, 2026-09-18: the cluster provisioned, the node went Ready,
+	// ArgoCD registered it and began syncing -- and its one node was a tainted
+	// control plane. Thirteen pods Pending, sync waves never Healthy, the wave
+	// carrying shared-cnpg never applied, and a bootstrap that failed an hour
+	// later on "the spoke's shared-cnpg has no ready instance". Declaration is
+	// the last point where the cause is still one field.
+	if w.Provider != "hybrid" && w.Workers <= 0 {
+		return nil, fmt.Errorf("cluster %q would have no capacity: --workers is %d and %s has "+
+			"no on-premises nodes to fall back on, so nothing could ever schedule there.\n\n"+
+			"Pass --workers >= 1", w.Name, w.Workers, w.Provider)
+	}
+
 	tmpl := filepath.Join(w.GitopsDir, "templates", "workload-cluster")
 	if _, err := os.Stat(tmpl); err != nil {
 		return nil, fmt.Errorf("no workload-cluster template at %s: this repository was "+

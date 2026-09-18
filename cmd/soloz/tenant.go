@@ -30,6 +30,9 @@ var (
 	// -1 rather than 0, because 0 is a real worker count and the default depends
 	// on the environment, which is not known when flags are declared.
 	scaffoldWorkers  int
+	// workloadClusterWorkers is read through the -1 sentinel above rather than
+	// written straight onto the struct, so "not passed" survives to Add().
+	workloadClusterWorkers int
 	scaffoldNoPrompt bool
 )
 
@@ -87,7 +90,13 @@ choose something meaningful -- it names the cluster for its whole life.`,
 	f.StringVar(&workloadCluster.BundleRegistry, "bundle-registry", "ghcr.io/soloz-io/charts", "the chart registry")
 	f.StringVar(&workloadCluster.ChartSource, "chart-source", "", "chart source, as the management cluster was scaffolded with")
 	f.StringVar(&workloadCluster.PublicTLSIssuer, "public-tls-issuer", "letsencrypt-prod", "ACME issuer for public certificates")
-	f.IntVar(&workloadCluster.Workers, "workers", 2, "cloud workers this cluster starts with")
+	// -1 is "no opinion", so an explicit --workers is distinguishable from the
+	// default. hybrid runs on the tenant's own hardware alone and has no cloud
+	// workers at all; silently ignoring a number someone typed would let them
+	// believe they had bought capacity they do not have.
+	f.IntVar(&workloadClusterWorkers, "workers", -1,
+		"cloud worker nodes this cluster starts with (default: 2 on hetzner). "+
+			"Not applicable on hybrid, which runs on your own premises alone (ADR-075)")
 
 	for _, required := range []string{"mgmt-cluster", "name", "bundle-version", "tenant", "gitops-repo-url"} {
 		_ = cmd.MarkFlagRequired(required)
@@ -96,6 +105,29 @@ choose something meaningful -- it names the cluster for its whole life.`,
 }
 
 func runAddWorkloadCluster(cmd *cobra.Command, args []string) error {
+	// The sentinel resolved against the provider, here rather than in Add(), so
+	// the struct that reaches the tenant package carries a real number.
+	//
+	// hybrid gets no cloud workers at all (ADR-075): its capacity is the home
+	// workers named in the claim, and this flag has nothing to spend. A number
+	// typed here would be silently dropped by the hybrid composition -- which
+	// carries no replicas patch -- so it is refused instead of ignored.
+	switch {
+	case workloadCluster.Provider == "hybrid" && workloadClusterWorkers > 0:
+		return fmt.Errorf("--workers %d is not applicable on hybrid: a hybrid cluster runs on "+
+			"the nodes on your own premises and buys none (ADR-075).\n\n"+
+			"Its capacity is the home-workers list in "+
+			"registry/clusters/%s/infrastructure/spokepool-hybrid.yaml, which you fill in with "+
+			"your own hardware and provision with scripts/hybrid/provision-flatcar-worker.sh.\n\n"+
+			"Re-run without --workers, then edit that list", workloadClusterWorkers, workloadCluster.Name)
+	case workloadCluster.Provider == "hybrid":
+		workloadCluster.Workers = 0
+	case workloadClusterWorkers < 0:
+		workloadCluster.Workers = 2
+	default:
+		workloadCluster.Workers = workloadClusterWorkers
+	}
+
 	written, err := workloadCluster.Add()
 	if err != nil {
 		return err
@@ -104,6 +136,17 @@ func runAddWorkloadCluster(cmd *cobra.Command, args []string) error {
 	for _, p := range written {
 		fmt.Printf("  %s\n", p)
 	}
+	if workloadCluster.Provider == "hybrid" {
+		fmt.Printf("\n! %s has NO capacity yet.\n", workloadCluster.Name)
+		fmt.Println("  A hybrid cluster runs on your own premises alone, and the claim ships")
+		fmt.Println("  home-workers: '[]'. Until you name real hardware there, its only node is")
+		fmt.Println("  a tainted control plane: every workload pends, ArgoCD's sync waves never")
+		fmt.Println("  go Healthy, and bootstrap fails much later reporting a missing database.")
+		fmt.Printf("  Edit registry/clusters/%s/infrastructure/spokepool-hybrid.yaml, then run\n",
+			workloadCluster.Name)
+		fmt.Println("  scripts/hybrid/provision-flatcar-worker.sh for each node.")
+	}
+
 	fmt.Println("\nCommit and push; the management cluster provisions it.")
 	return nil
 }
