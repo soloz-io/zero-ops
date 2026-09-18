@@ -42,10 +42,16 @@
 # contract to `world`, which was the alternative and would have allowed every
 # tenant to reach anything on 443 — trading a login outage for the removal of
 # the control the contract exists to provide.
+# The Cilium CRDs arrive with Cilium itself, in the CAPI ClusterResourceSet
+# addon (ADR-041), so on a new spoke this resource is validated against an API
+# that does not yet serve cilium.io/v2 and ArgoCD's dry-run fails the whole
+# sync. See sandbox-network-policy.yaml for the incident this comes from.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: tenant-identity-endpoint-egress
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   # Every tenant workload. `tenant-id` is stamped by the tenant kustomization's
   # commonLabels and is required on tenant workloads by the ABI policy

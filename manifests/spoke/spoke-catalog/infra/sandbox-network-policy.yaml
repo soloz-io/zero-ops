@@ -31,10 +31,31 @@
 # The label is now platform-set, on a pod the platform authors, which is the
 # strongest arrangement available: it is present because the operator put it
 # there, and a fleet cannot omit it to escape the policy.
+#
+# The Cilium CRDs arrive with Cilium itself, in the CAPI ClusterResourceSet
+# addon (ADR-041) -- outside this Application and outside ArgoCD entirely. So
+# on a new spoke this resource is validated against an API that does not yet
+# serve cilium.io/v2, and ArgoCD's dry-run rejects the whole sync before
+# applying anything: "one or more synchronization tasks are not valid".
+#
+# That is not a slow start that retries out of. Observed 2026-09-18 on
+# nutgraf-01: the catalogue's five retries ran 15:29:11 -> 15:41:18 and the
+# CRD was established at 15:43:24 -- two minutes after the budget expired. All
+# 351 objects were then blocked by this one, and automated sync would not try
+# again, because ArgoCD refuses to re-sync a revision whose last attempt failed
+# (selfHeal included). A two-minute race became a permanently wedged spoke with
+# an empty database, and step 10f reported it as "the spoke's shared-cnpg has no
+# ready instance".
+#
+# Skipping the dry-run for this one resource lets the other 350 apply and this
+# one settle on a later pass, which is the same reason cluster-secret-store.yaml
+# and the crossplane provider configs carry it.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: agent-sandbox-default-deny
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   endpointSelector:
     matchExpressions:
