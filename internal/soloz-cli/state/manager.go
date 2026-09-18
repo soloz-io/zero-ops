@@ -52,21 +52,32 @@ const (
 
 // BootstrapState tracks the state of the bootstrap process
 type BootstrapState struct {
-	Version          string            `json:"version"`
-	ClusterName      string            `json:"clusterName"`
-	Provider         string            `json:"provider"`
-	Region           string            `json:"region"`
-	BootstrapID      string            `json:"bootstrapId"`
-	CurrentPhase     BootstrapPhase    `json:"currentPhase"`
-	CompletedPhases  []BootstrapPhase  `json:"completedPhases"`
-	BootstrapContext string            `json:"bootstrapContext"`
-	MgmtKubeconfig   string            `json:"mgmtKubeconfig"`
-	TalosConfig      string            `json:"talosConfig"`
-	TalosImageId     string            `json:"talosImageId"`
-	NetworkCIDR      string            `json:"networkCIDR"`
-	SSHKeys          []string          `json:"sshKeys,omitempty"`
-	Timestamp        time.Time         `json:"timestamp"`
-	Metadata         map[string]string `json:"metadata"`
+	Version          string           `json:"version"`
+	ClusterName      string           `json:"clusterName"`
+	Provider         string           `json:"provider"`
+	Region           string           `json:"region"`
+	BootstrapID      string           `json:"bootstrapId"`
+	CurrentPhase     BootstrapPhase   `json:"currentPhase"`
+	CompletedPhases  []BootstrapPhase `json:"completedPhases"`
+	BootstrapContext string           `json:"bootstrapContext"`
+	// BootstrapKubeconfig is the FILE the bootstrap context lives in, recorded
+	// when the cluster is created.
+	//
+	// The context name alone is not enough to find it again. kind writes its
+	// context to whatever $KUBECONFIG named at creation, and hub-bootstrap.sh
+	// exports KUBECONFIG to the HUB's kubeconfig as soon as that file exists --
+	// so on every resumed run the ambient value names a different file than the
+	// one the context is in. Resolving by the ambient value then answers a
+	// bootstrap-cluster question with the hub, which reports the CAPI namespace
+	// missing because CAPI does not live there until pivot.
+	BootstrapKubeconfig string            `json:"bootstrapKubeconfig,omitempty"`
+	MgmtKubeconfig      string            `json:"mgmtKubeconfig"`
+	TalosConfig         string            `json:"talosConfig"`
+	TalosImageId        string            `json:"talosImageId"`
+	NetworkCIDR         string            `json:"networkCIDR"`
+	SSHKeys             []string          `json:"sshKeys,omitempty"`
+	Timestamp           time.Time         `json:"timestamp"`
+	Metadata            map[string]string `json:"metadata"`
 
 	// Wall-clock accounting for the bootstrap, so end-to-end cluster creation time
 	// is a recorded fact rather than something reconstructed from log lines.

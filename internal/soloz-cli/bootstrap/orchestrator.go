@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -916,26 +917,50 @@ func (o *Orchestrator) persistTenantState(ctx context.Context, label string) err
 // Returns "" if it cannot be read; joinHomeWorkers treats that as fatal rather
 // than silently skipping the join.
 func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrapKubeconfig string) string {
-	out, err := exec.CommandContext(ctx, "kubectl",
+	// Every failure below used to become the same empty string, and the caller
+	// reported one cause for all of them: "could not read the hub kubeconfig from
+	// the bootstrap cluster". Five different things produce that, and on
+	// 2026-09-18 the actual one was none of them -- kubectl had no context for the
+	// bootstrap cluster at all, because a kind cluster left running short-circuits
+	// `kind create cluster`, which then writes no kubeconfig entry. The cluster was
+	// healthy, the secret was present, and the run stopped saying the secret could
+	// not be read. Saying what actually failed costs one line each.
+	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", bootstrapKubeconfig,
 		"-n", constants.NamespaceCAPI,
 		"get", "secret", o.ClusterName+"-kubeconfig",
 		"-o", "jsonpath={.data.value}",
-	).Output()
-	if err != nil || len(out) == 0 {
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("[on-prem-join] reading %s-kubeconfig from the bootstrap cluster: %v\n",
+			o.ClusterName, err)
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			fmt.Printf("[on-prem-join]   kubectl: %s\n", msg)
+		}
+		return ""
+	}
+	if len(out) == 0 {
+		fmt.Printf("[on-prem-join] secret %s/%s-kubeconfig exists but carries no .data.value\n",
+			constants.NamespaceCAPI, o.ClusterName)
 		return ""
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(string(out))
 	if err != nil {
+		fmt.Printf("[on-prem-join] %s-kubeconfig is not valid base64: %v\n", o.ClusterName, err)
 		return ""
 	}
 
 	path := filepath.Join("k8-secrets", "kubeconfig", o.ClusterName+".kubeconfig")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Printf("[on-prem-join] cannot create %s: %v\n", filepath.Dir(path), err)
 		return ""
 	}
 	if err := os.WriteFile(path, decoded, 0o600); err != nil {
+		fmt.Printf("[on-prem-join] cannot write %s: %v\n", path, err)
 		return ""
 	}
 
@@ -1004,8 +1029,13 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	}
 
 	if kubeconfig == "" {
-		return fmt.Errorf("could not read the hub kubeconfig from the bootstrap cluster;\n" +
-			"the home worker cannot join, and pivot would then fail to schedule cert-manager")
+		return fmt.Errorf("could not read the hub kubeconfig from the bootstrap cluster " +
+			"(the line above says why);\n" +
+			"the home worker cannot join, and pivot would then fail to schedule cert-manager.\n\n" +
+			"If kubectl reported no context: a kind cluster left running short-circuits\n" +
+			"`kind create cluster`, which then writes no kubeconfig entry, and every\n" +
+			"kubectl call afterwards resolves nothing. Restore it and re-run:\n" +
+			"    kind export kubeconfig --name <cluster>")
 	}
 
 	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed
@@ -1299,6 +1329,11 @@ func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.Bootstra
 			"file kind actually wrote to: %w",
 			bs.BootstrapContext, kubeconfig, err)
 	}
+
+	// Recorded now that the check above has proven the context is in this file.
+	// Every later phase reads this rather than resolving the ambient $KUBECONFIG
+	// again, which by then names the hub.
+	bs.BootstrapKubeconfig = kubeconfig
 
 	// Create platform-capi namespace
 	nsMgr := &NamespaceManager{
@@ -2053,7 +2088,24 @@ func defaultKubeconfigPath() string {
 // one cluster cannot be used against another, while a --context argument has to
 // be remembered twenty-three times and is silently absent when it is not.
 func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string) {
-	kubeconfig := defaultKubeconfigPath()
+	// The file recorded when the bootstrap cluster was created is the authority.
+	//
+	// Resolving the ambient $KUBECONFIG instead answered a bootstrap-cluster
+	// question with the hub: hub-bootstrap.sh exports KUBECONFIG to the hub's
+	// kubeconfig once that file exists, which is right for the phases that talk
+	// to the hub and wrong for the ones that talk to the bootstrap cluster. The
+	// hub's file names one context and it is not kind-<cluster>, so pinning
+	// failed, the unpinned path returned the hub, and on-prem-join asked the hub
+	// for the CAPI kubeconfig secret -- "namespaces platform-capi not found",
+	// because CAPI does not live there until pivot. The kind cluster, the
+	// namespace and the secret were all healthy.
+	//
+	// Empty only before the cluster has been created, where there is nothing
+	// recorded yet and the ambient value is what kind itself will write to.
+	kubeconfig := bs.BootstrapKubeconfig
+	if kubeconfig == "" {
+		kubeconfig = defaultKubeconfigPath()
+	}
 	ctx := bs.BootstrapContext
 	if ctx == "" {
 		ctx = o.BootstrapContext
