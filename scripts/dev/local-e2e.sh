@@ -88,6 +88,13 @@ if [[ -n "${TENANT_OVERRIDE:-}" && "$TENANT_OVERRIDE" != "$TENANT" ]]; then
 fi
 CLUSTER="$TENANT-hub"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
+# The DNS label this box sits under, declared rather than derived (ADR-051
+# amendment 2026-09-18). It defaults to ENVIRONMENT because that is what every
+# run has published on -- dev.nutgraf.in -- and a scaffold that quietly moved to
+# the apex would take every hostname, certificate and DNS record with it.
+#
+# Pass SUBDOMAIN= explicitly to publish on the apex.
+SUBDOMAIN="${SUBDOMAIN-$ENVIRONMENT}"
 PROVIDER="${PROVIDER:-hetzner}"
 REGION="${REGION:-hel1}"
 # The GHCR namespace. soloz-io rather than a personal one because visibility is a
@@ -521,6 +528,7 @@ do_scaffold() {
     ( cd "$WORKSPACE" && "$ROOT/bin/soloz" tenant scaffold --local \
         --tenant "$TENANT" --org "$GIT_ORG" --domain "$DOMAIN" \
         --cluster "$CLUSTER" --environment "$ENVIRONMENT" --provider "$PROVIDER" \
+        --subdomain "$SUBDOMAIN" \
         --region "$REGION" \
         --bundle-version "$VERSION" \
         --bundle-registry "ghcr.io/$OWNER/charts" \
