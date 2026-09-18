@@ -46,7 +46,7 @@ func TestADR045ArtifactsBelongToTheTenantRepository(t *testing.T) {
 		// What ADR-062 and ADR-072 actually require is the repository and the
 		// cluster, which is what is checked here. How the artifacts are arranged
 		// beneath that is the registry's business.
-		want := filepath.Join("clusters", "acme-hub", "generated") + "/"
+		want := filepath.Join("registry", "clusters", "acme-hub", "generated") + "/"
 		if !strings.HasPrefix(a.File, want) {
 			t.Errorf("a tenant's artifact belongs under %s, got %q", want, a.File)
 		}

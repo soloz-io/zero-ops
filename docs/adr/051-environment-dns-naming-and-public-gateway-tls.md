@@ -6,6 +6,50 @@
 
 ---
 
+---
+
+> **Amendment 2026-09-18 — The subdomain is declared, not derived from the environment.**
+> One correction. It does not change a single published hostname; it changes what
+> decides them.
+>
+> **Environment is no longer a DNS input.** A box declares `domain` and an optional
+> `subdomain`, and every public hostname is `<service>.<subdomain>.<domain>` — or
+> `<service>.<domain>` when no subdomain is given. A box that sets `subdomain: dev`
+> on `nutgraf.in` publishes `argocd.dev.nutgraf.in`, exactly as it does today.
+>
+> **Why.** The decision above makes the environment a DNS zone, which is sound as a
+> naming scheme and had a consequence nobody chose: if the zone is derived from the
+> environment, the MANAGEMENT cluster must have an environment, because it has
+> hostnames. Every other environment-shaped thing followed from that — the box's
+> Infisical slug, nine packaged chart variants (three hub-environment, six
+> spoke-catalog), and a spoke inheriting its hub's environment rather than
+> declaring its own.
+>
+> Those nine variants encode two values: a domain prefix and an Infisical slug. The
+> dev and prod spoke-catalog overlays differ only in a comment. The hub-environment
+> overlays carry `environment:` and `domain:`, and the file records that
+> `spec.domain` and `spec.tls` "have NO Go consumers today — these values are
+> declarative only".
+>
+> **kubefirst is the reference (ADR-071), and it already separates these.** Its
+> management cluster has no environment and its platform hostnames carry none:
+> `argocd.<domain>`, `vault.<domain>`. It has an install-wide `SubdomainName`,
+> applied as `fmt.Sprintf("%s.%s", SubdomainName, DomainName)` — the same shape as
+> this platform's `dev.nutgraf.in`, reached without making the environment a
+> property of the cluster. Its workloads carry the environment as a name suffix,
+> `metaphor-development.<domain>`, never as a DNS level.
+>
+> **What this does not change.** The zone-per-install property that justified this
+> ADR's rejected alternative still holds: one wildcard certificate covers every
+> tenant under a subdomain, because the subdomain is still one zone. Production
+> remains unlabelled by declaring no subdomain. Spoke-terminated ingress is
+> untouched.
+>
+> **What it enables.** The management cluster becomes environment-neutral, so a
+> workload cluster can declare its own environment instead of inheriting the hub's
+> — which is what ADR-082 already assumes when it makes a workload cluster's name
+> the cellId.
+
 ## Context
 
 Public hostnames have no naming convention and no single owner, and the placement of the

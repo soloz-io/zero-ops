@@ -495,7 +495,7 @@ spec:
         targetRevision: '{{ .Values.environmentRevision }}'
 {{- end }}
         # ADR-046 §11: spoke-catalog is structured per environment and provider;
-        # the CNPG overlay lives at manifests/spoke/spoke-catalog/environments/<env>/<provider>.
+        # the CNPG overlay lives at manifests/spoke/spoke-catalog/providers/<provider>.
         # The cluster generator exposes labels under .metadata.labels; fail closed
         # on any provider other than hybrid/hetzner (index + fail primitive also
         # covers a spoke whose provider take-along label is missing).
@@ -510,7 +510,19 @@ spec:
         # matching what it is rather than what the hub assumed.
         chart: 'platform'
 {{- else }}
-        path: 'manifests/spoke/spoke-catalog/environments/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # PROVIDER only. The catalogue had an environment axis as well, and the
+        # three environments were identical: cnpg-cluster.yaml and
+        # scheduled-backup.yaml matched byte for byte across dev, stg and prod once
+        # comments were stripped, and the only files unique to one of them --
+        # ephemeral-vm-provisioner and tenant-identity-egress -- justify themselves
+        # entirely by provider ("on hybrid spokes only", "a pure-Hetzner spoke has
+        # no such conflict"). They sat under dev/ because dev was the only
+        # environment that had a hybrid spoke, not because they were dev's.
+        #
+        # kubefirst splits platform content by provider and by nothing else; its
+        # environment directories hold tenant workloads. ADR-051's amendment of
+        # 2026-09-18 adopts that, and this is what it looks like in the path.
+        path: 'manifests/spoke/spoke-catalog/providers/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
 {{- end }}
 {{- if $released }}
         # Released: the per-spoke fields are chart values, because ArgoCD
@@ -525,6 +537,20 @@ spec:
               enabled: true
               spokeName: '{{"{{"}}.name{{"}}"}}'
             {{- include "environment-manager.globalValues" . | nindent 12 }}
+            # The SPOKE's own environment, overriding the hub's.
+            #
+            # globalValues above carries the hub's environmentSlug and the catalogue
+            # took it, so a workload cluster read the environment of the cluster that
+            # PROVISIONED it rather than the one it declares. That is what obliged the
+            # management cluster to have an environment at all, and it is why a prod
+            # workload cluster under a dev hub would have read DEV secrets out of
+            # Infisical (ADR-037).
+            #
+            # The label is written by the SpokePool composition from the claim the
+            # tenant wrote, so this reads the workload cluster's own declaration.
+            # Below globalValues deliberately: last wins in Helm.
+            global:
+              environmentSlug: '{{"{{"}} index .metadata.labels "environment" {{"}}"}}'
 {{- else }}
         kustomize:
           patches:

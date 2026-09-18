@@ -13,7 +13,7 @@ kind: Kustomization
 # means the class cannot drift apart the way it did when platform-db declared its
 # placement while redis silently did not — each failed in turn, days apart.
 #
-# Layout mirrors spoke-catalog/environments/<env>/<provider>, which likewise sits
+# Layout mirrors spoke-catalog/providers/<provider>, which likewise sits
 # in a sibling tree and pulls its base in by relative path.
 resources:
   - ../../../database

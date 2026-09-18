@@ -26,7 +26,7 @@ spec:
   source:
     repoURL: <GITOPS_REPO_URL>
     targetRevision: main
-    path: clusters/<CLUSTER_NAME>/generated
+    path: registry/clusters/<CLUSTER_NAME>/generated
     directory:
       recurse: true
       # An empty directory is the state before Day-0 writes, not an error.

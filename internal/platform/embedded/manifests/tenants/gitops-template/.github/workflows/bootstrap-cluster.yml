@@ -42,7 +42,7 @@ on:
   workflow_dispatch:
     inputs:
       cluster:
-        description: The cluster to bootstrap, as named under clusters/
+        description: The cluster to bootstrap, as named under registry/clusters/
         required: true
         default: <CLUSTER_NAME>
       provider:

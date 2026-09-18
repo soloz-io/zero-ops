@@ -133,6 +133,12 @@ what a tenant would receive before any repository exists.`,
 	f.StringVar(&scaffoldSpec.Provider, "provider", "hetzner", "cloud provider")
 	f.StringVar(&scaffoldSpec.Region, "region", "hel1", "cloud region")
 	f.StringVar(&scaffoldSpec.Environment, "environment", "dev", "environment slug")
+	// The DNS label this box sits under, declared rather than derived from the
+	// environment (ADR-051 amendment 2026-09-18). Empty publishes on the apex.
+	// kubefirst's SubdomainName, and the reason its management cluster needs no
+	// environment of its own.
+	f.StringVar(&scaffoldSpec.Subdomain, "subdomain", "",
+		"DNS label every hostname on this box sits under; empty publishes on the apex")
 	f.IntVar(&scaffoldWorkers, "workers", -1,
 		"cloud worker nodes this box starts with (default: 2, every environment). "+
 			"Pass 0 to run on nodes on your own premises alone, which then have to "+

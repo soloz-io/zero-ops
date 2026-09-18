@@ -29,7 +29,7 @@ func TestClusterDeclarationTellsTheChartItsVersion(t *testing.T) {
 	// written literally, so its declaration is asserted against the rendered
 	// output by TestDevelopmentModeLeavesTheReleasedDeclarationIntact. This checks
 	// the template a tenant hydrates by hand, which must stay literal.
-	for _, kind := range []string{"spoke-cluster"} {
+	for _, kind := range []string{"workload-cluster"} {
 		path := filepath.Join(base, kind, "bundle.yaml")
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -190,7 +190,7 @@ func TestDevelopmentModeLeavesTheReleasedDeclarationIntact(t *testing.T) {
 		"targetRevision: 0.1.16",
 		"- name: bundleVersion", // the chart is told what it is
 		`value: "0.1.16"`,       // and told the same version it pulls
-		"$values/clusters/acme-hub/values.yaml",
+		"$values/registry/clusters/acme-hub/values.yaml",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("the released chart source no longer contains %q:\n%s", want, src)

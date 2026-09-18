@@ -40,6 +40,9 @@ type Spec struct {
 	Provider    string
 	Region      string
 	Environment string
+	// Subdomain is the DNS label every hostname on this box sits under, or empty
+	// for the apex. Declared, never derived: see hubDomain.
+	Subdomain string
 	// Workers is how many cloud workers this box starts with.
 	//
 	// A pointer so "not given" is distinguishable from "zero". Zero is a real
@@ -291,11 +294,21 @@ func (s Spec) tenantTokens() map[string]string {
 	}
 }
 
+// RegistryDir is the directory a tenant's clusters and fleets live under.
+//
+// "registry", as in kubefirst, whose gitops repository holds registry/clusters/
+// and registry/environments/ beside a templates/ directory that renders into
+// them. ADR-071 names kubefirst as the reference this platform is measured
+// against, and a directory that means the same thing should be called the same
+// thing -- a reader who knows one should not have to learn the other's names to
+// find the same file.
+const RegistryDir = "registry"
+
 // clusterTokens are facts about ONE cluster, and are substituted only into the
 // instance being hydrated.
 //
 // The templates a tenant keeps must retain them. Substituting them everywhere
-// leaves templates/spoke-cluster hard-coded to the control plane that happened to
+// leaves templates/workload-cluster hard-coded to the control plane that happened to
 // be rendered first, so a tenant adding its second cluster gets a copy of its
 // first -- same name, same environment, same region. The template would still
 // look correct, and the collision would appear as two clusters fighting over one
@@ -304,13 +317,18 @@ func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
 		"<BUNDLE_VERSION>":    s.BundleVersion,
 		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
-		"<HUB_DOMAIN>":        hubDomain(s.Environment, s.Domain),
-		"<CHART_SOURCE>":      s.chartSource(),
-		"<WORKER_COUNT>":      strconv.Itoa(s.workerCount()),
-		"<CLUSTER_NAME>":      s.ClusterName,
-		"<ENVIRONMENT>":       s.Environment,
-		"<CLOUD_PROVIDER>":    s.Provider,
-		"<CLOUD_REGION>":      s.Region,
+		"<HUB_DOMAIN>":        hubDomain(s.Subdomain, s.Domain),
+		// The parts as well as the join: the chart composes from these, and a
+		// person edits them rather than a pre-joined string (kubefirst stores
+		// DomainName and SubdomainName the same way).
+		"<DOMAIN>":         strings.TrimSpace(strings.TrimSuffix(s.Domain, ".")),
+		"<SUBDOMAIN>":      strings.TrimSpace(strings.Trim(s.Subdomain, ".")),
+		"<CHART_SOURCE>":   s.chartSource(),
+		"<WORKER_COUNT>":   strconv.Itoa(s.workerCount()),
+		"<CLUSTER_NAME>":   s.ClusterName,
+		"<ENVIRONMENT>":    s.Environment,
+		"<CLOUD_PROVIDER>": s.Provider,
+		"<CLOUD_REGION>":   s.Region,
 	}
 }
 
@@ -350,7 +368,7 @@ func (s Spec) CapacityWarning() string {
 			"capacity must come from nodes on your own premises.\n\n"+
 			"  Bootstrap it with on-prem nodes:  dispatch with on-prem=true and your tailnet\n"+
 			"  Or give it cloud workers instead: re-scaffold with --workers 2,\n"+
-			"                                    or edit workers in clusters/%s/values.yaml\n\n"+
+			"                                    or edit workers in registry/clusters/%s/values.yaml\n\n"+
 			"Without one of those the bootstrap is refused before anything is built.",
 		s.Environment, s.ClusterName)
 }
@@ -390,17 +408,17 @@ func (s Spec) chartSource() string {
           # the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
           # its enrolment.
-          - $values/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
           # The box's own Infisical organisation and projects. hub-environment
           # renders hub-bootstrap-config from these, and is its only writer.
-          - $values/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
           # The address every public hostname on this box resolves to -- the CAPH
           # control-plane load balancer, which exists only once the cluster does.
           # Day-0 records it here; the hub Gateway and its routes take their
           # external-dns target from it. Without it external-dns finds no target,
           # publishes nothing, and every hub hostname is NXDOMAIN.
-          - $values/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
-          - $values/clusters/` + s.ClusterName + `/values.yaml`
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/values.yaml`
 	}
 	return `repoURL: ` + s.BundleRegistry + `
       chart: environment-manager
@@ -444,17 +462,17 @@ func (s Spec) chartSource() string {
           # the argocd-agent mTLS identities never issue, and
           # the Support Agent can never enrol, because its client certificate IS
           # its enrolment.
-          - $values/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
           # The box's own Infisical organisation and projects. hub-environment
           # renders hub-bootstrap-config from these, and is its only writer.
-          - $values/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
           # The address every public hostname on this box resolves to -- the CAPH
           # control-plane load balancer, which exists only once the cluster does.
           # Day-0 records it here; the hub Gateway and its routes take their
           # external-dns target from it. Without it external-dns finds no target,
           # publishes nothing, and every hub hostname is NXDOMAIN.
-          - $values/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
-          - $values/clusters/` + s.ClusterName + `/values.yaml`
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/values.yaml`
 }
 
 // developmentRevision is the platform branch a development box reads.
@@ -507,12 +525,31 @@ func publicTLSIssuer(environment string) string {
 // tenant's gateway trusted the PLATFORM's Zitadel as its OIDC issuer and fetched
 // signing keys from it -- broken, and the runtime dependency on the vendor that
 // ADR-065 and ADR-066 exist to prevent.
-func hubDomain(environment, domain string) string {
+// hubDomain composes the domain every public hostname on this box derives from.
+//
+// SUBDOMAIN, not environment. It read the environment and returned
+// "<env>.<domain>" unless the environment was prod -- which made the box's DNS a
+// function of its environment, and therefore made the MANAGEMENT cluster have an
+// environment, because it has hostnames. Everything environment-shaped followed
+// from that: the box's Infisical slug, nine packaged chart variants, and a spoke
+// inheriting its hub's environment rather than declaring its own.
+//
+// kubefirst reaches the same "dev.example.com" shape without any of it. Its
+// management cluster has no environment and its platform hostnames carry none
+// (argocd.<domain>, vault.<domain>); an install-wide SubdomainName is applied as
+// fmt.Sprintf("%s.%s", SubdomainName, DomainName), and workloads carry the
+// environment as a name suffix -- metaphor-development.<domain> -- never as a DNS
+// level. ADR-051's amendment of 2026-09-18 adopts that separation.
+//
+// No hostname changes: a box that declared environment dev and now declares
+// subdomain dev publishes exactly what it published before.
+func hubDomain(subdomain, domain string) string {
 	domain = strings.TrimSpace(strings.TrimSuffix(domain, "."))
-	if environment == "" || environment == "prod" {
+	subdomain = strings.TrimSpace(strings.Trim(subdomain, "."))
+	if subdomain == "" {
 		return domain
 	}
-	return environment + "." + domain
+	return subdomain + "." + domain
 }
 
 func (s Spec) allTokens() map[string]string {
@@ -560,9 +597,9 @@ func Render(templateDir, dst string, s Spec) error {
 
 	// Hydrate the control plane from its template, then remove the template that
 	// produced it. It is consumed once, at onboarding; a tenant adding a cluster
-	// later renders templates/spoke-cluster, which is why that one is kept.
-	src := filepath.Join(dst, "templates", "control-plane")
-	if err := copyDir(src, filepath.Join(dst, "clusters", s.ClusterName)); err != nil {
+	// later renders templates/workload-cluster, which is why that one is kept.
+	src := filepath.Join(dst, "templates", "mgmt")
+	if err := copyDir(src, filepath.Join(dst, RegistryDir, "clusters", s.ClusterName)); err != nil {
 		return fmt.Errorf("hydrate control plane: %w", err)
 	}
 	if err := os.RemoveAll(src); err != nil {
@@ -575,7 +612,7 @@ func Render(templateDir, dst string, s Spec) error {
 	if err := substitute(dst, s.tenantTokens(), false); err != nil {
 		return err
 	}
-	if err := substitute(filepath.Join(dst, "clusters", s.ClusterName), s.clusterTokens(), true); err != nil {
+	if err := substitute(filepath.Join(dst, RegistryDir, "clusters", s.ClusterName), s.clusterTokens(), true); err != nil {
 		return err
 	}
 

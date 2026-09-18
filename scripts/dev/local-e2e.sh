@@ -528,7 +528,7 @@ do_scaffold() {
     # `repoURL: https://github.com/...` with a `path:`; a released one renders the
     # OCI chart. Checked here rather than left to the eye, because the bootstrap
     # that follows takes twenty minutes to tell you the same thing.
-    local bundle="$WORKSPACE/$repo/clusters/$CLUSTER/bundle.yaml"
+    local bundle="$WORKSPACE/$repo/registry/clusters/$CLUSTER/bundle.yaml"
     if ! grep -q "ghcr.io/$OWNER/charts" "$bundle"; then
         echo "local-e2e: $bundle does not name the published registry." >&2
         echo "  this is the development shape, not the released one -- re-run the cli phase." >&2
@@ -546,7 +546,7 @@ do_scaffold() {
     #
     # Scaffolding writes the MANAGEMENT cluster; a repository holds one of those
     # and as many workload clusters as it declares, each hydrated from
-    # templates/spoke-cluster (kubefirst's layout). The bundle used to ship a
+    # templates/workload-cluster (kubefirst's layout). The bundle used to ship a
     # SpokePool whose name was a literal, so every box provisioned its workload
     # cluster under the same name -- and the CNPG archive prefix derived from that
     # name collided across boxes, which is why barman refused every WAL with
@@ -799,7 +799,7 @@ workload_clusters() {
 
     if [ -d "$repo/clusters" ]; then
         names=$(yq eval 'select(.kind == "SpokePool") | .metadata.name' \
-                   "$repo"/clusters/*/infrastructure/spokepool.yaml 2>/dev/null \
+                   "$repo"/registry/clusters/*/infrastructure/spokepool.yaml 2>/dev/null \
                  | grep -vx 'null' || true)
     fi
 
@@ -883,9 +883,19 @@ preflight() {
     # for preflight is the question only a scaffolded box can answer: does this
     # domain match the box the run is about to touch?
     if ! wants scaffold; then
+        # Read from `domain`, not `hubDomain`. A box now records the zone and the
+        # label under it as two fields and the chart joins them (ADR-051 amendment
+        # 2026-09-18), so the composed value is no longer in values.yaml at all --
+        # this grep silently matched nothing, and a check that matches nothing
+        # passes, which is how the mismatch it exists to catch would return.
+        #
+        # `domain` is the right half to compare anyway: DOMAIN names the zone.
         local declared=""
-        if [[ -r "$WORKSPACE/$TENANT-gitops/clusters/$CLUSTER/values.yaml" ]]; then
-            declared=$(grep -m1 '^hubDomain:' "$WORKSPACE/$TENANT-gitops/clusters/$CLUSTER/values.yaml" 2>/dev/null | awk '{print $2}')
+        local box_values="$WORKSPACE/$TENANT-gitops/registry/clusters/$CLUSTER/values.yaml"
+        if [[ -r "$box_values" ]]; then
+            declared=$(grep -m1 '^domain:' "$box_values" 2>/dev/null | awk '{print $2}')
+            # A box scaffolded before the split records only the joined value.
+            [[ -z "$declared" ]] && declared=$(grep -m1 '^hubDomain:' "$box_values" 2>/dev/null | awk '{print $2}')
         fi
         # This cost a full bootstrap once: the box kept dev.acme.example while
         # every command carried DOMAIN=<something else>, and nothing said so

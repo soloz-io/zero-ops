@@ -27,7 +27,7 @@ import (
 // the defect this exists to catch.
 func TestRender_RootAppliesEveryObjectInTheClusterDirectory(t *testing.T) {
 	dst := render(t, testSpec())
-	clusterDir := filepath.Join(dst, "clusters", testSpec().ClusterName)
+	clusterDir := filepath.Join(dst, "registry", "clusters", testSpec().ClusterName)
 
 	root := readYAML(t, filepath.Join(clusterDir, "root.yaml"))
 	dir, _ := root["spec"].(map[string]any)["source"].(map[string]any)["directory"].(map[string]any)
@@ -91,14 +91,14 @@ func TestRender_RootAppliesEveryObjectInTheClusterDirectory(t *testing.T) {
 func TestRender_GeneratedApplicationOwnsTheGeneratedDirectory(t *testing.T) {
 	spec := testSpec()
 	dst := render(t, spec)
-	clusterDir := filepath.Join(dst, "clusters", spec.ClusterName)
+	clusterDir := filepath.Join(dst, "registry", "clusters", spec.ClusterName)
 
 	app := readYAML(t, filepath.Join(clusterDir, "generated.yaml"))
 	if app["kind"] != "Application" {
 		t.Fatalf("generated.yaml declares kind %v, want Application", app["kind"])
 	}
 	src, _ := app["spec"].(map[string]any)["source"].(map[string]any)
-	want := "clusters/" + spec.ClusterName + "/generated"
+	want := "registry/clusters/" + spec.ClusterName + "/generated"
 	if got := toStr(src["path"]); got != want {
 		t.Errorf("generated Application path = %q, want %q", got, want)
 	}
@@ -117,7 +117,7 @@ func TestRender_GeneratedApplicationDoesNotDescendIntoValues(t *testing.T) {
 	spec := testSpec()
 	dst := render(t, spec)
 
-	app := readYAML(t, filepath.Join(dst, "clusters", spec.ClusterName, "generated.yaml"))
+	app := readYAML(t, filepath.Join(dst, "registry", "clusters", spec.ClusterName, "generated.yaml"))
 	src, _ := app["spec"].(map[string]any)["source"].(map[string]any)
 	dir, _ := src["directory"].(map[string]any)
 	if dir == nil {
@@ -136,7 +136,7 @@ func TestRender_GeneratedApplicationDoesNotDescendIntoValues(t *testing.T) {
 func TestRender_BundleReadsValuesFromTheValuesDirectory(t *testing.T) {
 	spec := testSpec()
 	dst := render(t, spec)
-	body := read(t, filepath.Join(dst, "clusters", spec.ClusterName, "bundle.yaml"))
+	body := read(t, filepath.Join(dst, "registry", "clusters", spec.ClusterName, "bundle.yaml"))
 
 	for _, f := range []string{"platform-pki-values.yaml", "gateway-dns-target.yaml"} {
 		want := "/generated/values/" + f

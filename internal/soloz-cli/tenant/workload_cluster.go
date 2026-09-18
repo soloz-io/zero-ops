@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// AddWorkloadCluster hydrates templates/spoke-cluster into a tenant repository
+// AddWorkloadCluster hydrates templates/workload-cluster into a tenant repository
 // that already holds a management cluster.
 //
 // One management cluster per repository, as many workload clusters as it
@@ -85,20 +85,20 @@ func (w WorkloadCluster) Add() ([]string, error) {
 			"a name", w.Name)
 	}
 
-	tmpl := filepath.Join(w.GitopsDir, "templates", "spoke-cluster")
+	tmpl := filepath.Join(w.GitopsDir, "templates", "workload-cluster")
 	if _, err := os.Stat(tmpl); err != nil {
 		return nil, fmt.Errorf("no workload-cluster template at %s: this repository was "+
 			"not scaffolded by a version that ships one", tmpl)
 	}
-	mgmtDir := filepath.Join(w.GitopsDir, "clusters", w.MgmtCluster)
+	mgmtDir := filepath.Join(w.GitopsDir, RegistryDir, "clusters", w.MgmtCluster)
 	if _, err := os.Stat(mgmtDir); err != nil {
 		return nil, fmt.Errorf("no management cluster at %s: a workload cluster is created "+
 			"by one, so it must exist first", mgmtDir)
 	}
 
-	dst := filepath.Join(w.GitopsDir, "clusters", w.Name)
+	dst := filepath.Join(w.GitopsDir, RegistryDir, "clusters", w.Name)
 	if _, err := os.Stat(dst); err == nil {
-		return nil, fmt.Errorf("clusters/%s already exists: refusing to overwrite a "+
+		return nil, fmt.Errorf("registry/clusters/%s already exists: refusing to overwrite a "+
 			"declaration that may describe a running cluster", w.Name)
 	}
 
@@ -107,7 +107,7 @@ func (w WorkloadCluster) Add() ([]string, error) {
 	}
 
 	// The Application that creates it belongs to the MANAGEMENT cluster, whose
-	// root Application applies clusters/<mgmt>/ with recurse: false. Moved rather
+	// root Application applies registry/clusters/<mgmt>/ with recurse: false. Moved rather
 	// than copied: left in place it would also be applied by the workload
 	// cluster's own directory, and an Application that creates a cluster,
 	// reconciled by that cluster, is a loop.
@@ -155,8 +155,8 @@ func (w WorkloadCluster) Add() ([]string, error) {
 	}
 
 	return []string{
-		filepath.Join("clusters", w.Name),
-		filepath.Join("clusters", w.MgmtCluster, w.Name+"-infrastructure.yaml"),
+		filepath.Join(RegistryDir, "clusters", w.Name),
+		filepath.Join(RegistryDir, "clusters", w.MgmtCluster, w.Name+"-infrastructure.yaml"),
 	}, nil
 }
 

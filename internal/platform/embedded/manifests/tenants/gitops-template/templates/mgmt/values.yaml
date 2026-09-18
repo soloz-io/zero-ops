@@ -52,7 +52,18 @@ publicTlsIssuer: <PUBLIC_TLS_ISSUER>
 #
 # Change it only alongside the DNS that serves it; the certificates, the OIDC
 # issuer and the JWKS URL all follow this value.
-hubDomain: <HUB_DOMAIN>
+# The zone this box publishes under, and the label it sits at within it.
+#
+# Two fields, not one composed value, which is kubefirst's shape: it stores
+# DomainName and SubdomainName separately on the cluster and joins them at render
+# time. The parts are what a person edits; the join is the chart's to do.
+#
+# subdomain is a plain DNS label and carries no meaning beyond placement. It was
+# derived from the environment, which made the box's DNS a function of its
+# environment and so gave the MANAGEMENT cluster an environment of its own --
+# see ADR-051's amendment of 2026-09-18. Leave it empty to publish on the apex.
+domain: <DOMAIN>
+subdomain: <SUBDOMAIN>
 # Cloud worker nodes this cluster runs.
 #
 # Two by default in every environment. A development box briefly defaulted to

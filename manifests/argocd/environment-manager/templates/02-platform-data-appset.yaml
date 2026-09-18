@@ -26,7 +26,7 @@ spec:
             # (workload-location + matching storage class). The base under
             # hub-core-services/database is provider-neutral and must not be
             # deployed directly. Same convention as
-            # spoke-catalog/environments/<env>/<provider>.
+            # spoke-catalog/providers/<provider>.
             path: 'manifests/hub-core-services/providers/{{ include "environment-manager.placementClass" . }}/database'
             chart: ''
             directoryRecurse: ''
@@ -54,7 +54,7 @@ spec:
             # (workload-location + matching storage class). The base under
             # hub-core-services/redis is provider-neutral and must not be
             # deployed directly. Same convention as
-            # spoke-catalog/environments/<env>/<provider>.
+            # spoke-catalog/providers/<provider>.
             path: 'manifests/hub-core-services/providers/{{ include "environment-manager.placementClass" . }}/redis'
             chart: ''
             directoryRecurse: ''

@@ -141,7 +141,7 @@ for item in payload.get('servers', []) or []:
     # reported, and the caller names it with --spoke.
     if [[ -z "$SPOKEPOOL_NAME" && -d "$ZERO_OPS_DIR/clusters" ]]; then
         local claim
-        for claim in "$ZERO_OPS_DIR"/clusters/*/infrastructure/spokepool.yaml; do
+        for claim in "$ZERO_OPS_DIR"/registry/clusters/*/infrastructure/spokepool.yaml; do
             [[ -f "$claim" ]] || continue
             SPOKEPOOL_NAME=$(python3 -c "
 import yaml, sys
@@ -153,7 +153,7 @@ for d in yaml.safe_load_all(open(sys.argv[1])):
         done
     fi
     if [[ -z "$SPOKEPOOL_NAME" ]]; then
-        log "  no workload cluster declared in $ZERO_OPS_DIR/clusters/ — pass --spoke to name one"
+        log "  no workload cluster declared in $ZERO_OPS_DIR/registry/clusters/ — pass --spoke to name one"
     else
         log "  workload cluster: $SPOKEPOOL_NAME"
     fi

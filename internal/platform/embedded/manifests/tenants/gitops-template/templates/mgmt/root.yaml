@@ -22,7 +22,7 @@ spec:
   source:
     repoURL: <GITOPS_REPO_URL>
     targetRevision: main
-    path: clusters/<CLUSTER_NAME>
+    path: registry/clusters/<CLUSTER_NAME>
     directory:
       # EXCLUDE, not include, and that is the ownership boundary.
       #

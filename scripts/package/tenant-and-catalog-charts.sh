@@ -30,58 +30,66 @@ PY
     echo "packaged $name -> $chart"
 done
 
-# The catalogue is a Kustomize overlay per environment and provider, the same
-# shape as boundary 02's placement classes: the overlay IS the variation, so
-# packaging it keeps the variation intact rather than reconstructing it from
-# values.
-for env_dir in manifests/spoke/spoke-catalog/environments/*/; do
-    env=$(basename "$env_dir")
-    for prov_dir in "$env_dir"*/; do
-        [[ -f "$prov_dir/kustomization.yaml" ]] || continue
-        prov=$(basename "$prov_dir")
-        name="platform-spoke-catalog-${env}-${prov}"
-        chart="$OUTDIR/$name"
-        rm -rf "$chart"; mkdir -p "$chart/files" "$chart/templates"
-        cat > "$chart/Chart.yaml" <<CHART
+# The catalogue is a Kustomize overlay per PROVIDER, the same shape as boundary
+# 02's placement classes: the overlay IS the variation, so packaging it keeps the
+# variation intact rather than reconstructing it from values.
+#
+# Per provider and no longer per environment as well. That axis produced six
+# charts carrying three identical copies of each: cnpg-cluster.yaml and
+# scheduled-backup.yaml matched byte for byte across dev, stg and prod once
+# comments were stripped, and the only files unique to any of them justify
+# themselves by provider -- "on hybrid spokes only", "a pure-Hetzner spoke has no
+# such conflict". They lived under dev/ because dev was the only environment with
+# a hybrid spoke.
+#
+# kubefirst splits platform content by provider and by nothing else; environment
+# directories there hold tenant workloads, which is what ours hold too. ADR-051's
+# amendment of 2026-09-18 removes the environment as an axis of platform content.
+for prov_dir in manifests/spoke/spoke-catalog/providers/*/; do
+    [[ -f "$prov_dir/kustomization.yaml" ]] || continue
+    prov=$(basename "$prov_dir")
+    name="platform-spoke-catalog-${prov}"
+    chart="$OUTDIR/$name"
+    rm -rf "$chart"; mkdir -p "$chart/files" "$chart/templates"
+    cat > "$chart/Chart.yaml" <<CHART
 apiVersion: v2
 name: $name
-description: Spoke catalogue for $env on $prov, packaged from $prov_dir
+description: Spoke catalogue for $prov, packaged from $prov_dir
 type: application
 version: $VERSION
 appVersion: "$VERSION"
 CHART
-        if ! kustomize build --enable-helm "$prov_dir" > "$chart/files/rendered.yaml" 2>"$chart/.err"; then
-            echo "$name: kustomize build failed:" >&2; sed 's/^/  /' "$chart/.err" >&2
-            rm -rf "$chart"; exit 1
-        fi
-        rm -f "$chart/.err"
+    if ! kustomize build --enable-helm "$prov_dir" > "$chart/files/rendered.yaml" 2>"$chart/.err"; then
+        echo "$name: kustomize build failed:" >&2; sed 's/^/  /' "$chart/.err" >&2
+        rm -rf "$chart"; exit 1
+    fi
+    rm -f "$chart/.err"
 
-        # Objects whose content differs per spoke become chart templates; the
-        # rest stays verbatim. As a Kustomize source these were patches on the
-        # Application, and a Helm source cannot carry those (ADR-063).
-        if ! scripts/package/templated-fields.py \
-             manifests/spoke/spoke-catalog/templated-fields.yaml "$chart" \
-             "$chart/files/rendered.yaml"; then
-            rm -rf "$chart"; exit 1
-        fi
+    # Objects whose content differs per spoke become chart templates; the
+    # rest stays verbatim. As a Kustomize source these were patches on the
+    # Application, and a Helm source cannot carry those (ADR-063).
+    if ! scripts/package/templated-fields.py \
+         manifests/spoke/spoke-catalog/templated-fields.yaml "$chart" \
+         "$chart/files/rendered.yaml"; then
+        rm -rf "$chart"; exit 1
+    fi
 
-        # Helm refuses any chart file over 5 MiB, and vendored CRDs put these
-        # well past it. Split at document boundaries so no object is divided.
-        scripts/package/split-rendered.py "$chart/files/rendered.yaml" "$chart/files" >/dev/null
-        rm -f "$chart/files/rendered.yaml"
-        cat > "$chart/templates/content.yaml" <<'TMPL'
+    # Helm refuses any chart file over 5 MiB, and vendored CRDs put these
+    # well past it. Split at document boundaries so no object is divided.
+    scripts/package/split-rendered.py "$chart/files/rendered.yaml" "$chart/files" >/dev/null
+    rm -f "$chart/files/rendered.yaml"
+    cat > "$chart/templates/content.yaml" <<'TMPL'
 {{- range $path, $_ := .Files.Glob "files/*.yaml" }}
 ---
 {{ $.Files.Get $path }}
 {{- end }}
 TMPL
-        # Rendered with the values a cluster supplies, because the templated
-        # objects need them: rendering without would count zero and delete a
-        # chart that is correct.
-        objects=$(helm template "$name" "$chart" \
-            --set spokeName=probe --set global.environmentSlug="$env" \
-            --set global.provider="$prov" 2>/dev/null | grep -c '^kind:' || true)
-        [[ "${objects:-0}" -gt 0 ]] || { echo "$name: renders no objects; refusing" >&2; rm -rf "$chart"; exit 1; }
-        echo "packaged $name -> $chart ($objects object(s))"
-    done
+    # Rendered with the values a cluster supplies, because the templated
+    # objects need them: rendering without would count zero and delete a
+    # chart that is correct.
+    objects=$(helm template "$name" "$chart" \
+        --set spokeName=probe --set global.provider="$prov" \
+        2>/dev/null | grep -c '^kind:' || true)
+    [[ "${objects:-0}" -gt 0 ]] || { echo "$name: renders no objects; refusing" >&2; rm -rf "$chart"; exit 1; }
+    echo "packaged $name -> $chart ($objects object(s))"
 done

@@ -20,6 +20,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/preflight"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/state"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"gopkg.in/yaml.v3"
 )
 
@@ -2393,8 +2394,8 @@ func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
 					"generated/ directory, so its place in the tenant's repository "+
 					"cannot be derived", reg.Artifacts[i].File)
 			}
-			reg.Artifacts[i].File = filepath.Join("clusters", o.ClusterName,
-				"generated", below)
+			reg.Artifacts[i].File = filepath.Join(tenant.RegistryDir, "clusters",
+				o.ClusterName, "generated", below)
 		}
 	}
 	return reg, nil

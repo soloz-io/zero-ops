@@ -27,9 +27,9 @@ EXPECTED = {"hybrid": ("on-prem", "local-path"), "hetzner": ("hetzner", "hcloud-
 # spoke CNPG asked for hcloud-volumes with no nodeSelector at all — the exact
 # condition §11 was written to ban, in the exact file it was written about.
 #   manifests/hub-core-services/providers/<provider>/<component>
-#   manifests/spoke/spoke-catalog/environments/<env>/<provider>
+#   manifests/spoke/spoke-catalog/providers/<provider>
 roots = sorted(glob.glob("manifests/hub-core-services/providers/*/*")) \
-      + sorted(glob.glob("manifests/spoke/spoke-catalog/environments/*/*"))
+      + sorted(glob.glob("manifests/spoke/spoke-catalog/providers/*"))
 if not roots:
     print("NONE")
     raise SystemExit

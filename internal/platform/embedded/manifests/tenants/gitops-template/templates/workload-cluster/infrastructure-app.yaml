@@ -26,7 +26,7 @@ spec:
   source:
     repoURL: <GITOPS_REPO_URL>
     targetRevision: main
-    path: clusters/<CLUSTER_NAME>/infrastructure
+    path: registry/clusters/<CLUSTER_NAME>/infrastructure
   # In-cluster: the SpokePool claim is reconciled by the management cluster's
   # Crossplane, which is what provisions the workload cluster.
   destination:

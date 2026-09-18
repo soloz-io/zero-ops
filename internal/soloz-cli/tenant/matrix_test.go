@@ -78,7 +78,7 @@ func TestEverySupportedCombinationHasAClaimTemplate(t *testing.T) {
 			}
 			seen[p] = true
 			claim := filepath.Join(root, "manifests", "tenants", "gitops-template",
-				"templates", "spoke-cluster", "infrastructure", "spokepool-"+p+".yaml")
+				"templates", "workload-cluster", "infrastructure", "spokepool-"+p+".yaml")
 			if _, err := os.Stat(claim); err != nil {
 				t.Errorf("%s+%s is supported but has no workload-cluster claim template "+
 					"at %s: `soloz tenant add-cluster --provider %s` would refuse, so the "+

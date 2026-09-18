@@ -31,7 +31,7 @@ spec:
   source:
     repoURL: <GITOPS_REPO_URL>
     targetRevision: main
-    path: clusters/<CLUSTER_NAME>/generated
+    path: registry/clusters/<CLUSTER_NAME>/generated
     directory:
       # NOT recursive, and that is the object/values boundary.
       #

@@ -14,7 +14,7 @@
 #
 #   KUBECONFIG_ACME_HUB   read access to the cluster the proposal targets. The
 #                         name is the cluster's own, upper-cased with hyphens
-#                         turned into underscores, so clusters/acme-hub wants
+#                         turned into underscores, so registry/clusters/acme-hub wants
 #                         KUBECONFIG_ACME_HUB.
 #
 # Without it every check reports unverified, which is the honest answer and not
@@ -25,7 +25,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - 'clusters/*/bundle.yaml'
+      - 'registry/clusters/*/bundle.yaml'
 
 permissions:
   contents: read
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha }}"
-          changed=$(git diff --name-only "$base" HEAD -- 'clusters/*/bundle.yaml')
+          changed=$(git diff --name-only "$base" HEAD -- 'registry/clusters/*/bundle.yaml')
           count=$(printf '%s\n' "$changed" | grep -c . || true)
           if [ "$count" -ne 1 ]; then
               # More than one cluster in a single proposal has no single verdict:

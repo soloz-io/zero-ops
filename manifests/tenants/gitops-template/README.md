@@ -10,7 +10,7 @@ everything it describes.
     clusters/<name>/values.yaml              your configuration for it
     environments/<env>/values.yaml           what this fleet is: cell, quotas, hostnames
     environments/<env>/<app>/                the version of one application it runs
-    templates/spoke-cluster/                 render this to add a cluster
+    templates/workload-cluster/                 render this to add a cluster
     templates/fleet/                         render this to add a fleet
     templates/workload/                      render this to run an application
 
@@ -30,7 +30,7 @@ changes nothing about what the platform may do.
 
 ## Adding a cluster
 
-Copy `templates/spoke-cluster/` to `clusters/<name>/`, replace the tokens, commit.
+Copy `templates/workload-cluster/` to `clusters/<name>/`, replace the tokens, commit.
 Your control plane provisions it.
 
 ## Running an application
