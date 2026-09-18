@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"path/filepath"
 )
@@ -54,7 +55,7 @@ func (o *Orchestrator) writeGatewayDNSTarget(ctx context.Context, kubeconfig str
 	// file is a Helm values file consumed through $values -- it has no `kind`,
 	// so applying it fails with "Object 'Kind' is missing". Keeping values in
 	// their own directory is what makes the two impossible to confuse.
-	dir := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, "generated", "values")
+	dir := filepath.Join(o.GitopsDir, tenant.RegistryDir, "clusters", o.ClusterName, "generated", "values")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("cannot create %s: %w", dir, err)
 	}

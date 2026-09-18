@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -233,7 +234,7 @@ func (p *Provisioner) writeClusterToRepo(rendered string) error {
 			"this file describes one cluster rather than the repository")
 	}
 
-	dir := filepath.Join(p.Config.GitopsDir, "clusters", p.Config.ClusterName, "generated")
+	dir := filepath.Join(p.Config.GitopsDir, tenant.RegistryDir, "clusters", p.Config.ClusterName, "generated")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}

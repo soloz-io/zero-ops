@@ -582,7 +582,7 @@ do_scaffold() {
         || return 1
 
     ( cd "$WORKSPACE/$repo" \
-      && git add clusters \
+      && git add registry/clusters \
       && git commit -q -m "feat: declare workload cluster $cell" \
       && git push -q ) || {
         echo "local-e2e: could not commit the workload cluster declaration." >&2
@@ -813,7 +813,7 @@ workload_clusters() {
     local repo="$WORKSPACE/$TENANT-gitops"
     local names=""
 
-    if [ -d "$repo/clusters" ]; then
+    if [ -d "$repo/registry/clusters" ]; then
         names=$(yq eval 'select(.kind == "SpokePool") | .metadata.name' \
                    "$repo"/registry/clusters/*/infrastructure/spokepool.yaml 2>/dev/null \
                  | grep -vx 'null' || true)
