@@ -183,13 +183,35 @@ fi
 # it holds real values, so a correction there reaches nobody else.
 _caller_hub_kubeconfig="${HUB_KUBECONFIG:-}"
 
+# HYBRID_SPOKE_NAME, for exactly the same reason and from the same file.
+#
+# home-lab.env:119 assigns it unconditionally too, and the literal it carries --
+# spoke-pool-hybrid-dev-01 -- is the naming ADR-082 replaced. A workload cluster
+# is now named by the tenant (nutgraf-01), so the assignment silently swapped the
+# caller's spoke for one that does not exist. Every lookup keyed on it then asked
+# about the wrong cluster: the kubeconfig Secret, the join Secret, the node
+# registration.
+#
+# Observed 2026-09-19: step 10e exported HYBRID_SPOKE_NAME=nutgraf-01, the source
+# below replaced it, and the run failed on
+#   secret=spoke-pool-hybrid-dev-01-home-worker-join ... token=MISSING
+# while nutgraf-01-home-worker-join sat in platform-capi, correctly minted and
+# untouched. The message blamed hub-operator for work it had already done.
+#
+# Here and not in the env file because that file is gitignored -- it holds real
+# values, so a correction there reaches nobody else.
+_caller_spoke_name="${HYBRID_SPOKE_NAME:-}"
+
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
 if [[ -n "$_caller_hub_kubeconfig" ]]; then
   HUB_KUBECONFIG="$_caller_hub_kubeconfig"
 fi
-unset _caller_hub_kubeconfig
+if [[ -n "$_caller_spoke_name" ]]; then
+  HYBRID_SPOKE_NAME="$_caller_spoke_name"
+fi
+unset _caller_hub_kubeconfig _caller_spoke_name
 
 # Auto-fetch Tailscale authkey from k8-secrets if not passed via CLI
 DEFAULT_TS_AUTHKEY_FILE="${REPO_ROOT}/k8-secrets/tailscale/authkey"
@@ -495,7 +517,13 @@ try {
 
 # ── Phase 3: Flatcar base VHDX & Ignition ISO bundle preparation ─────────────
 phase_prep_flatcar_and_ignition() {
-  local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3"
+  # NODE_IDX is the registry's GLOBAL index -- it sets the VM's IP and SSH port,
+  # which must be unique across every VM on the host. JOIN_ORDINAL is the node's
+  # position within its OWN cluster, which is how hub-operator keys the join
+  # tokens (node-<i>-token, 1-based per spoke). They are different numbers for
+  # every spoke node, and conflating them asked for a token that was never minted.
+  # $4 is CLUSTER_TARGET, declared further down where it is first used.
+  local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3" JOIN_ORDINAL="${5:-$3}"
   echo "    [3/6] Preparing Flatcar base VHDX & Ignition ISO bundle (${VM_NAME})..."
 
   # 1. Ensure Flatcar base VHDX exists on Windows Host
@@ -693,7 +721,7 @@ EOF
     local JOIN_SECRET_NAME="${HYBRID_SPOKE_NAME}-home-worker-join"
     JOIN_TOKEN=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
       get secret "${JOIN_SECRET_NAME}" -n platform-capi \
-      -o jsonpath="{.data.node-${NODE_IDX}-token}" 2>/dev/null | base64 -d || true)
+      -o jsonpath="{.data.node-${JOIN_ORDINAL}-token}" 2>/dev/null | base64 -d || true)
     CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
       get secret "${JOIN_SECRET_NAME}" -n platform-capi \
       -o jsonpath='{.data.ca-cert-hash}' 2>/dev/null | base64 -d || true)
@@ -702,7 +730,30 @@ EOF
       -o jsonpath="{.data.control-plane-endpoint}" 2>/dev/null | base64 -d || true)
 
     if [[ -z "$JOIN_TOKEN" || -z "$CA_CERT_HASH" || -z "$CONTROL_PLANE_ENDPOINT" ]]; then
-      echo "    ✗ Spoke join credentials not ready on Hub. Wait for hub-operator." >&2
+      # "Wait for hub-operator" was the whole message, and it was usually wrong:
+      # the operator had already written this Secret, just not the key being
+      # asked for. Say which part is missing, because the remedies differ.
+      if [[ -n "$CA_CERT_HASH" && -n "$CONTROL_PLANE_ENDPOINT" && -z "$JOIN_TOKEN" ]]; then
+        local _have
+        _have=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" get secret "${JOIN_SECRET_NAME}" \
+          -n platform-capi -o json 2>/dev/null \
+          | tr ',' '\n' | grep -o '"node-[0-9]*-token"' | tr -d '"' | tr '\n' ' ')
+        echo "    ✗ ${JOIN_SECRET_NAME} exists but has no node-${JOIN_ORDINAL}-token." >&2
+        echo "      It holds: ${_have:-none}" >&2
+        echo "      hub-operator mints one token per entry in the claim's home-workers" >&2
+        echo "      annotation (1-based). This node is spoke worker #${JOIN_ORDINAL} by the" >&2
+        echo "      home-lab.env registry, so the registry declares more spoke workers than" >&2
+        echo "      the claim does." >&2
+        echo "      Fix: list every spoke worker in home-workers in" >&2
+        echo "      registry/clusters/${HYBRID_SPOKE_NAME}/infrastructure/spokepool.yaml," >&2
+        echo "      commit and push, and let hub-operator re-mint." >&2
+      else
+        echo "    ✗ Spoke join credentials not ready on Hub. Wait for hub-operator." >&2
+        echo "      secret=${JOIN_SECRET_NAME} ns=platform-capi" >&2
+        echo "      token=$([[ -n "$JOIN_TOKEN" ]] && echo present || echo MISSING)" \
+             "ca-hash=$([[ -n "$CA_CERT_HASH" ]] && echo present || echo MISSING)" \
+             "endpoint=$([[ -n "$CONTROL_PLANE_ENDPOINT" ]] && echo present || echo MISSING)" >&2
+      fi
       return 1
     fi
   fi
@@ -2028,6 +2079,31 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   # that predate that column.
   CURR_TARGET="$(cluster_for_entry "${NODE_TARGET:-}" "$NODE_IDX")"
 
+  # The node's ordinal WITHIN its own cluster, counted before the --cluster
+  # filter below so it does not depend on which subset this invocation walks.
+  #
+  # NODE_IDX is the registry's global position and must stay that way: it sets
+  # the VM's IP (172.30.0.$((10 + NODE_IDX))) and its SSH port
+  # ($((2220 + NODE_IDX))), which have to be unique across every VM on the host,
+  # hub and spoke alike. But hub-operator mints join tokens per SPOKE, 1-based --
+  # node-<i>-token for i in 1..len(home-workers) -- so it knows nothing of that
+  # global ordering.
+  #
+  # Using NODE_IDX for both asked for the wrong key every time. Registry entry 1
+  # is always the hub (cluster_for_entry's fallback), so a spoke's first worker
+  # is entry 2 and the script looked up node-2-token while the operator had
+  # minted node-1-token. Verified on nutgraf-01, 2026-09-18: the secret held
+  # exactly [ca-cert-hash, control-plane-endpoint, node-1-token] and the run
+  # failed with "Spoke join credentials not ready on Hub. Wait for hub-operator."
+  # -- a message blaming a controller that had done its work 155 minutes earlier.
+  if [[ "$CURR_TARGET" == "hub" ]]; then
+    HUB_ORDINAL=$((${HUB_ORDINAL:-0} + 1))
+    CLUSTER_ORDINAL="$HUB_ORDINAL"
+  else
+    SPOKE_ORDINAL=$((${SPOKE_ORDINAL:-0} + 1))
+    CLUSTER_ORDINAL="$SPOKE_ORDINAL"
+  fi
+
   # --cluster SELECTS which registered nodes to act on; it does not retarget them.
   #
   # It used to overwrite CURR_TARGET, so `--cluster hub` walked every entry in
@@ -2122,7 +2198,7 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
     echo ""
     continue
   fi
-  if ! phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
+  if ! phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET" "$CLUSTER_ORDINAL"; then
     FAILED_NODES+=("${HOSTNAME}")
     echo ""
     continue
