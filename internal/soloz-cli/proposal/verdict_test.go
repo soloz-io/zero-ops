@@ -1,6 +1,7 @@
 package proposal
 
 import (
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,7 +84,7 @@ func TestAFailedFloorSaysHowToResolveIt(t *testing.T) {
 // cluster's own declaration authoritative, and that declaration is bundle.yaml.
 func TestDeclaredVersionReadsTheRepositoryDeclaration(t *testing.T) {
 	dir := t.TempDir()
-	cluster := filepath.Join(dir, "clusters", "acme-hub")
+	cluster := filepath.Join(dir, tenant.RegistryDir, "clusters", "acme-hub")
 	if err := os.MkdirAll(cluster, 0o755); err != nil {
 		t.Fatal(err)
 	}

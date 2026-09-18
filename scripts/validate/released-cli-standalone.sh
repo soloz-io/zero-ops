@@ -45,15 +45,15 @@ if ! out=$(cd "$sandbox" && "$BIN" tenant scaffold --dry-run \
     exit 1
 fi
 
-if [[ ! -f "$sandbox/render/clusters/probe-hub/bundle.yaml" ]]; then
+if [[ ! -f "$sandbox/render/registry/clusters/probe-hub/bundle.yaml" ]]; then
     echo "released-cli-standalone: scaffolding reported success but rendered no" >&2
     echo "cluster; a silent empty render is the failure this check exists for" >&2
     exit 1
 fi
 
-if grep -q "<[A-Z_]*>" "$sandbox/render/clusters/probe-hub/bundle.yaml"; then
+if grep -q "<[A-Z_]*>" "$sandbox/render/registry/clusters/probe-hub/bundle.yaml"; then
     echo "released-cli-standalone: the rendered cluster still carries tokens:" >&2
-    grep -o "<[A-Z_]*>" "$sandbox/render/clusters/probe-hub/bundle.yaml" | sort -u | sed 's/^/  /' >&2
+    grep -o "<[A-Z_]*>" "$sandbox/render/registry/clusters/probe-hub/bundle.yaml" | sort -u | sed 's/^/  /' >&2
     exit 1
 fi
 

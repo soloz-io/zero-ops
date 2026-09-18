@@ -27,6 +27,7 @@ package proposal
 import (
 	"context"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,7 +123,7 @@ func declaredVersion(gitopsDir, cluster string) string {
 	if gitopsDir == "" || cluster == "" {
 		return ""
 	}
-	b, err := os.ReadFile(filepath.Join(gitopsDir, "clusters", cluster, "bundle.yaml"))
+	b, err := os.ReadFile(filepath.Join(gitopsDir, tenant.RegistryDir, "clusters", cluster, "bundle.yaml"))
 	if err != nil {
 		return ""
 	}

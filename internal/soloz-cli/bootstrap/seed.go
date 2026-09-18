@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -495,7 +496,7 @@ func (o *Orchestrator) applyTenantSeed(ctx context.Context, kubeconfig string) e
 	// the root adopts the Application the first apply just created, because they
 	// name the same object.
 	for _, f := range []string{"bundle.yaml", "root.yaml"} {
-		path := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, f)
+		path := filepath.Join(o.GitopsDir, tenant.RegistryDir, "clusters", o.ClusterName, f)
 		seed, err := os.ReadFile(path)
 		if err != nil {
 			// root.yaml postdates the repositories scaffolded before it. A box

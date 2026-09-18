@@ -44,11 +44,11 @@ echo "ADR acceptance — version $VERSION"
 echo
 
 # ── ADR-062: the tenant owns a repository the platform cannot reach ─────────
-bundle="$GITOPS/clusters"/*/bundle.yaml
+bundle="$GITOPS/registry/clusters"/*/bundle.yaml
 if compgen -G "$bundle" >/dev/null; then
     ok ADR-062 "the tenant repository declares its own cluster(s)"
 else
-    no ADR-062 "no clusters/*/bundle.yaml in $GITOPS"
+    no ADR-062 "no registry/clusters/*/bundle.yaml in $GITOPS"
 fi
 
 # ── ADR-063: one artefact, and the bundle names only charts this release
@@ -124,7 +124,7 @@ else
 for cap in database:platform-database:true \
            observability:grafana-alloy:true support:support-agent:false; do
     name="${cap%%:*}" rest="${cap#*:}" app="${rest%%:*}" default="${rest##*:}"
-    want=$(grep -A2 "^  ${name}:" "$GITOPS"/clusters/*/values.yaml 2>/dev/null | grep -m1 'enabled:' | awk '{print $2}')
+    want=$(grep -A2 "^  ${name}:" "$GITOPS"/registry/clusters/*/values.yaml 2>/dev/null | grep -m1 'enabled:' | awk '{print $2}')
     [ -n "$want" ] || want="$default"
     have=$(kc get applications.argoproj.io -A -o name | grep -c "/${app}$")
     if { [ "$want" = "true" ] && [ "$have" -ge 1 ]; } || { [ "$want" = "false" ] && [ "$have" -eq 0 ]; }; then
@@ -161,8 +161,8 @@ if [ -x ./bin/soloz ]; then
         && ok ADR-068 "the CLI declares $VERSION" \
         || no ADR-068 "the CLI declares '${got}', not $VERSION"
 fi
-if grep -q 'chart:' "$GITOPS"/clusters/*/bundle.yaml 2>/dev/null \
-   && ! grep -q 'path: manifests' "$GITOPS"/clusters/*/bundle.yaml 2>/dev/null; then
+if grep -q 'chart:' "$GITOPS"/registry/clusters/*/bundle.yaml 2>/dev/null \
+   && ! grep -q 'path: manifests' "$GITOPS"/registry/clusters/*/bundle.yaml 2>/dev/null; then
     ok ADR-068 "the bundle is in published-chart shape, not a repository path"
 else
     no ADR-068 "the bundle names a repository path; this is a development build"

@@ -3,6 +3,7 @@ package components
 import (
 	"context"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,7 +202,7 @@ func (i *Installer) InstallInfisicalAuthFromInfisical(ctx context.Context) (bool
 				"the tenant repository: no cluster name, and these artifacts belong to " +
 				"one cluster rather than to the repository")
 		}
-		configPath = filepath.Join(projectRoot, "clusters", i.ClusterName, "generated", "values", "infisical-identity.yaml")
+		configPath = filepath.Join(projectRoot, tenant.RegistryDir, "clusters", i.ClusterName, "generated", "values", "infisical-identity.yaml")
 	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return false, fmt.Errorf("failed to create %s: %w", filepath.Dir(configPath), err)
