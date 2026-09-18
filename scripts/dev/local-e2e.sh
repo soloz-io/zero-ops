@@ -13,8 +13,8 @@
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean           # tear the last run down
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean publish cli scaffold bootstrap
 #
-# Phases: clean  publish  cli  scaffold  bootstrap  workload  verify  adr
-#         (default: the last five. `clean` is opt-in: it destroys a running
+# Phases: clean  publish  cli  escrow  scaffold  bootstrap  workload  verify  adr
+#         (default: all but clean. `clean` is opt-in: it destroys a running
 #          cluster and deletes a GitHub repository, so it is never implied.)
 #
 # Credentials are read from k8-secrets/, one file per credential, never prompted
@@ -113,12 +113,12 @@ phases=()
 for arg in "$@"; do
     case "$arg" in
         --dry|--skip-push) DRY=1 ;;
-        clean|publish|cli|scaffold|bootstrap|workload|verify|adr) phases+=("$arg") ;;
+        clean|publish|cli|escrow|scaffold|bootstrap|workload|verify|adr) phases+=("$arg") ;;
         -h|--help) usage 0 ;;
         *) echo "unknown argument: $arg" >&2; usage 1 ;;
     esac
 done
-[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap workload verify adr)
+[ ${#phases[@]} -gt 0 ] || phases=(publish cli escrow scaffold bootstrap workload verify adr)
 
 wants() { printf '%s\n' "${phases[@]}" | grep -qx "$1"; }
 say()   { printf '\n\033[1m[local-e2e] %s\033[0m\n' "$*"; }
@@ -158,8 +158,15 @@ load_credentials() {
     # produces an operator that attempts a backup every reconcile and fails.
     ESCROW_URL="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_URL" \
         "the escrow Infisical URL" "https://app.infisical.com")"
+    # Read AFTER the escrow phase has had its chance to create it, because that
+    # phase is what produces this file. Demanded up front it would refuse every
+    # first run of a new tenant -- the value does not exist until the project is
+    # created, and creating it is the point of the phase.
+    #
+    # Still required: load_credentials is called again below, and a run reaching
+    # scaffold without it stops there.
     ESCROW_PROJECT_ID="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_PROJECT_ID" \
-        "the escrow project id")"
+        "the escrow project id" "${ESCROW_PROJECT_ID_OPTIONAL:-}")"
     ESCROW_CLIENT_ID="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_ID" \
         "the escrow machine identity client id")"
     ESCROW_CLIENT_SECRET="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
@@ -458,6 +465,41 @@ workspace_is_clear() {
     echo "  Clear both and re-run:" >&2
     echo "    ./scripts/dev/local-e2e.sh $VERSION $suggested" >&2
     return 1
+}
+
+# The escrow project this tenant's boxes back up to.
+#
+# Before scaffold, because scaffold verifies the escrow and refuses a box whose
+# escrow does not work -- and the thing it verifies is what this creates.
+#
+# Idempotent by the id file, which is the record of what exists. An Infisical
+# project is not a box: it belongs to the tenant, outlives every cluster built
+# against it, and holds the master keys of any box still running. Creating a
+# second one per run would leave those keys reachable by nothing, which is why
+# `soloz escrow init` refuses an id that is already recorded. This skips instead,
+# the same way a completed bootstrap phase does.
+#
+# What stays manual is the Infisical ACCOUNT and its first machine identity. That
+# cannot be otherwise: the escrow account is the tenant's and the platform holds
+# no credential to it (ADR-076). It is one-time per tenant, not per box.
+do_escrow() {
+    local id_file="$SECRETS/infisical/INFISICAL_ESCROW_PROJECT_ID"
+
+    if [ -s "$id_file" ]; then
+        echo "[local-e2e] escrow project already recorded: $(cat "$id_file")"
+        return 0
+    fi
+
+    say "creating the escrow project for $TENANT"
+    "$ROOT/bin/soloz" escrow init \
+        --url "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_URL" \
+                   "the escrow Infisical URL" "https://app.infisical.com")" \
+        --client-id "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_ID" \
+                         "the escrow machine identity client id")" \
+        --client-secret "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
+                             "the escrow machine identity client secret")" \
+        --name "soloz-escrow-$TENANT" \
+        --out "$SECRETS/infisical"
 }
 
 do_scaffold() {
@@ -817,7 +859,14 @@ fi
 # published rather than after -- a version spent on a run that could not finish is
 # a version that cannot be reused (ADR-063).
 if wants scaffold || wants bootstrap || wants clean; then
+    # The escrow project id is the one value a run may legitimately not have yet:
+    # the escrow phase creates it. Tolerated here so that phase can run, and
+    # demanded again after it, where its absence is a real failure.
+    if wants escrow; then
+        ESCROW_PROJECT_ID_OPTIONAL="pending"
+    fi
     load_credentials
+    unset ESCROW_PROJECT_ID_OPTIONAL
 fi
 
 # Every requested phase's preconditions, checked before the first one runs.
@@ -894,8 +943,14 @@ preflight() {
 
 preflight
 
-for p in clean publish cli scaffold bootstrap workload verify adr; do
+for p in clean publish cli escrow scaffold bootstrap workload verify adr; do
     wants "$p" && "do_$p"
+    # The escrow phase writes the project id that scaffold is about to use, so the
+    # credentials are re-read once it has run. Without this the run would carry
+    # the placeholder it was started with and hand a box an escrow id of "pending".
+    if [ "$p" = escrow ] && wants escrow && { wants scaffold || wants bootstrap; }; then
+        load_credentials
+    fi
 done
 
 say "done: $VERSION"

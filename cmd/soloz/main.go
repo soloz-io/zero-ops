@@ -32,6 +32,7 @@ func main() {
 	rootCmd.AddCommand(newKubeconfigCmd())
 	rootCmd.AddCommand(newTenantCmd())
 	rootCmd.AddCommand(newBundleVersionCmd())
+	rootCmd.AddCommand(newEscrowCmd())
 	rootCmd.AddCommand(newProposalCmd())
 	rootCmd.AddCommand(newSupportCmd())
 

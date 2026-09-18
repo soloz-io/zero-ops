@@ -69,7 +69,7 @@ e2e:
 # so is the confirmation; nothing about `make e2e` should be able to reach it.
 e2e-fresh:
 	@test -n "$(VERSION)" || { echo "usage: make e2e-fresh VERSION=0.1.16-rc.4"; exit 1; }
-	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli scaffold bootstrap workload verify adr
+	./scripts/dev/local-e2e.sh "$(VERSION)" clean publish cli escrow scaffold bootstrap workload verify adr
 
 # The workload cluster alone, against a management cluster that already exists.
 #
