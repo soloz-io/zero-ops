@@ -1862,6 +1862,44 @@ phase_prep_binaries
 while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS DISK_GB <&3; do
   [[ -z "$SSH_TARGET" ]] && continue
   NODE_IDX=$((NODE_IDX + 1))
+
+  # A host may be reachable at more than one address, and which one answers is
+  # not ours to decide.
+  #
+  # The registry field takes a comma-separated list -- user@a,user@b -- and the
+  # first that accepts a TCP connection on its ssh port wins. Everything below
+  # then uses that one address, so no other code has to know a list was possible.
+  #
+  # A workstation on DHCP changes address, and it changed: the Lenovo was
+  # recorded at .12 on 2026-09-14 with a note that .11 "does not respond", and by
+  # 2026-09-18 .12 refused connections while .11 answered. The provisioner tried
+  # the one address it had been given, six times over thirty seconds, and failed
+  # the whole bootstrap phase on a machine that was up the entire time.
+  #
+  # Probing the PORT rather than pinging: these hosts drop ICMP, so both
+  # addresses look dead to ping while one of them is serving ssh.
+  if [[ "$SSH_TARGET" == *,* ]]; then
+    _resolved=""
+    IFS=',' read -r -a _cands <<< "$SSH_TARGET"
+    for _c in "${_cands[@]}"; do
+      _c="${_c#"${_c%%[![:space:]]*}"}"       # trim leading space
+      [[ -z "$_c" ]] && continue
+      _chost="${_c#*@}"
+      if nc -z -G 3 "$_chost" 22 >/dev/null 2>&1; then
+        _resolved="$_c"
+        break
+      fi
+    done
+    if [[ -n "$_resolved" ]]; then
+      [[ "$_resolved" != "${_cands[0]}" ]] &&
+        echo "    note: ${_cands[0]} is not answering; using ${_resolved}"
+      SSH_TARGET="$_resolved"
+    else
+      # None answered. Keep the first so the reachability gate below reports a
+      # real ssh error against a real address rather than a list.
+      SSH_TARGET="${_cands[0]}"
+    fi
+  fi
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
 
   # Per-node capacity: registry fields are the DEFAULT; CLI flags override.
