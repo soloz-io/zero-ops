@@ -499,6 +499,8 @@ do_escrow() {
         --client-secret "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
                              "the escrow machine identity client secret")" \
         --name "soloz-escrow-$TENANT" \
+        --owner-email "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_OWNER_EMAIL" \
+                           "the Infisical account that should own the escrow project")" \
         --out "$SECRETS/infisical"
 }
 

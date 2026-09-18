@@ -16,6 +16,7 @@ var (
 	escrowClientSecret string
 	escrowProjectName  string
 	escrowOut          string
+	escrowOwnerEmail   string
 )
 
 // newEscrowCmd creates this tenant's escrow project.
@@ -63,8 +64,14 @@ one fewer thing to get wrong.`,
 	f.StringVar(&escrowProjectName, "name", "", "project name (required)")
 	f.StringVar(&escrowOut, "out", "k8-secrets/infisical",
 		"directory holding INFISICAL_ESCROW_* files")
+	// The person who must be able to open the escrow. Infisical adds only the
+	// creating actor to a project, so a project created by a machine identity has
+	// no human members and does not appear in anyone's project list -- an escrow
+	// only a machine can open is one more credential to lose.
+	f.StringVar(&escrowOwnerEmail, "owner-email", "",
+		"the Infisical account that should own this project (required)")
 
-	for _, required := range []string{"client-id", "client-secret", "name"} {
+	for _, required := range []string{"client-id", "client-secret", "name", "owner-email"} {
 		_ = cmd.MarkFlagRequired(required)
 	}
 	return cmd
@@ -85,7 +92,8 @@ func runEscrowInit(cmd *cobra.Command, args []string) error {
 			idPath, strings.TrimSpace(string(existing)))
 	}
 
-	projectID, err := escrow.EnsureProject(ctx, escrowURL, escrowClientID, escrowClientSecret, escrowProjectName)
+	projectID, err := escrow.EnsureProject(ctx, escrowURL, escrowClientID, escrowClientSecret,
+		escrowProjectName, escrowOwnerEmail)
 	if err != nil {
 		return err
 	}
@@ -109,6 +117,7 @@ func runEscrowInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("✓ escrow project %q created: %s\n", escrowProjectName, projectID)
 	fmt.Printf("  written to %s/\n", escrowOut)
+	fmt.Printf("  %s can open it at %s\n", escrowOwnerEmail, escrowURL)
 	fmt.Println("  Scaffolding reads these; nothing else to supply.")
 	return nil
 }

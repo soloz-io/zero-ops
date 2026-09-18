@@ -11,11 +11,20 @@ import (
 	"time"
 )
 
-// pathProjects creates a project. Verified against the Infisical source in
-// reference-projects/infisical: backend/src/server/routes/v1/project-router.ts
-// serves POST /api/v1/workspace, accepts AuthMode.IDENTITY_ACCESS_TOKEN, and its
-// body takes projectName and a ProjectType that defaults to SecretManager.
-const pathProjects = "/api/v1/workspace"
+// pathProjects creates a project.
+//
+// /projects, not /workspace. routes/v1/index.ts registers TWO project routers:
+// registerDeprecatedProjectRouter under prefix "/workspace", and
+// registerProjectRouter -- the one serving POST / with a ProjectType body --
+// under prefix "/projects". Reading project-router.ts alone shows `url: "/"` and
+// says nothing about where it is mounted, and the deprecated path is the one
+// that looks familiar, so the first attempt used /api/v1/workspace and got
+//
+//	404 Route POST:/api/v1/workspace not found
+//
+// The handler accepts AuthMode.IDENTITY_ACCESS_TOKEN and takes projectName with
+// a ProjectType defaulting to SecretManager.
+const pathProjects = "/api/v1/projects"
 
 // projectTypeSecretManager is the only type an escrow can use.
 //
@@ -50,17 +59,19 @@ const projectTypeSecretManager = "secret-manager"
 // the keys that decrypt its secret store, and continuing would reproduce exactly
 // the state ADR-076 exists to prevent -- one that behaves identically for months
 // and differs only on the day the cluster is gone.
-func EnsureProject(ctx context.Context, url, clientID, clientSecret, projectName string) (string, error) {
+func EnsureProject(ctx context.Context, url, clientID, clientSecret, projectName, ownerEmail string) (string, error) {
 	url = strings.TrimSpace(url)
 	clientID = strings.TrimSpace(clientID)
 	clientSecret = strings.TrimSpace(clientSecret)
 	projectName = strings.TrimSpace(projectName)
+	ownerEmail = strings.TrimSpace(ownerEmail)
 
 	for name, v := range map[string]string{
 		"escrow URL":    url,
 		"client id":     clientID,
 		"client secret": clientSecret,
 		"project name":  projectName,
+		"owner email":   ownerEmail,
 	} {
 		if v == "" {
 			return "", fmt.Errorf("cannot create the escrow project: no %s", name)
@@ -139,5 +150,61 @@ func EnsureProject(ctx context.Context, url, clientID, clientSecret, projectName
 		return "", fmt.Errorf("the escrow created %q as type %q, and an escrow needs %q",
 			projectName, out.Project.Type, projectTypeSecretManager)
 	}
+
+	if err := e.addProjectMember(ctx, out.Project.ID, ownerEmail); err != nil {
+		return "", err
+	}
 	return out.Project.ID, nil
+}
+
+// addProjectMember gives a person access to the project the identity created.
+//
+// Infisical adds the CREATING actor as admin and nobody else, so a project
+// created by a machine identity has no human members at all -- and a project you
+// are not a member of does not appear in your project list. The first one
+// created this way was correct in every respect and invisible in the UI, which
+// reads exactly like a failure.
+//
+// For an escrow that is not cosmetic. It holds the keys that decrypt a box's
+// secret store and the credential that reaches its API server, and it is read on
+// the day the cluster is gone. An escrow only a machine identity can open is one
+// more credential to lose -- the same category as the thing it protects. ADR-076
+// says the account is the tenant's and the tenant may revoke access without
+// asking; neither is true of a project the tenant cannot see.
+func (e *infisicalEscrow) addProjectMember(ctx context.Context, projectID, email string) error {
+	payload, err := json.Marshal(map[string]interface{}{
+		"emails":    []string{email},
+		"usernames": []string{},
+		"roleSlugs": []string{"admin"},
+	})
+	if err != nil {
+		return fmt.Errorf("build the membership request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s%s/%s/memberships", e.baseURL, pathProjects, projectID),
+		bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build the membership request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+e.token)
+
+	resp, err := e.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("reach %s to grant %s access: %w", e.baseURL, email, err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("project %s was created, and %s could not be added to it "+
+			"(%d): %s\n\n"+
+			"The project exists and the escrow would work, but no person can open it --\n"+
+			"which is the one thing an escrow is for. Add %s to project %s by hand, or\n"+
+			"delete the project and re-run once the identity can invite members.",
+			projectID, email, resp.StatusCode, strings.TrimSpace(string(raw)),
+			email, projectID)
+	}
+	return nil
 }

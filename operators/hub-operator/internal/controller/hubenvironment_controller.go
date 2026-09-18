@@ -971,9 +971,21 @@ func (r *HubEnvironmentReconciler) reconcileEscrow(ctx context.Context, store es
 }
 
 func (r *HubEnvironmentReconciler) escrowKubeconfig(ctx context.Context, store escrow.EscrowClient, clusterID string) error {
+	// UncachedClient, because the cache strips Secret payloads.
+	//
+	// cmd/main.go installs a cache transform that removes .data from every Secret
+	// except those labelled managed-by=zero-ops-hub-cli, to cut memory ~90%, and
+	// its own comment records the consequence: "Operational secrets also use
+	// UncachedClient". This read did not, so it found the CAPI kubeconfig secret,
+	// saw an empty .data, and reported "carries no kubeconfig under .data.value"
+	// about a secret holding 7440 bytes of exactly that.
+	//
+	// It was survivable while escrowing the kubeconfig was best-effort. It is not
+	// now: the reconcile returns the error, so the admin kubeconfig is never
+	// escrowed and HubEnvironment never advances past it.
 	var secret corev1.Secret
 	key := types.NamespacedName{Name: clusterID + "-kubeconfig", Namespace: "platform-capi"}
-	if err := r.Get(ctx, key, &secret); err != nil {
+	if err := r.UncachedClient.Get(ctx, key, &secret); err != nil {
 		return fmt.Errorf("read %s: %w", key, err)
 	}
 
