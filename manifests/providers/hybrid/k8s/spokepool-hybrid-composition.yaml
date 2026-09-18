@@ -71,6 +71,15 @@ spec:
                         provider: hybrid
                         take-along-label.capi-to-argocd.spoke-type: ""
                         take-along-label.capi-to-argocd.cell-id: ""
+                        # The workload cluster's own environment, carried to the ArgoCD cluster
+                        # Secret so the spoke catalogue reads it there.
+                        #
+                        # The ApplicationSet cluster generator sees only what is on that Secret,
+                        # so a label the composition does not take along resolves to the empty
+                        # string -- silently, and worse than inheriting the hub's, because an
+                        # empty environmentSlug points the spoke's secret store at no
+                        # environment at all.
+                        take-along-label.capi-to-argocd.environment: ""
                         take-along-label.capi-to-argocd.provider: ""
                         take-along-label.capi-to-argocd.argocd-agent.argoproj-labs.io/agent-name: ""
                     spec:
@@ -169,6 +178,11 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.labels.cell-id
+              # The claim's environment onto the CAPI Cluster; the take-along above
+              # then carries it to the ArgoCD cluster Secret.
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.labels.environment
+                toFieldPath: spec.forProvider.manifest.metadata.labels.environment
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: spec.forProvider.manifest.metadata.labels["argocd-agent.argoproj-labs.io/agent-name"]

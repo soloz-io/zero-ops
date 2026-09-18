@@ -1,7 +1,7 @@
 # The Application that CREATES the workload cluster <CLUSTER_NAME>.
 #
 # THIS FILE IS HYDRATED INTO THE MANAGEMENT CLUSTER'S DIRECTORY, not into
-# clusters/<CLUSTER_NAME>/. Everything else in this template describes what runs
+# registry/clusters/<CLUSTER_NAME>/. Everything else in this template describes what runs
 # ON the workload cluster and is addressed to it; this one describes bringing it
 # into being, and only the management cluster can do that -- the workload cluster
 # does not exist yet to reconcile its own creation.

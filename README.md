@@ -134,17 +134,23 @@ Zero-Ops runs nothing during this and holds no credential involved in it.
 
 ```
 acme-gitops
-├── clusters/acme-hub/
-│   ├── bundle.yaml            the platform version this cluster runs
-│   ├── values.yaml            what differs from the bundle's defaults
-│   └── generated.yaml         applies what Day-0 writes, once it has
-├── templates/spoke-cluster/   the mould for the next cluster
-├── renovate.json              how upgrade proposals arrive
-├── TOKENS.md                  what the template's placeholders mean
-└── .github/workflows/         how a cluster is bootstrapped
+├── registry/clusters/acme/
+│   ├── bundle.yaml                 the platform version this cluster runs
+│   ├── values.yaml                 what differs from the bundle's defaults
+│   └── generated.yaml              applies what Day-0 writes, once it has
+├── registry/environments/          a fleet's applications, per environment
+├── templates/workload-cluster/     the mould for the next cluster
+├── renovate.json                   how upgrade proposals arrive
+├── TOKENS.md                       what the template's placeholders mean
+└── .github/workflows/              how a cluster is bootstrapped
 ```
 
-Bootstrapping adds `clusters/acme-hub/generated/` and commits it: the facts that
+The directory names are kubefirst's (ADR-071): `registry/clusters/<name>` and
+`registry/environments/<env>` beside a `templates/` that renders into them. A
+reader who knows one should not have to learn the other's names to find the same
+file.
+
+Bootstrapping adds `registry/clusters/acme/generated/` and commits it: the facts that
 do not exist until Day-0 runs — the Infisical coordinates, the control-plane
 address. They belong to the tenant, so they live here rather than with the
 platform.
@@ -163,7 +169,7 @@ A tenant that wants the fast path enables auto-merge on that repository.
 
 ### Adding a cluster
 
-A spoke is a declaration, not a command. Copy `templates/spoke-cluster/` into `clusters/<name>/`, fill in its values, and commit. The control plane already running in the box provisions it and keeps it in that state.
+A workload cluster is a declaration, not a command. `soloz tenant add-cluster` renders `templates/workload-cluster/` into `registry/clusters/<name>/`; commit it. The control plane already running in the box provisions it and keeps it in that state.
 
 There is no second mechanism for this: the thing that keeps a cluster in its desired state is the thing that creates it.
 

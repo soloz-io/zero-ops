@@ -146,7 +146,7 @@ command instead of dispatching the workflow.
 loop exists to make:
 
 ```bash
-grep -A3 repoURL acme-gitops/clusters/acme-hub/bundle.yaml
+grep -A3 repoURL acme-gitops/registry/clusters/acme/bundle.yaml
 ```
 
 Expect `ghcr.io/soloz-io/charts`, a `chart:` key, and a `bundleVersion` parameter
