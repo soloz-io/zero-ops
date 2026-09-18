@@ -221,7 +221,10 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return fmt.Errorf("bootstrap create failed: %w", err)
 	}
 
-	kubeconfig, bootstrapCtx := o.kubeconfigPaths(bs)
+	kubeconfig, bootstrapCtx, err := o.kubeconfigPaths(bs)
+	if err != nil {
+		return err
+	}
 
 	// ── Phase 3: Day-0 infrastructure ─────────────────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseDayZero, "day0-infra",
@@ -326,7 +329,17 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// Still ahead of pivot-move, so the seed exists before CAPI moves in.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseArgoCDInstall, "argocd-install",
 		"Installing ArgoCD + seed on hub...",
-		func() error { return o.installArgoCDAndSeed(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
+		// resolveHubKubeconfig, not a bare hubKubeconfigFromBootstrap: this phase
+		// normally runs pre-pivot, where the bootstrap cluster holds the CAPI
+		// secret -- but a resumed run that has already pivoted has no bootstrap
+		// cluster left, and the lookup correctly returns "". bs.MgmtKubeconfig
+		// names the hub directly in that case. Same authority, same reasoning as
+		// on-prem-join above; passing the raw lookup here handed installArgoCDAndSeed
+		// an empty string, which kubectl tolerates by silently reading $KUBECONFIG
+		// while client-go does not -- so ArgoCD installed against one cluster and
+		// the GitHub-secret step below it failed with "no configuration has been
+		// provided".
+		func() error { return o.installArgoCDAndSeed(ctx, resolveHubKubeconfig()) },
 		nil,
 	); err != nil {
 		return err
@@ -936,32 +949,53 @@ func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrap
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		fmt.Printf("[on-prem-join] reading %s-kubeconfig from the bootstrap cluster: %v\n",
+		// [bootstrap] and not a phase name: this is called from on-prem-join and
+		// from argocd-install, and a message naming the wrong one sends the reader
+		// to the wrong place in the log.
+		fmt.Printf("[bootstrap] reading %s-kubeconfig from the bootstrap cluster: %v\n",
 			o.ClusterName, err)
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			fmt.Printf("[on-prem-join]   kubectl: %s\n", msg)
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			fmt.Printf("[bootstrap]   kubectl: %s\n", msg)
+		}
+		// A refused connection to 127.0.0.1 is the kind cluster's API on a port
+		// that has moved. kind binds a random host port, so destroying and
+		// recreating a cluster of the same name gives it a new one -- and the
+		// context in the kubeconfig still names the old. Observed on 2026-09-18:
+		// the container was on 62015 while the context said 63123.
+		//
+		// Named because the remedy is one command and nothing else in the output
+		// suggests it, and because the phase that follows -- pivot-move -- cannot
+		// fall back the way this caller does. It must reach the bootstrap cluster
+		// to move CAPI off it, so a stale port that merely looks cosmetic here
+		// stops the run there.
+		if strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host") {
+			fmt.Printf("[bootstrap]   The bootstrap cluster's API is not where the kubeconfig says.\n")
+			fmt.Printf("[bootstrap]   kind binds a random host port and a recreated cluster gets a\n")
+			fmt.Printf("[bootstrap]   new one. Re-point the context and re-run:\n")
+			fmt.Printf("[bootstrap]       kind export kubeconfig --name %s\n", o.ClusterName)
 		}
 		return ""
 	}
 	if len(out) == 0 {
-		fmt.Printf("[on-prem-join] secret %s/%s-kubeconfig exists but carries no .data.value\n",
+		fmt.Printf("[bootstrap] secret %s/%s-kubeconfig exists but carries no .data.value\n",
 			constants.NamespaceCAPI, o.ClusterName)
 		return ""
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(string(out))
 	if err != nil {
-		fmt.Printf("[on-prem-join] %s-kubeconfig is not valid base64: %v\n", o.ClusterName, err)
+		fmt.Printf("[bootstrap] %s-kubeconfig is not valid base64: %v\n", o.ClusterName, err)
 		return ""
 	}
 
 	path := filepath.Join("k8-secrets", "kubeconfig", o.ClusterName+".kubeconfig")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		fmt.Printf("[on-prem-join] cannot create %s: %v\n", filepath.Dir(path), err)
+		fmt.Printf("[bootstrap] cannot create %s: %v\n", filepath.Dir(path), err)
 		return ""
 	}
 	if err := os.WriteFile(path, decoded, 0o600); err != nil {
-		fmt.Printf("[on-prem-join] cannot write %s: %v\n", path, err)
+		fmt.Printf("[bootstrap] cannot write %s: %v\n", path, err)
 		return ""
 	}
 
@@ -1322,7 +1356,8 @@ func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.Bootstra
 	// localhost:8080, and the run dies three phases later on a connection
 	// refused that names neither the file nor the reason. Checked once, here,
 	// where the cause is still visible.
-	if _, err := pinKubeconfig(kubeconfig, bs.BootstrapContext); err != nil {
+	pinned, err := pinKubeconfig(kubeconfig, bs.BootstrapContext)
+	if err != nil {
 		return fmt.Errorf("the bootstrap cluster was created but context %q is not "+
 			"in %s.\n\nkind writes to $KUBECONFIG when it is set, so an exported "+
 			"KUBECONFIG pointing somewhere else puts the context there while every "+
@@ -1331,10 +1366,24 @@ func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.Bootstra
 			bs.BootstrapContext, kubeconfig, err)
 	}
 
-	// Recorded now that the check above has proven the context is in this file.
-	// Every later phase reads this rather than resolving the ambient $KUBECONFIG
-	// again, which by then names the hub.
-	bs.BootstrapKubeconfig = kubeconfig
+	// The PINNED copy is recorded, never the file it was read from.
+	//
+	// Recording the source looked equivalent and was not. hub-bootstrap.sh exports
+	// KUBECONFIG to k8-secrets/kubeconfig/<cluster>.kubeconfig whenever that file
+	// already exists -- so on a resumed run kind merged kind-<cluster> INTO the
+	// hub's kubeconfig, the check above passed against it, and that path was
+	// recorded. pivot-move then calls SaveKubeconfig, which os.WriteFile()s the
+	// same path with the hub's kubeconfig: a whole-file overwrite, not a merge.
+	// The context this check just proved was destroyed by a later phase of the
+	// same run, and every run afterwards resolved the hub for questions about the
+	// bootstrap cluster -- "namespaces platform-capi not found", with a healthy
+	// kind cluster sitting right there.
+	//
+	// pinKubeconfig's output is ours: $TMPDIR/hub-bootstrap-<context>.kubeconfig,
+	// named for the context, written by nothing else in the pipeline. Recording a
+	// path the pipeline itself rewrites is the defect; recording one it does not
+	// touch is the fix.
+	bs.BootstrapKubeconfig = pinned
 
 	// Create platform-capi namespace
 	nsMgr := &NamespaceManager{
@@ -1379,6 +1428,22 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // (same mechanism as on-prem-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
+	// An empty kubeconfig is refused, never passed on.
+	//
+	// The two consumers below disagree about what "" means. Every kubectl call
+	// treats --kubeconfig "" as unset and falls back to $KUBECONFIG, so ArgoCD
+	// installs -- somewhere. client-go's loader, which the GitHub-credential step
+	// uses, rejects it: "invalid configuration: no configuration has been
+	// provided". The observable result was a phase that reported ArgoCD installed
+	// and a boundary activated, then failed two steps later with a message about
+	// configuration that named nothing. Refusing here says which lookup failed,
+	// before anything has been installed against an unknown cluster.
+	if strings.TrimSpace(kubeconfig) == "" {
+		return fmt.Errorf("no hub kubeconfig: neither the CAPI secret %s-kubeconfig in "+
+			"the bootstrap cluster nor the pivot-recorded management kubeconfig could be "+
+			"read. The lines above name which one failed and why", o.ClusterName)
+	}
+
 	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
@@ -2088,7 +2153,7 @@ func defaultKubeconfigPath() string {
 // Pinning here rather than at each call site is deliberate: a path that names
 // one cluster cannot be used against another, while a --context argument has to
 // be remembered twenty-three times and is silently absent when it is not.
-func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string) {
+func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string, error) {
 	// The file recorded when the bootstrap cluster was created is the authority.
 	//
 	// Resolving the ambient $KUBECONFIG instead answered a bootstrap-cluster
@@ -2103,7 +2168,8 @@ func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string
 	//
 	// Empty only before the cluster has been created, where there is nothing
 	// recorded yet and the ambient value is what kind itself will write to.
-	kubeconfig := bs.BootstrapKubeconfig
+	recorded := bs.BootstrapKubeconfig
+	kubeconfig := recorded
 	if kubeconfig == "" {
 		kubeconfig = defaultKubeconfigPath()
 	}
@@ -2114,13 +2180,39 @@ func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string
 	if ctx == "" {
 		ctx = "kind-" + o.ClusterName
 	}
-	if pinned, err := pinKubeconfig(kubeconfig, ctx); err == nil {
-		return pinned, ctx
+	pinned, err := pinKubeconfig(kubeconfig, ctx)
+	if err == nil {
+		return pinned, ctx, nil
 	}
-	// The context may not exist yet -- the bootstrap cluster is created later in
-	// the run. Returning the unpinned path keeps that path working, and the
-	// calls that need the cluster fail on their own terms rather than here.
-	return kubeconfig, ctx
+
+	// A RECORDED kubeconfig that no longer resolves its context is a hard failure.
+	//
+	// bootstrap-create writes this field only after proving the context is in the
+	// file, so reaching here means something later unmade that -- the file was
+	// deleted, overwritten, or the cluster destroyed underneath the state. The
+	// previous behaviour returned the unpinned path, and kubectl then answered
+	// bootstrap-cluster questions with whatever cluster that file did name. That
+	// is the whole 2026-09-18 failure: the hub answered for the kind cluster and
+	// the run died three phases later on "namespaces platform-capi not found",
+	// naming neither the file nor the substitution.
+	//
+	// Silence here buys nothing. Stopping costs one re-run of one phase.
+	if recorded != "" {
+		return "", "", fmt.Errorf(
+			"the bootstrap cluster's kubeconfig no longer resolves context %q.\n\n"+
+				"state records %s, written by bootstrap-create once that context was\n"+
+				"present. It is not there now, so this run cannot tell the bootstrap\n"+
+				"cluster apart from any other cluster that file names.\n\n"+
+				"If the kind cluster is still up, re-run the bootstrap-create phase to\n"+
+				"re-pin it. If it is gone, tear down and start over -- later phases\n"+
+				"cannot be resumed without it: %w",
+			ctx, recorded, err)
+	}
+
+	// Nothing recorded: the bootstrap cluster has not been created yet, and the
+	// ambient value is what kind itself will write to. The calls that need the
+	// cluster fail on their own terms rather than here.
+	return kubeconfig, ctx, nil
 }
 
 // pinKubeconfig writes a kubeconfig naming exactly one cluster.

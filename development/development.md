@@ -3,42 +3,46 @@
 ## Local Testing
 ### A rule of thumb: 
 #### CLI change → 
-./scripts/dev/local-e2e.sh 0.1.16-rc.41 clean cli scaffold bootstrap
-./scripts/dev/local-e2e.sh 0.1.16-rc.41 cli bootstrap
+./scripts/dev/local-e2e.sh 0.1.16-rc.54 clean cli scaffold bootstrap
+./scripts/dev/local-e2e.sh 0.1.16-rc.54 cli bootstrap
 #### manifest change → 
-DOMAIN=nutgraf.in make e2e-fresh VERSION=0.1.16-rc.41
-make e2e-fresh VERSION=0.1.16-rc.41    # clean → publish → cli → scaffold → bootstrap
-make e2e-clean VERSION=0.1.16-rc.41    # tear the last run down and stop
-make e2e       VERSION=0.1.16-rc.41    # as before — cannot reach clean
+DOMAIN=nutgraf.in make e2e-fresh VERSION=0.1.16-rc.54
+make e2e-fresh VERSION=0.1.16-rc.54    # clean → publish → cli → scaffold → bootstrap
+make e2e-clean VERSION=0.1.16-rc.54    # tear the last run down and stop
+make e2e       VERSION=0.1.16-rc.54    # as before — cannot reach clean
 
 #### PROVIDER=hybrid
-DOMAIN=nutgraf.in PROVIDER=hybrid ./scripts/dev/local-e2e.sh 0.1.16-rc.41 publish
 
-DOMAIN=nutgraf.in PROVIDER=hybrid REGION=fsn1 make e2e-fresh VERSION=0.1.16-rc.41
+make cli-release VERSION=0.1.16-rc.53
 
-DOMAIN=nutgraf.in PROVIDER=hybrid make e2e-fresh VERSION=0.1.16-rc.41
+DOMAIN=nutgraf.in PROVIDER=hybrid ./scripts/dev/local-e2e.sh 0.1.16-rc.54 publish
 
-PROVIDER=hybrid make e2e-workload VERSION=0.1.16-rc.41
+DOMAIN=nutgraf.in PROVIDER=hybrid REGION=fsn1 make e2e-fresh VERSION=0.1.16-rc.54
 
-PROVIDER=hybrid ./scripts/dev/local-e2e.sh 0.1.16-rc.41 cli bootstrap
+DOMAIN=nutgraf.in PROVIDER=hybrid make e2e-fresh VERSION=0.1.16-rc.54
+
+PROVIDER=hybrid make e2e-workload VERSION=0.1.16-rc.54
+
+PROVIDER=hybrid ./scripts/dev/local-e2e.sh 0.1.16-rc.54 cli bootstrap
 
 ./bin/soloz reseed --kubeconfig .local-e2e/acme-gitops/k8-secrets/kubeconfig/acme-hub.kubeconfig \
-                   --bundle-version 0.1.16-rc.41
+                   --bundle-version 0.1.16-rc.54
 
-
+DOMAIN=nutgraf.in PROVIDER=hybrid ./scripts/dev/local-e2e.sh 0.1.16-rc.54 \
+  cli bootstrap workload verify adr
 
 #### Chart Change
 1. Publish the fix as rc.4 — this is a chart change, so it needs a new version:
 cd /Users/arun_subramanian/Projects/soloz-io/ide/zero-ops
 export PATH="$HOME/.local/helm3:$PATH"
-make publish-local VERSION=0.1.16-rc.41
+make publish-local VERSION=0.1.16-rc.54
 2. Promote the running cluster — one edit, both fields, exactly as Renovate would:
 cd .local-e2e/acme-gitops
-sed -i '' 's/0\.1\.16-rc\.40/0.1.16-rc.41/g' clusters/acme-hub/bundle.yaml clusters/acme-hub/values.yaml 
-git commit -am "promote acme-hub to 0.1.16-rc.41" && git push
+sed -i '' 's/0\.1\.16-rc\.40/0.1.16-rc.54/g' clusters/acme-hub/bundle.yaml clusters/acme-hub/values.yaml 
+git commit -am "promote acme-hub to 0.1.16-rc.54" && git push
 cd ../..
 3. Resume the bootstrap once it's Synced, to finish adr045-commit and what follows:
-./scripts/dev/local-e2e.sh 0.1.16-rc.41 bootstrap
+./scripts/dev/local-e2e.sh 0.1.16-rc.54 bootstrap
 It skips provisioning (the cluster reports Provisioned) and picks up where it stopped.
 
 
