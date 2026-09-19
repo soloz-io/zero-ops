@@ -1,11 +1,14 @@
 package bootstrap
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // alloyConfigs are every Grafana Alloy configuration the platform ships.
@@ -580,5 +583,105 @@ func TestAppSetHelmValuesDeclareGlobalOnce(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walking %s: %v", dir, err)
+	}
+}
+
+// An image that runs as root may not be given runAsNonRoot without runAsUser.
+//
+// runAsNonRoot is a REQUIREMENT, not a setting: it tells the kubelet to refuse
+// an image that would run as root. Most platform images declare a USER and are
+// unaffected -- which is why this checks the CONTAINER's image rather than
+// counting occurrences in a file. Two earlier versions of this test got that
+// wrong: one flagged every runAsNonRoot in the repository, the other counted
+// per file and so mixed containers running different images.
+//
+// registry.k8s.io/kubectl carries no USER. Kyverno's five cleanup CronJobs used
+// it with runAsNonRoot and no uid, failed admission with "container has
+// runAsNonRoot and image will run as root", and left a
+// CreateContainerConfigError pod behind every ten minutes for a day. Nothing
+// reported it: the CronJobs exist and the Application is Synced.
+//
+// The list is what has been verified, not a guess. Adding an image is a claim
+// that it runs as root, checkable with:
+//   docker inspect --format '{{.Config.User}}' <image>
+func TestRootImagesCarryRunAsUser(t *testing.T) {
+	root := repoRoot(t)
+
+	runsAsRoot := []string{"registry.k8s.io/kubectl"}
+
+	// podSpecs yields every container in a manifest, whatever wraps it.
+	var walkSpec func(v any, fn func(map[string]any))
+	walkSpec = func(v any, fn func(map[string]any)) {
+		switch t := v.(type) {
+		case map[string]any:
+			if cs, ok := t["containers"].([]any); ok {
+				for _, c := range cs {
+					if cm, ok := c.(map[string]any); ok {
+						fn(cm)
+					}
+				}
+			}
+			for _, vv := range t {
+				walkSpec(vv, fn)
+			}
+		case []any:
+			for _, vv := range t {
+				walkSpec(vv, fn)
+			}
+		}
+	}
+
+	for _, dir := range []string{
+		filepath.Join(root, "manifests", "spoke", "spoke-catalog"),
+		filepath.Join(root, "manifests", "hub-core-services"),
+	} {
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || filepath.Ext(path) != ".yaml" {
+				return err
+			}
+			raw, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+
+			dec := yaml.NewDecoder(bytes.NewReader(raw))
+			for {
+				var doc any
+				if err := dec.Decode(&doc); err != nil {
+					break // malformed or end of stream; other gates cover parseability
+				}
+				walkSpec(doc, func(c map[string]any) {
+					img, _ := c["image"].(string)
+					hit := false
+					for _, r := range runsAsRoot {
+						if strings.Contains(img, r) {
+							hit = true
+						}
+					}
+					if !hit {
+						return
+					}
+					sc, _ := c["securityContext"].(map[string]any)
+					if sc == nil {
+						return
+					}
+					if nr, _ := sc["runAsNonRoot"].(bool); !nr {
+						return
+					}
+					if _, ok := sc["runAsUser"]; !ok {
+						name, _ := c["name"].(string)
+						t.Errorf("%s: container %q runs %s, which has no USER, and declares "+
+							"runAsNonRoot with no runAsUser.\nThe kubelet refuses it outright "+
+							"-- \"image will run as root\" -- and the pod never starts, "+
+							"silently, while its owner reports Synced.", rel, name, img)
+					}
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", dir, err)
+		}
 	}
 }

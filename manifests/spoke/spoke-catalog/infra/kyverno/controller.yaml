@@ -2203,6 +2203,17 @@ spec:
               privileged: false
               readOnlyRootFilesystem: true
               runAsNonRoot: true
+              # runAsUser, because runAsNonRoot alone is a REQUIREMENT and not a
+              # setting: it tells the kubelet to refuse an image that would run
+              # as root, and registry.k8s.io/kubectl carries no USER directive.
+              # With no uid to fall back on, all five cleanup CronJobs failed at
+              # admission -- "container has runAsNonRoot and image will run as
+              # root" -- leaving a CreateContainerConfigError pod behind every
+              # ten minutes. Observed on nutgraf-01: 5 such pods and 3 StartError.
+              #
+              # 65534 is nobody. These jobs run kubectl against the API with their
+              # ServiceAccount's rights alone, so they need no uid of their own.
+              runAsUser: 65534
               seccompProfile:
                 type: RuntimeDefault
           restartPolicy: OnFailure
@@ -2251,6 +2262,17 @@ spec:
               privileged: false
               readOnlyRootFilesystem: true
               runAsNonRoot: true
+              # runAsUser, because runAsNonRoot alone is a REQUIREMENT and not a
+              # setting: it tells the kubelet to refuse an image that would run
+              # as root, and registry.k8s.io/kubectl carries no USER directive.
+              # With no uid to fall back on, all five cleanup CronJobs failed at
+              # admission -- "container has runAsNonRoot and image will run as
+              # root" -- leaving a CreateContainerConfigError pod behind every
+              # ten minutes. Observed on nutgraf-01: 5 such pods and 3 StartError.
+              #
+              # 65534 is nobody. These jobs run kubectl against the API with their
+              # ServiceAccount's rights alone, so they need no uid of their own.
+              runAsUser: 65534
               seccompProfile:
                 type: RuntimeDefault
           restartPolicy: OnFailure
@@ -2299,6 +2321,17 @@ spec:
               privileged: false
               readOnlyRootFilesystem: true
               runAsNonRoot: true
+              # runAsUser, because runAsNonRoot alone is a REQUIREMENT and not a
+              # setting: it tells the kubelet to refuse an image that would run
+              # as root, and registry.k8s.io/kubectl carries no USER directive.
+              # With no uid to fall back on, all five cleanup CronJobs failed at
+              # admission -- "container has runAsNonRoot and image will run as
+              # root" -- leaving a CreateContainerConfigError pod behind every
+              # ten minutes. Observed on nutgraf-01: 5 such pods and 3 StartError.
+              #
+              # 65534 is nobody. These jobs run kubectl against the API with their
+              # ServiceAccount's rights alone, so they need no uid of their own.
+              runAsUser: 65534
               seccompProfile:
                 type: RuntimeDefault
           restartPolicy: OnFailure
@@ -2347,6 +2380,17 @@ spec:
               privileged: false
               readOnlyRootFilesystem: true
               runAsNonRoot: true
+              # runAsUser, because runAsNonRoot alone is a REQUIREMENT and not a
+              # setting: it tells the kubelet to refuse an image that would run
+              # as root, and registry.k8s.io/kubectl carries no USER directive.
+              # With no uid to fall back on, all five cleanup CronJobs failed at
+              # admission -- "container has runAsNonRoot and image will run as
+              # root" -- leaving a CreateContainerConfigError pod behind every
+              # ten minutes. Observed on nutgraf-01: 5 such pods and 3 StartError.
+              #
+              # 65534 is nobody. These jobs run kubectl against the API with their
+              # ServiceAccount's rights alone, so they need no uid of their own.
+              runAsUser: 65534
               seccompProfile:
                 type: RuntimeDefault
           restartPolicy: OnFailure
@@ -2395,6 +2439,17 @@ spec:
               privileged: false
               readOnlyRootFilesystem: true
               runAsNonRoot: true
+              # runAsUser, because runAsNonRoot alone is a REQUIREMENT and not a
+              # setting: it tells the kubelet to refuse an image that would run
+              # as root, and registry.k8s.io/kubectl carries no USER directive.
+              # With no uid to fall back on, all five cleanup CronJobs failed at
+              # admission -- "container has runAsNonRoot and image will run as
+              # root" -- leaving a CreateContainerConfigError pod behind every
+              # ten minutes. Observed on nutgraf-01: 5 such pods and 3 StartError.
+              #
+              # 65534 is nobody. These jobs run kubectl against the API with their
+              # ServiceAccount's rights alone, so they need no uid of their own.
+              runAsUser: 65534
               seccompProfile:
                 type: RuntimeDefault
           restartPolicy: OnFailure

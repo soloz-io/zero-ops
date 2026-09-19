@@ -98,7 +98,13 @@ spec:
     spec:
       containers:
         - name: vmauth
-          image: victoriametrics/vmauth:v1.115.0
+          # v1.137.0 or later: JWT verification (`jwt:` with `oidc.issuer` and
+          # `match_claims`) arrived in that release. v1.115.0 was pinned first
+          # and rejected the config outright at startup --
+          #   "field jwt not found in type main.UserInfo" --
+          # so the endpoint CrashLooped rather than serving unauthenticated,
+          # which is the right way round for a security control to fail.
+          image: victoriametrics/vmauth:v1.137.0
           args:
             - -auth.config=/config/auth.yml
             - -httpListenAddr=:8427
