@@ -118,6 +118,23 @@ spec:
   # state is queryable in Grafana from the first minute; who gets woken is the
   # tenant's to declare.
   evaluationInterval: 30s
+  # notifier.blackhole, because the operator will not accept a VMAlert without
+  # a notifier -- "vmalert should have at least one notifier.url or ..." -- and
+  # ADR-078 §6 ships no receiver by design: "Routing is the tenant's, and the
+  # platform ships no default receiver. A platform holding a tenant's PagerDuty
+  # key would re-create the vendor-account precondition in a new place."
+  #
+  # The blackhole satisfies both. Rules are evaluated on schedule and their
+  # state is written to the store through remoteWrite, so ALERTS and
+  # ALERTS_FOR_STATE are queryable in Grafana from the first minute; nothing is
+  # delivered anywhere. A tenant adding `notifiers:` gets routing without the
+  # platform having chosen a destination for them.
+  #
+  # Found on the live cluster: without it the webhook DENIED every VMAlert, so
+  # the hub and the spoke both ran with no rule evaluation at all while their
+  # Applications reported only that a sync had failed.
+  extraArgs:
+    notifier.blackhole: "true"
   datasource:
     url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
   remoteWrite:

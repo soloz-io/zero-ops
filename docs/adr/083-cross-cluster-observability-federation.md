@@ -648,10 +648,26 @@ capabilities:
 components:
   - spoke-query-endpoint
 acceptance:
+  - scripts/validate/cluster/37-spoke-public-endpoints.sh
   - scripts/validate/cluster/87-observability-tenant-scoping.sh
   - scripts/validate/cluster/88-observability-federation-topology.sh
   - internal/soloz-cli/bootstrap
 ```
+
+Gate 37 is separate from 35-public-api-endpoints.sh on purpose. That module's
+hosts derive from the zone alone because every one belongs to the BOX; these
+belong to a CLUSTER, so the list is one entry per workload cluster the box has
+declared and the names are the tenant's (ADR-082). It reads them from the ArgoCD
+cluster registry -- the same inventory the fleet ApplicationSets generate from --
+so the check and the delivery it verifies cannot disagree about which clusters
+exist.
+
+It asserts the endpoint resolves, terminates TLS on a chain a browser accepts,
+and **refuses an unauthenticated query**. The last is the one that matters:
+addendum 1 §1 records that a Gateway carrying `AllowValidOnly` reports
+`Accepted=True` and serves the store to the internet anyway, so a check that
+only confirmed the endpoint answers would pass on exactly that hole. A 200 to an
+unauthenticated query is a hard failure, not a warning.
 
 **What is deferred, and named rather than left to be discovered.** There is still
 no federation tier (decision 4), so no single PromQL expression spans clusters.
