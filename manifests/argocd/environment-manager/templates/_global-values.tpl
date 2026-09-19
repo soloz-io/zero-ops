@@ -84,9 +84,19 @@ resources synced and 11 pruned. Verified on nutgraf-01 2026-09-20.
 {{- /* Called either with the root context, or with
    (dict "root" $ "environmentSlug" "<expr>") to replace that one key. */ -}}
 {{- $root := .root | default . -}}
-{{- $slug := .environmentSlug | default $root.Values.environmentSlug -}}
 global:
-  environmentSlug: {{ $slug | quote }}
+  {{- /*
+    An override is emitted VERBATIM, already quoted by the caller. It carries a
+    Go template action the ApplicationSet controller evaluates later, and
+    `quote` would escape its inner quotes as \" -- which that controller
+    rejects with `unexpected "\\" in operand`, generating 0 applications while
+    the ApplicationSet itself looks correct.
+  */}}
+  {{- if .environmentSlug }}
+  environmentSlug: {{ .environmentSlug }}
+  {{- else }}
+  environmentSlug: {{ $root.Values.environmentSlug | quote }}
+  {{- end }}
   provider: {{ $root.Values.provider | quote }}
   hubDomain: {{ include "environment-manager.hubDomain" $root | quote }}
   clusterName: {{ include "environment-manager.clusterName" $root | quote }}

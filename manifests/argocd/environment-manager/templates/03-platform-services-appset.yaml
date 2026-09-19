@@ -563,7 +563,7 @@ spec:
             # No line here may end in a colon: these comments sit at the top
             # level of a values block, and application-specs.py reads that
             # position for enabled components.
-            {{- include "environment-manager.globalValues" (dict "root" $ "environmentSlug" (printf "%s%s%s" "{{" (print " index .metadata.labels \"environment\" ") "}}")) | nindent 12 }}
+            {{- include "environment-manager.globalValues" (dict "root" $ "environmentSlug" (printf "'%s index .metadata.labels \"environment\" %s'" "{{" "}}")) | nindent 12 }}
 {{- else }}
         kustomize:
           patches:
