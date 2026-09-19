@@ -780,3 +780,100 @@ func TestSpokeQueryEndpointAuthConfigShape(t *testing.T) {
 			"v1.137.0 accepts jwt and rejects oidc.", image)
 	}
 }
+
+// No vendored chart may ship a workload that invokes a shell in a distroless
+// image.
+//
+// registry.k8s.io/kubectl has neither /bin/bash nor /bin/sh -- verified by
+// running both on a live cluster. A container whose command is a shell fails at
+// init, every schedule, and the owning Application still reports Synced.
+//
+// Kyverno 3.2.6 shipped eight such workloads: five report-sweeping CronJobs and
+// three lifecycle hooks. They failed for over a day on nutgraf-01 before anyone
+// looked at a pod listing.
+//
+// The fix was not to swap the shell -- there is none to swap to. Upstream
+// commit f5ac632b3 deleted those hooks in the same change that adopted the
+// distroless image, and 3.6.4 renders zero shell-based workloads. This gate
+// exists so a future re-vendor cannot walk back into a chart version that has
+// them.
+func TestVendoredChartsHaveNoShellInDistrolessImages(t *testing.T) {
+	root := repoRoot(t)
+
+	// Images with no shell. Verified by execing one on a cluster, not assumed.
+	shellless := []string{"registry.k8s.io/kubectl"}
+
+	var walk func(v any, fn func(map[string]any))
+	walk = func(v any, fn func(map[string]any)) {
+		switch tv := v.(type) {
+		case map[string]any:
+			if cs, ok := tv["containers"].([]any); ok {
+				for _, c := range cs {
+					if cm, ok := c.(map[string]any); ok {
+						fn(cm)
+					}
+				}
+			}
+			for _, vv := range tv {
+				walk(vv, fn)
+			}
+		case []any:
+			for _, vv := range tv {
+				walk(vv, fn)
+			}
+		}
+	}
+
+	for _, dir := range []string{
+		filepath.Join(root, "manifests", "spoke", "spoke-catalog"),
+		filepath.Join(root, "manifests", "hub-core-services"),
+	} {
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || filepath.Ext(path) != ".yaml" {
+				return err
+			}
+			raw, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+
+			dec := yaml.NewDecoder(bytes.NewReader(raw))
+			for {
+				var doc any
+				if err := dec.Decode(&doc); err != nil {
+					break
+				}
+				walk(doc, func(c map[string]any) {
+					img, _ := c["image"].(string)
+					hit := false
+					for _, s := range shellless {
+						if strings.Contains(img, s) {
+							hit = true
+						}
+					}
+					if !hit {
+						return
+					}
+					cmd, _ := c["command"].([]any)
+					if len(cmd) == 0 {
+						return
+					}
+					first, _ := cmd[0].(string)
+					if strings.HasSuffix(first, "/bash") || strings.HasSuffix(first, "/sh") {
+						name, _ := c["name"].(string)
+						t.Errorf("%s: container %q runs %s with command %q.\n"+
+							"That image is distroless and has no shell -- the container fails "+
+							"at init on every run while its Application reports Synced. Invoke "+
+							"the binary by args instead, or take the upstream version that "+
+							"removed the workload.", rel, name, img, first)
+					}
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", dir, err)
+		}
+	}
+}
