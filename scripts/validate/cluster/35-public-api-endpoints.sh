@@ -12,6 +12,15 @@ PUBLIC_ENDPOINTS=(
   "console.{zone}        | /                           | 200 302 303 404     | yes       | console"
   "argocd.{zone}         | /healthz                    | 200                 | yes       | argocd"
   "dashboard.{zone}      | /                           | 200 302 401         | yes       | headlamp"
+  # ADR-078 §5: the observability query surface. Added when the capability
+  # shipped without a public route at all -- Grafana answered only through
+  # `kubectl port-forward`, which is not something an operator on call can use,
+  # and ADR-069 grades the maintenance promise by what is observable.
+  #
+  # 302 is the expected answer unauthenticated: Grafana redirects to its login.
+  # A 200 here would mean anonymous access is on, which is worth noticing.
+  "grafana.{zone}        | /api/health                 | 200                 | yes       | grafana health"
+  "grafana.{zone}        | /                           | 200 302             | yes       | grafana ui"
 )
 
 # ─── Probes ──────────────────────────────────────────────────────────────────

@@ -49,10 +49,10 @@ type HubEndpoints struct {
 	// literal would let the two drift into an account nobody can authenticate as.
 	ZitadelOrg string
 
-	// VictoriaMetrics carries an extra "hub." label no other host uses. WS4 §C1
+	// Grafana is the box's observability query surface (ADR-078 §5).
 	// requires this to be normalised or recorded as intentional; it is recorded
 	// here so re-deriving it cannot silently change the hostname.
-	VictoriaMetrics string
+	Grafana string
 }
 
 // DeriveHubEndpoints produces the endpoint set for a base domain.
@@ -80,7 +80,18 @@ func DeriveHubEndpoints(zone string) HubEndpoints {
 		MCP:             host("mcp"),
 		Dashboard:       host("dashboard"),
 		ZitadelOrg:      host("zitadel.id"),
-		VictoriaMetrics: host("victoriametrics.hub"),
+		// Grafana, at the ordinary <service>.<zone> shape.
+		//
+		// This derived victoriametrics.hub.<domain> -- an extra "hub." label no
+		// other host used, for a service nothing deployed, which ADR-078's
+		// Context records as one of the capability's loose ends. ADR-083
+		// decision 1 settles what the hub actually publishes: Grafana alone, as
+		// the single pane of glass holding one datasource pair per cluster. The
+		// STORES are never published from the hub -- a spoke exposes its own
+		// query endpoint behind vmauth at victoriametrics.<cell>.<zone>
+		// (ADR-051 amendment 2026-09-19), and the hub's store is reached only
+		// in-cluster.
+		Grafana: host("grafana"),
 	}
 }
 

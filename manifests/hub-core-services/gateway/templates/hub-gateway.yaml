@@ -178,6 +178,38 @@ spec:
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
 
+    # Grafana: the observability query surface (ADR-078 §5).
+    #
+    # Added because the capability shipped without one. Grafana was reachable
+    # only by `kubectl port-forward`, which makes "the query surface" a claim an
+    # operator cannot act on -- and ADR-069 grades the maintenance promise by
+    # what is observable, which a port-forward is not.
+    #
+    # ADR-083 decision 1 puts Grafana on the hub ALONE, holding one datasource
+    # pair per cluster, so this is the box's single pane of glass and the only
+    # observability hostname the hub publishes. The stores themselves are never
+    # exposed here: a spoke publishes its own query endpoint behind vmauth
+    # (ADR-083 decision 3), and the hub's store is reached in-cluster by Grafana
+    # and by nothing else -- which is what the platform-observability
+    # default-deny NetworkPolicy enforces (ADR-078 add.1 §9).
+    - name: grafana
+      hostname: grafana.{{ .Values.global.hubDomain }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: hub-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-observability]
+
     # Headlamp Kubernetes dashboard.
     - name: dashboard
       hostname: dashboard.{{ .Values.global.hubDomain }}

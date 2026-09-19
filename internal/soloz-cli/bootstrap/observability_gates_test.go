@@ -470,3 +470,50 @@ func TestDescriptorHelmValuesReadEnvironmentManagerValues(t *testing.T) {
 		t.Fatalf("walking %s: %v", dir, err)
 	}
 }
+
+// An operator whose admission webhook blocks its own CRs must not generate its
+// own certificate.
+//
+// The VictoriaMetrics operator defaults to generating a self-signed webhook
+// certificate and patching the caBundle through helm hooks. ArgoCD does not run
+// those the way `helm install` does, so the served certificate and the caBundle
+// the API server trusts drift apart. The failure is not a rejection -- it is a
+// TLS handshake the API server abandons:
+//
+//	operator: http: TLS handshake error from 10.244.0.159: EOF
+//	apply:    failed calling webhook "vmsingle.victoriametrics.com":
+//	          context deadline exceeded
+//
+// With the chart's default policy: Fail on every CRD, that blocks creation of
+// the stores the operator exists to reconcile. Observed on the live hub
+// 2026-09-19 with the operator Running and its endpoints populated -- which is
+// why it is worth a gate: every signal short of an actual apply looked healthy.
+//
+// cert-manager issues and injects by controller, which is what survives a sync
+// (ADR-025).
+func TestVMOperatorWebhookUsesCertManager(t *testing.T) {
+	root := repoRoot(t)
+
+	desc, err := os.ReadFile(filepath.Join(root,
+		"manifests/argocd/components/03/victoriametrics-operator.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?s)admissionWebhooks:.*?certManager:.*?enabled:\s*true`).Match(desc) {
+		t.Error("the hub's operator descriptor does not enable admissionWebhooks.certManager. " +
+			"The chart will generate its own webhook certificate through helm hooks, which " +
+			"ArgoCD does not run, and every store CR will fail on a TLS handshake.")
+	}
+
+	// The spoke is vendored, so the evidence is the injection annotation.
+	ctl, err := os.ReadFile(filepath.Join(root,
+		"manifests/spoke/spoke-catalog/infra/victoriametrics/controller.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ctl), "cert-manager.io/inject-ca-from") {
+		t.Error("the spoke's vendored operator has no cert-manager.io/inject-ca-from " +
+			"annotation, so it was rendered with the chart's own cert generation. " +
+			"Re-render with --set admissionWebhooks.certManager.enabled=true.")
+	}
+}

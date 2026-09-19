@@ -1,0 +1,6 @@
+# Grafana's public hostname -- a per-box fact ADR-063 keeps out of a published
+# chart, substituted the same way every other hub hostname is.
+- kind: HTTPRoute
+  name: grafana
+  fields:
+    - replaceAll: {from: HUB_DOMAIN, with: '{{ .Values.global.hubDomain }}'}

@@ -23,10 +23,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -1057,10 +1057,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -5578,10 +5578,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -9434,10 +9434,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -11762,10 +11762,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -13744,10 +13744,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -15333,10 +15333,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -19409,10 +19409,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -20429,10 +20429,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -21515,10 +21515,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -22676,10 +22676,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -22913,10 +22913,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -26885,10 +26885,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -27988,10 +27988,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -29753,10 +29753,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -30746,10 +30746,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
     helm.sh/resource-policy: keep
-    meta.helm.sh/release-name: vmop
+    meta.helm.sh/release-name: victoriametrics-operator
     meta.helm.sh/release-namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1

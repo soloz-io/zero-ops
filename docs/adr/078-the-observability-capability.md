@@ -590,6 +590,52 @@ every cluster, which ADR-070 would have to justify. The registry entry stays
 `planned` until that is decided either way, and the gate holds this ADR at Proposed
 while it is.
 
+### 13b. Verified on a live cluster (2026-09-19)
+
+Applied to `nutgraf-hub` at 0.1.16-rc.57 and queried. What the run proved, and
+what it cost to get there.
+
+**The capability works.** `VMSingle` and `VLogs` report `operational`, both PVCs
+bound, and the store answers:
+
+| query | result |
+|---|---|
+| `count(up)` | 4 |
+| `count(kube_pod_info)` | 86 |
+| `count(node_memory_MemTotal_bytes)` | 1 |
+| `count(kubelet_node_name)` | 1 |
+
+**§7 holds.** `count by (cluster,tenant)(up)` returns exactly one series pair:
+`{cluster="nutgraf-hub", tenant="nutgraf"}`. The box identifies itself by name
+rather than by the constant `"hub"` this ADR's Context records as a defect.
+
+**§6 holds, and this is the one worth checking on every box.**
+`count by (namespace)(kube_pod_info)` returns `cert-manager`, `cnpg-system`,
+`kube-system` and eight `platform-*` namespaces. No tenant namespace. The
+series-level filter closes the path a target selector cannot reach, and the
+evidence is a query rather than a reading of the config.
+
+**Four defects only a live run found.** Each is now gated
+(`internal/soloz-cli/bootstrap/observability_gates_test.go`), and each was
+invisible to every check that preceded it:
+
+| defect | how it presented |
+|---|---|
+| `crds.plain: true` installs zero CRDs | the chart gates them on a subchart condition; CRs apply against an API that does not serve them |
+| PVCs took the cluster default | `hcloud-volumes` cannot bind on a hybrid box, whose only worker is on-prem; the claim sat Pending while every other platform PVC was Bound on `local-path` |
+| `.Values.global` in a descriptor | `tpl` runs in the environment-manager's context, where global is emitted rather than read; the released render dies and NO bundle is produced |
+| the operator's webhook certificate | the chart generates it through helm hooks, which ArgoCD does not run, so the served cert and the trusted caBundle drift. The API server abandons the handshake -- `TLS handshake error ... EOF` -- and with `policy: Fail` that blocks creation of the stores this component exists to reconcile |
+
+The last is the sharpest, and the reason ADR-025 is the platform's rule for
+webhook-bearing operators: the operator was `Running`, its endpoints populated,
+its Application `Synced` and `Healthy`, and every store CR still failed. Nothing
+short of an actual apply showed it.
+
+**Still outstanding on this box.** Grafana's PVC was created under the earlier
+default and `storageClassName` is immutable, so it stays `Pending` until the
+claim is deleted -- an operator action, and lossless: Grafana holds users,
+preferences and annotations, never telemetry.
+
 ### 14. This ADR stays Proposed
 
 Unchanged, and now for a reason with a date on it: decision 1 places components on

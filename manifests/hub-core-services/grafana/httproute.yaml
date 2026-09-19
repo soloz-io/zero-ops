@@ -1,0 +1,37 @@
+# Grafana's public route (ADR-078 §5).
+#
+# The listener is on hub-gateway; this attaches the backend and publishes the
+# name. Added because the capability shipped without one: Grafana was reachable
+# only by `kubectl port-forward`, which makes "the query surface" a claim an
+# operator cannot act on, and ADR-069 grades the promise by what is observable.
+#
+# ADR-051: <service>.<subdomain>.<domain>, with NO cluster segment. The hub is
+# the box's one management cluster, so its name adds nothing -- the cluster
+# segment belongs to per-cluster endpoints, which on this platform means the
+# spokes' query endpoints (ADR-051 amendment 2026-09-19).
+#
+# ADR-083 decision 1 puts Grafana on the hub alone, so this is the box's single
+# pane of glass and the only observability hostname the hub publishes. The store
+# itself is never exposed: Grafana reaches it in-cluster and the
+# platform-observability default-deny admits nothing else (ADR-078 add.1 §9).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: platform-observability
+  # No external-dns target annotation, matching every other hub route: argocd
+  # and dashboard carry none on this box and resolve correctly, so the
+  # Gateway-level annotation is doing the work. hub-gateway.yaml warns that the
+  # fallback is unroutable in hostNetwork mode -- if that becomes true here,
+  # every hub route needs the annotation, not this one alone.
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: grafana
+  hostnames:
+    - grafana.HUB_DOMAIN
+  rules:
+    - backendRefs:
+        - name: grafana
+          port: 80

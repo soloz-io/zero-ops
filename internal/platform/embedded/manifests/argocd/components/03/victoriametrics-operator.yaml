@@ -42,6 +42,32 @@ helmValues: |
       memory: 128Mi
     limits:
       memory: 256Mi
+  # The admission webhook's certificate comes from cert-manager, which this
+  # platform already runs, not from the chart's own one-shot generation.
+  #
+  # Left at the default, the chart generates a self-signed cert and patches the
+  # caBundle into the ValidatingWebhookConfiguration through helm hooks. ArgoCD
+  # does not run those the way `helm install` does, so the served certificate
+  # and the caBundle the API server trusts drift apart -- and the failure is
+  # not a rejection, it is a TLS handshake the API server abandons:
+  #
+  #   operator log: http: TLS handshake error from 10.244.0.159: EOF
+  #   apply:        failed calling webhook "vmsingle.victoriametrics.com":
+  #                 context deadline exceeded
+  #
+  # With policy: Fail on every CRD, that blocks the creation of the very stores
+  # this component exists to reconcile. Observed on the live hub 2026-09-19,
+  # where the operator was Running, its endpoints populated, and every VMSingle
+  # apply still failed.
+  #
+  # cert-manager issues and rotates it instead, and injects the caBundle by
+  # controller -- a reconciling mechanism that survives a GitOps sync, which is
+  # the property ADR-025 makes the platform's rule for webhook-bearing
+  # operators.
+  admissionWebhooks:
+    certManager:
+      enabled: true
+
   # Converting Prometheus-operator CRDs is off: nothing on this box creates a
   # ServiceMonitor or PodMonitor, and ADR-078 §3 makes collection named rather
   # than discovered, so there is nothing to convert.

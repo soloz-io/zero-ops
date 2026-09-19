@@ -4,41 +4,34 @@
 # ADR-070, the minimum box: one replica. The operator is a reconciler, not a
 # data path, so its unavailability delays reconciliation rather than losing a
 # sample.
+#
+# Rendered with admissionWebhooks.certManager.enabled=true. The chart's default
+# generates the webhook certificate itself and patches the caBundle through helm
+# hooks, which ArgoCD does not run the way `helm install` does -- the served
+# cert and the trusted caBundle then drift, and the API server abandons the TLS
+# handshake ("TLS handshake error ... EOF") rather than rejecting a request.
+# With policy: Fail on every CRD that blocks creation of the stores this
+# operator exists to reconcile. cert-manager issues and injects instead, by
+# controller, which is what survives a sync (ADR-025).
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
     helm.sh/chart: victoria-metrics-operator-0.38.0
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vmop-victoria-metrics-operator-validation
-  namespace: platform-observability
-  labels:
-    app.kubernetes.io/instance: vmop
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: victoria-metrics-operator
-    app.kubernetes.io/version: v0.49.1
-    helm.sh/chart: victoria-metrics-operator-0.38.0
-type: kubernetes.io/tls
-data:
-  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
-  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUQrakNDQXVLZ0F3SUJBZ0lRVVFtQnpWeTg4R3p1T2lPV0oxTkRKakFOQmdrcWhraUc5dzBCQVFzRkFEQVoKTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVEFlRncweU5qQTVNVGt3T0RRMk5UUmFGdzB6TmpBNQpNVFl3T0RRMk5UUmFNQ2t4SnpBbEJnTlZCQU1USG5adGIzQXRkbWxqZEc5eWFXRXRiV1YwY21samN5MXZjR1Z5CllYUnZjakNDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFNM2hVRmxDaEVPMCtKMWsKdStDcWRoNTRTZHo1UkJPRjQ2V3grdFFEZlFRVzN3azgyQm8xUmY2eFZod1RyODNQOVg0ZFR4bTB0Z3RVMjJjLwpUdWU4d0pSa2V4WiswNC8xQ2RHM2pxamo3U1hWT2ltWmM5aE5rTldvTGN3dm5GZDN3NzZzMlB1QzV5Z0JzclZCCkNEMFlvM0cvTjdmeEZoL05rSHF3M0RsSmxTR3Bscmtzc0plTDA4eHpDR1lzM0c5cnZ3UDNRT0ZTRUh4d1FpdlQKNHpOVGFOMFZ1NDhjQkJUUG5aY2JvR0FMVENvbUxibWZoMytRa1hxR01RaUIzNjkxbm9IZmdsV0xta1dDSmM1MApyajJBRm83aDdkMFFvZVlSY3U2MTVyL0hIRjd3ajVvSHp5UHlGL2FVSE9xdTBSaW9kYWczN29nQVVnSjJCK0xjCjl2QjlDTEVDQXdFQUFhT0NBU3d3Z2dFb01BNEdBMVVkRHdFQi93UUVBd0lGb0RBZEJnTlZIU1VFRmpBVUJnZ3IKQmdFRkJRY0RBUVlJS3dZQkJRVUhBd0l3REFZRFZSMFRBUUgvQkFJd0FEQWZCZ05WSFNNRUdEQVdnQlNBQXZnaQpzc2F4WXBiOXR1bXV1MXZ1akVxcnlEQ0J4d1lEVlIwUkJJRy9NSUc4Z2pWMmJXOXdMWFpwWTNSdmNtbGhMVzFsCmRISnBZM010YjNCbGNtRjBiM0l1Y0d4aGRHWnZjbTB0YjJKelpYSjJZV0pwYkdsMGVZSTVkbTF2Y0MxMmFXTjAKYjNKcFlTMXRaWFJ5YVdOekxXOXdaWEpoZEc5eUxuQnNZWFJtYjNKdExXOWljMlZ5ZG1GaWFXeHBkSGt1YzNaagpna2gyYlc5d0xYWnBZM1J2Y21saExXMWxkSEpwWTNNdGIzQmxjbUYwYjNJdWNHeGhkR1p2Y20wdGIySnpaWEoyCllXSnBiR2wwZVM1emRtTXVZMngxYzNSbGNpNXNiMk5oYkM0d0RRWUpLb1pJaHZjTkFRRUxCUUFEZ2dFQkFGbHgKVWZRNjNPTWVzR1lyUnRXQXdwN3VUUzdHN1NhZ1dLeE1tdGs2KytMUGUwUGh0dWtvaGhTVk5ieEFDd0QwdWxqNwozRmpaMWRrM2w2Nkl3WDVMQVhCWENlUGcvam1VcHZHYXlETExyZHUxdzVtOTJQdVk0YlhUT0p6SFkxVWRldzd0CmowdzRxMXFRUFF2VWJ1dW1DL3NVMXZqSFo2dVBQT1B6QURvMEVzb205UDdOanMwVmhJZ013S3l3bWxNTXMxYjUKZmViaXlhTElidG5ScUdnaDlaSU10TzFKeTVKU1JKcWFKSmlBNVZJQWl0MVJRd2puMWFUdzBWUEhzMVBVbEc1Qgo3T01FQS9oUlM2QytYdHFJY21pZTNtM3NLM1NIbnNCUkVCWjQweWZMbHRhV3JEbXZocWpkdkxZZUdCaG5SZGlMCnpSNFJDSU1jZHVtMjRRTjhBWUE9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
-  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBemVGUVdVS0VRN1Q0bldTNzRLcDJIbmhKM1BsRUU0WGpwYkg2MUFOOUJCYmZDVHpZCkdqVkYvckZXSEJPdnpjLzFmaDFQR2JTMkMxVGJaejlPNTd6QWxHUjdGbjdUai9VSjBiZU9xT1B0SmRVNktabHoKMkUyUTFhZ3R6QytjVjNmRHZxelkrNExuS0FHeXRVRUlQUmlqY2I4M3QvRVdIODJRZXJEY09VbVZJYW1XdVN5dwpsNHZUekhNSVppemNiMnUvQS9kQTRWSVFmSEJDSzlQak0xTm8zUlc3anh3RUZNK2RseHVnWUF0TUtpWXR1WitICmY1Q1Jlb1l4Q0lIZnIzV2VnZCtDVll1YVJZSWx6blN1UFlBV2p1SHQzUkNoNWhGeTdyWG12OGNjWHZDUG1nZlAKSS9JWDlwUWM2cTdSR0toMXFEZnVpQUJTQW5ZSDR0ejI4SDBJc1FJREFRQUJBb0lCQUNsNThlajVtSkhYWEpyQQoxNFRNY3AxeTJGYVhOUnJGeDNYekpEZ2dOOGhpSHk3S1BqTVJkbmQ0SElQdGgyWnNOZVhoVzdVdkRkbThqN0wrCk14UkdsM21Od0twb2hKQ2s2Z1NBK1ZHWEVZaWtxMklFRXkySmV0dEFWWEdrU2RmcFBkc2xFVldpS3BXSnVnbi8KL3Z2b0FjMkJtMlVJUWMvSVp3b0FwVzA1SUwwMkE1MVJ6bnJFbHJ5NkFwR1NSOUZlTjFLOWdZYndxN1VNMk5LcwpGeGRFMTJnWlNaUUVEQ2svdG5iMFIwTXFWNE5ENHd4QnRZRWNHVXdoOGxMc0pJZmxtREM0TU1vaUJhdXRTa0RyClRSVEhNc0RXcXBuejk3ODRwcDREbEtnZFQ4R2IyQ0ZsQTdNZlNyL1kyN0VZRVQvRGUrOXU3K09YT1czUG9xTEQKaklIdkNGRUNnWUVBM0M5S2lSUFp1Nm02OGJnTUszZ3pFUmdpRm9lUXdLSlZSY3JKUWRhYy9YRldBTDVGUlo5OQp6LzVWVVRFd096dWI0T1hWSUZucXpjVE16dktxKzB3a3ZuWHMzK2VIMFprVWVBZlVMeFIvRDEyREJmbFJUYmhFCnRJMytOb3BNWFY2dllHVW1vaHJyUFFkZExON3EvYko4dXJoVEhSUHNodjdPejl5eHorcnl4ODBDZ1lFQTcxNWQKZWNYbzNDTm5Fc3AvWE9GUGdjQ3h2RTV0aEdjc1E2OEhKUkY3aFQrNG83S1VQQVRteDBoQlFROFFoNEdrRUE3SApQejgxNnZNbFBQN2tmcXR4U3ZSWDVXb1FIcE0wRXVoYW5la1NRVTExUU9BbU55c2l2VWR5K21zbWUxQk5aNlVWCmdhWUdJK24zdDZTS0xJNHlMR01JQmZndERxVHZJRDZxaEZwK21IVUNnWUJtYVJDUDVVMjJQV0dZSC9SNUczVVYKRkZaMmlDTkpsYmQzdUxRWERVMERqSDFsNXhtdElsdVFMRWxlZERSc3VITHVEYmd0VGVVcVE4akcwSk82UWxZcwp5QWllczcrMk95OE1EUWdoeGJTN1h0RWNMRFFtby9oQXluSmN4OEp4QXlNckFLRVJjTmZORU9uRGZ3TnBjR1VYCks3aHNvK0cxZ0RxTTc2YzhmNWpnV1FLQmdENmYxNkRXVUhmWG8wM2RRTGtTRVhVRzd2a3ZJNlB5UWpockFGbUkKVzJLZkt6VllzVU9Lbkw0aWYwQUFLdmpveC8yVGdEbGgxajlqNGFnMW41NHNTSFd0dTVrL3lIdlhVMVpuQjk0cwpiaVE3bWFPaGdSNEo0UXJZT0pLZm1lL0ZNSnNmSzZOQnhuVjY3dDVTNC91SU1FUkFuSWJEU1RaOW5EbzVhdTg1CnBjbEpBb0dCQU1KN0NlK1VsREVJa0hGdSs3QzhYZS9vRXJ4b3pldHlvKzRIWEY0aTFLajBId3YwUkZuMmZCUzMKVWY1R0UwcnlEanRNUkxYa3h2YmlzVzlrK2JBUk1CbUNjVmtpRmxKRnBaa3ZWM3dZZlFnKzl2L3VpZjZqajlpRAo0dGd0cXEvUE5DbFlSdUcxSXU1SmJWa3N1eWJGWTJrMGprOFpTRG96ZDh4bFFNN1l3U0tjCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -219,7 +212,7 @@ kind: ClusterRole
 metadata:
   name: victoriametrics:admin
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -285,7 +278,7 @@ kind: ClusterRole
 metadata:
   name: victoriametrics:view
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -351,28 +344,28 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
     helm.sh/chart: victoria-metrics-operator-0.38.0
 subjects:
 - kind: ServiceAccount
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   namespace: platform-observability
 roleRef:
   kind: ClusterRole
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -391,21 +384,21 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
     helm.sh/chart: victoria-metrics-operator-0.38.0
 subjects:
 - kind: ServiceAccount
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   namespace: platform-observability
 roleRef:
   kind: Role
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
@@ -413,12 +406,12 @@ kind: Service
 metadata:
   namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
     helm.sh/chart: victoria-metrics-operator-0.38.0
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
 spec:
   type: ClusterIP
   ports:
@@ -430,16 +423,16 @@ spec:
     port: 9443
     targetPort: webhook
   selector:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/name: victoria-metrics-operator
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vmop-victoria-metrics-operator
+  name: victoriametrics-operator-victoria-metrics-operator
   namespace: platform-observability
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -448,17 +441,17 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/instance: vmop
+      app.kubernetes.io/instance: victoriametrics-operator
       app.kubernetes.io/name: victoria-metrics-operator
   template:
     metadata:
       labels:
-        app.kubernetes.io/instance: vmop
+        app.kubernetes.io/instance: victoriametrics-operator
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: victoria-metrics-operator
     spec:
       securityContext: {}
-      serviceAccountName: vmop-victoria-metrics-operator
+      serviceAccountName: victoriametrics-operator-victoria-metrics-operator
       containers:
       - name: operator
         image: victoriametrics/operator:v0.49.1
@@ -470,6 +463,16 @@ spec:
               fieldPath: metadata.name
         - name: OPERATOR_NAME
           value: victoria-metrics-operator
+        - name: VM_ENABLEDPROMETHEUSCONVERTER_PODMONITOR
+          value: 'false'
+        - name: VM_ENABLEDPROMETHEUSCONVERTER_SERVICESCRAPE
+          value: 'false'
+        - name: VM_ENABLEDPROMETHEUSCONVERTER_PROMETHEUSRULE
+          value: 'false'
+        - name: VM_ENABLEDPROMETHEUSCONVERTER_PROBE
+          value: 'false'
+        - name: VM_ENABLEDPROMETHEUSCONVERTER_ALERTMANAGERCONFIG
+          value: 'false'
         - name: VM_ENABLEDPROMETHEUSCONVERTEROWNERREFERENCES
           value: 'false'
         args:
@@ -514,14 +517,17 @@ spec:
       - name: cert
         secret:
           defaultMode: 420
-          secretName: vmop-victoria-metrics-operator-validation
+          secretName: victoriametrics-operator-victoria-metrics-operator-validation
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: vmop-victoria-metrics-operator-admission
+  name: victoriametrics-operator-victoria-metrics-operator-admission
+  annotations:
+    certmanager.k8s.io/inject-ca-from: platform-observability/victoriametrics-operator-victoria-metrics-operator-validation
+    cert-manager.io/inject-ca-from: platform-observability/victoriametrics-operator-victoria-metrics-operator-validation
   labels:
-    app.kubernetes.io/instance: vmop
+    app.kubernetes.io/instance: victoriametrics-operator
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: victoria-metrics-operator
     app.kubernetes.io/version: v0.49.1
@@ -530,10 +536,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vlogs
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vlogs.victoriametrics.com
   admissionReviewVersions:
@@ -559,10 +564,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmagent
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmagent.victoriametrics.com
   admissionReviewVersions:
@@ -588,10 +592,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmalert
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmalert.victoriametrics.com
   admissionReviewVersions:
@@ -617,10 +620,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmalertmanager
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmalertmanager.victoriametrics.com
   admissionReviewVersions:
@@ -646,10 +648,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmalertmanagerconfig
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmalertmanagerconfig.victoriametrics.com
   admissionReviewVersions:
@@ -675,10 +676,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmauth
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmauth.victoriametrics.com
   admissionReviewVersions:
@@ -704,10 +704,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmcluster
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmcluster.victoriametrics.com
   admissionReviewVersions:
@@ -733,10 +732,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmrule
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmrule.victoriametrics.com
   admissionReviewVersions:
@@ -762,10 +760,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmsingle
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmsingle.victoriametrics.com
   admissionReviewVersions:
@@ -791,10 +788,9 @@ webhooks:
 - clientConfig:
     service:
       namespace: platform-observability
-      name: vmop-victoria-metrics-operator
+      name: victoriametrics-operator-victoria-metrics-operator
       path: /validate-operator-victoriametrics-com-v1beta1-vmuser
       port: 9443
-    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIakNDQWdhZ0F3SUJBZ0lSQUtibzlEQzdXUW1IWkt4RTRDOHFxYnN3RFFZSktvWklodmNOQVFFTEJRQXcKR1RFWE1CVUdBMVVFQXhNT2RtMHRiM0JsY21GMGIzSXRZMkV3SGhjTk1qWXdPVEU1TURnME5qVTBXaGNOTXpZdwpPVEUyTURnME5qVTBXakFaTVJjd0ZRWURWUVFERXc1MmJTMXZjR1Z5WVhSdmNpMWpZVENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1J6TEZLa3NzK1Q4Qkw0c0p6Z0Jvd292MUo0bms5b2tlRHEKc3FnQjB0Ykd4akczV1BHakVhdmswK2VJR29LUnpKSnZnSFhseGFnU2E2V2p0d1ByZE9KZ08yQzRiWEN3Vlc0NgpCZWpXMk10eHUzMEtJWTg0OXFqWW9wWjJoOXJiZ3V2WDh1SUtZN0NRN2lTVHJIK3FLZU5FOE40ckxMYVhxRzh2ClBWL3BiWVdZbXI1dHFMU0NJeUFXMnBlZ3g0MTJVZXJoZ3UwS2Q2YzVyVEN5R1dUNEpCczJkelFIeXowWXQ4UFgKNlpwK215NHU4ajhsN0F0MjhHYzZkNkUwakthR2FpS1pmKzZqUEFKUGZhVTd0eXF1c29KUlYrMDJxS0R6NVAxdwpWRE9RVUp0Z0ZwTGtIKzc2LzBIWTl3aURRQmRjdi8vdjZMSEVsNzVSYU5XMk5lNXFHT2tDQXdFQUFhTmhNRjh3CkRnWURWUjBQQVFIL0JBUURBZ0trTUIwR0ExVWRKUVFXTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNBQXZnaXNzYXhZcGI5dHVtdXUxdnVqRXFyeURBTgpCZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFtdEFoWEx0SzZZdEkwb0E4Q29VaVRrQ1VzTlNJTW1JSFFqQW5pRkRLCnZXVjJLZ2NiOG1DMk5meXJYbmhCZG1IQjBoZUgvNnpmNlR4aTFPVkp4RmNGSTdtK21vR3J5TUJSZGp3SEw0NlEKa2JFeUpWM1lpei8yK2tBWHFMNVZHY1RwZGFKZHM1WGJHYkI5N1hlclBKanJhUy9iaG1vNTcvcmZWNStTbFo5WgoxZ2pVTmJ5VDV1RWJkSjJOcUMrMGtRU2kwbkV1TSsyUTU1R1NSRmNadXh5bFJjbEVjQXdObmVRTi8yeWNXL2hECmxmSkNIYjNIclYxdytzc3YvOGluOHFWUDRyazlub0xvRkd6bkw1dnBwL2YyeFpoZVlWMkE4di9hQVY2Q3k2SzgKUDBQYS9paVIxNGNubUxadGlDY09wTFVZQ3F1MXVILy9hVW9UL0kzQ25qNWI3Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
   failurePolicy: Fail
   name: vmuser.victoriametrics.com
   admissionReviewVersions:
@@ -817,3 +813,49 @@ webhooks:
     - UPDATE
     resources:
     - vmusers
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: victoriametrics-operator-victoria-metrics-operator-root-ca
+  namespace: platform-observability
+spec:
+  secretName: victoriametrics-operator-victoria-metrics-operator-root-ca
+  duration: 63800h0m0s
+  issuerRef:
+    name: victoriametrics-operator-victoria-metrics-operator-root
+  commonName: ca.validation.victoriametrics
+  isCA: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: victoriametrics-operator-victoria-metrics-operator-validation
+  namespace: platform-observability
+spec:
+  secretName: victoriametrics-operator-victoria-metrics-operator-validation
+  duration: 45800h0m0s
+  issuerRef:
+    name: victoriametrics-operator-victoria-metrics-operator-issuer
+  dnsNames:
+  - victoriametrics-operator-victoria-metrics-operator
+  - victoriametrics-operator-victoria-metrics-operator.platform-observability
+  - victoriametrics-operator-victoria-metrics-operator.platform-observability.svc
+  - victoriametrics-operator-victoria-metrics-operator.platform-observability.svc.cluster.local.
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: victoriametrics-operator-victoria-metrics-operator-root
+  namespace: platform-observability
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: victoriametrics-operator-victoria-metrics-operator-issuer
+  namespace: platform-observability
+spec:
+  ca:
+    secretName: victoriametrics-operator-victoria-metrics-operator-root-ca
