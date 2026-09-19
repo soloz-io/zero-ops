@@ -685,3 +685,98 @@ func TestRootImagesCarryRunAsUser(t *testing.T) {
 		}
 	}
 }
+
+// The spoke query endpoint's auth config has the shape vmauth accepts.
+//
+// Three startup refusals were paid to establish it, one publish each:
+//
+//	v1.115.0  "field jwt not found in type main.UserInfo"
+//	v1.137.0  jwt accepted; "field oidc not found in type main.JWTConfig"
+//	          and match_claims was nested beside jwt rather than inside it
+//	v1.152.0  accepted -- "started vmauth in 2.752 seconds"
+//
+// Every one was a startup failure, so the endpoint CrashLooped rather than
+// serving the telemetry store with no verification. That is the right way round
+// for a security control to fail (ADR-083 addendum 1 §1), and it is why these
+// were cheap to find and expensive only in round trips.
+//
+// This gate is about the round trips. It asserts the structure without needing
+// the binary, so the next change to this config fails in CI rather than on a
+// cluster three publishes later.
+func TestSpokeQueryEndpointAuthConfigShape(t *testing.T) {
+	root := repoRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root,
+		"manifests/spoke/spoke-catalog/infra/victoriametrics/victoriametrics",
+	))
+	if err != nil {
+		raw, err = os.ReadFile(filepath.Join(root,
+			"manifests/spoke/spoke-catalog/infra/victoriametrics/query-endpoint.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var cfgDoc map[string]any
+	var image string
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	for {
+		var doc map[string]any
+		if err := dec.Decode(&doc); err != nil {
+			break
+		}
+		switch doc["kind"] {
+		case "ConfigMap":
+			data, _ := doc["data"].(map[string]any)
+			body, _ := data["auth.yml"].(string)
+			if body != "" {
+				if err := yaml.Unmarshal([]byte(body), &cfgDoc); err != nil {
+					t.Fatalf("auth.yml is not valid YAML: %v", err)
+				}
+			}
+		case "Deployment":
+			spec, _ := doc["spec"].(map[string]any)
+			tmpl, _ := spec["template"].(map[string]any)
+			pspec, _ := tmpl["spec"].(map[string]any)
+			cs, _ := pspec["containers"].([]any)
+			if len(cs) > 0 {
+				c, _ := cs[0].(map[string]any)
+				image, _ = c["image"].(string)
+			}
+		}
+	}
+
+	if cfgDoc == nil {
+		t.Fatal("no auth.yml in the query endpoint's ConfigMap")
+	}
+
+	users, _ := cfgDoc["users"].([]any)
+	if len(users) == 0 {
+		t.Fatal("auth.yml declares no users, so nothing is authenticated")
+	}
+	u, _ := users[0].(map[string]any)
+
+	jwt, ok := u["jwt"].(map[string]any)
+	if !ok {
+		t.Fatal("the user carries no jwt block: the endpoint would fall back to an " +
+			"unauthenticated or password scheme, which ADR-083 addendum 1 §1 rejects")
+	}
+	if _, ok := jwt["oidc"]; !ok {
+		t.Error("jwt carries no oidc block, so tokens are not verified against the " +
+			"box's own issuer")
+	}
+	// The nesting that cost a publish: inside jwt, not beside it.
+	if _, beside := u["match_claims"]; beside {
+		t.Error("match_claims sits beside jwt; vmauth refuses to start with " +
+			`"field match_claims not found in type main.UserInfo". It belongs inside jwt.`)
+	}
+	if _, inside := jwt["match_claims"]; !inside {
+		t.Error("jwt carries no match_claims, so any token from the issuer is accepted " +
+			"whatever client it was minted for")
+	}
+
+	// The image has to be new enough for the shape above.
+	if image != "" && !strings.Contains(image, "v1.15") {
+		t.Errorf("vmauth image is %q; the oidc block needs v1.15x or later. "+
+			"v1.137.0 accepts jwt and rejects oidc.", image)
+	}
+}

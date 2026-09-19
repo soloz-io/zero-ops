@@ -44,14 +44,22 @@ data:
     # against it, so key rotation at the issuer is picked up without a redeploy
     # -- which is why this is OIDC discovery rather than a pinned public key.
     users:
+      # match_claims sits INSIDE jwt, beside oidc -- not beside jwt.
+      #
+      # Both nestings were tried against the running endpoint. Outside jwt the
+      # process refuses to start: "field match_claims not found in type
+      # main.UserInfo". That is the right way for a security control to fail,
+      # and it is why the endpoint CrashLooped rather than serving the store
+      # with no verification at all.
       - jwt:
           oidc:
             issuer: "https://id.SUBDOMAIN_DOMAIN"
-        # The audience the box's Grafana presents. A token minted for any other
-        # client of the same issuer is refused, so "authenticated by Zitadel" is
-        # not by itself sufficient to read this cluster's telemetry.
-        match_claims:
-          aud: "spoke-query"
+          # The audience the box's Grafana presents. A token minted for any
+          # other client of the same issuer is refused, so "authenticated by
+          # Zitadel" is not by itself sufficient to read this cluster's
+          # telemetry.
+          match_claims:
+            aud: "spoke-query"
         url_map:
           # Metrics: the Prometheus-compatible read API only. /api/v1/write is
           # deliberately absent -- this endpoint answers questions and accepts
@@ -98,13 +106,17 @@ spec:
     spec:
       containers:
         - name: vmauth
-          # v1.137.0 or later: JWT verification (`jwt:` with `oidc.issuer` and
-          # `match_claims`) arrived in that release. v1.115.0 was pinned first
-          # and rejected the config outright at startup --
-          #   "field jwt not found in type main.UserInfo" --
-          # so the endpoint CrashLooped rather than serving unauthenticated,
-          # which is the right way round for a security control to fail.
-          image: victoriametrics/vmauth:v1.137.0
+          # The version is pinned to what the CONFIG needs, established by
+          # running it rather than by reading a changelog:
+          #
+          #   v1.115.0  "field jwt not found in type main.UserInfo"
+          #   v1.137.0  jwt accepted; "field oidc not found in type main.JWTConfig"
+          #   v1.152.0  the shape below
+          #
+          # Each refusal was at startup, so the endpoint CrashLooped rather than
+          # serving the telemetry store unverified -- the right way round for a
+          # security control to fail, and the reason these were cheap to find.
+          image: victoriametrics/vmauth:v1.152.0
           args:
             - -auth.config=/config/auth.yml
             - -httpListenAddr=:8427
