@@ -59,14 +59,14 @@ spec:
     # in-namespace clients and the set is closed.
     - from:
         - podSelector: {}
-    # The Gateway, which fronts the query endpoint. Cilium's gateway pods run in
-    # kube-system; this admits the proxy and not the tenant workloads behind it,
-    # which still have to present a token vmauth accepts.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
+    # The Gateway, reaching the query endpoint (ADR-083 decision 3).
+    #
+    # Portwise with an empty `from`: Cilium's envoy runs on the HOST network, so
+    # no namespaceSelector can match it -- the kube-system selector this
+    # replaces admitted nothing. vmauth authenticates every request by OIDC
+    # against the box's own issuer, so the port being reachable is not the
+    # access decision.
+    - ports:
         - protocol: TCP
           port: 8427
     # The OTLP receiver, from namespaces the tenant has opted in (ADR-078 §7.2).

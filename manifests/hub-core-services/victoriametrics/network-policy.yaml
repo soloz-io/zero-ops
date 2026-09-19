@@ -37,6 +37,20 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # The Gateway, reaching Grafana (ADR-078 §5).
+    #
+    # Portwise with an empty `from`, for the same reason as 9443 above: Cilium's
+    # envoy proxy runs on the HOST network -- verified at 100.96.182.30 on this
+    # box -- so it belongs to no pod and no namespace, and neither a
+    # podSelector nor a namespaceSelector can admit it.
+    #
+    # Found the same way the webhook rule was: the route was Accepted, the
+    # Service had an endpoint, the pod was 3/3 Running, and every request
+    # returned 503 because the proxy could not open a connection. Narrowed by
+    # port instead, and 3000 serves Grafana, which has its own authentication.
+    - ports:
+        - protocol: TCP
+          port: 3000
     # The API SERVER, calling the operator's admission webhook on 9443.
     #
     # This is the rule the first version of this policy did not have, and its
