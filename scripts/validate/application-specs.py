@@ -164,9 +164,18 @@ def check(appset, element, spec, charts, components, problems):
         if source.get("chart") != DISTRIBUTION_CHART:
             continue
         values = (source.get("helm") or {}).get("values") or ""
+        # A COMMENT is never a component.
+        #
+        # This read any unindented line ending in ":" as an enabled component,
+        # and a values block's comments sit at that same level. A comment whose
+        # sentence happened to end in a colon was therefore reported as a
+        # component the distribution does not carry, and the release failed
+        # naming a fragment of English prose. Observed 2026-09-20.
         enabled = [line.split(":")[0].strip()
                    for line in values.splitlines()
-                   if line and not line[0].isspace() and line.rstrip().endswith(":")]
+                   if line and not line[0].isspace()
+                   and not line.lstrip().startswith("#")
+                   and line.rstrip().endswith(":")]
         enabled = [e for e in enabled if e and e != "global"]
         if not enabled:
             problems.append((name, "resolves the distribution but enables no "

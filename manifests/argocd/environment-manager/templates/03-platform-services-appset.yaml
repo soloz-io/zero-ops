@@ -555,10 +555,14 @@ spec:
             # arrived nil.
             #
             # global.provider nil meant the catalogue's provider-gated template
-            # block rendered NOTHING, and ArgoCD pruned what that block owns:
+            # block rendered NOTHING, so ArgoCD pruned what that block owns --
             # VMSingle, VLogs and the query endpoint's ConfigMap were deleted as
             # no longer declared, while the Application reported Synced (354
             # synced, 11 pruned). Verified on nutgraf-01, 2026-09-20.
+            #
+            # No line here may end in a colon: these comments sit at the top
+            # level of a values block, and application-specs.py reads that
+            # position for enabled components.
             {{- include "environment-manager.globalValues" (dict "root" $ "environmentSlug" (printf "%s%s%s" "{{" (print " index .metadata.labels \"environment\" ") "}}")) | nindent 12 }}
 {{- else }}
         kustomize:
