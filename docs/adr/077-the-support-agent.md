@@ -904,6 +904,494 @@ If this proves wrong in practice, that list is the thing to re-examine first —
 not the state machine, and not the division of cancellation into two halves, both
 of which have working implementations behind them.
 
+## Addendum 4: the agent is open source, speaks OTLP, and its identity is bound by the pool that verified it (2026-09-19)
+
+Four review rounds against `reference-projects/1proprietary/` and against ADR-032
+and ADR-035 settled the decisions this ADR left to implementation, and overturned
+three it had already taken. Recorded here in full, because the overturned ones are
+the ones a future reader will otherwise re-derive from the Decision above.
+
+Where a decision has a source it is named with the file the behaviour was
+*verified* in. Where it has none, it says so — the discipline the Lifecycle
+Provenance table already follows.
+
+### 1. The agent is open source. "The only proprietary runtime component" is withdrawn.
+
+The Decision above says this agent is *"the only proprietary runtime component
+required for the SOLOZ support service"*. **That is withdrawn.** The agent ships
+under the platform's own licence.
+
+**Nothing inside it is secret, and this ADR is what made that true.** The allowlist
+ships as a ConfigMap in the tenant's own cluster and is annotated per entry because
+*"the list is the contract, and reviewing it is how the claim stays true"*.
+`soloz support preview` renders the exact payload before it is sent. The wire
+format is now a public standard (decision 2 below). A competitor reading the source
+learns a list of metric names they could already read in any tenant's cluster, and
+an exporter conforming to a published specification.
+
+**The commercial boundary was never in the agent.** The five-authority table puts
+authority 3 — whether the platform accepts this agent — as enrolment state *"held
+entirely platform-side"*, and decision 3 of addendum 3 makes it absolute: no
+certificate presented against a revoked enrolment is accepted however
+cryptographically valid it is. A forked agent buys the ability to send evidence
+nobody will accept.
+
+**No reference project monetises the client.** Every agent in the comparison set is
+open source, and so is the subscription backend:
+
+| project | licence | verified at |
+|---|---|---|
+| `insights-client` | GPL-2.0-or-later | `insights-client.spec:8` |
+| `landscape-client` | GPL-2.0 | `LICENSE:1-2` |
+| `telemeter-client` | shipped as `quay.io/openshift/origin-telemeter` | `cluster-monitoring-operator/manifests/image-references:52` |
+| `cluster-monitoring-operator` | Apache-2.0 | `LICENSE:1-3` |
+| **`rhsm-subscriptions`** (the billing backend) | **GPL-3.0** | `LICENSE:1-2` |
+
+What Red Hat keeps closed is not code: `console.redhat.com`, the hosted
+infrastructure, the fleet corpus, the rule content, the engineers and the contract.
+
+**What remains proprietary here** is the Support Plane, the fleet corpus, the
+compatibility matrix and validated upgrade paths (ADR-069, ADR-064), incident
+correlation and runbooks, and the obligation itself. The negative this ADR records
+— *"a proprietary component in an otherwise open platform is a thing tenants will
+reasonably ask about"* — is removed rather than answered.
+
+**The residual trust gap a signature cannot close** is closed by publication plus
+build provenance: a cosign signature, an SPDX SBOM, and SLSA provenance binding the
+image digest to the commit. Source alone would prove the code; provenance binds the
+shipped binary to it. **No reference supports this** — none of the four ships
+reproducible builds or attestation.
+
+### 2. The transport is OTLP/HTTP, and the agent is an exporter, not a Collector
+
+**OTLP interoperability is a requirement.** The agent exports OTLP/HTTP (protobuf)
+to a single destination.
+
+**It remains a single-binary exporter, not an OpenTelemetry Collector
+distribution.** The distinction is load-bearing and was conflated in review: a
+Collector's natural configuration surface is receivers, and *"Nothing reaches
+inward"* is a claim about the rendered manifest — no Service, no Ingress, no
+ingress rule — not about a configuration file. An exporter-only binary keeps it a
+manifest fact.
+
+Precedent exists in this repository: `internal/kube-sbt/libraries/tracing/tracing.go:12,25,33`
+already exports over `otlptracehttp`.
+
+**Sourcing note.** `reference-projects/` contains no OpenTelemetry project. Every
+claim in this decision about OTLP semantics is from the specification, not from a
+verified reference — the only OTLP appearance in the comparison set is OpenShift
+*telemetering which OTel receivers its customers run*
+(`cluster-monitoring-operator/manifests/0000_50_cluster-monitoring-operator_04-config.yaml:918`).
+
+**Addendum 3 decision 6's premise was false, and the table is replaced.** That
+table retries `403` because *"a proxy in front of the endpoint"* is a mundane
+cause. Under the transport this platform has chosen it is not: mTLS is mandatory
+and only CONNECT-tunnelling proxies are supported (decision 9), so no intermediary
+can inject a status into a mutually authenticated session. Any status the agent
+sees came from the Support Plane.
+
+| condition | behaviour |
+|---|---|
+| DNS, TCP, CONNECT or TLS handshake failure | retry with backoff; report locally |
+| `502`, `503`, `504` / `UNAVAILABLE`, `408` | retry with backoff |
+| `429` / `RESOURCE_EXHAUSTED` | honour `Retry-After`; otherwise backoff |
+| `401` / `UNAUTHENTICATED` | stop retrying the export; report locally as a certificate fault; drop to the long re-probe |
+| `403` / `PERMISSION_DENIED` | stop retrying; read `google.rpc.Status.details`; drop to the long re-probe |
+| `403` carrying **`ENROLMENT_REVOKED`** in `Status.details` | return to `NOT_ENROLLED`, log once, long re-probe |
+| `400` / `INVALID_ARGUMENT` | stop retrying; this is a schema mismatch — surface loudly (decision 10) |
+| `2xx` with `partial_success.rejected_data_points > 0` | log `error_message`, continue |
+| certificate renewal failure | report locally, retry — the tenant's own issuer failing, not the platform |
+
+Backoff is exponential, floor 5 minutes, **ceiling 2 hours** — taken from
+`landscape-client`'s `ExponentialBackoff(300, 7200)`
+(`landscape/client/broker/exchange.py:418`). The long re-probe is 6 hours.
+
+**Revocation stays typed and is still never inferred.** It is
+`google.rpc.Status.details`, a slot the specification provides, not a status the
+client interprets. A `403` *with* the marker is revocation; a `403` *without* it is
+a fault the agent stops hammering and never treats as revocation.
+
+**One property is lost, and it is worth stating.** Canonical's `unknown-id` arrives
+inside a **successful** exchange — the server says "I no longer know you" in a 200
+(`landscape/client/broker/registration.py:288`), and the client clears its ids and
+falls back to unregistered. OTLP has no equivalent control slot in a success
+response; `partial_success` is scoped to rejected data points. Revocation therefore
+rides a failure status, which is weaker, and this is the cost of the
+interoperability requirement.
+
+**And a correction to the record.** Addendum 3 implies Landscape signals
+entitlement only in-band. It has a second mechanism — `landscape/__init__.py:51`
+records *"3.7: Server returns 402 Payment Required if the computer has no valid
+license."* — but `grep -rn "402" landscape/` outside tests returns that comment and
+nothing else. There is no handler. The mechanism Canonical actually implemented is
+the in-band message, which is what this ADR took.
+
+### 3. Evidence is OTLP-shaped, and the agent computes no rates
+
+| evidence | OTLP form |
+|---|---|
+| counters (`kyverno_policy_results_total`) | `Sum`, monotonic, cumulative — **shipped raw** |
+| gauges (`certmanager_certificate_expiration_timestamp_seconds`) | `Gauge` |
+| non-metric evidence (`bundleVersion`, `targetRevision`) | **info-gauge**: value `1`, facts in attributes |
+| `emit:` | attribute allowlist |
+| `values:` (decision 4) | attribute value allowlist |
+
+The info-gauge is the ecosystem's existing idiom for non-numeric facts —
+`kube_node_info`, `kube_pod_info`, `kube_storageclass_info`,
+`kube_persistentvolume_info` all appear in the reference's minimal collection
+profile (`cluster-monitoring-operator/assets/kube-state-metrics/minimal-service-monitor.yaml:22`).
+`kind: artefact` collectors map onto it without inventing a second shape.
+
+**The agent computes only stateless aggregates** — `count`, `sum`, `max`, `min`
+over instant values. **It computes no rates.** A rate requires retained samples,
+which is state, and it produces wrong values across a counter reset. Telemeter can
+ship `:rate1h` and `:max_over_time1h` only because it federates from a Prometheus
+TSDB (`assets/telemeter-client/deployment.yaml:45-46`,
+`--from=https://prometheus-k8s.openshift-monitoring.svc:9091`). This agent has no
+store, so rates are derived Support-Plane-side.
+
+**`process_start_time_seconds` is emitted alongside every counter** so the Plane can
+detect a reset. It is the conventional reset detector and is in the reference's
+keep-list (`minimal-service-monitor.yaml:22`). The stated resolution limit: counter
+deltas are accurate to at most one restart per collection interval.
+
+**Identity is removed from the payload.** `Payload.Cluster` (`internal/support/collect.go`)
+and the `cluster` argument to `Collect` go. OTLP `Resource` attributes are
+client-supplied, so the Support Plane **stamps** `service.instance.id` from the
+authenticated identity and never trusts what arrived. Addendum 2 caught the CLI half
+of this when `soloz support preview` asked for a cluster name; the struct is the
+other half.
+
+### 4. Two bounds are added: label values, and payload limits
+
+The allowlist bounds targets, queries, schema and emitted fields. Two more are
+required, and the first is not theoretical: `emit: [policy_name]` emits whatever a
+tenant named their own Kyverno policies, and `emit: [project]` emits whatever they
+named their AppProjects.
+
+**`values:` enumerates admissible attribute values per field.** Telemeter does this
+throughout — `severity=~"critical|warning|info|none"`,
+`vendor=~"NVIDIA|AMD|GAUDI|INTEL|QUALCOMM|Marvell|Mellanox"`,
+`table_name=~"ACL|Address_Set"` (`manifests/0000_50_cluster-monitoring-operator_04-config.yaml`).
+
+**Limits:** maximum records per collector, maximum bytes per attribute value,
+maximum payload bytes. Per-field truncation is Landscape's
+(`landscape/client/broker/exchange.py:450`).
+
+**A clarification the Decision above needs.** It rejects anonymisation, and that
+stands. It does **not** reject *key* allowlisting — `emit:` is exactly that. The
+three mechanisms are distinct and the reference operates all three separately: key
+allowlisting (`assets/kube-state-metrics/deployment.yaml:46`,
+`--metric-labels-allowlist`), value anonymisation
+(`assets/telemeter-client/deployment.yaml:40-41`, `--anonymize-labels`,
+`--anonymize-salt-file`), and value enumeration (the selectors above). This platform
+takes the first and third and rejects the second.
+
+**The denylist gains the same three granularities**, on `insights-client`'s shape —
+whole sources (`components`, `commands`, `files`) and content within them
+(`patterns`, `keywords`) — as `deny.collectors`, `deny.fields` and `deny.values`.
+
+### 5. Identity is the certificate subject, bound to a tenant by the pool that verified it
+
+**SPIFFE URI SANs are rejected, and the `commonName` convention is kept.**
+
+An earlier reading of `argocd-agent` recommended a URI SAN. Against this platform
+that is wrong: no certificate in the fleet uses `uris:`, and every agent identity
+uses the same subject convention —
+`manifests/spoke/spoke-catalog/infra/certificates.yaml:12,28,53` carries
+`argocd-agent:{{ .Values.spokeName }}`, `alloy:{{ .Values.spokeName }}` and
+`support-agent:{{ .Values.spokeName }}`. A URI SAN would be the first in the fleet
+and would need Infisical certificate-profile support nothing exercises. ADR-035
+addendum §1 records exactly how that class of gap fails: the `signing-keys` profile
+was named by an issuer and absent from the registry, and the symptom was
+`argocd-agent-principal` in `ContainerCreating` on a missing Secret, diagnosable
+only from the CertificateRequest.
+
+**And SPIFFE would have bought nothing.** The binding that matters is not a string.
+
+> **Canonical identity is `(tenant, cluster)`, where `cluster` is the certificate's
+> subject capture and `tenant` is established by which CA pool verified the chain —
+> never by anything the client sent.**
+
+This is stronger than an identity string for the rule this ADR already has
+("identity lives in the certificate"): the tenant half is not in the certificate at
+all, so it cannot be claimed.
+
+**The hub/spoke asymmetry is corrected.** The hub's certificate carries
+`support-agent:PLACEHOLDER_HUB_DOMAIN` — a zone — while addendum 2 gives spokes
+`support-agent:<spoke>` — a bare name. They are not the same namespace, so the
+enrolment contract's uniqueness rule cannot be evaluated. Both become
+`support-agent:<cluster>`, and the hub's cluster name is `hub`.
+
+**A trust pool per tenant, selected by SNI.** The Support Plane holds
+`tenant → CA pool`, not one union pool, and each tenant is reached at
+`<tenant-id>.support.soloz.io`. SNI selects the `tls.Config`; the standard library
+performs `RequireAndVerifyClientCert` against one CA.
+
+**This closes a hole the reference cannot show.** `argocd-agent` builds a single
+flat pool (`cmd/argocd-agent/principal.go:740-751`;
+`internal/tlsutil/kubernetes.go:119-135`) and `Authenticate` takes
+`VerifiedChains[0][0]` and regex-matches the subject without ever inspecting the
+issuer (`internal/auth/mtls/mtls.go:60-118`). With one trust domain and one
+operator that is correct. With N tenant CAs in one pool, Tenant A's CA could mint a
+certificate bearing Tenant B's subject. **No reference covers this**; it belongs
+beside "registering the tenant's CA" in *What has no reference behind it*.
+
+Selecting by SNI rather than by inspecting an unverified leaf is deliberate:
+selecting a pool from certificate contents requires `RequireAnyClientCert` plus
+manual chain verification, which is security-critical bespoke code in the one place
+this ADR's claims must be checkable by reading.
+
+**Trust-domain ownership is proved at registration by a DNS-01 challenge.** The
+enrolment contract refuses *"a subject naming a DNS zone the registering tenant
+does not hold"* and does not say how that is established. It is a TXT record at
+`_soloz-challenge.<trust-domain>`, resolved by the Plane before the record becomes
+`ACTIVE`. The idiom is already in the box —
+`manifests/spoke/spoke-catalog/infra/acme-cluster-issuer.yaml:20,65,91` declares
+`dns01` solvers, and ADR-035 lists `acme` among profile `enrollmentType` values.
+**The mechanism itself has no reference behind it**: in every comparison project the
+vendor is the root of identity, so the question never arises.
+
+### 6. The certificate rides an existing profile, and ADR-035 is the authority for its TTL
+
+Addendum 3 decision 5 sets 24h with `renewBefore: 8h` by analogy to sibling
+identities. The authority is ADR-035 §5, which classifies certificates by whether
+the consumer can reload without restarting: workload and client identities take 24h,
+and the `infrastructure-services` profile ceiling is 7 days. The Support Agent is a
+client identity whose pod restarts cheaply.
+
+**No support-specific certificate profile is created.** The agent's Certificate uses
+`issuerRef: infisical-fleet-issuer`, which names `infrastructure-services`. ADR-035
+addendum §1 makes this a rule with a test behind it: *"every profile named by an
+infisical-issuer ClusterIssuer must exist in the registry"*, and the registry is
+`internal/pki.RequiredProfiles`. A support-specific profile would have to be added
+there or issuance fails in the manner described above.
+
+### 7. CA rotation is ADR-035's rollover, seen from the Support Plane
+
+The enrolment contract states *"a change of CA or subject MUST create a new
+enrolment record"* as a bare prohibition. It is the Plane's half of a procedure the
+platform already operates:
+
+| ADR-035 phase | Support Plane |
+|---|---|
+| 1 — publish dual trust | tenant registers the new CA; second `ACTIVE` enrolment |
+| 2 — roll consumers | agent's certificate reissued under the new CA |
+| 3 — switch issuance | Infisical profile repointed |
+| 4 — convergence gate | Plane confirms the agent reports under the new enrolment |
+| 5 — remove old CA | tenant revokes the old enrolment record |
+
+*"Two acts instead of one"* is phases 1 and 5. **Both enrolments stay `ACTIVE` for
+at least 10 days** — ADR-035 CA Rollover Invariant 1 requires an overlap exceeding
+the longest active leaf TTL plus renewal buffer, minimum 10 days. Invariant 2's
+atomic verification gate is served directly by the Plane, which knows which
+enrolment each connection authenticated against.
+
+### 8. A revoked enrolment's CA stays trusted for delivery
+
+`ENROLMENT_REVOKED` can only be delivered if the Plane still completes the
+handshake. If the CA were untrusted on revocation the agent would see a handshake
+failure, which the table classifies as transient, and would retry indefinitely
+without ever being told.
+
+> **A revoked enrolment's CA remains in the Plane's trust store for delivery only,
+> until `ENROLMENT_REVOKED` has been delivered successfully at least once and for a
+> further 30 days thereafter; floor 10 days, absolute cap 90. Revocation is refusal
+> at the application layer, never removal of trust.**
+
+The floor exists so a rotate-then-cancel sequence cannot strand delivery inside
+ADR-035's mandatory overlap. This corrects addendum 3's *"the old one stops being
+trusted when it is explicitly revoked"*, which is true of issuance and must not be
+true of delivery.
+
+The reference does it this way: `argocd-agent`'s blocklist check runs **inside**
+`Authenticate`, after `VerifiedChains` is non-empty and the leaf has been taken
+(`internal/auth/mtls/mtls.go:71-79`). The chain verifies; refusal follows.
+
+**And the retry cost after the window closes is stated rather than discovered:** a
+cancelled agent the tenant never removes makes roughly twelve failed TCP and TLS
+attempts per day indefinitely, at the 2-hour backoff ceiling. That is the price of
+decision 6's rule that the agent never removes itself, and it is the correct price.
+
+### 9. Deployment shape, egress, and the proxy that cannot work
+
+**Prohibited, each as a release gate:**
+
+| prohibited | gate |
+|---|---|
+| any `Service`, `Ingress`, `HTTPRoute` or ingress NetworkPolicy rule | `83-support-agent-no-ingress.sh` |
+| any `ClusterRole`, `Role` or binding | `80-support-agent-rbac.sh` |
+| `automountServiceAccountToken: true` | **new** — add to gate 80 |
+| any sidecar, init container or second container | **new** — `84-support-agent-single-container.sh` |
+| any probe wired to upload success | **new** — `85-support-agent-degrades-alone.sh` |
+
+The token mount is not decorative. Telemeter's SA token *is* its read credential
+(`assets/telemeter-client/deployment.yaml:38`,
+`--from-token-file=/var/run/secrets/kubernetes.io/serviceaccount/token`). This agent
+has no ClusterRole, so a mounted token grants it nothing today — and it is one
+ClusterRole away from being a backdoor, with the mount being the part review misses.
+
+**Egress is generated per target from the allowlist.** The current policy admits
+every namespace carrying `topology.platform.io/role` on four generic ports, with no
+pod selector — so any pod in any such namespace listening on one of them is
+reachable, and the `Exists` test matches any value. Each collector's
+`(namespace, service)` becomes one rule: `namespaceSelector` + `podSelector` +
+port. The two cannot drift because one generates the other.
+
+> **The observability query ports — VMSingle, VictoriaLogs and Grafana — are never
+> in the agent's egress list. A collector needing one is a change to this ADR's
+> boundary, not a change to a list.**
+
+This is the enforceable form of ADR-078 §8 now that VMSingle serves `/metrics` and
+its query API on one port, which no L3/L4 policy can separate.
+
+**Only CONNECT-tunnelling forward proxies are supported.** `HTTP_PROXY`,
+`HTTPS_PROXY` and `NO_PROXY` are honoured for the tunnel. **A TLS-terminating
+proxy cannot work**: it cannot relay the agent's client certificate, so mTLS fails
+by construction and no CA bundle fixes it. All three reference agents support
+proxying — `assets/telemeter-client/deployment.yaml:50-55`,
+`insights-client/data/etc/insights-client.conf` (`proxy=`), and
+`landscape-client/example.conf` (`http_proxy`, `https_proxy`) — and none of them
+carries an mTLS client identity to the vendor, which is why the limitation is ours.
+
+### 10. Queue, ordering, and schema versioning
+
+**A bounded in-memory ring of the last four payloads. No PVC, no on-disk spool.**
+Oldest dropped first, and the count of dropped cycles is itself an emitted field —
+telemetry that measures its own loss, as
+`cluster:telemetry_selected_series:count` does
+(`assets/telemeter-client/prometheus-rule.yaml:12-13`,
+`max(federate_samples - federate_filtered_samples)`).
+
+Landscape's store is the full version — on-disk, sequenced, server-acknowledged
+(`landscape/client/broker/store.py:1-60`). Three properties are taken and one
+refused. Taken: the hard size cap with a clear-everything fallback
+(`store.py:315-345`), per-field truncation, and **invalidation on identity
+change** — `_message_is_obsolete` drops queued messages whose `secure_id` differs
+from the current one (`exchange.py:426-448`). Refused: durability. This agent is a
+sampler; the next cycle produces fresher evidence than the one that failed.
+
+**The queue is cleared when the identity changes, never on certificate renewal.**
+The certificate rotates every 24 hours and the identity does not.
+
+**Dedup and ordering are per payload, not per sequence.** Each payload carries a
+UUIDv7 and `collected_at`; the Plane dedups on the id and orders on the timestamp.
+A monotonic sequence would reset on pod restart and collide, and Landscape can use
+one only because its counter is persisted (`store.py:180-195`).
+
+**Schema versioning follows Landscape's two-version scheme**
+(`landscape/__init__.py:8,26,58`): a version for what the agent sends, a declared
+floor below which the Plane will not go, and the changelog kept in the constant's
+own comment. Negotiation is per exchange and the lower of the two is adopted
+(`exchange.py:866-882`). With the agent open source and the payload public, this is
+a compatibility commitment to tenants, not only to the Plane.
+
+### 11. The blast radius is wider than this ADR states
+
+The Ownership section attributes an impersonation path to Fleet CA compromise.
+ADR-035 adds a second, equally sufficient one: *"Machine Identity permissions are
+project scoped… CA-level authorization, Intermediate-specific authorization, and
+CA-ID-based permission constraints are not available. Therefore PKI authorization
+boundaries cannot be enforced per Intermediate CA."* Anything holding a
+`hub-platform` Machine Identity can request a certificate under the registered
+subject without holding the CA. ADR-035's Compromise Response Matrix treats the two
+as different tiers with different responses, and this ADR should point at the matrix
+rather than restate containment.
+
+### 12. Correlated silence is a Support Plane requirement
+
+Neither this ADR nor ADR-035 covers the failure ADR-032's amendment actually
+observed: *"because signing authority is central, the effect appeared days later and
+on a different cluster: three Spoke certificates and one tenant workload certificate
+expired together with no renewal available."*
+
+Applied here, a single Infisical fault expires **every** agent certificate in one
+tenant's fleet within 24 hours, hub and spokes together. The agent's side is
+already correct — renewal failure is reported locally and retried, and nothing stops
+running. The Plane's side is missing: fleet-wide silence is indistinguishable from a
+tenant who chose to stop renewing, and under ADR-067 silence means no claim. The
+platform would quietly stop being answerable for an entire tenant because of a PKI
+fault, and nobody would be told.
+
+> **The Support Plane treats correlated silence — every enrolment for one tenant
+> going quiet inside one certificate lifetime — as an alertable condition distinct
+> from one box going quiet.**
+
+It requires no access to the box: the evidence is the absence of evidence, held
+entirely Plane-side.
+
+### 13. Two defects in the shipped allowlist
+
+**`node-pressure` queries a series its target never emits.** It declares
+`kube_node_status_condition` against `metrics-server` in `kube-system`. That series
+is kube-state-metrics'; metrics-server's own `/metrics` describes metrics-server.
+The one collector ADR-067 names for upgrade pre-flight has been silently empty on
+every box. It now reads kube-state-metrics, which ADR-078 places in the platform's
+required collection machinery precisely so that this dependency does not make
+support contingent on a selectable capability.
+
+**No gate checks that a collector's target exists or emits its series.** Two are
+added, and they answer different questions: a **static** check in PR CI that every
+`kind: metrics` collector's `(namespace, service)` resolves in the rendered
+manifests, and a **contract test** run post-deploy against the dev hub asserting
+every allowlisted query returns at least one series. A checked-in exposition fixture
+was considered and rejected — it drifts from the component and the defect recurs
+behind a green gate.
+
+A non-empty `Skipped` map is an **alert, never a release failure**: a collector
+empty because its component is legitimately absent on a spoke must not block a
+release. The reference alerts the same way, with a runbook —
+`TelemeterClientFailures` fires at a 20% failure rate `for: 1h` and names the exact
+command to run (`assets/telemeter-client/prometheus-rule.yaml:14-33`).
+
+### 14. Acceptance
+
+```architecture
+acceptance:
+  - scripts/validate/cluster/80-support-agent-rbac.sh
+  - scripts/validate/cluster/81-support-agent-allowlist.sh
+  - scripts/validate/cluster/82-support-agent-independence.sh
+  - scripts/validate/cluster/83-support-agent-no-ingress.sh
+  - scripts/validate/cluster/84-support-agent-single-container.sh
+  - scripts/validate/cluster/85-support-agent-degrades-alone.sh
+  - scripts/validate/cluster/86-support-agent-targets-resolve.sh
+  - internal/support
+```
+
+Gate 82 changes shape. Its `BACKENDS` substring list has to anticipate every product
+name a store might ever carry, and silently permits the one nobody thought of. It is
+replaced by a positive test with two parts, neither of which names a vendor:
+
+- **A collector's query must be a bare series name** — `^[A-Za-z_:][A-Za-z0-9_:]*$`.
+  A query API call cannot be written that way, so this enforces the Decision above
+  (*"collectors run defined queries; they never forward what a response happened to
+  contain"*) rather than restating it.
+- **No collector may name `platform-observability`**, the one namespace that holds
+  the store and its query surface.
+
+The rule being enforced is *no query surface*, and it needs a list of this platform's
+own namespaces rather than a list of other people's products.
+
+### 15. This ADR stays Proposed
+
+Unchanged, and for the reason already given: the Support Plane does not exist, so
+enrolment cannot happen and the enrolment contract, the five authorities and the
+state machine are unexercised. Decisions 5, 7, 8 and 12 add Plane-side requirements,
+which widens what must exist before this can be accepted, not narrows it.
+
+### What has no reference behind it — updated
+
+Added to the existing entry for registering the tenant's CA:
+
+| item | why no reference covers it |
+|---|---|
+| Binding identity to the issuing CA across many tenant CAs | every comparison project has one trust domain and one operator; `argocd-agent` verifies against a flat pool and never inspects the issuer (`internal/auth/mtls/mtls.go:60-118`) |
+| DNS-01 proof of trust-domain ownership | in every project the vendor is the root of identity, so ownership is never proved by the customer |
+| Reproducible builds and provenance attestation | none of the four ships them |
+| Correlated PKI silence as a Plane-side alert | ADR-035's Compromise Response Matrix has no row for "the authority is up but refusing", which is the state ADR-032's amendment records |
+| OTLP semantics | spec-sourced, not reference-sourced — `reference-projects/` contains no OpenTelemetry project |
+
+
 ## References
 
 - ADR-013: Observability and Metric Forwarding
@@ -915,4 +1403,7 @@ of which have working implementations behind them.
 - ADR-067: Support Telemetry and the Basis of Maintenance
 - ADR-069: The Maintenance Promise
 - ADR-071: How This Platform Differs From kubefirst
+- ADR-083: Cross-Cluster Observability Federation — the tenant's own query topology.
+  The support path does not use it: each agent reports directly to the Support
+  Plane, never through the hub and never through an observability component.
 - argocd-agent: the per-cluster agent and mTLS identity pattern this follows

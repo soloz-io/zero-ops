@@ -162,6 +162,67 @@ acceptance:
 `support-state.py` evaluates the windows that were declared. The first stops the
 promise being unstated, the second stops it being unauditable.
 
+## Addendum 2: what the evidence condition does not cover, and a third way to be outside it (2026-09-19)
+
+This ADR's negative says plainly that *"a tenant can be outside one [condition]
+while inside the other. Which of them is unmet has to be said plainly, or a lapse
+will be read as arbitrary."* Two things that follow from ADR-077 addendum 4 and
+ADR-078 addendum 1 make that concrete, and the second is a case this ADR did not
+anticipate.
+
+### The observability backend is maintained; its internals are not evidenced
+
+ADR-078 puts the store, query surface, alerting and visualisation on the platform's
+side, and makes retention and capacity the platform's responsibility. ADR-078 §8
+keeps the Support Agent out of the observability backend entirely — it observes the
+capability **as Kubernetes objects**, through `kube-state-metrics`, and never
+reaches an observability component's own endpoint.
+
+So the promise over that capability is graded like any other, and the grading line
+is worth stating rather than leaving to be inferred:
+
+> **Evidenced:** whether the store is running, restarting, and how much volume it
+> holds — object state, available to the Support Agent without reading the store.
+>
+> **Not evidenced:** the store's internal health — series cardinality, ingest rate,
+> query latency. The platform maintains the capability and will diagnose it
+> reactively on a case, but makes no proactive undertaking about it.
+
+This is the correct trade and not a gap to close. Reading the store to observe the
+store would make support telemetry depend on a component the tenant may disable,
+and would put whatever the tenant opted in under ADR-078 §7 inside reach of the
+export path — at which point the allowlist would be filtering an unbounded payload,
+which is a preference rather than a boundary.
+
+### A PKI fault produces silence that is not the tenant's choice
+
+This ADR conditions the promise on exported telemetry, and ADR-067 says what is not
+observed is not supported. Both assume silence is something a tenant chose — by
+declining to enrol, by narrowing scope, or by letting a credential lapse.
+
+ADR-032's amendment records a third cause, observed rather than theorised: *"because
+signing authority is central, the effect appeared days later and on a different
+cluster: three Spoke certificates and one tenant workload certificate expired
+together with no renewal available."* A single certificate-authority fault expires
+every Support Agent certificate in one tenant's fleet within a day, hub and spokes
+together, and the resulting silence is indistinguishable from a tenant who stopped
+renewing.
+
+Left alone, the platform would stop being answerable for an entire tenant because of
+an infrastructure fault, and would not know it had.
+
+> **Correlated silence — every enrolment for one tenant going quiet inside one
+> certificate lifetime — does not put that tenant outside the evidence condition.
+> The platform treats it as a fault to investigate, not as a withdrawal of
+> telemetry, and says so to the tenant.**
+
+ADR-077 addendum 4 makes detecting it a Support Plane requirement. It is recorded
+here because this is the ADR that decides what silence *means*, and because the
+negative quoted above already commits the platform to saying which condition is
+unmet. "Your certificates all expired at once and we assumed you had opted out" is
+the lapse that negative was written to prevent.
+
+
 ## References
 
 - ADR-039: Platform Ownership Model

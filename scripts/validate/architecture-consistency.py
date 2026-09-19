@@ -49,6 +49,13 @@ An ADR declares its runtime components in a fenced `architecture` block:
       - vmalert
     ```
 
+EVERY architecture block in an ADR is read, and their contents are unioned. A
+decision recorded in an addendum is a decision, and this gate reading only the
+first block meant an addendum could name a component, a capability or an
+acceptance test and have none of A-F applied to it. Addenda are where most
+long-lived ADRs do their real work, so the checks were absent exactly where the
+design was still moving.
+
 Usage: architecture-consistency.py [repo-root]
 Exit 0 consistent, 1 inconsistent.
 """
@@ -240,27 +247,56 @@ def unwired(root, rel):
 
 
 def load_adrs(root):
-    """ADR name -> (status, [components]). Only ADRs carrying a block appear."""
+    """ADR name -> (status, [components], [capabilities], [acceptance]).
+
+    EVERY architecture block in the file is read, not the first.
+
+    This used `.search()`, which stops at the first match, and the difference is
+    not cosmetic: a decision recorded in an addendum was invisible to every check
+    below. ADR-078 carries four blocks and ADR-083 two, and the components named
+    in the later ones -- kube-state-metrics, node-exporter,
+    victoriametrics-operator, spoke-query-endpoint -- were never resolved against
+    the registry, never required to be registered, and never held their ADR to
+    the shipped-before-accepted rule.
+
+    That is the whole discipline of this gate switched off for anything decided
+    after an ADR was first written, which is where most of the observability
+    design now lives. Union of every block, so a later block can only add.
+    """
     out = {}
     d = os.path.join(root, "docs", "adr")
     for name in sorted(os.listdir(d)):
         if not name.endswith(".md"):
             continue
         text = open(os.path.join(d, name)).read()
-        block = ADR_BLOCK.search(text)
-        if not block:
+        blocks = ADR_BLOCK.findall(text)
+        if not blocks:
             continue
-        try:
-            data = yaml.safe_load(block.group(1)) or {}
-        except yaml.YAMLError as e:
-            err(f"{name}: architecture block is not valid YAML: {e}")
-            out[name] = ("invalid", [])
+
+        comps, caps, accept, invalid = [], [], [], False
+        for raw in blocks:
+            try:
+                data = yaml.safe_load(raw) or {}
+            except yaml.YAMLError as e:
+                err(f"{name}: architecture block is not valid YAML: {e}")
+                invalid = True
+                break
+            # Order-preserving union: an addendum adds to the decision, and a
+            # name repeated across blocks is one component, not two.
+            for key, dest in (("components", comps),
+                              ("capabilities", caps),
+                              ("acceptance", accept)):
+                for v in (data.get(key) or []):
+                    if v not in dest:
+                        dest.append(v)
+
+        if invalid:
+            out[name] = ("invalid", [], [], [])
             continue
+
         status = ADR_STATUS.search(text)
         out[name] = (status.group(1) if status else "unknown",
-                     list(data.get("components") or []),
-                     list(data.get("capabilities") or []),
-                     list(data.get("acceptance") or []))
+                     comps, caps, accept)
     return out
 
 

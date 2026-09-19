@@ -130,3 +130,5 @@ before those land would describe a box nobody ships.
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-066: The Platform Boundary
 - ADR-069: The Maintenance Promise
+- ADR-083: Cross-Cluster Observability Federation — why every cluster carries a
+  store, and why the federation tier is deferred on this ADR's grounds

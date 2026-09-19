@@ -69,6 +69,15 @@ global:
   provider: {{ .Values.provider | quote }}
   hubDomain: {{ include "environment-manager.hubDomain" . | quote }}
   clusterName: {{ include "environment-manager.clusterName" . | quote }}
+  {{- /*
+    The box's own tenant id, for ADR-078 add.1 §7: Alloy stamps `cluster` AND
+    `tenant` on everything it sends. `cluster` alone is unique within a box and
+    not at a corporate Prometheus receiving three of them.
+
+    Distinct from the `tenantId` the fleet ApplicationSets carry, which names a
+    customer OF the box. This is the box's owner.
+  */}}
+  tenantId: {{ .Values.tenantId | default "platform" | quote }}
   gitOrgURL: {{ include "environment-manager.gitOrgURL" . | quote }}
   chartRegistryURL: {{ include "environment-manager.chartRegistryURL" . | quote }}
   dns:

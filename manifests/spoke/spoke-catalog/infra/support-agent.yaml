@@ -70,8 +70,19 @@ data:
     - collector: node-pressure
       source:
         kind: metrics
-        namespace: kube-system
-        service: metrics-server
+        # kube-state-metrics, NOT metrics-server. kube_node_status_condition is a
+        # kube-state-metrics series; metrics-server's own /metrics describes
+        # metrics-server, so this collector returned nothing on every box and said
+        # so only in the payload's Skipped map (ADR-077 addendum 4, decision 13).
+        #
+        # kube-state-metrics is required collection machinery, not part of the
+        # selectable observability capability (ADR-066 addendum 4), and it lives in
+        # platform-ops rather than platform-observability for that reason. So this
+        # dependency survives a tenant disabling the backend -- which is what
+        # ADR-078 §8 requires of anything support evidence rests on -- and the
+        # collector names no namespace gate 82 forbids.
+        namespace: platform-ops
+        service: kube-state-metrics
         query: kube_node_status_condition
       schema: [node, condition, status]
       emit: [condition, status]
@@ -152,6 +163,16 @@ spec:
         app.kubernetes.io/component: support
     spec:
       serviceAccountName: support-agent
+      # No token is projected into this pod. The agent holds no ClusterRole
+      # (scripts/validate/cluster/80-support-agent-rbac.sh), so a token would
+      # grant it nothing today -- and one ClusterRole later it would grant
+      # everything, with the mount being the half a review does not look at.
+      #
+      # Telemeter is the cautionary case: its ServiceAccount token IS its read
+      # credential (--from-token-file=.../serviceaccount/token), which is how an
+      # agent with a two-rule ClusterRole reads every metric in the cluster.
+      # ADR-077 addendum 4, decision 9.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

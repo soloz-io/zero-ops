@@ -1,0 +1,22 @@
+---
+# ADR-078 §5: the dashboard ConfigMaps the Grafana sidecar discovers.
+#
+# Separate from the grafana component because the chart is third-party and
+# these are the platform's own content. Keeping them apart means a dashboard
+# can be added or corrected without touching a chart version, and the release
+# gate can assert that platform dashboards are labelled and present.
+boundary: '03'
+appName: grafana-dashboards
+destinationNamespace: platform-observability
+isPlatformOwned: 'true'
+syncWave: '3'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/grafana
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

@@ -29,6 +29,16 @@ spec:
         app.kubernetes.io/component: support
     spec:
       serviceAccountName: support-agent
+      # No token is projected into this pod. The agent holds no ClusterRole
+      # (scripts/validate/cluster/80-support-agent-rbac.sh), so a token would
+      # grant it nothing today -- and one ClusterRole later it would grant
+      # everything, with the mount being the half a review does not look at.
+      #
+      # Telemeter is the cautionary case: its ServiceAccount token IS its read
+      # credential (--from-token-file=.../serviceaccount/token), which is how an
+      # agent with a two-rule ClusterRole reads every metric in the cluster.
+      # ADR-077 addendum 4, decision 9.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

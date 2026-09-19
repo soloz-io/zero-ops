@@ -6,12 +6,43 @@ metadata:
   namespace: platform-observability
 data:
   config.alloy: |
-    // Kubernetes State Metrics scraping
+    // Kubernetes State Metrics.
+    //
+    // platform-ops, not kube-system: it is required collection machinery
+    // (ADR-066 add.4) deployed with the platform's own components, and the
+    // Support Agent's node-pressure collector reads it there (ADR-077 add.4
+    // §13). The kube-system address was aspirational -- nothing installed
+    // kube-state-metrics on a spoke at all, verified absent on nutgraf-01, so
+    // every kube_* series this cluster should report has been missing and the
+    // alert rules reading them evaluated against nothing.
     prometheus.scrape "kube_state_metrics" {
       targets = [{
-        __address__ = "kube-state-metrics.kube-system.svc:8080",
+        __address__ = "kube-state-metrics.platform-ops.svc:8080",
       }]
+      forward_to = [prometheus.relabel.platform_namespaces_only.receiver]
+    }
+
+    // SERIES-LEVEL tenant exclusion (ADR-078 add.1 §6).
+    //
+    // kube-state-metrics is cluster-scoped: one endpoint describes objects in
+    // EVERY namespace, so keeping or dropping the target is all-or-nothing and
+    // the pod-log path's namespace selector cannot reach it. On a SPOKE that is
+    // the sharp case -- a workload cluster is where the tenant's applications
+    // actually run, so without this every tenant pod name, workload name and
+    // object label leaves the cluster.
+    //
+    // ONE rule, not two: consecutive `keep` relabels are ANDed, so a second
+    // would only narrow what the first left. The leading empty alternative
+    // admits cluster-scoped series -- nodes, PVs, storage classes -- which
+    // carry no namespace label and are platform facts by definition.
+    prometheus.relabel "platform_namespaces_only" {
       forward_to = [prometheus.relabel.add_cell_id.receiver]
+
+      rule {
+        source_labels = ["namespace"]
+        regex         = "|platform-.*|cert-manager|cnpg-system|kyverno|crossplane-system|external-secrets|argo-rollouts|cilium-secrets|kube-system"
+        action        = "keep"
+      }
     }
 
     // CNPG metrics scraping
@@ -32,7 +63,7 @@ data:
 
     // Add cell_id and cluster labels to all metrics
     prometheus.relabel "add_cell_id" {
-      forward_to = [prometheus.remote_write.grafanacloud.receiver]
+      forward_to = [prometheus.remote_write.platform.receiver]
 
       rule {
         target_label = "cell_id"
@@ -42,9 +73,72 @@ data:
         target_label = "cluster"
         replacement  = sys.env("CELL_ID")
       }
+      // ADR-078 add.1 §7: `cluster` AND `tenant` on everything sent, to the
+      // in-box store and to a tenant's own destination alike. cluster is unique
+      // within a box; it is not unique at a corporate Prometheus receiving
+      // three of them. The log pipeline below already stamps `tenant`; metrics
+      // did not, so one signal identified the box and the other did not.
+      rule {
+        target_label = "tenant"
+        replacement  = sys.env("TENANT_ID")
+      }
     }
 
-    // Remote write to Grafana Cloud (Mimir)
+    // THIS CLUSTER'S OWN STORE (ADR-078 §1, ADR-083 decision 1).
+    //
+    // A spoke retains its own telemetry and never writes it to the hub: "data
+    // stays in the cluster that produced it. Only the query travels." Writing
+    // to the hub would make the hub's capacity the fleet's ceiling and a hub
+    // outage lose spoke data rather than merely the view of it.
+    prometheus.remote_write "platform" {
+      endpoint {
+        url = "http://vmsingle-platform.platform-observability.svc.cluster.local:8429/api/v1/write"
+      }
+    }
+
+    loki.write "platform" {
+      endpoint {
+        url = "http://vlogs-platform.platform-observability.svc.cluster.local:9428/insert/loki/api/v1/push"
+      }
+    }
+
+    // ── OTLP ingest for opted-in tenant namespaces (ADR-078 add.1 §3) ───────
+    //
+    // "An application instrumented with an OpenTelemetry SDK -- the default for
+    // anything new -- has nowhere to push, and ADR-077 addendum 4 now has the
+    // Support Agent EXPORTING OTLP. The platform would speak OTLP to its vendor
+    // and refuse it from its tenants."
+    //
+    // Metrics and logs only. TRACES ARE REJECTED EXPLICITLY, not silently: §2
+    // excludes them on cost at ADR-070's minimum box, and no trace store exists
+    // to accept them. An SDK sending spans gets an error rather than a 200 and
+    // a black hole.
+    otelcol.receiver.otlp "tenant" {
+      grpc { endpoint = "0.0.0.0:4317" }
+      http { endpoint = "0.0.0.0:4318" }
+
+      output {
+        metrics = [otelcol.exporter.prometheus.tenant.input]
+        logs    = [otelcol.exporter.loki.tenant.input]
+        traces  = []
+      }
+    }
+
+    otelcol.exporter.prometheus "tenant" {
+      forward_to = [prometheus.remote_write.platform.receiver]
+    }
+
+    otelcol.exporter.loki "tenant" {
+      forward_to = [loki.write.platform.receiver]
+    }
+
+    // Remote write to Grafana Cloud (Mimir).
+    //
+    // ADR-078 §7.1: a tenant destination is ADDITIVE, never a replacement. It
+    // stays because a box that has one should keep sending there; it is no
+    // longer the ONLY destination, which is the defect §1 exists to close --
+    // "a tenant without a Grafana Cloud account receives collection that
+    // terminates nowhere."
     prometheus.remote_write "grafanacloud" {
       endpoint {
         url = sys.env("PROMETHEUS_URL")
@@ -89,6 +183,24 @@ data:
 
     discovery.relabel "pod_logs" {
       targets = discovery.kubernetes.pods.targets
+
+      // ADR-078 §3: pod logs from PLATFORM-owned namespaces only.
+      //
+      // "Tenant namespaces are not collected by default. Forwarding a tenant's
+      // workload telemetry off-cluster without being asked is on the wrong side
+      // of ADR-066." On a spoke that is not a detail -- a workload cluster is
+      // where the tenant's applications actually run, so an unfiltered log
+      // pipeline here ships their application output, and whatever it contains,
+      // to a destination they did not choose.
+      //
+      // The metrics pipeline above was already bounded: every target is named
+      // (kube-state-metrics, cnpg, postgrest). This closes the log path to the
+      // same rule. A tenant opts their own namespaces in under §7.2.
+      rule {
+        source_labels = ["__meta_kubernetes_namespace_label_topology_platform_io_role"]
+        regex         = ".+"
+        action        = "keep"
+      }
 
       // Same cell identity the metrics pipeline uses, so a metric and a log
       // line from one pod agree on which cluster they came from.
@@ -190,6 +302,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.labels['cell-id']
+            # The box this spoke belongs to (ADR-078 add.1 §7). Substituted from
+            # global.tenantId by the spoke catalogue's templated-fields; the
+            # literal keeps the manifest applicable by hand.
+            - name: TENANT_ID
+              value: "platform"
           envFrom:
             - secretRef:
                 name: grafana-cloud-credentials

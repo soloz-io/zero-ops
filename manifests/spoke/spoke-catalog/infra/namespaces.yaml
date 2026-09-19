@@ -1,53 +1,88 @@
+# Platform-owned namespaces on a workload cluster.
+#
+# Every one carries topology.platform.io/role: spoke.
+#
+# That label is the platform boundary made selectable, and three things already
+# depended on it while nothing applied it here:
+#
+#   * ADR-078 §3 scopes collection to platform-owned namespaces by this label.
+#     Without it a workload cluster either collects nothing or -- as it did --
+#     collects every tenant namespace and forwards it off-cluster.
+#   * support-agent.yaml's NetworkPolicy permits egress to
+#     `topology.platform.io/role: Exists`. With the label absent that selector
+#     matched no namespace, so the agent's egress rule permitted nothing.
+#   * ADR-077 relies on it to separate platform from tenant.
+#
+# The hub's equivalent is manifests/hub-core-services/platform-namespaces, where
+# the same label carries the value "hub". The VALUE distinguishes the two roles;
+# every selector that means "platform-owned, either role" tests for existence.
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-data
+  labels:
+    topology.platform.io/role: spoke
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-observability
+  labels:
+    topology.platform.io/role: spoke
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cert-manager
+  labels:
+    topology.platform.io/role: spoke
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: platform-ops
+  labels:
+    topology.platform.io/role: spoke
 ---
-# ADR-047: spoke platform operator namespaces
 apiVersion: v1
 kind: Namespace
 metadata:
   name: crossplane-system
+  labels:
+    topology.platform.io/role: spoke
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: external-secrets
+  labels:
+    topology.platform.io/role: spoke
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: kyverno
+  labels:
+    topology.platform.io/role: spoke
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cnpg-system
+  labels:
+    topology.platform.io/role: spoke
 ---
-# ADR-047: argo-rollouts controller namespace (cluster-scoped platform controller)
 apiVersion: v1
 kind: Namespace
 metadata:
   name: argo-rollouts
+  labels:
+    topology.platform.io/role: spoke
 ---
-# ADR-049: cilium-secrets namespace for Cilium Gateway API SecretSync (SDS TLS secrets)
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cilium-secrets
+  labels:
+    topology.platform.io/role: spoke

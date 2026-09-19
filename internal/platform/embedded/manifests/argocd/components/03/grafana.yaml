@@ -1,0 +1,107 @@
+---
+# ADR-078 §5: Grafana ships in the box.
+#
+# The query surface for the capability. Headlamp remains the cluster object
+# browser and is not the observability front end (§5).
+#
+# The upstream chart, with the platform's datasources and dashboards delivered
+# as sidecar-discovered ConfigMaps from manifests/hub-core-services/grafana --
+# so a dashboard is release content with a version, not something an operator
+# draws once in a UI and nobody can reproduce.
+boundary: '03'
+appName: grafana
+destinationNamespace: platform-observability
+isPlatformOwned: 'false'
+syncWave: '2'
+repoURL: https://grafana.github.io/helm-charts
+targetRevision: 8.8.2
+path: ''
+chart: grafana
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: |
+  # The VictoriaLogs query plugin. Grafana ships no datasource that speaks
+  # LogsQL, so without this the logs half of the capability has a datasource
+  # entry and no way to run a query through it.
+  plugins:
+    - victoriametrics-logs-datasource
+
+  # ADR-070, the minimum box: one replica, SQLite on a PVC. Grafana holds no
+  # telemetry -- the data lives in VMSingle and VictoriaLogs -- so what this
+  # persists is users, preferences and annotations.
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 2Gi
+    # The provider decides the class, exactly as it does for the platform's
+    # database and Redis (manifests/hub-core-services/providers/<p>/).
+    #
+    # `.Values.provider`, not `.Values.global.provider`: _distribution.tpl:55
+    # runs `tpl` over a descriptor's helmValues in the ENVIRONMENT-MANAGER's
+    # context, and global is what that chart EMITS to component charts rather
+    # than something it reads. Getting it wrong is not subtle -- the released
+    # render fails with "nil pointer evaluating interface {}.provider" and no
+    # bundle is produced.
+    #
+    # Left to the cluster default this took hcloud-volumes, and on a hybrid box
+    # that cannot bind: the only worker is on-prem, and a Hetzner volume
+    # attaches to a Hetzner server. Observed on the live hub 2026-09-19 -- the
+    # PVC sat Pending with the CSI retrying provisioning every 30s while every
+    # other platform PVC on the same box was Bound on local-path.
+    storageClassName: {{ if eq .Values.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}
+
+  # And the placement that goes with it. A local-path volume is node-local, so
+  # the pod has to land where the volume is.
+  nodeSelector:
+    workload-location: {{ if eq .Values.provider "hybrid" }}on-prem{{ else }}hetzner{{ end }}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+  # Datasources come from the fleet ConfigMap, not from here.
+  #
+  # ADR-083 addendum 1 §3: the bundle ships the TEMPLATE and the box generates
+  # the SET, because cluster names are tenant-chosen (ADR-082) and a chart value
+  # enumerating them would be an instance in a published bundle. The sidecar
+  # discovers manifests/hub-core-services/grafana/datasources.yaml by label, and
+  # scaffolding appends one pair per workload cluster the repository declares.
+  sidecar:
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+      searchNamespace: platform-observability
+
+  # Dashboards arrive as labelled ConfigMaps and are picked up by the sidecar.
+  # A new bundle version proposes new dashboards as a pull request the tenant
+  # merges or does not (ADR-064) -- the ordinary promotion path.
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: platform-observability
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+
+  # ADR-051: the hub Gateway serves hub hostnames; this chart creates no
+  # Ingress of its own.
+  ingress:
+    enabled: false
+
+  # The chart generates the admin password into the `grafana` Secret on first
+  # install. No ExternalSecret, and no default password in the bundle.
+  #
+  # Deliberately not wired to Infisical: the secret chain is reconciled by
+  # boundary 02 and this is boundary 03, so an ExternalSecret here would make
+  # the query surface unavailable whenever the store is still settling -- and
+  # the moment an operator most wants a dashboard is when something upstream is
+  # unhealthy. The credential is read from the Secret:
+  #   kubectl -n platform-observability get secret grafana \
+  #     -o jsonpath='{.data.admin-password}' | base64 -d
+helmReleaseName: grafana
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

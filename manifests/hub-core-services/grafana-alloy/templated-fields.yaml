@@ -1,0 +1,33 @@
+# The field of the collector that depends on which box this is.
+#
+# ADR-078's Context records the defect this closes: the Alloy config stamped
+# `external_labels = { cluster = "hub" }`, a constant, "so two clusters arriving
+# at one destination are indistinguishable". Every box that pulled the bundle
+# reported itself as "hub".
+#
+# The value is a per-box fact, which ADR-063 keeps out of a published chart --
+# the same reason hubDomain and the Infisical ids are templated rather than
+# shipped as literals. The manifest carries "hub" so it remains applicable by
+# hand; the released bundle substitutes the box's own name.
+#
+# Only the DaemonSet's env is templated, never the ConfigMap body: the config
+# reads sys.env("CLUSTER_NAME"), so one substitution reaches every label that
+# names the cluster, and the collection rules stay reviewable as written.
+# Both workloads, because ADR-078 add.1 §5 splits Alloy into a DaemonSet
+# (node-local) and a Deployment (cluster singletons), and telemetry from either
+# has to say which box it came from.
+- kind: DaemonSet
+  name: grafana-alloy
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ .Values.global.clusterName }}'
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ .Values.global.tenantId }}'
+
+- kind: Deployment
+  name: grafana-alloy-cluster
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ .Values.global.clusterName }}'
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ .Values.global.tenantId }}'

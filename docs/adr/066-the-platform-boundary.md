@@ -267,6 +267,46 @@ its image and Support Plane exist; `metering` awaits its decision. `messaging`
 was selectable and has been withdrawn — see ADR-080, which removes NATS. Both are recorded in the declaration with their reasons rather than
 left as gaps someone has to rediscover.
 
+## Addendum 4: telemetry collection is required machinery (2026-09-19)
+
+ADR-078 addendum 1 needed a place to put Grafana Alloy, `kube-state-metrics` and
+`node-exporter`, and the answer turned out to need no new concept — only this ADR's
+existing distinction, applied.
+
+**Collection is required machinery. The observability backend is the selectable
+capability.**
+
+| | |
+|---|---|
+| required — not selectable | Grafana Alloy, `kube-state-metrics`, `node-exporter` |
+| selectable — `capabilities.observability.enabled` | `VMSingle`, `VictoriaLogs`, `VMAlert`, Grafana |
+
+The required-machinery sentence above — *"the GitOps engine, composition and cluster
+lifecycle, secret delivery, certificate issuance, DNS, gateway, admission policy,
+and node and capacity lifecycle"* — gains telemetry collection.
+
+Two reasons, and the second is the one that forces it.
+
+**A tenant may choose where their telemetry goes, including nowhere.** ADR-077's
+Context defends exactly this — *"ships wherever the tenant chooses — Grafana Cloud,
+a self-hosted backend, or nowhere"* — and ADR-078 §7 says additional destinations
+are *"additive, never instead"*. If collection went with the capability, disabling
+the in-box backend would also destroy the tenant's own external forwarding, which
+turns an additive extension point into a mutually exclusive one.
+
+**The Support Agent depends on `kube-state-metrics` for node capacity**, which
+ADR-067 names as the basis for an upgrade pre-flight verdict. If the exporters were
+part of a selectable capability, a tenant disabling observability would degrade
+their own support — which is the licence check ADR-077 exists to prevent, arriving
+through a configuration setting instead of a subscription check. ADR-078 §8 forbids
+the observability capability from being a dependency of support, and this
+classification is what makes that true rather than asserted.
+
+**A tenant loses nothing they could previously turn off.** Alloy has never been
+selectable; it has been machinery on every box since ADR-013. This records what was
+already the case, before ADR-078's toggle could have quietly changed it.
+
+
 ## References
 
 - ADR-013: Hub-Spoke Observability Architecture with Dual Collection Patterns

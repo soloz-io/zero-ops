@@ -1,0 +1,52 @@
+---
+# ADR-078 §4: the operator that reconciles VMSingle, VictoriaLogs and VMAlert.
+#
+# The upstream chart, not the hand-written manifests that used to sit in
+# manifests/hub-core-services/victoriametrics/. Those carried CRDs declared as
+# `x-kubernetes-preserve-unknown-fields: true` -- stubs that accept any field
+# and validate none, so a malformed VMSingle would have been accepted by the
+# API server and silently ignored by the operator. A CRD is a schema; shipping
+# one that asserts nothing is worse than not shipping it.
+boundary: '03'
+appName: victoriametrics-operator
+destinationNamespace: platform-observability
+isPlatformOwned: 'false'
+syncWave: '1'
+repoURL: https://victoriametrics.github.io/helm-charts/
+targetRevision: 0.38.0
+path: ''
+chart: victoria-metrics-operator
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: |
+  # The operator owns its own CRDs, which is what makes them real schemas
+  # rather than the stubs this replaces.
+  #
+  # plain: FALSE, which is counter-intuitive and load-bearing. With plain: true
+  # the CRDs come from a `crds` SUBCHART gated on `condition: crds.plain`, and a
+  # render that has not run `helm dependency build` emits none at all -- verified
+  # against chart 0.38.0: plain=true yields 0 CRDs, plain=false yields 16. The
+  # CRs in manifests/hub-core-services/victoriametrics/ would then be applied
+  # against an API that does not serve them, and the whole boundary would fail
+  # the way the spoke catalogue did on its Cilium policy.
+  crds:
+    enabled: true
+    plain: false
+  # ADR-070: the minimum box. One replica; the operator is a reconciler, not a
+  # data path, and its unavailability delays reconciliation rather than losing
+  # a sample.
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  # Converting Prometheus-operator CRDs is off: nothing on this box creates a
+  # ServiceMonitor or PodMonitor, and ADR-078 §3 makes collection named rather
+  # than discovered, so there is nothing to convert.
+  operator:
+    disable_prometheus_converter: true
+helmReleaseName: victoriametrics-operator
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

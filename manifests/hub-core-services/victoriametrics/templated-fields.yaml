@@ -1,0 +1,19 @@
+# The telemetry stores' storage class, per box.
+#
+# A hybrid box's only worker is on-prem and a Hetzner volume attaches to a
+# Hetzner server, so the cluster default (hcloud-volumes) leaves the PVC Pending
+# forever -- verified on the live hub 2026-09-19. This is the same provider
+# split the platform's database and Redis already carry in
+# manifests/hub-core-services/providers/<provider>/.
+
+- kind: VMSingle
+  name: platform
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+
+- kind: VLogs
+  name: platform
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

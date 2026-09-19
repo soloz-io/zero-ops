@@ -1,0 +1,83 @@
+# Ingress to platform-observability is default-deny.
+#
+# ADR-078 add.1 §9: "There is no NetworkPolicy governing ingress to
+# platform-observability anywhere in this repository. 'Tenant workloads cannot
+# reach the store directly' was therefore an assumption, not a fact."
+#
+# It matters more on a spoke than on the hub, because a workload cluster is
+# where the tenant's applications actually run. Without this, any pod in any
+# tenant namespace could write to VMSingle's remote-write port and read every
+# series in it, and nothing in the manifests said otherwise.
+#
+# This makes §7.2 and add.1 §3's OTLP receiver the ONLY supported route for
+# tenant application telemetry, and makes that a property of the manifests
+# rather than a sentence in a document. The policy is platform-owned and
+# reconciled with selfHeal, so a tenant cannot open it by editing it.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-observability-default-deny
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-observability-allow
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # The API SERVER, calling the operator's admission webhook on 9443.
+    #
+    # This is the rule the first version of this policy did not have, and its
+    # absence was not subtle: with default-deny in place and nothing admitting
+    # 9443, every VMSingle, VLogs and VMAlert apply failed dry-run with
+    # "failed calling webhook ... context deadline exceeded", so the stores this
+    # ADR exists to create could not be created at all. Observed on the live hub
+    # 2026-09-19, which is where it was found.
+    #
+    # An empty `from` -- all sources -- rather than a selector, because the API
+    # server does not call from a pod: it reaches the webhook from the control
+    # plane's own address, which no namespaceSelector or podSelector can match.
+    # Narrowed by PORT instead, and 9443 serves nothing but admission review.
+    - ports:
+        - protocol: TCP
+          port: 9443
+    # Everything inside platform-observability: Alloy writing, VMAlert reading
+    # and writing, and the query endpoint reading. They are one another's only
+    # in-namespace clients and the set is closed.
+    - from:
+        - podSelector: {}
+    # The Gateway, which fronts the query endpoint. Cilium's gateway pods run in
+    # kube-system; this admits the proxy and not the tenant workloads behind it,
+    # which still have to present a token vmauth accepts.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8427
+    # The OTLP receiver, from namespaces the tenant has opted in (ADR-078 §7.2).
+    # Opting a namespace in is what grants it this path; a namespace without the
+    # label reaches nothing here.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              observability.platform.io/otlp: enabled
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318

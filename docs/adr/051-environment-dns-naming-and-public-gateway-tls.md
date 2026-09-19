@@ -50,6 +50,39 @@
 > — which is what ADR-082 already assumes when it makes a workload cluster's name
 > the cellId.
 
+> **Amendment 2026-09-19 — A hostname that belongs to one cluster carries that
+> cluster's name.**
+> The rule above answers "which box", and every hostname it produces is unique
+> within a box. That was sufficient while only the hub published anything.
+>
+> **A per-cluster service publishes at `<service>.<cluster>.<subdomain>.<domain>`.**
+> The hub keeps `<service>.<subdomain>.<domain>` unchanged -- there is one
+> management cluster per box, so its name adds nothing. A workload cluster's own
+> endpoints take its name as a label: `victoriametrics.nutgraf-01.dev.nutgraf.in`.
+>
+> **Why now.** ADR-083 has every workload cluster publish a query endpoint for its
+> own telemetry store. Under the unamended rule, two spokes in one box both resolve
+> `victoriametrics.<subdomain>.<domain>` and external-dns races for one record --
+> with no error, because both are legitimate claims on the same name. The spoke
+> Gateway's wildcard is `*.<zone>` where zone is `global.hubDomain`
+> (`manifests/spoke/spoke-catalog/templated-fields.yaml:133-139`), so the ingress a
+> spoke already runs cannot express a per-cluster name at all.
+>
+> **This ADR already recorded the gap.** Its Consequences say "a tenant spanning
+> multiple spokes has no answer here." That was written about round-robin records
+> and health awareness; the naming half of it is closed here.
+>
+> **It is not a new convention.** The cluster's name is the cell id, chosen by the
+> tenant (ADR-082: "Every per-cluster identity derives from the cluster's name"),
+> and this is the fourth identity derived from it -- after the CNPG archive prefix
+> (ADR-014), the cell label (ADR-047) and the ArgoCD cluster secret. The rule stays
+> "derived, not authored": no individual hostname is declared, and the derivation
+> gains one segment for resources that belong to a cluster rather than to a box.
+>
+> **What does not change.** Every hub hostname, every tenant workload hostname
+> served by a spoke's `*.<zone>` wildcard, and the production-apex exception this
+> ADR already carries.
+
 ## Context
 
 Public hostnames have no naming convention and no single owner, and the placement of the

@@ -6,6 +6,12 @@ metadata:
   labels:
     app: victoriametrics
     component: alerting
+    # ADR-078 §6: platform rules are selected by this label, arrive in the
+    # bundle, and are reconciled with selfHeal. Editing one in place is
+    # reverted -- the way to change a platform rule is to propose it upstream
+    # or fork it under a tenant label. VMAlert's ruleSelector matches on it,
+    # so without it these 211 lines would be evaluated by nothing.
+    app.kubernetes.io/managed-by: platform
 spec:
   groups:
   - name: platform.pod.health

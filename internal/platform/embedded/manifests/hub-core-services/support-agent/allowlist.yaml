@@ -103,8 +103,19 @@ data:
     - collector: node-pressure
       source:
         kind: metrics
-        namespace: kube-system
-        service: metrics-server
+        # kube-state-metrics, NOT metrics-server. kube_node_status_condition is a
+        # kube-state-metrics series; metrics-server's own /metrics describes
+        # metrics-server, so this collector returned nothing on every box and said
+        # so only in the payload's Skipped map (ADR-077 addendum 4, decision 13).
+        #
+        # kube-state-metrics is required collection machinery, not part of the
+        # selectable observability capability (ADR-066 addendum 4), and it lives in
+        # platform-ops rather than platform-observability for that reason. So this
+        # dependency survives a tenant disabling the backend -- which is what
+        # ADR-078 §8 requires of anything support evidence rests on -- and the
+        # collector names no namespace gate 82 forbids.
+        namespace: platform-ops
+        service: kube-state-metrics
         query: kube_node_status_condition
       schema: [node, condition, status]
       # NOT `node`: a node name carries the cluster name and often the tenant's.

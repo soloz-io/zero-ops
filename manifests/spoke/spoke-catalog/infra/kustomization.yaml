@@ -35,6 +35,18 @@ resources:
   - crossplane-provider-kubernetes.yaml
   - cluster-secret-store.yaml
   - grafana-alloy.yaml
+  # The cluster's own observability backend (ADR-078 §1, ADR-083 decision 1).
+  # Ordered after grafana-alloy so a reader meets the collector before its
+  # destination; kustomize does not order applies, ArgoCD sync waves do.
+  # The cluster's own observability backend (ADR-078 §1, ADR-083 decision 1).
+  # CRDs before the controller before the CRs, matching every other operator in
+  # this catalogue.
+  - victoriametrics/crd.yaml
+  - victoriametrics/controller.yaml
+  - victoriametrics/storage.yaml
+  - victoriametrics/query-endpoint.yaml
+  - victoriametrics/query-ingress.yaml
+  - victoriametrics/network-policy.yaml
   - grafana-cloud-es.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml

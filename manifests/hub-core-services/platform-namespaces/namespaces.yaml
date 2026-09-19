@@ -81,3 +81,31 @@ metadata:
   labels:
     name: platform-network
     topology.platform.io/role: hub
+---
+# cert-manager and cnpg-system are platform-owned too, and were the only two
+# that carried no role label.
+#
+# ArgoCD created them through CreateNamespace=true, which makes a bare Namespace
+# and no labels. Everything selecting on topology.platform.io/role therefore
+# skipped them: ADR-078 §3's collection would not have scraped cert-manager's
+# metrics endpoint -- one of the three the ADR names by hand in §8 -- and
+# ADR-077's NetworkPolicies do not reach them.
+#
+# Declared here rather than labelled in place, because this file is the
+# platform's statement of which namespaces are its own. CreateNamespace only
+# creates when absent, so it does not contend with these.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    name: cert-manager
+    topology.platform.io/role: hub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cnpg-system
+  labels:
+    name: cnpg-system
+    topology.platform.io/role: hub

@@ -1,0 +1,25 @@
+---
+# ADR-078 §6: the platform's own health rules.
+#
+# 211 lines of working pod-health and memory-pressure expressions that had never
+# been applied to a cluster -- written, committed, and evaluated by nothing.
+# They are deployed rather than rewritten, which is what §6 says.
+#
+# syncWave 3: after the VMRule CRD (operator, wave 1) and after VMAlert exists
+# to evaluate them (wave 2). A rule applied with no evaluator is the state this
+# ADR is correcting.
+boundary: '03'
+appName: victoriametrics-alerts
+destinationNamespace: platform-observability
+isPlatformOwned: 'true'
+syncWave: '3'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/victoriametrics-alerts
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

@@ -137,3 +137,63 @@
   # workload route on the spoke is dead.
   fields:
     - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
+# ADR-078 add.1 §7: Alloy stamps `cluster` and `tenant` on everything it sends.
+# cluster comes from the cell-id label at runtime; tenant is a fact about the
+# box and has to be substituted, or every spoke reports tenant="platform" and
+# the label identifies nothing -- the same defect the constant cluster="hub"
+# was on the hub.
+- kind: DaemonSet
+  name: grafana-alloy
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ .Values.global.tenantId }}'
+
+# The query endpoint's hostname and issuer -- per-box facts that ADR-063 keeps
+# out of a published chart, and per-CLUSTER facts on top of that.
+#
+# ADR-051's 2026-09-19 amendment: <service>.<cluster>.<subdomain>.<domain>. The
+# cluster segment is what stops two spokes in one box racing for a single DNS
+# record, and spokeName is already resolved per generated Application.
+- kind: Certificate
+  name: spoke-query-endpoint-tls
+  fields:
+    - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
+
+- kind: Gateway
+  name: spoke-query-gateway
+  fields:
+    - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
+
+- kind: HTTPRoute
+  name: spoke-query-endpoint
+  fields:
+    - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
+
+# The OIDC issuer vmauth verifies tokens against: the box's own Zitadel, at the
+# hostname hubdomain.go derives for it. A literal here would have every box
+# trusting one box's issuer.
+- kind: ConfigMap
+  name: spoke-query-endpoint-config
+  fields:
+    - replaceAll: {from: SUBDOMAIN_DOMAIN, with: '{{ .Values.global.hubDomain }}'}
+
+# The telemetry stores' storage class, per box.
+#
+# A hybrid box's only worker is on-prem and a Hetzner volume attaches to a
+# Hetzner server, so the cluster default (hcloud-volumes) leaves the PVC Pending
+# forever -- verified on the live hub 2026-09-19. This is the same provider
+# split the platform's database and Redis already carry in
+# manifests/hub-core-services/providers/<provider>/.
+
+- kind: VMSingle
+  name: platform
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+
+- kind: VLogs
+  name: platform
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

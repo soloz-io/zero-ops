@@ -1,0 +1,85 @@
+# Publishing the query endpoint at this cluster's own hostname.
+#
+# ADR-051's 2026-09-19 amendment: a hostname belonging to ONE cluster carries
+# that cluster's name -- <service>.<cluster>.<subdomain>.<domain>. The hub keeps
+# <service>.<subdomain>.<domain>, because a box has one management cluster and
+# its name adds nothing.
+#
+# That amendment exists because of this file. The spoke Gateway's wildcard is
+# *.<zone> where zone is global.hubDomain -- per BOX, not per cluster -- so two
+# spokes in one box would both resolve victoriametrics.<hubDomain> and
+# external-dns would race for one record, with no error, because both are
+# legitimate claims on the same name.
+#
+# A DEDICATED Gateway, not a listener on tenant-gateway. Under GEP-91 client
+# certificate validation is configured per PORT at the Gateway level rather than
+# per listener -- deliberately, so HTTP/2 connection coalescing cannot bypass a
+# listener's validation. This platform does not use that field today (Cilium
+# does not implement it; see query-endpoint.yaml), and keeping the query surface
+# on its own Gateway is what leaves it available: the day it can be turned on,
+# it applies to this port and not to the port serving tenant workloads.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spoke-query-endpoint-tls
+  namespace: platform-ops
+spec:
+  secretName: spoke-query-endpoint-tls
+  # A PUBLIC ACME certificate, not the fleet CA. The client is authenticated by
+  # OIDC (query-endpoint.yaml); this certificate authenticates the SERVER to the
+  # hub's Grafana, and a browser-trusted chain is what lets an operator reach it
+  # without a trust store. ADR-083 addendum 1 §1 records that no client
+  # certificate is issued for this path, which is why ADR-035's question about a
+  # client identity that cannot hot-reload does not arise here.
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: spoke-query-gateway
+  namespace: platform-ops
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: spoke-query-endpoint-tls
+            namespace: platform-ops
+      allowedRoutes:
+        namespaces:
+          # The route lives with the workload it fronts, in
+          # platform-observability, and this Gateway is in platform-ops with the
+          # other platform ingress. Selector rather than All: this listener
+          # serves one backend and nothing else may attach to it.
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-observability
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: spoke-query-endpoint
+  namespace: platform-observability
+spec:
+  parentRefs:
+    - name: spoke-query-gateway
+      namespace: platform-ops
+  hostnames:
+    - victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
+  rules:
+    - backendRefs:
+        - name: spoke-query-endpoint
+          port: 8427

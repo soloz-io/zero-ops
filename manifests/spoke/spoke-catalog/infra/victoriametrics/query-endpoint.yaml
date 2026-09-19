@@ -1,0 +1,138 @@
+# spoke-query-endpoint: the authenticated query surface this workload cluster
+# publishes for its own telemetry (ADR-083 decision 3, addendum 1 §1 and §6).
+#
+# A component in its own right, registered as one. ADR-083 originally claimed to
+# introduce no component, and that claim is what let its hostname, its
+# certificate lifecycle and its authentication mechanism go unanswered until
+# review -- addendum 1 §6 records the correction.
+#
+# WHY NOT mTLS, which decision 3 originally required. It is unavailable at every
+# layer this platform can reach, and it fails OPEN:
+#
+#   * Gateway API has the field -- spec.tls.frontend.perPort[].tls.validation
+#     with mode AllowValidOnly, verified present at the pinned bundle v1.5.1 --
+#     and Cilium v1.17.18 does not implement it. Its GatewayClass advertises 28
+#     supported features and no client-certificate validation among them. A
+#     Gateway carrying AllowValidOnly reports Accepted=True, raises no condition,
+#     and serves the store to the internet with no certificate required.
+#   * Terminating at the store instead is Enterprise: "Enterprise package of
+#     VictoriaMetrics includes ... mTLS for all the VictoriaMetrics components",
+#     and vmauth's own mTLS-based request routing is Enterprise too.
+#
+# So the endpoint authenticates with OIDC against the box's own issuer. That is
+# a departure from decision 3 AND from GEM, whose federation-frontend forwards
+# whatever credential its client presents. Decision 3's argument against bearer
+# tokens was that they are "a standing credential in a system whose PKI ADR-032
+# and ADR-035 built precisely to avoid standing credentials" -- true of a static
+# token, and the opposite of an OIDC access token from the box's own issuer,
+# which is short-lived and revocable where it was issued.
+#
+# WHY A Deployment AND NOT THE VMAuth CR. The operator's VMUser CRD at chart
+# 0.38.0 carries no `jwt` field, so the CR path cannot express OIDC verification
+# at all. vmauth reads it from -auth.config, which this mounts.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spoke-query-endpoint-config
+  namespace: platform-observability
+data:
+  auth.yml: |
+    # One user, verified by JWT rather than by a shared secret.
+    #
+    # `oidc.issuer` makes vmauth fetch the issuer's JWKS and verify signatures
+    # against it, so key rotation at the issuer is picked up without a redeploy
+    # -- which is why this is OIDC discovery rather than a pinned public key.
+    users:
+      - jwt:
+          oidc:
+            issuer: "https://id.SUBDOMAIN_DOMAIN"
+        # The audience the box's Grafana presents. A token minted for any other
+        # client of the same issuer is refused, so "authenticated by Zitadel" is
+        # not by itself sufficient to read this cluster's telemetry.
+        match_claims:
+          aud: "spoke-query"
+        url_map:
+          # Metrics: the Prometheus-compatible read API only. /api/v1/write is
+          # deliberately absent -- this endpoint answers questions and accepts
+          # no data, so a compromised token cannot poison the store.
+          - src_paths:
+              - "/prometheus/api/v1/query"
+              - "/prometheus/api/v1/query_range"
+              - "/prometheus/api/v1/series"
+              - "/prometheus/api/v1/labels"
+              - "/prometheus/api/v1/label/.+/values"
+              - "/prometheus/api/v1/metadata"
+            drop_src_path_prefix_parts: 1
+            url_prefix:
+              - "http://vmsingle-platform.platform-observability.svc.cluster.local:8429"
+          # Logs: LogsQL query, for the same reason.
+          - src_paths:
+              - "/logs/select/.+"
+            drop_src_path_prefix_parts: 1
+            url_prefix:
+              - "http://vlogs-platform.platform-observability.svc.cluster.local:9428"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spoke-query-endpoint
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/name: spoke-query-endpoint
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+  annotations:
+    # The auth config names the issuer, and the issuer is a per-box fact
+    # substituted at package time. A changed config has to reach the process.
+    configmap.reloader.stakater.com/reload: "spoke-query-endpoint-config"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spoke-query-endpoint
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spoke-query-endpoint
+    spec:
+      containers:
+        - name: vmauth
+          image: victoriametrics/vmauth:v1.115.0
+          args:
+            - -auth.config=/config/auth.yml
+            - -httpListenAddr=:8427
+          ports:
+            - containerPort: 8427
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8427
+      volumes:
+        - name: config
+          configMap:
+            name: spoke-query-endpoint-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spoke-query-endpoint
+  namespace: platform-observability
+spec:
+  selector:
+    app.kubernetes.io/name: spoke-query-endpoint
+  ports:
+    - name: http
+      port: 8427
+      targetPort: 8427

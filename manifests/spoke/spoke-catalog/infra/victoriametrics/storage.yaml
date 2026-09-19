@@ -1,0 +1,118 @@
+# The workload cluster's own telemetry store, query and rule evaluation.
+#
+# ADR-083 decision 1: "Every cluster -- hub and spoke -- runs its own VMSingle,
+# VictoriaLogs and VMAlert, retains its own data, and remains fully functional
+# as an observability system on its own."
+#
+# Decision 2 is why VMAlert is here and not only on the hub: "Rule evaluation is
+# never centralised, and a hub outage therefore stops no alerting anywhere."
+# Both vendors converge on this -- GEM's federation-frontend lists no ruler
+# support, and VictoriaMetrics' multi-region guide places vmalert regionally
+# against local endpoints.
+#
+# What a spoke does NOT run is Grafana (decision 4): dashboards are release
+# content, and delivering them N times gives N places to diverge.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata:
+  name: platform
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # ADR-078 add.1 §10, and smaller than the hub's: a workload cluster stores
+  # its own platform components' series and no tenant series at all (§3), so it
+  # holds materially less than the management cluster.
+  retentionPeriod: "15d"
+  removePvcAfterDelete: false
+  storage:
+    # storageClassName is substituted per box by templated-fields.yaml: a
+    # hybrid box binds local-path (its only worker is on-prem and a Hetzner
+    # volume attaches to a Hetzner server), a hetzner box binds hcloud-volumes.
+    # Left to the cluster default this took hcloud-volumes everywhere and the
+    # PVC sat Pending on every hybrid box -- observed on the live hub
+    # 2026-09-19, where every other platform PVC was Bound on local-path.
+    storageClassName: PLACEHOLDER_STORAGE_CLASS
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VLogs
+metadata:
+  name: platform
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  retentionPeriod: "7d"
+  removePvcAfterDelete: false
+  storage:
+    # storageClassName is substituted per box by templated-fields.yaml: a
+    # hybrid box binds local-path (its only worker is on-prem and a Hetzner
+    # volume attaches to a Hetzner server), a hetzner box binds hcloud-volumes.
+    # Left to the cluster default this took hcloud-volumes everywhere and the
+    # PVC sat Pending on every hybrid box -- observed on the live hub
+    # 2026-09-19, where every other platform PVC was Bound on local-path.
+    storageClassName: PLACEHOLDER_STORAGE_CLASS
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: platform
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # Evaluates against THIS cluster's store, which is what makes the spoke
+  # survivable independently of the hub (ADR-083 decision 2).
+  evaluationInterval: 30s
+  datasource:
+    url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
+  remoteWrite:
+    url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
+  remoteRead:
+    url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
+  # `notifiers` is deliberately absent (ADR-078 §6): the platform evaluates and
+  # the tenant decides who is woken. A platform holding a tenant's PagerDuty key
+  # would re-create the vendor-account precondition in a new place.
+  #
+  # ADR-078 add.1 §13a records the cost this carries on a spoke: routing is
+  # configured once per cluster, and centralising it is not available because
+  # centralising routing means centralising evaluation.
+  selectAllByDefault: false
+  ruleNamespaceSelector:
+    matchLabels:
+      topology.platform.io/role: spoke
+  ruleSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: platform
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

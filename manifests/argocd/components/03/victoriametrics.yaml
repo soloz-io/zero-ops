@@ -1,0 +1,21 @@
+---
+# ADR-078 §4: the in-box metrics and logs backend, and §6's rule evaluator.
+#
+# syncWave 2, after victoriametrics-operator at wave 1: these are CRs of CRDs
+# the operator installs, so applied together the API server would reject them
+# and ArgoCD would fail the whole boundary. The wave is the dependency.
+boundary: '03'
+appName: victoriametrics
+destinationNamespace: platform-observability
+isPlatformOwned: 'true'
+syncWave: '2'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/victoriametrics
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

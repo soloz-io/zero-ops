@@ -1,0 +1,77 @@
+# Ingress to platform-observability is default-deny.
+#
+# ADR-078 add.1 §9: "There is no NetworkPolicy governing ingress to
+# platform-observability anywhere in this repository. 'Tenant workloads cannot
+# reach the store directly' was therefore an assumption, not a fact."
+#
+# On the hub the store holds the platform's own control-plane telemetry and
+# the fleet's query surface sits beside it, so an unrestricted namespace let
+# anything on the box read every series the platform collects about itself.
+#
+# This makes §7.2 and add.1 §3's OTLP receiver the ONLY supported route for
+# tenant application telemetry, and makes that a property of the manifests
+# rather than a sentence in a document. The policy is platform-owned and
+# reconciled with selfHeal, so a tenant cannot open it by editing it.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-observability-default-deny
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-observability-allow
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # The API SERVER, calling the operator's admission webhook on 9443.
+    #
+    # This is the rule the first version of this policy did not have, and its
+    # absence was not subtle: with default-deny in place and nothing admitting
+    # 9443, every VMSingle, VLogs and VMAlert apply failed dry-run with
+    # "failed calling webhook ... context deadline exceeded", so the stores this
+    # ADR exists to create could not be created at all. Observed on the live hub
+    # 2026-09-19, which is where it was found.
+    #
+    # An empty `from` -- all sources -- rather than a selector, because the API
+    # server does not call from a pod: it reaches the webhook from the control
+    # plane's own address, which no namespaceSelector or podSelector can match.
+    # Narrowed by PORT instead, and 9443 serves nothing but admission review.
+    - ports:
+        - protocol: TCP
+          port: 9443
+    # Everything inside platform-observability: Alloy writing, VMAlert reading
+    # and writing, and the query endpoint reading. They are one another's only
+    # in-namespace clients and the set is closed.
+    - from:
+        - podSelector: {}
+    # Grafana, which is the hub's query surface and lives in this namespace --
+    # covered by the podSelector rule above. No Gateway rule here: the hub
+    # publishes no query endpoint of its own (ADR-083 decision 4 puts Grafana on
+    # the hub and the endpoints on the spokes), so nothing outside reaches the
+    # store.
+    # The OTLP receiver, from namespaces the tenant has opted in (ADR-078 §7.2).
+    # Opting a namespace in is what grants it this path; a namespace without the
+    # label reaches nothing here.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              observability.platform.io/otlp: enabled
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318

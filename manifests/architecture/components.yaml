@@ -31,40 +31,100 @@ components:
 
   - name: victoriametrics
     declared_by: [078-the-observability-capability.md]
-    status: planned
+    status: shipped
     path: manifests/hub-core-services/victoriametrics
     note: >-
-      Operator, VMCluster, CRDs and ingress, all written and none applied. The
-      exact orphan this gate exists to catch. Planned until a boundary-03
-      descriptor names it.
+      VMSingle and VLogs, reconciled by victoriametrics-operator and named by
+      manifests/argocd/components/03/victoriametrics.yaml at sync wave 2. The
+      four hand-written files it replaced (stub CRDs that validated nothing, a
+      hand-rolled operator Deployment, a VMCluster, and a dormant Ingress
+      carrying one box's hostname) were never applied to any cluster -- the
+      orphan this gate exists to catch.
 
   - name: victoriametrics-alerts
     declared_by: [078-the-observability-capability.md]
-    status: planned
+    status: shipped
     path: manifests/hub-core-services/victoriametrics-alerts
     note: >-
-      `platform-core-alerts`, 211 lines of working pod-health and memory
-      expressions, applied to nothing. Needs VMAlert and a descriptor.
+      `platform-core-alerts`, deployed rather than rewritten (ADR-078 §6). It
+      now carries app.kubernetes.io/managed-by: platform, which is what VMAlert
+      selects on, and kube-state-metrics ships so the kube_pod_* series its
+      expressions read actually exist.
 
   - name: victoria-logs
     declared_by: [078-the-observability-capability.md]
-    status: planned
+    status: shipped
+    path: manifests/hub-core-services/victoriametrics
     note: >-
       ADR-078 §4 chooses it over Loki: one operator for both signals, and no
       installed Loki to preserve because ADR-013 never deployed one.
 
   - name: vmalert
     declared_by: [078-the-observability-capability.md]
-    status: planned
+    status: shipped
+    path: manifests/hub-core-services/victoriametrics
     note: Evaluates the platform rules above. Without it they are text.
 
   - name: grafana
     declared_by: [078-the-observability-capability.md]
-    status: planned
+    status: shipped
+    path: manifests/hub-core-services/grafana
     note: >-
       ADR-078 §5. Platform dashboards are bundle artifacts and need somewhere
       to be installed; ADR-013 assumed Headlamp's Prometheus plugin, which
       pointed at a store that was never deployed.
+
+  # ── Required collection machinery (ADR-078 addendum 1, ADR-066 addendum 4) ─
+  # Not part of the selectable `observability` capability. Both exporters stay
+  # when a tenant disables the backend, because the Support Agent scrapes
+  # kube-state-metrics for the node capacity ADR-067 names for upgrade
+  # pre-flight -- and ADR-078 §8 forbids the observability capability from being
+  # a dependency of support.
+  - name: kube-state-metrics
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/argocd/components/03/kube-state-metrics.yaml
+    note: >-
+      Upstream chart, no local manifests. It was absent on the hub AND on the
+      spoke while the spoke's Alloy scraped it, so every kube_pod_* expression
+      -- including the 211 lines of platform-core-alerts -- had no series to
+      evaluate against.
+
+  - name: node-exporter
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/hub-core-services/grafana-alloy
+    note: >-
+      Alloy's built-in `prometheus.exporter.unix`, running in the DaemonSet --
+      which is the placement ADR-078 add.1 §5's table gives node-exporter, and
+      the series are identical. A separate DaemonSet on every cluster would be a
+      second workload to schedule, upgrade and stand behind at ADR-070's minimum
+      box for no additional series, so the component is the exporter rather than
+      the upstream deployment. Decided in ADR-078 add.1 §13a.
+
+  - name: spoke-query-endpoint
+    declared_by: [083-cross-cluster-observability-federation.md]
+    status: shipped
+    path: manifests/spoke/spoke-catalog/infra/victoriametrics
+    note: >-
+      The authenticated query surface every workload cluster publishes: vmauth
+      verifying OIDC against the box's own issuer, its HTTPRoute, its serving
+      Certificate and its DNS record at
+      <service>.<cell>.<subdomain>.<domain>. Registered as a component because
+      it is one -- ADR-083 originally claimed to introduce none, and that claim
+      is what let its hostname, its certificate lifecycle and its authentication
+      mechanism go unanswered until review. `planned` until the manifests exist;
+      ADR-083 stays Proposed until then, which is check C doing its job.
+
+  - name: victoriametrics-operator
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/argocd/components/03/victoriametrics-operator.yaml
+    note: >-
+      Registered in its own right rather than folded into `victoriametrics`
+      (ADR-078 addendum 1 §11): it has its own descriptor, its own sync wave and
+      its own upgrade risk, and the ADR, the descriptor filename and this
+      registry previously disagreed three ways about its name.
 
   # ── Support (ADR-077) ───────────────────────────────────────────────────
   - name: support-agent
@@ -240,8 +300,10 @@ capabilities:
     enable: capabilities.observability.enabled
     lifecycle: declared
     status: shipped
-    declared_by: [078-the-observability-capability.md]
-    components: [grafana-alloy, victoriametrics, victoriametrics-alerts, victoria-logs, vmalert, grafana]
+    declared_by:
+      - 078-the-observability-capability.md
+      - 083-cross-cluster-observability-federation.md
+    components: [grafana-alloy, kube-state-metrics, node-exporter, victoriametrics-operator, victoriametrics, victoriametrics-alerts, victoria-logs, vmalert, grafana]
     note: >-
       ADR-078. `declared` rather than `supported`: the collection half ships and
       the store, query, visualisation and rule evaluation do not, so there is

@@ -1,80 +1,191 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: grafana-alloy-config
+  name: grafana-alloy-node
   namespace: platform-observability
 data:
   config.alloy: |
-    // Remote-write metrics to Grafana Cloud (Mimir)
-    prometheus.remote_write "grafanacloud" {
-      endpoint {
-        url = sys.env("PROMETHEUS_URL")
+    // ADR-078: the observability capability.
+    //
+    // COLLECTION IS BOUNDED AND NAMED (§3). Nothing here discovers a target and
+    // then decides whether to keep it; every scrape names what it reads.
+    //
+    // It used to be the opposite -- discovery.kubernetes role=pod with no filter
+    // at all, forwarding every port of every pod off-cluster. That dialled ports
+    // which do not speak HTTP: argocd-redis:6379 received `GET /metrics HTTP/1.1`
+    // every 30s, logged it as "Possible SECURITY ATTACK detected ... Cross
+    // Protocol Scripting" and aborted the connection, on a loop, for hours.
+    //
+    // ALLOY RUNS AS TWO WORKLOADS (ADR-078 add.1 §5), and which one this config
+    // belongs to decides what it may scrape. The split is not tidiness: a
+    // DaemonSet scraping a cluster singleton emits one copy of every series PER
+    // NODE, and "it makes every alert expression that counts something wrong."
+    // The reference splits the same way -- node-exporter as a DaemonSet,
+    // kube-state-metrics as a Deployment, both scraped centrally.
+    //
+    // THIS FILE IS THE DaemonSet: node-local targets only.
 
-        basic_auth {
-          username = sys.env("PROMETHEUS_USER")
-          password = sys.env("API_KEY")
-        }
+    // ── Destinations ────────────────────────────────────────────────────────
+    //
+    // §1: the platform ships storage and query IN THE BOX. A tenant supplies no
+    // destination, holds no vendor account, and configures nothing for the
+    // capability to be complete. A tenant destination is additive (§7.1) and
+    // never replaces this one.
+    prometheus.remote_write "platform" {
+      endpoint {
+        url = "http://vmsingle-platform.platform-observability.svc.cluster.local:8429/api/v1/write"
       }
 
+      // ADR-078 add.1 §7: `cluster` AND `tenant`, on everything Alloy sends,
+      // in-box and to a tenant's own destination alike.
+      //
+      // Two labels rather than one: "cluster alone is unique within a box and
+      // not at a corporate Prometheus receiving three of them -- which is
+      // precisely the complaint this ADR's Context raises about the constant
+      // label." The previous pair was cluster + substrate, and substrate said
+      // hub-or-spoke, which identifies no box.
       external_labels = {
-        cluster = "hub",
+        cluster = sys.env("CLUSTER_NAME"),
+        tenant  = sys.env("TENANT_ID"),
       }
     }
 
+    loki.write "platform" {
+      endpoint {
+        url = "http://vlogs-platform.platform-observability.svc.cluster.local:9428/insert/loki/api/v1/push"
+      }
+      external_labels = {
+        cluster = sys.env("CLUSTER_NAME"),
+        tenant  = sys.env("TENANT_ID"),
+      }
+    }
+
+    // ── What this DaemonSet collects: node-local targets ONLY ───────────────
+
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+
+    // Pods ON THIS NODE ONLY.
+    //
+    // Without the field selector every Alloy pod tails every pod's logs on every
+    // node -- N copies of every line, and a log volume that grows with the square
+    // of the cluster.
     discovery.kubernetes "pods" {
       role = "pod"
-    }
-
-    discovery.kubernetes "services" {
-      role = "service"
-    }
-
-    prometheus.scrape "servicemonitors" {
-      targets    = discovery.kubernetes.services.targets
-      forward_to = [prometheus.remote_write.grafanacloud.receiver]
-
-      scrape_interval = "30s"
-      scrape_timeout  = "10s"
-    }
-
-    prometheus.scrape "pods" {
-      targets    = discovery.kubernetes.pods.targets
-      forward_to = [prometheus.remote_write.grafanacloud.receiver]
-
-      scrape_interval = "30s"
-      scrape_timeout  = "10s"
-    }
-
-    // Push logs to Grafana Cloud (Loki)
-    loki.write "grafanacloud" {
-      endpoint {
-        url = sys.env("LOKI_URL")
-
-        basic_auth {
-          username = sys.env("LOKI_USER")
-          password = sys.env("API_KEY")
-        }
+      selectors {
+        role  = "pod"
+        field = "spec.nodeName=" + sys.env("NODE_NAME")
       }
     }
 
-    // Kubernetes Pod Log Collection
+    // kubelet and cAdvisor, through the apiserver proxy (§3). Named endpoints on
+    // a named path -- no discovery of what a node happens to expose.
+    discovery.relabel "kubelet" {
+      targets = discovery.kubernetes.nodes.targets
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc.cluster.local:443"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/$1/proxy/metrics"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "node"
+      }
+      // This node only. The node discovery above returns every node in the
+      // cluster, so without this each DaemonSet pod would scrape all of them.
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+    }
+
+    prometheus.scrape "kubelet" {
+      targets           = discovery.relabel.kubelet.output
+      forward_to        = [prometheus.remote_write.platform.receiver]
+      scheme            = "https"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "30s"
+      tls_config {
+        ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        insecure_skip_verify = true
+      }
+    }
+
+    discovery.relabel "cadvisor" {
+      targets = discovery.kubernetes.nodes.targets
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc.cluster.local:443"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+    }
+
+    prometheus.scrape "cadvisor" {
+      targets           = discovery.relabel.cadvisor.output
+      forward_to        = [prometheus.remote_write.platform.receiver]
+      scheme            = "https"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "30s"
+      tls_config {
+        ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        insecure_skip_verify = true
+      }
+    }
+
+    // Node exporter series, from the agent's own process (§3). No extra
+    // DaemonSet: Alloy is already on every node, which is the placement §5's
+    // table gives node-exporter.
+    prometheus.exporter.unix "node" {
+      rootfs_path = "/host/root"
+    }
+
+    prometheus.scrape "node_exporter" {
+      targets         = prometheus.exporter.unix.node.targets
+      forward_to      = [prometheus.remote_write.platform.receiver]
+      scrape_interval = "30s"
+    }
+
+    // ── Pod logs, this node, platform namespaces only (§3) ──────────────────
     discovery.relabel "pod_logs" {
       targets = discovery.kubernetes.pods.targets
 
+      // "Tenant namespaces are not collected by default. Forwarding a tenant's
+      // workload telemetry off-cluster without being asked is on the wrong side
+      // of ADR-066." The label is tested for EXISTENCE, not for a value: the
+      // value distinguishes hub from spoke (ADR-078 add.1 §6).
       rule {
-        target_label = "cluster"
-        replacement  = "hub"
+        source_labels = ["__meta_kubernetes_namespace_label_topology_platform_io_role"]
+        regex         = ".+"
+        action        = "keep"
       }
-      // Same closed label set the spokes emit, so one query spans both without
+
+      // The closed label set the spokes emit, so one query spans both without
       // knowing where a workload runs. trace_id stays out of the labels and is
       // read at query time: {tenant="..."} | json | trace_id="..."
       rule {
         target_label = "substrate"
         replacement  = "hub"
-      }
-      rule {
-        target_label = "tenant"
-        replacement  = "platform"
       }
       rule {
         source_labels = ["__meta_kubernetes_namespace"]
@@ -109,7 +220,217 @@ data:
 
     loki.source.file "pod_logs" {
       targets    = local.file_match.pod_logs.targets
-      forward_to = [loki.write.grafanacloud.receiver]
+      forward_to = [loki.write.platform.receiver]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alloy-cluster
+  namespace: platform-observability
+data:
+  config.alloy: |
+    // ADR-078: the observability capability.
+    //
+    // COLLECTION IS BOUNDED AND NAMED (§3). Nothing here discovers a target and
+    // then decides whether to keep it; every scrape names what it reads.
+    //
+    // It used to be the opposite -- discovery.kubernetes role=pod with no filter
+    // at all, forwarding every port of every pod off-cluster. That dialled ports
+    // which do not speak HTTP: argocd-redis:6379 received `GET /metrics HTTP/1.1`
+    // every 30s, logged it as "Possible SECURITY ATTACK detected ... Cross
+    // Protocol Scripting" and aborted the connection, on a loop, for hours.
+    //
+    // ALLOY RUNS AS TWO WORKLOADS (ADR-078 add.1 §5), and which one this config
+    // belongs to decides what it may scrape. The split is not tidiness: a
+    // DaemonSet scraping a cluster singleton emits one copy of every series PER
+    // NODE, and "it makes every alert expression that counts something wrong."
+    // The reference splits the same way -- node-exporter as a DaemonSet,
+    // kube-state-metrics as a Deployment, both scraped centrally.
+    //
+    // THIS FILE IS THE Deployment, replicas: 1: cluster singletons only.
+    // No loki.write here -- pod logs are node-local and belong to the DaemonSet.
+
+    // ── Destinations ────────────────────────────────────────────────────────
+    //
+    // §1: the platform ships storage and query IN THE BOX. A tenant supplies no
+    // destination, holds no vendor account, and configures nothing for the
+    // capability to be complete. A tenant destination is additive (§7.1) and
+    // never replaces this one.
+    prometheus.remote_write "platform" {
+      endpoint {
+        url = "http://vmsingle-platform.platform-observability.svc.cluster.local:8429/api/v1/write"
+      }
+
+      // ADR-078 add.1 §7: `cluster` AND `tenant`, on everything Alloy sends,
+      // in-box and to a tenant's own destination alike.
+      //
+      // Two labels rather than one: "cluster alone is unique within a box and
+      // not at a corporate Prometheus receiving three of them -- which is
+      // precisely the complaint this ADR's Context raises about the constant
+      // label." The previous pair was cluster + substrate, and substrate said
+      // hub-or-spoke, which identifies no box.
+      external_labels = {
+        cluster = sys.env("CLUSTER_NAME"),
+        tenant  = sys.env("TENANT_ID"),
+      }
+    }
+
+    // ── What this Deployment collects: cluster singletons ONLY ──────────────
+    //
+    // replicas: 1 is load-bearing. A second replica doubles every series below,
+    // which is the defect the DaemonSet/Deployment split exists to fix,
+    // reintroduced by scaling.
+
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    // Platform-owned namespaces, selected by the label ADR-077 already relies on
+    // and §3 names. A namespace without it is a tenant's, and a tenant's
+    // telemetry does not leave their cluster unless they ask (§7.2).
+    //
+    // Then: the CONTAINER PORT must name itself a metrics port.
+    //
+    // A container port name is set by the workload's author as a declaration of
+    // intent -- "this is where my metrics are" -- so this reads a declaration
+    // rather than guessing from a pattern. That is what §3 means by "bounded and
+    // named", and it is the property an earlier attempt at this filter lacked:
+    // matching Service names ending -metrics kept 6 targets where the box has
+    // 24, because the metrics port of almost every platform component is a POD
+    // port no Service publishes.
+    //
+    // The discriminator, verified live: platform-db-1 declares
+    // [postgresql:5432, metrics:9187, status:8000] and is scraped on 9187 alone;
+    // argocd-redis declares [redis:6379] and no metrics port, so it is never
+    // dialled at all.
+    discovery.relabel "platform_metrics" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace_label_topology_platform_io_role"]
+        regex         = ".+"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_name"]
+        regex         = "metrics|http-metrics|[a-z0-9-]*-metrics"
+        action        = "keep"
+      }
+
+      // A pod that is not running has no endpoint to dial, and a terminating one
+      // produces connection-refused noise that looks like a broken scrape.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_phase"]
+        regex         = "Running"
+        action        = "keep"
+      }
+
+      // kube-rbac-proxy fronts the controller-runtime metrics of every CAPI
+      // controller on 8443 with TLS and a token. Named here rather than left to
+      // fail: without it those four targets return a TLS handshake error that
+      // reads like the component is down.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_number"]
+        regex         = "8443"
+        target_label  = "__scheme__"
+        replacement   = "https"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+        separator     = ";"
+        regex         = "^(?:;)?([^;]+)(?:;.*)?$"
+        target_label  = "job"
+      }
+    }
+
+    prometheus.scrape "platform_metrics" {
+      targets         = discovery.relabel.platform_metrics.output
+      forward_to      = [prometheus.remote_write.platform.receiver]
+      scrape_interval = "30s"
+      scrape_timeout  = "10s"
+
+      // For the kube-rbac-proxy targets above. Plain-HTTP targets receive an
+      // Authorization header they ignore.
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      tls_config {
+        ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        insecure_skip_verify = true
+      }
+    }
+
+    // kube-state-metrics, on the hub as well as the spoke. §3 records that it
+    // was present in the spoke catalogue and absent here, and closes that
+    // asymmetry. Named, not discovered.
+    //
+    // platform-ops, NOT platform-observability. It is required collection
+    // machinery (ADR-066 add.4), not part of the selectable observability
+    // capability, and the Support Agent's node-pressure collector reads it
+    // (ADR-077 add.4 §13). Putting it in the capability's namespace would make
+    // support evidence depend on a capability a tenant may disable, which
+    // ADR-078 §8 forbids. This address must match
+    // manifests/argocd/components/03/kube-state-metrics.yaml and the allowlist.
+    prometheus.scrape "kube_state_metrics" {
+      targets = [
+        {"__address__" = "kube-state-metrics.platform-ops.svc.cluster.local:8080"},
+      ]
+      forward_to      = [prometheus.relabel.platform_namespaces_only.receiver]
+      scrape_interval = "30s"
+    }
+
+    // SERIES-LEVEL tenant exclusion, which the target filter above cannot do
+    // here (ADR-078 add.1 §6).
+    //
+    // kube-state-metrics is cluster-scoped: it describes objects in EVERY
+    // namespace from one endpoint, so keeping or dropping the target is
+    // all-or-nothing. Without this, a tenant's pod names, workload names and
+    // object labels leave the box through the one collector a namespace
+    // selector cannot bound -- while every other path correctly excludes them,
+    // which is exactly what makes it easy to miss.
+    //
+    // The reference bounds the same exporter the same way, at the scrape:
+    // assets/kube-state-metrics/minimal-service-monitor.yaml:17-25.
+    //
+    // This is the one filter in this config that cannot read the
+    // topology.platform.io/role label: the SERIES carries a namespace name, not
+    // the namespace object's labels. The list is therefore the platform's own
+    // namespaces, and it must be kept in step with
+    // manifests/hub-core-services/platform-namespaces/namespaces.yaml -- which a
+    // release gate asserts.
+    prometheus.relabel "platform_namespaces_only" {
+      forward_to = [prometheus.remote_write.platform.receiver]
+
+      // ONE rule, not two. Consecutive `keep` rules are ANDed, not ORed --
+      // each drops everything it does not match, so a second keep only ever
+      // narrows what the first left. Written as two, the cluster-scoped rule
+      // would have been unreachable: the namespace rule drops empty-namespace
+      // series before it runs, and every node and PV series would have
+      // vanished silently.
+      //
+      // The leading empty alternative is what admits them. Prometheus anchors
+      // the regex, so `^(?:|platform-.*|...)$` matches the empty string, and a
+      // series with no namespace label is a cluster-scoped object -- a node, a
+      // persistent volume, a storage class. Those are platform facts by
+      // definition: a node belongs to no tenant.
+      rule {
+        source_labels = ["namespace"]
+        regex         = "|platform-.*|cert-manager|cnpg-system|kube-system"
+        action        = "keep"
+      }
     }
 ---
 apiVersion: apps/v1
@@ -118,10 +439,7 @@ metadata:
   name: grafana-alloy
   namespace: platform-observability
   annotations:
-    # ADR-030 #3: a rotated credential MUST trigger a rolling update. ESO
-    # rewrites this Secret in place and the process would otherwise keep the
-    # value it read at startup until something unrelated restarted it.
-    secret.reloader.stakater.com/reload: "grafana-cloud-credentials"
+    configmap.reloader.stakater.com/reload: grafana-alloy-node
 spec:
   selector:
     matchLabels:
@@ -133,49 +451,116 @@ spec:
     spec:
       serviceAccountName: grafana-alloy
       containers:
-        - name: alloy
-          image: grafana/alloy:v1.5.1
-          args:
-            - run
-            - /etc/alloy/config.alloy
-            - --storage.path=/var/lib/alloy/data
-            - --server.http.listen-addr=0.0.0.0:12345
-          ports:
-            - containerPort: 12345
-              name: http-metrics
-          envFrom:
-            - secretRef:
-                name: grafana-cloud-credentials
-          volumeMounts:
-            - name: config
-              mountPath: /etc/alloy
-            - name: data
-              mountPath: /var/lib/alloy/data
-            - name: varlogpods
-              mountPath: /var/log/pods
-              readOnly: true
-            - name: varlogcontainers
-              mountPath: /var/log/containers
-              readOnly: true
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-      volumes:
+      - name: alloy
+        image: grafana/alloy:v1.5.1
+        args:
+        - run
+        - /etc/alloy/config.alloy
+        - --storage.path=/var/lib/alloy/data
+        - --server.http.listen-addr=0.0.0.0:12345
+        ports:
+        - containerPort: 12345
+          name: http-metrics
+        env:
+        - name: CLUSTER_NAME
+          value: hub
+        - name: TENANT_ID
+          value: platform
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        envFrom:
+        - secretRef:
+            name: grafana-cloud-credentials
+            optional: true
+        volumeMounts:
         - name: config
-          configMap:
-            name: grafana-alloy-config
+          mountPath: /etc/alloy
         - name: data
-          emptyDir: {}
+          mountPath: /var/lib/alloy/data
         - name: varlogpods
-          hostPath:
-            path: /var/log/pods
+          mountPath: /var/log/pods
+          readOnly: true
         - name: varlogcontainers
-          hostPath:
-            path: /var/log/containers
+          mountPath: /var/log/containers
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: config
+        configMap:
+          name: grafana-alloy-node
+      - name: data
+        emptyDir: {}
+      - name: varlogpods
+        hostPath:
+          path: /var/log/pods
+      - name: varlogcontainers
+        hostPath:
+          path: /var/log/containers
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-alloy-cluster
+  namespace: platform-observability
+  annotations:
+    configmap.reloader.stakater.com/reload: grafana-alloy-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana-alloy-cluster
+  template:
+    metadata:
+      labels:
+        app: grafana-alloy-cluster
+    spec:
+      serviceAccountName: grafana-alloy
+      containers:
+      - name: alloy
+        image: grafana/alloy:v1.5.1
+        args:
+        - run
+        - /etc/alloy/config.alloy
+        - --storage.path=/var/lib/alloy/data
+        - --server.http.listen-addr=0.0.0.0:12345
+        ports:
+        - containerPort: 12345
+          name: http-metrics
+        env:
+        - name: CLUSTER_NAME
+          value: hub
+        - name: TENANT_ID
+          value: platform
+        envFrom:
+        - secretRef:
+            name: grafana-cloud-credentials
+            optional: true
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alloy
+        - name: data
+          mountPath: /var/lib/alloy/data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: config
+        configMap:
+          name: grafana-alloy-cluster
+      - name: data
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -188,26 +573,38 @@ kind: ClusterRole
 metadata:
   name: grafana-alloy
 rules:
-  - apiGroups: [""]
-    resources:
-      - nodes
-      - nodes/proxy
-      - nodes/metrics
-      - services
-      - endpoints
-      - pods
-      - namespaces
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources:
-      - configmaps
-    verbs: ["get"]
-  - apiGroups: ["networking.k8s.io"]
-    resources:
-      - ingresses
-    verbs: ["get", "list", "watch"]
-  - nonResourceURLs: ["/metrics"]
-    verbs: ["get"]
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  - nodes/proxy
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -218,6 +615,6 @@ roleRef:
   kind: ClusterRole
   name: grafana-alloy
 subjects:
-  - kind: ServiceAccount
-    name: grafana-alloy
-    namespace: platform-observability
+- kind: ServiceAccount
+  name: grafana-alloy
+  namespace: platform-observability

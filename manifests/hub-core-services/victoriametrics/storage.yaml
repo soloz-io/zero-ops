@@ -1,0 +1,144 @@
+# ADR-078 §4: storage and query, in the box.
+#
+# This replaces four hand-written files (crds.yaml, operator.yaml, cluster.yaml,
+# ingress.yaml) that were never applied to any cluster -- the exact orphan the
+# architecture-consistency gate exists to catch. What they contained is worth
+# recording, because it is why they are gone rather than adapted:
+#
+#   * crds.yaml declared the operator's CRDs with
+#     `x-kubernetes-preserve-unknown-fields: true`. A CRD that validates nothing
+#     accepts a malformed VMSingle and leaves it to be silently ignored.
+#     victoriametrics-operator now ships its own, which are real schemas.
+#   * operator.yaml hand-rolled the Deployment, a ClusterRole with `verbs: ["*"]`
+#     on six resource classes, and a Namespace that did not match the one its own
+#     ServiceAccount used.
+#   * ingress.yaml was dormant by its own admission ("ingress-nginx was retired"),
+#     and carried `victoriametrics.hub.dev.nutgraf.in` -- one box's hostname in a
+#     manifest every box would pull, which ADR-063 does not allow. ADR-078 §5
+#     makes Grafana the query surface, so no direct ingress replaces it.
+#
+# The objects below are declarative CRs. The operator reconciles them; nothing
+# here restates what a controller already knows how to build.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata:
+  name: platform
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # VMSingle, not VMCluster. ADR-078 §4: "single at the minimum box (ADR-070),
+  # cluster above it". A cluster deployment is three components and three
+  # failure modes to carry the platform-health signal of one box, and the box
+  # ADR-070 describes cannot afford them. Moving to VMCluster is a change of
+  # kind here, not a redesign of anything that writes to it -- the Service name
+  # is what Alloy and VMAlert address, and both resolve through it.
+  # ADR-078 add.1 §10: 15 days at ADR-070's minimum box, overridable by the
+  # tenant in their own values. 30d was chosen before that ADR measured the
+  # cost of two data stores on every cluster.
+  retentionPeriod: "15d"
+  removePvcAfterDelete: false
+  storage:
+    # storageClassName is substituted per box by templated-fields.yaml: a
+    # hybrid box binds local-path (its only worker is on-prem and a Hetzner
+    # volume attaches to a Hetzner server), a hetzner box binds hcloud-volumes.
+    # Left to the cluster default this took hcloud-volumes everywhere and the
+    # PVC sat Pending on every hybrid box -- observed on the live hub
+    # 2026-09-19, where every other platform PVC was Bound on local-path.
+    storageClassName: PLACEHOLDER_STORAGE_CLASS
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  extraArgs:
+    # Accept the remote-write protocol Alloy speaks.
+    maxLabelsPerTimeseries: "50"
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VLogs
+metadata:
+  name: platform
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # VictoriaLogs rather than Loki, for the reason ADR-078 §4 gives: the metrics
+  # backend is VictoriaMetrics and already written, and one operator reconciling
+  # both signals is one storage system to run, back up and support instead of
+  # two. That is a choice about operational surface, not a claim about Loki.
+  # ADR-078 add.1 §10: 7 days for logs. Logs are the larger of the two by
+  # volume and the shorter-lived in usefulness.
+  retentionPeriod: "7d"
+  removePvcAfterDelete: false
+  storage:
+    # storageClassName is substituted per box by templated-fields.yaml: a
+    # hybrid box binds local-path (its only worker is on-prem and a Hetzner
+    # volume attaches to a Hetzner server), a hetzner box binds hcloud-volumes.
+    # Left to the cluster default this took hcloud-volumes everywhere and the
+    # PVC sat Pending on every hybrid box -- observed on the live hub
+    # 2026-09-19, where every other platform PVC was Bound on local-path.
+    storageClassName: PLACEHOLDER_STORAGE_CLASS
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: platform
+  namespace: platform-observability
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # ADR-078 §6. VMAlert evaluates; it does not route.
+  #
+  # `notifiers` is deliberately absent, and that is the decision, not an
+  # omission: "Routing is the tenant's, and the platform ships no default
+  # receiver. A platform holding a tenant's PagerDuty key would re-create the
+  # vendor-account precondition in a new place." Rules are evaluated and alert
+  # state is queryable in Grafana from the first minute; who gets woken is the
+  # tenant's to declare.
+  evaluationInterval: 30s
+  datasource:
+    url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
+  remoteWrite:
+    url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
+  remoteRead:
+    url: http://vmsingle-platform.platform-observability.svc.cluster.local:8429
+  # Which rules this instance evaluates. Platform rules carry
+  # app.kubernetes.io/managed-by: platform (§6) and a tenant's VMRule objects,
+  # in their own namespaces and without that label, are not selected here --
+  # they are the tenant's to evaluate and the platform is not accountable for
+  # them.
+  selectAllByDefault: false
+  ruleNamespaceSelector:
+    matchLabels:
+      topology.platform.io/role: hub
+  ruleSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: platform
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

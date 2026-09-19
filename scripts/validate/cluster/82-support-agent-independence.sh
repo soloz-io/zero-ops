@@ -17,7 +17,10 @@
 #     allowlist would be filtering an unbounded payload instead of bounding a
 #     known one, which is a preference and not a boundary.
 #
-# Checked against the shipped allowlist, which is the contract.
+# Checked against the shipped allowlist, which is the contract, by a positive
+# test: a collector's query must be a bare series name and no collector may name
+# the namespace that holds the query surface. See the checker below for why that
+# replaced a list of product names.
 #
 # A module, not a standalone script. run.sh SOURCES each file and then calls the
 # validate_* functions it defined, so top-level code here ran in the runner's own
@@ -100,28 +103,59 @@ PY
     # the way check 81 silently could never run.
     local checker
     checker=$(cat <<'PY'
-import sys, yaml
+import sys, re, yaml
 
-# The observability capability's components (ADR-078 §4) plus the names their
-# Services carry. A collector naming any of these is reading the store rather
-# than the source.
-BACKENDS = (
-    "victoriametrics", "victoria-metrics", "vmsingle", "vmcluster", "vmselect",
-    "vminsert", "vmstorage", "vmagent", "vmalert", "victorialogs", "victoria-logs",
-    "grafana", "loki", "tempo", "mimir", "prometheus", "thanos", "alloy",
-)
+# A POSITIVE test, replacing a list of vendor product names.
+#
+# The old form matched "victoriametrics", "vmalert", "loki", "thanos" and so on
+# as substrings. Two things were wrong with it: it had to anticipate every
+# product a store might ever be, and it silently permitted the one nobody
+# thought of. Neither is a property you want in the check that holds a boundary.
+#
+# What ADR-078 §8 actually forbids is reaching a QUERY SURFACE. Two rules say
+# that without naming anyone's product:
+#
+#   1. a collector's query is a bare series name. ADR-077 already requires this
+#      -- "collectors run defined queries; they never forward what a response
+#      happened to contain" -- and a query API call cannot be written as a bare
+#      series name, so the rule enforces the decision rather than restating it.
+#   2. no collector names platform-observability, the one namespace in this
+#      platform that holds a store and its query surface.
+#
+# Rule 1 is the load-bearing one. VMSingle serves /metrics and /api/v1/query on
+# the same port, so no network policy can separate them and no namespace check
+# can either once a collector is inside. What distinguishes reading a component
+# from querying a store is the SHAPE OF THE REQUEST, which is what this reads.
+
+SERIES = re.compile(r"^[A-Za-z_:][A-Za-z0-9_:]*$")
+QUERY_SURFACE_NS = "platform-observability"
 
 count = 0
 for c in yaml.safe_load(sys.stdin) or []:
     count += 1
     name = c.get("collector", "?")
     src = c.get("source") or {}
-    haystack = " ".join(str(src.get(k, "")) for k in ("service", "namespace", "query", "path")).lower()
-    for b in BACKENDS:
-        if b in haystack:
-            print(f"PROBLEM=collector {name!r} reads {b!r} ({haystack.strip()}); ADR-078 §8 "
-                  f"keeps the paths independent -- collect from the component's own /metrics, "
-                  f"which is the source the store also reads")
+    kind = src.get("kind", "")
+    ns = str(src.get("namespace", ""))
+    query = str(src.get("query", ""))
+
+    if ns == QUERY_SURFACE_NS:
+        print(f"PROBLEM=collector {name!r} names the {QUERY_SURFACE_NS!r} namespace; "
+              f"ADR-078 §8 keeps the paths independent -- collect from the component's "
+              f"own /metrics, which is the source the store also reads")
+
+    if kind == "metrics":
+        if not query:
+            print(f"PROBLEM=collector {name!r} is kind: metrics with no query; a "
+                  f"collector with no defined query has no known result schema, so "
+                  f"its emit list bounds nothing")
+        elif not SERIES.match(query):
+            print(f"PROBLEM=collector {name!r} queries {query!r}, which is not a bare "
+                  f"series name. ADR-077 requires a predefined query whose result "
+                  f"schema is known in advance; an expression, path or selector here "
+                  f"means the payload's shape is whatever the cluster happens to "
+                  f"contain, and the allowlist becomes a preference rather than a bound")
+
 print(f"COLLECTORS={count}")
 PY
 )
@@ -137,5 +171,5 @@ PY
     done < <(grep '^PROBLEM=' <<<"$report")
 
     (( failed )) && return 0
-    pass "$(sed -n 's/^COLLECTORS=//p' <<<"$report") collector(s): support agents read no observability component, and the spoke's contract matches the hub's"
+    pass "$(sed -n 's/^COLLECTORS=//p' <<<"$report") collector(s): every query is a bare series name, none names the query surface, and the spoke's contract matches the hub's"
 }
