@@ -63,12 +63,33 @@ is certainly present.
 {{- printf "ghcr.io/%s" $org -}}
 {{- end -}}
 
+{{- /*
+environmentSlugOverride lets a caller emit the SAME global block with one key
+replaced, instead of appending a second `global:` mapping after it.
+
+That distinction is not cosmetic. YAML has no merge for duplicate keys at the
+same level: a second `global:` REPLACES the first outright, so every other
+global -- provider, hubDomain, clusterName, tenantId, the Infisical ids -- is
+silently dropped. The spoke catalogue did exactly that to override the spoke's
+environment, and the comment beside it said "last wins in Helm", which is true
+of a scalar and false of the mapping that carries it.
+
+What it cost: global.provider arrived nil on every spoke, the catalogue's
+provider-gated template block rendered NOTHING, and ArgoCD pruned the objects
+that block owns -- VMSingle, VLogs and the query endpoint's ConfigMap were
+deleted as no longer declared, while the Application reported Synced with 354
+resources synced and 11 pruned. Verified on nutgraf-01 2026-09-20.
+*/ -}}
 {{- define "environment-manager.globalValues" -}}
+{{- /* Called either with the root context, or with
+   (dict "root" $ "environmentSlug" "<expr>") to replace that one key. */ -}}
+{{- $root := .root | default . -}}
+{{- $slug := .environmentSlug | default $root.Values.environmentSlug -}}
 global:
-  environmentSlug: {{ .Values.environmentSlug | quote }}
-  provider: {{ .Values.provider | quote }}
-  hubDomain: {{ include "environment-manager.hubDomain" . | quote }}
-  clusterName: {{ include "environment-manager.clusterName" . | quote }}
+  environmentSlug: {{ $slug | quote }}
+  provider: {{ $root.Values.provider | quote }}
+  hubDomain: {{ include "environment-manager.hubDomain" $root | quote }}
+  clusterName: {{ include "environment-manager.clusterName" $root | quote }}
   {{- /*
     The box's own tenant id, for ADR-078 add.1 §7: Alloy stamps `cluster` AND
     `tenant` on everything it sends. `cluster` alone is unique within a box and
@@ -77,26 +98,26 @@ global:
     Distinct from the `tenantId` the fleet ApplicationSets carry, which names a
     customer OF the box. This is the box's owner.
   */}}
-  tenantId: {{ .Values.tenantId | default "platform" | quote }}
-  gitOrgURL: {{ include "environment-manager.gitOrgURL" . | quote }}
-  chartRegistryURL: {{ include "environment-manager.chartRegistryURL" . | quote }}
+  tenantId: {{ $root.Values.tenantId | default "platform" | quote }}
+  gitOrgURL: {{ include "environment-manager.gitOrgURL" $root | quote }}
+  chartRegistryURL: {{ include "environment-manager.chartRegistryURL" $root | quote }}
   dns:
     {{- /* The DNS SERVICE this box's zone lives in -- a platform-level choice,
            not external-dns's --provider flag. "hetzner" means Hetzner DNS,
            which external-dns reaches through a webhook sidecar; the translation
            to `--provider=webhook` happens where the flag is written, in
            external-dns's templated-fields.yaml. */}}
-    provider: {{ .Values.dns.provider | default "hetzner" | quote }}
+    provider: {{ $root.Values.dns.provider | default "hetzner" | quote }}
     {{- /* The TXT ownership key. Defaults to the cluster name because
            --policy=sync makes a shared key destructive: external-dns deletes
            the records it believes it owns, so two boxes sharing one would
            delete each other's. */}}
-    ownerId: {{ .Values.dns.ownerId | default (include "environment-manager.clusterName" .) | quote }}
+    ownerId: {{ $root.Values.dns.ownerId | default (include "environment-manager.clusterName" $root) | quote }}
   {{- /* The spoke this box's burst-capacity autoscaler watches. A global for the
          same reason as hubDomain: it is a fact about the box, and the
          alternative was the component carrying one box's spoke name as a
          literal. */}}
-  burstSpokePool: {{ include "environment-manager.burstSpokePool" . | quote }}
+  burstSpokePool: {{ include "environment-manager.burstSpokePool" $root | quote }}
   {{- /* The box's own Infisical organisation and projects.
 
          A global for the same reason as hubDomain: it is a fact about the box,
@@ -116,10 +137,10 @@ global:
          no identity to declare, and a nil map here fails the render of every
          boundary rather than of the one component that cares. */}}
   {{- /* BOTH levels guarded. environment-manager declares no `global` in its own
-         values.yaml, so `.Values.global` is nil unless a box supplies one, and
-         `.Values.global.infisical` on a nil map fails every boundary's render --
+         values.yaml, so `$root.Values.global` is nil unless a box supplies one, and
+         `$root.Values.global.infisical` on a nil map fails every boundary's render --
          not just this component's. */}}
-  {{- $infisical := (.Values.global | default dict).infisical | default dict }}
+  {{- $infisical := ($root.Values.global | default dict).infisical | default dict }}
   infisical:
     organizationId: {{ $infisical.organizationId | default "" | quote }}
     projectId: {{ $infisical.projectId | default "" | quote }}
@@ -134,7 +155,7 @@ global:
            asked the PLATFORM's Infisical to sign its certificates, got EOF, and
            left every certificate naming that issuer pending forever -- the
            argocd-agent, alloy and support-agent client certs among them. */}}
-    {{- $fleet := (.Values.infisical | default dict).fleet | default dict }}
+    {{- $fleet := ($root.Values.infisical | default dict).fleet | default dict }}
     fleet:
       projectId: {{ $fleet.projectId | default "" | quote }}
       clientId: {{ $fleet.clientId | default "" | quote }}

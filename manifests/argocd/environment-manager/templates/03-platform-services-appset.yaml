@@ -536,21 +536,30 @@ spec:
             platform-spoke-catalog:
               enabled: true
               spokeName: '{{"{{"}}.name{{"}}"}}'
-            {{- include "environment-manager.globalValues" . | nindent 12 }}
-            # The SPOKE's own environment, overriding the hub's.
+            # The SPOKE's own environment, overriding the hub's -- passed INTO
+            # globalValues rather than appended after it.
             #
-            # globalValues above carries the hub's environmentSlug and the catalogue
-            # took it, so a workload cluster read the environment of the cluster that
-            # PROVISIONED it rather than the one it declares. That is what obliged the
-            # management cluster to have an environment at all, and it is why a prod
-            # workload cluster under a dev hub would have read DEV secrets out of
-            # Infisical (ADR-037).
+            # globalValues carries the hub's environmentSlug, and a workload
+            # cluster reading it would take the environment of the cluster that
+            # PROVISIONED it rather than the one it declares: a prod workload
+            # cluster under a dev hub would read DEV secrets out of Infisical
+            # (ADR-037). The label is written by the SpokePool composition from
+            # the claim the tenant wrote, so this reads the cluster's own
+            # declaration.
             #
-            # The label is written by the SpokePool composition from the claim the
-            # tenant wrote, so this reads the workload cluster's own declaration.
-            # Below globalValues deliberately: last wins in Helm.
-            global:
-              environmentSlug: '{{"{{"}} index .metadata.labels "environment" {{"}}"}}'
+            # It WAS a second `global:` block after globalValues, on the reasoning
+            # that "last wins in Helm". That is true of a scalar and false of the
+            # mapping around it: YAML has no merge for a duplicate key, so the
+            # second block replaced the first outright and every other global --
+            # provider, hubDomain, clusterName, tenantId, the Infisical ids --
+            # arrived nil.
+            #
+            # global.provider nil meant the catalogue's provider-gated template
+            # block rendered NOTHING, and ArgoCD pruned what that block owns:
+            # VMSingle, VLogs and the query endpoint's ConfigMap were deleted as
+            # no longer declared, while the Application reported Synced (354
+            # synced, 11 pruned). Verified on nutgraf-01, 2026-09-20.
+            {{- include "environment-manager.globalValues" (dict "root" $ "environmentSlug" (printf "%s%s%s" "{{" (print " index .metadata.labels \"environment\" ") "}}")) | nindent 12 }}
 {{- else }}
         kustomize:
           patches:

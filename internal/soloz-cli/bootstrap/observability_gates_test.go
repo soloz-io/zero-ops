@@ -517,3 +517,68 @@ func TestVMOperatorWebhookUsesCertManager(t *testing.T) {
 			"Re-render with --set admissionWebhooks.certManager.enabled=true.")
 	}
 }
+
+// No Application's helm values may declare `global:` twice.
+//
+// YAML has no merge for a duplicate key at the same level: the second mapping
+// REPLACES the first outright. An ApplicationSet that emits globalValues and
+// then appends its own `global:` to override one key silently drops every
+// other global with it.
+//
+// That shipped. The spoke catalogue overrode environmentSlug that way, on the
+// reasoning that "last wins in Helm" -- true of a scalar, false of the mapping
+// around it. global.provider arrived nil on every spoke, the catalogue's
+// provider-gated template block rendered NOTHING, and ArgoCD PRUNED what that
+// block owns: VMSingle, VLogs and the query endpoint's ConfigMap were deleted
+// as no longer declared. The Application reported Synced throughout -- 354
+// resources synced, 11 pruned -- so nothing anywhere said the cluster had lost
+// its telemetry store. Verified on nutgraf-01, 2026-09-20.
+//
+// The fix is to pass the override INTO the helper, not to append a block after
+// it, and this asserts nobody appends one again.
+func TestAppSetHelmValuesDeclareGlobalOnce(t *testing.T) {
+	root := repoRoot(t)
+	dir := filepath.Join(root, "manifests", "argocd", "environment-manager", "templates")
+
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, "appset.yaml") {
+			return err
+		}
+		raw, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		rel, _ := filepath.Rel(root, path)
+
+		// Each `values: |` block is one Application's values. Count the
+		// `global:` keys emitted into it -- both the literal and the helper.
+		for _, block := range strings.Split(string(raw), "values: |")[1:] {
+			// The block ends where the indentation returns to the list level.
+			if i := strings.Index(block, "\n      - "); i > 0 {
+				block = block[:i]
+			}
+			literal := 0
+			for _, line := range strings.Split(block, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "#") {
+					continue
+				}
+				if strings.TrimSpace(line) == "global:" {
+					literal++
+				}
+			}
+			helper := strings.Count(block, `include "environment-manager.globalValues"`)
+			if literal+helper > 1 {
+				t.Errorf("%s: an Application's helm values declare global %d time(s) "+
+					"(%d literal, %d via globalValues).\n"+
+					"A second `global:` replaces the first entirely -- provider, hubDomain, "+
+					"clusterName and the Infisical ids all become nil, and ArgoCD prunes "+
+					"whatever a provider-gated template owns. Pass the override into "+
+					"globalValues instead.", rel, literal+helper, literal, helper)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", dir, err)
+	}
+}
