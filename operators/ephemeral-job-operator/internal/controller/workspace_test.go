@@ -641,7 +641,7 @@ func TestAppIDReachesTheSidecar(t *testing.T) {
 		}
 		if got["APP_ID"] != "app-123" {
 			t.Errorf("APP_ID = %q, want app-123 — without it the sidecar cannot build "+
-				"<appId>/<workspaceId>/code and refuses to start", got["APP_ID"])
+				"<appId>/<workspaceId> and refuses to start", got["APP_ID"])
 		}
 		if got["WORKSPACE_ID"] != "ws-42" {
 			t.Errorf("WORKSPACE_ID = %q, want ws-42", got["WORKSPACE_ID"])

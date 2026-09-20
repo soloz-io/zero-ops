@@ -60,6 +60,37 @@ var (
 // A deployment that sets WORKSPACE_SYNC_SECRET to a literal name still works —
 // the expansion is a no-op on a string with no placeholder — which is what a
 // spoke with a single fleet and a non-conventional Secret name needs.
+const (
+	// workspaceStagingPath is the sync container's scratch mount. Each instance
+	// gets its OWN subdirectory of it, because the readiness marker
+	// (<staging>/.ready) and the archive/FUSE working dirs are named from it —
+	// two instances sharing one staging dir would see each other's marker and
+	// report ready before their own restore had run.
+	workspaceStagingPath = "/ws-staging"
+
+	// workspaceSyncPort is the loopback port the session instance serves on, and
+	// the one harness-runtime proxies /workspace/checkpoint to. Left at the
+	// binary's own default so there is one number, not two that must agree.
+	workspaceSyncPort = "7070"
+
+	// sharedWorkspaceSyncPort is the SECOND instance's port.
+	//
+	// Containers in a pod share a network namespace, so two instances binding
+	// the same loopback port is not two listeners — it is the second one exiting
+	// with "address already in use" and crashlooping the pod before the workload
+	// starts. code-builders never hit this because it runs exactly one instance.
+	//
+	// The session instance keeps 7070 deliberately: it owns the tree that
+	// /workspace/checkpoint refers to, so harness-runtime's default needs no
+	// knowledge of this one.
+	sharedWorkspaceSyncPort = "7071"
+
+	// sharedWorkspaceDirName is where the shared workspace is mounted inside the
+	// session's tree. It MUST match workspace-sync's skipDir entry: that is what
+	// keeps the session's own snapshot from also capturing these files.
+	sharedWorkspaceDirName = ".global"
+)
+
 func resolveWorkspaceSyncSecret(namespace string) string {
 	return strings.ReplaceAll(workspaceSyncSecretTemplate, "{namespace}", namespace)
 }
@@ -102,8 +133,45 @@ func envOr(k, def string) string {
 // squashfs archive and FUSE working directories. The sidecar additionally
 // requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
 func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32, namespace string) corev1.Container {
+	return workspaceSyncContainerFor(ws, keepCheckpoints, namespace, workspaceSyncTarget{
+		name:        "workspace-sync",
+		workspaceID: ws.WorkspaceID,
+		root:        WorkspaceMountPath,
+		staging:     workspaceStagingPath,
+		port:        workspaceSyncPort,
+	})
+}
+
+// workspaceSyncTarget is the per-instance part of a sync container: everything
+// that differs between the session workspace and the shared one mounted inside
+// it. The rest — credentials, retention, security context — is identical by
+// construction, which is the point: the shared instance is not a second
+// mechanism, it is the same one pointed at a different workspace id.
+type workspaceSyncTarget struct {
+	name        string
+	workspaceID string
+	root        string
+	staging     string
+
+	// port is the loopback port this instance serves on. Distinct per instance —
+	// see sharedWorkspaceSyncPort.
+	port string
+
+	// noArchive disables the squashfs fast path. Set for the shared instance,
+	// whose root sits inside the session workspace: a FUSE overlay there would
+	// nest inside a mount it does not own, and skipping it is what allows the
+	// container to run unprivileged.
+	noArchive bool
+}
+
+func workspaceSyncContainerFor(
+	ws *computev1alpha1.WorkspacePersistenceSpec,
+	keepCheckpoints int32,
+	namespace string,
+	target workspaceSyncTarget,
+) corev1.Container {
 	var sideC corev1.Container
-	workspaceID := ws.WorkspaceID
+	workspaceID := target.workspaceID
 	uid := int64(1000)
 	// Both run as uid 1000, matching the workload rather than the image's own
 	// nonroot uid. The two processes write the same volume, and a uid mismatch
@@ -146,6 +214,33 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 		RunAsNonRoot:           ptr(false),
 		ReadOnlyRootFilesystem: ptr(true),
 	}
+	// The shared instance never mounts anything, so it drops PRIVILEGE — but
+	// not root.
+	//
+	// Two different requirements were being met by one flag. Privilege exists
+	// for FUSE: /dev/fuse, the setuid fusermount3 helper, and Bidirectional
+	// propagation, none of which an instance restoring file-by-file
+	// (WORKSPACE_NO_ARCHIVE) ever touches. Root exists for something else — the
+	// restore chowns the tree to the workload's uid so the agent can write it,
+	// and only root may chown a file it does not own.
+	//
+	// Running this as uid 1000 dropped both at once, and the container
+	// crashlooped on the second: "lchown /workspace/.global: operation not
+	// permitted", after a restore that had otherwise succeeded. The pod never
+	// started, so the whole session failed on a security tightening that was
+	// only meant to remove a capability nothing used.
+	//
+	// Root without privilege keeps the actual win: no device access, no setuid
+	// escalation, no mount propagation out to the host.
+	if target.noArchive {
+		sidecarSec = &corev1.SecurityContext{
+			Privileged:               ptr(false),
+			RunAsUser:                ptr(int64(0)),
+			RunAsNonRoot:             ptr(false),
+			ReadOnlyRootFilesystem:   ptr(true),
+			AllowPrivilegeEscalation: ptr(false),
+		}
+	}
 	_ = uid
 	// Mapped key by key, not `envFrom`.
 	//
@@ -171,8 +266,17 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	}
 	env := []corev1.EnvVar{
 		{Name: "WORKSPACE_ID", Value: workspaceID},
+		// Which tree this instance owns. Always explicit, even for the session
+		// instance where it equals the default: two instances run in this pod
+		// and an implied root is one nobody can check in `kubectl describe`.
+		{Name: "WORKSPACE_ROOT", Value: target.root},
+		// Per-instance scratch. See workspaceStagingPath — a shared staging dir
+		// would make one instance's readiness marker satisfy the other's probe.
+		{Name: "STAGING_ROOT", Value: target.staging},
+		// Per-instance loopback port. See sharedWorkspaceSyncPort.
+		{Name: "WORKSPACE_SYNC_PORT", Value: target.port},
 		// The key root (§14.4). Every object this sidecar reads or writes lives
-		// under <appId>/<workspaceId>/code/, so getting this wrong does not
+		// under <appId>/<workspaceId>/, so getting this wrong does not
 		// error — it silently addresses a workspace nobody else can see.
 		{Name: "APP_ID", Value: ws.AppID},
 		// Key names as the registry's ExternalSecret renders them
@@ -203,18 +307,31 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	// Bidirectional ONLY on a privileged container, which is why this one is
 	// privileged — see sidecarSec.
 	bidirectional := corev1.MountPropagationBidirectional
+	// The shared instance takes the WORKLOAD's half of the propagation pair,
+	// not the sidecar's. It writes into a subdirectory of the session tree, and
+	// the session instance may have mounted a FUSE overlay over that tree —
+	// with Bidirectional it would push its own view outward and could write
+	// beneath the overlay, where nothing that reads /workspace would see it.
+	// HostToContainer makes it observe the session's mount instead. Native
+	// sidecars start in order and gate on each other's startup probe, so that
+	// mount already exists by the time this container runs.
+	propagation := &bidirectional
+	if target.noArchive {
+		hostToContainer := corev1.MountPropagationHostToContainer
+		propagation = &hostToContainer
+	}
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:             WorkspaceVolumeName,
 			MountPath:        WorkspaceMountPath,
-			MountPropagation: &bidirectional,
+			MountPropagation: propagation,
 		},
-		{Name: "ws-staging", MountPath: "/ws-staging"},
+		{Name: "ws-staging", MountPath: workspaceStagingPath},
 	}
 
 	always := corev1.ContainerRestartPolicyAlways
 	sideC = corev1.Container{
-		Name:            "workspace-sync",
+		Name:            target.name,
 		Image:           workspaceSyncImage,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Args:            []string{"serve"},
@@ -238,7 +355,7 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 		StartupProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				Exec: &corev1.ExecAction{
-					Command: []string{"test", "-f", "/ws-staging/.ready"},
+					Command: []string{"test", "-f", target.staging + "/.ready"},
 				},
 			},
 			InitialDelaySeconds: 1,
@@ -297,6 +414,24 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	}
 	if ws.ReadOnly {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
+	}
+	if target.noArchive {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_NO_ARCHIVE", Value: "true"})
+	}
+	// The periodic backstop, for a fleet that asked for one. Both instances get
+	// it: an unattended workspace and the app-scoped tree beside it are lost the
+	// same way, and a brand brief written once at the start of a run is exactly
+	// the kind of thing a crash an hour later would otherwise take.
+	// Only when turned OFF: the sidecar's default is to save, and an env var
+	// restating the default is one more thing that can disagree with it.
+	if ws.CheckpointOnShutdown != nil && !*ws.CheckpointOnShutdown {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_SYNC_TEARDOWN", Value: "false"})
+	}
+	if ws.CheckpointIntervalSeconds != nil && *ws.CheckpointIntervalSeconds > 0 {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{
+			Name:  "WORKSPACE_SYNC_INTERVAL_SECONDS",
+			Value: strconv.Itoa(int(*ws.CheckpointIntervalSeconds)),
+		})
 	}
 	if len(ws.PinnedCheckpoints) > 0 {
 		// Comma-separated: a short list of ids, where JSON encoding would add a

@@ -4288,16 +4288,16 @@ spec:
                   that can be made incapable of saying so.
                 properties:
                   appId:
-                    description: |-
-                      AppID is the ROOT of every object key for this workspace (§14.4):
-
-                        <appId>/<workspaceId>/code/...
-
-                      Required. The layout is app-rooted so an app's other data — chat session
-                      assets at <appId>/<sessionId>/..., build artifacts — sits beside its code,
-                      and an app can be deleted with one prefix operation. There is no app-less
-                      location, so a caller with no app id should not ask for workspace
-                      persistence at all.
+                    description: "AppID is the ROOT of every object key for this workspace
+                      (§14.4):\n\n\t<appId>/<workspaceId>/...\n\nRequired, not optional.
+                      The layout is app-rooted so that an app's other\ndata — chat
+                      session assets at <appId>/<sessionId>/..., build artifacts —\nsits
+                      beside its code and an app can be deleted with one prefix\noperation.
+                      There is no app-less location, so defaulting this would write\na
+                      workspace where nothing will look for it, and the failure would
+                      surface\nmuch later as an empty restore rather than as a missing
+                      field.\n\nA caller with no app id should not ask for workspace
+                      persistence at all."
                     maxLength: 253
                     minLength: 1
                     type: string
@@ -4306,44 +4306,59 @@ spec:
                       CheckpointID pins the workspace to one exact checkpoint (ADR-052 §14.3).
                       Unset means the latest, which is what an interactive sandbox wants.
 
-                      A BUILD must compile the checkpoint it was asked for, not whatever the
-                      agent has written since. An UNDO is a sandbox recreated with an older
-                      checkpoint pinned — with an emptyDir workspace and S3 as the source of
-                      truth, a new pod pinned to an older checkpoint IS the undo.
+                      Two things need a pin, and they need the same one:
 
-                      A pinned checkpoint that does not exist is a hard failure, never a
-                      silent fall back to latest.
+                        - a BUILD must compile the checkpoint it was asked for, not whatever
+                          the agent has written since. Without this, a build races the session
+                          that triggered it and ships code nobody asked to ship.
+                        - an UNDO ("take me back to checkpoint 3") is a sandbox recreated with
+                          that checkpoint pinned. The workspace is an emptyDir with S3 as the
+                          source of truth (§14.2), so there is nothing to roll back in place —
+                          a new pod pinned to an older checkpoint IS the undo.
+
+                      A pinned checkpoint that does not exist is a hard failure, not a silent
+                      fall back to latest: building or restoring the wrong revision quietly is
+                      worse than not doing it at all.
                     maxLength: 128
                     type: string
-                  pinnedCheckpoints:
+                  checkpointIntervalSeconds:
                     description: |-
-                      PinnedCheckpoints are exempt from retention however old they become
-                      (ADR-052 §14.3): a live deployment was built from them.
+                      CheckpointIntervalSeconds turns on the periodic backstop.
 
-                      Retention alone knows only "newest N" and cannot see which checkpoint a
-                      deployment came from. Without this a long-lived deployment outlives its
-                      own source — the app still serves, but cannot be reproduced, diffed, or
-                      rolled back into an editable workspace.
+                      Unset (the default) means no periodic checkpoint: the workspace reaches
+                      object storage when someone asks for it and when the pod shuts down
+                      gracefully. That is right for an INTERACTIVE fleet, where a person is
+                      present and a Save control exists — a periodic upload of a tree being
+                      edited would mostly checkpoint half-finished states.
 
-                      A pin does not consume a retention slot, and naming a checkpoint that no
-                      longer exists is inert rather than an error.
-                    items:
-                      type: string
-                    maxItems: 50
-                    type: array
-                  readOnly:
+                      It is wrong for an UNATTENDED one. A fleet whose agent runs a long
+                      pipeline with nobody watching has no one to press Save, so between the
+                      start of a run and its end the only thing standing between the work and
+                      nothing is an orderly shutdown — and SIGKILL, a node failure and an OOM
+                      kill all give no graceful window at all. This bounds that loss to one
+                      interval.
+
+                      It does not replace the teardown checkpoint, which stays and is the one
+                      checkpoint in the design taken while nothing is writing the tree.
+                    format: int32
+                    maximum: 3600
+                    minimum: 30
+                    type: integer
+                  checkpointOnShutdown:
                     description: |-
-                      ReadOnly restores the workspace but never writes it back
-                      (ADR-052 §14.3). Unset means read-write.
+                      CheckpointOnShutdown controls the teardown checkpoint — the snapshot taken
+                      when the pod is stopped gracefully (idle reap, CR delete, drain, rollout).
 
-                      A build reusing read-write persistence is destructive, not merely
-                      wasteful: its node_modules/dist/caches get uploaded as a checkpoint by
-                      the backstop and the teardown snapshot, and retention then evicts the
-                      user's real checkpoints to make room for them.
+                      Unset means TRUE. It is the only checkpoint in the design taken while
+                      nothing is writing the tree, because a native sidecar is signalled after
+                      the workload has exited, so it is both the cheapest and the most
+                      trustworthy one. A fleet disabling it is asserting that its workspace is
+                      reproducible or disposable — a claim only that fleet can make, and not one
+                      to infer from silence.
 
-                      Set, the sidecar mounts the checkpoint and stops: no backstop, no
-                      teardown snapshot, no retention pass, no writes to object storage. The
-                      workload still gets a writable /workspace backed by local scratch.
+                      It is not a substitute for CheckpointIntervalSeconds and vice versa: this
+                      covers orderly shutdown, the interval covers everything that gives no
+                      graceful window at all.
                     type: boolean
                   keepCheckpoints:
                     description: |-
@@ -4351,18 +4366,89 @@ spec:
                       (ADR-052 §14.2). Unset means 5.
 
                       It is how far back a user can "undo to a checkpoint", so the right value
-                      is a property of the fleet's product, not of the platform.
+                      is a property of the fleet's product, not of the platform: a coding agent
+                      making frequent small edits wants more history than one that checkpoints
+                      once per long-running job.
 
-                      BOUNDED, because it is also a storage-consumption knob: every retained
-                      checkpoint owns a full compressed copy of the workspace, since squashfs
-                      archives do not share blocks with one another.
+                      BOUNDED, because it is also a storage-consumption knob. Every retained
+                      checkpoint owns a full compressed copy of the workspace — squashfs
+                      archives do not share blocks with one another — so this multiplies the
+                      fleet's object-store footprint directly. The maximum is what stops one
+                      fleet's preference from becoming the platform's bill.
 
                       LOWERING IT DELETES DATA. Retention is applied after the next snapshot,
-                      so reducing this discards the surplus checkpoints at that point.
+                      so reducing this from 20 to 5 discards fifteen checkpoints the next time
+                      the workspace is checkpointed. The operator does not warn about that; a
+                      fleet lowering the value is presumed to mean it.
+
+                      Applied per POD, from the CR that created it. Two concurrent sessions on
+                      one workspaceId that disagree would each prune to their own value —
+                      harmless because §18.1 serialises sessions per workspace, and worth
+                      knowing if that ever stops being true.
                     format: int32
                     maximum: 50
                     minimum: 1
                     type: integer
+                  pinnedCheckpoints:
+                    description: |-
+                      PinnedCheckpoints are exempt from retention however old they become
+                      (ADR-052 §14.3): a live deployment was built from them.
+
+                      Retention alone knows only "newest N" and cannot see which checkpoint any
+                      deployment came from — that lives in the fleet's database. Without this,
+                      a long-lived deployment outlives its own source: the app keeps serving,
+                      but it can no longer be reproduced, diffed, or rolled back into an
+                      editable workspace, and nothing about serving the build reveals the loss.
+
+                      A pin does NOT consume a retention slot. Keeping N recent checkpoints and
+                      keeping the deployed one are separate promises, and making them compete
+                      would let one old deployment quietly shrink a workspace's usable history.
+
+                      Naming a checkpoint that no longer exists is inert, not an error.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
+                  readOnly:
+                    description: |-
+                      ReadOnly restores the workspace but never writes it back
+                      (ADR-052 §14.3). Unset means read-write, which is what a sandbox wants.
+
+                      This exists because a build reusing the sandbox's persistence would be
+                      actively destructive, not merely wasteful. A build's tree fills with
+                      node_modules, dist and caches; with read-write persistence the periodic
+                      backstop uploads that as a legitimate checkpoint, the teardown snapshot
+                      uploads it again, and retention then counts those toward the bound —
+                      EVICTING the user's real checkpoints to make room for build droppings.
+                      With source history living only in S3 (§14.2), that loss is permanent.
+
+                      Set, the sidecar mounts the checkpoint and stops there: no periodic
+                      backstop, no teardown snapshot, no retention pass, no writes of any kind
+                      to object storage. The workload still gets a writable /workspace — the
+                      overlay's upper layer is local scratch that dies with the pod.
+                    type: boolean
+                  sharedWorkspaceId:
+                    description: "SharedWorkspaceID names a SECOND workspace mounted
+                      inside this one, at\n<WorkspaceMountPath>/.global, for artifacts
+                      that belong to the APP\nrather than to this session.\n\nIt is
+                      an ordinary workspace id under the same AppID — nothing about
+                      the\nkey layout is special-cased:\n\n\t<appId>/<workspaceId>/
+                      \       this session\n\t<appId>/<sharedWorkspaceId>/  shared
+                      across every session of the app\n\nWhy a second workspace rather
+                      than a directory inside the first: a\nworkspace's prefix, manifests
+                      and LATEST pointer are per-workspaceId. A\nsession-scoped fleet
+                      (one workspace per session, which is what a\nper-artefact product
+                      like video generation needs) would therefore give\nevery session
+                      its own private copy of the shared tree, and no session\nwould
+                      ever see another's. Promoting the shared tree to its own workspace\nis
+                      what makes it shared, and costs no new mechanism.\n\nThe session's
+                      own snapshot excludes `.global` (workspace-sync's skipDir),\nso
+                      the two never capture each other. A fleet that leaves this unset
+                      gets\nexactly today's behaviour: one workspace, nothing mounted
+                      inside it."
+                    maxLength: 253
+                    minLength: 1
+                    type: string
                   workspaceId:
                     description: |-
                       WorkspaceID identifies the WORKSPACE, not this request.

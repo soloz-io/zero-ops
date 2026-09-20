@@ -139,6 +139,14 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 		}
 	}
 
+	// The globals instance restores file-by-file, always. Its root is INSIDE
+	// another workspace's tree, so a FUSE overlay here would nest inside a mount
+	// it does not own — and skipping this path is what lets that sidecar run
+	// unprivileged. See store.Config.NoArchive.
+	if s.NoArchive() {
+		return false, restoreFromManifest(ctx, root, s)
+	}
+
 	err := s.DownloadArchive(ctx, archivePath)
 	switch {
 	case err == nil:
@@ -344,6 +352,19 @@ func runServe(root string) error {
 		stagingRoot = s.StagingDir()
 	} else if v := os.Getenv("STAGING_ROOT"); v != "" {
 		stagingRoot = v
+	}
+
+	// The staging directory must exist before anything writes into it.
+	//
+	// It used to be the emptyDir's own mount point, which the kubelet creates,
+	// so nothing here ever had to. A second instance in the same pod stages in a
+	// SUBDIRECTORY of that mount — the readiness marker is named from it, and two
+	// instances sharing one directory would let each satisfy the other's startup
+	// probe — and no one creates a subdirectory of an emptyDir. The shared
+	// instance therefore restored correctly and then died writing its marker,
+	// crashlooping the pod before the workload ever started.
+	if err := os.MkdirAll(stagingRoot, 0o777); err != nil {
+		return fmt.Errorf("creating staging directory %s: %w", stagingRoot, err)
 	}
 
 	// Read-only: mounted, serving, and incapable of writing (§14.3).
@@ -745,6 +766,16 @@ func runServe(root string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		defer cancel()
+
+		// Opt-out, not opt-in. A fleet that turns this off is saying its
+		// workspace is reproducible or disposable, which is a claim only the
+		// fleet can make — but the default has to be "keep the work", because
+		// the cost of being wrong is a user's run and the cost of being right
+		// is one upload at shutdown.
+		if os.Getenv("WORKSPACE_SYNC_TEARDOWN") == "false" {
+			log.Print("teardown checkpoint disabled by configuration — shutting down without saving")
+			return
+		}
 
 		if readOnly {
 			log.Print("read-only workspace — no teardown checkpoint")

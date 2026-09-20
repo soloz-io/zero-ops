@@ -5,21 +5,28 @@
 // KEY LAYOUT (§14.4). Everything belonging to an app lives under one root, and
 // this package owns exactly one subtree of it:
 //
-//	<appId>/<workspaceId>/code/objects/<sha256>       immutable file content
-//	<appId>/<workspaceId>/code/checkpoints/<id>.json  a manifest naming the tree
-//	<appId>/<workspaceId>/code/checkpoints/<id>.sqsh  that checkpoint's image
-//	<appId>/<workspaceId>/code/checkpoints/LATEST     newest checkpoint pointer
-//	<appId>/<workspaceId>/code/archive.sqsh           newest image, for fast restore
+//	<appId>/<workspaceId>/objects/<sha256>       immutable file content
+//	<appId>/<workspaceId>/checkpoints/<id>.json  a manifest naming the tree
+//	<appId>/<workspaceId>/checkpoints/<id>.sqsh  that checkpoint's image
+//	<appId>/<workspaceId>/checkpoints/LATEST     newest checkpoint pointer
+//	<appId>/<workspaceId>/archive.sqsh           newest image, for fast restore
 //
 // The app id is the ROOT, not the workspace id, so an app's other data — chat
-// session assets at <appId>/<sessionId>/..., build artifacts — sits beside its
-// code rather than in an unrelated part of the bucket. Deleting an app becomes
-// one prefix operation.
+// attachments, agent artifacts, build output — sits beside the workspace rather
+// than in an unrelated part of the bucket. Deleting an app becomes one prefix
+// operation.
 //
-// `code/` is what keeps that neighbourliness safe. Every list, sweep and delete
-// in this package is scoped to the prefix below, so retention can never reach a
-// chat attachment or a build artifact even though they share the app's root.
-// The workspace agent reads and writes code, and only code.
+// There is no `code/` segment between the workspace and these names. It used to
+// be here, justified as the thing that kept retention away from an app's other
+// data — but that safety never came from it: every sweep below is scoped to
+// `objects/` or `checkpoints/` specifically, never to the bare workspace
+// prefix, so a chat attachment or a build was never reachable either way. The
+// segment bought nothing and had to be kept identical in two languages.
+//
+// These names are therefore SIBLINGS of the other per-workspace namespaces
+// (`chat-attachments/`, `artifacts/`, `builds/`), which the SDK builds in
+// storage/keys.ts. That file and this one must agree; each pins the layout in
+// its own test so a change to one fails on its own side.
 //
 // Dedup applies within one workspace, not across them (§18.6). That gives up
 // cross-workspace sharing and buys three things worth more: deleting a
@@ -103,13 +110,14 @@ type Manifest struct {
 }
 
 type Store struct {
-	c        *minio.Client
-	bucket   string
-	prefix   string
-	staging  string
-	keep     int
-	pinned   string
-	readOnly bool
+	c         *minio.Client
+	bucket    string
+	prefix    string
+	staging   string
+	keep      int
+	pinned    string
+	readOnly  bool
+	noArchive bool
 
 	// Checkpoints retention must never evict, because a live deployment was
 	// built from them (§14.3). Supplied by the platform, since only it knows
@@ -128,6 +136,9 @@ func (s *Store) Pinned() string { return s.pinned }
 
 // ReadOnly reports whether this store refuses every write (§14.3).
 func (s *Store) ReadOnly() bool { return s.readOnly }
+
+// NoArchive reports whether the squashfs fast path is disabled for this store.
+func (s *Store) NoArchive() bool { return s.noArchive }
 
 // Config is read from the environment the operator injects into this
 // container. The workload container never receives these values (§19.6).
@@ -169,6 +180,20 @@ type Config struct {
 	// overwrite or evict the history of the workspace they are reading.
 	ReadOnly bool
 
+	// NoArchive disables the squashfs fast path in both directions: no archive
+	// is created on checkpoint, and restore goes straight to the
+	// content-addressed objects.
+	//
+	// It exists for the shared-globals instance, which mounts INSIDE another
+	// workspace's root (/workspace/.global). Restoring that through a FUSE
+	// overlay would nest one mount inside another whose lifetime it does not
+	// control, and the squashfs path is what forces the sidecar to be
+	// privileged with /dev/fuse access at all. The globals tree is small text —
+	// brand briefs, not node_modules — so the O(1) restore the archive buys is
+	// worth nothing there, while running unprivileged is worth a good deal
+	// (§19.6).
+	NoArchive bool
+
 	// PinnedCheckpoints are exempt from retention however old they get: a live
 	// deployment was built from them, so evicting one would leave a running app
 	// whose source no longer exists (§14.3).
@@ -195,6 +220,7 @@ func FromEnv() (Config, error) {
 		Staging:         os.Getenv("STAGING_ROOT"),
 		KeepCheckpoints: DefaultKeepCheckpoints,
 		CheckpointID:    os.Getenv("CHECKPOINT_ID"),
+		NoArchive:       os.Getenv("WORKSPACE_NO_ARCHIVE") == "true",
 		// Comma-separated, because this is a short list of ids and a
 		// JSON-encoded env var would be one more thing to get wrong for no gain.
 		PinnedCheckpoints: splitList(os.Getenv("PINNED_CHECKPOINTS")),
@@ -247,11 +273,12 @@ func New(cfg Config) (*Store, error) {
 	return &Store{
 		c:                 c,
 		bucket:            cfg.Bucket,
-		prefix:            cfg.AppID + "/" + cfg.WorkspaceID + "/code",
+		prefix:            cfg.AppID + "/" + cfg.WorkspaceID,
 		staging:           staging,
 		keep:              keep,
 		pinned:            cfg.CheckpointID,
 		readOnly:          cfg.ReadOnly,
+		noArchive:         cfg.NoArchive,
 		workspaceID:       cfg.WorkspaceID,
 		pinnedCheckpoints: toSet(cfg.PinnedCheckpoints),
 	}, nil
@@ -288,7 +315,19 @@ func (s *Store) checkpointArchiveKey(id string) string {
 // installed dependencies, so it needs an install before it runs. That is
 // seconds-to-minutes of a machine's time against minutes of a person's on every
 // single save.
+// `.global` is here for a different reason than the rest, and it is a routing
+// rule rather than an exclusion: app-scoped artifacts live at
+// /workspace/.global and are checkpointed to their OWN prefix
+// (<appId>/globals/) by a second workspace-sync instance whose WORKSPACE_ROOT
+// is that directory. Without this entry the session's own snapshot would also
+// capture them, so each session would carry a private copy of what is meant to
+// be one shared tree, and whichever session checkpointed last would be the only
+// one whose version a later restore could see.
+//
+// Skipping it here is only correct because of the `p != root` guard in Snapshot
+// — see the comment there.
 var skipDir = map[string]bool{
+	".global":      true,
 	"node_modules": true,
 	".expo":        true,
 	".next":        true,
@@ -369,7 +408,18 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		}
 		if info.IsDir() {
 			// Derived trees are not checkpointed — see skipDir.
-			if skipDir[info.Name()] {
+			//
+			// `p != root` is load-bearing, not defensive. filepath.Walk invokes
+			// this callback on the root itself first, so a walk deliberately
+			// rooted AT a skipped directory would skip its own root and return
+			// zero entries. That is exactly the globals instance, whose
+			// WORKSPACE_ROOT is /workspace/.global: without the guard it
+			// uploads nothing and reports ErrNothingToSave, which is
+			// indistinguishable from a workspace that is legitimately empty.
+			//
+			// A walk asked to start at a directory always means that directory.
+			// Exclusion only makes sense for what it finds beneath.
+			if skipDir[info.Name()] && p != root {
 				return filepath.SkipDir
 			}
 			return nil
@@ -470,7 +520,10 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	tBeforeArchive := time.Since(tStart)
 	var tArchiveCreate, tArchiveUpload time.Duration
 	var archiveBytes int64
-	if err := s.CreateArchive(ctx, root, archivePath); err != nil {
+	if s.noArchive {
+		// Nothing to do, and nothing lost: the manifest and its objects above
+		// are the durable checkpoint. See Config.NoArchive.
+	} else if err := s.CreateArchive(ctx, root, archivePath); err != nil {
 		log.Printf("WARNING: squashfs archive creation failed — this checkpoint will restore file-by-file: %v", err)
 		tArchiveCreate = time.Since(tStart) - tBeforeArchive
 	} else {
@@ -710,9 +763,21 @@ func (s *Store) Latest(ctx context.Context) (string, error) {
 	defer o.Close()
 	b, err := io.ReadAll(o)
 	if err != nil {
-		// A missing pointer is "this workspace has no checkpoint yet", which is
-		// a legitimate first-run state and not an error.
-		return "", nil
+		// ONLY a missing pointer means "this workspace has no checkpoint yet".
+		//
+		// minio's GetObject is lazy — the request is not made until the first
+		// read — so every transport, credential and bucket error arrives HERE
+		// rather than above. This used to return ("", nil) for all of them,
+		// which turned an unreachable object store into a silent empty restore:
+		// the workload then starts on an empty tree, the periodic backstop
+		// checkpoints that emptiness, and retention evicts the real history
+		// behind it. A workspace is destroyed by a network blip.
+		//
+		// The distinction is the same one downloadTo makes for archives.
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return "", nil
+		}
+		return "", fmt.Errorf("reading LATEST pointer at %s: %w", s.prefix+latestPointer, err)
 	}
 	return strings.TrimSpace(string(b)), nil
 }

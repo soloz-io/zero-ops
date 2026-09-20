@@ -823,6 +823,27 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		keep := resolveKeepCheckpoints(ej.Spec.WorkspacePersistence)
 		spec_initContainers = append(spec_initContainers,
 			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep, ej.Namespace))
+
+		// A second instance for the app-shared workspace, when the fleet asked
+		// for one. Same image, same code, same key layout — only the workspace
+		// id and the root differ, which is what makes the shared tree shared
+		// rather than a per-session copy (see SharedWorkspaceID).
+		//
+		// AFTER the session instance, and that order is load-bearing: native
+		// sidecars start sequentially and each gates on the previous one's
+		// startup probe, so the session tree (and any overlay over it) exists
+		// before this container mounts a directory inside it.
+		if shared := ej.Spec.WorkspacePersistence.SharedWorkspaceID; shared != "" {
+			spec_initContainers = append(spec_initContainers,
+				workspaceSyncContainerFor(ej.Spec.WorkspacePersistence, keep, ej.Namespace, workspaceSyncTarget{
+					name:        "workspace-sync-shared",
+					workspaceID: shared,
+					root:        WorkspaceMountPath + "/" + sharedWorkspaceDirName,
+					staging:     workspaceStagingPath + "/" + sharedWorkspaceDirName,
+					port:        sharedWorkspaceSyncPort,
+					noArchive:   true,
+				}))
+		}
 	}
 
 	// A writable /tmp, always.

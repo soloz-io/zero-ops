@@ -89,24 +89,13 @@ helm template kyverno "$WORK_DIR/kyverno" \
   --set webhooksCleanup.image.registry=registry.k8s.io \
   --set webhooksCleanup.image.repository=kubectl \
   --set webhooksCleanup.image.tag=v1.31.6 \
-  --set policyReportsCleanup.image.registry=registry.k8s.io \
-  --set policyReportsCleanup.image.repository=kubectl \
-  --set policyReportsCleanup.image.tag=v1.31.6 \
-  --set cleanupJobs.admissionReports.image.registry=registry.k8s.io \
-  --set cleanupJobs.admissionReports.image.repository=kubectl \
-  --set cleanupJobs.admissionReports.image.tag=v1.31.6 \
-  --set cleanupJobs.clusterAdmissionReports.image.registry=registry.k8s.io \
-  --set cleanupJobs.clusterAdmissionReports.image.repository=kubectl \
-  --set cleanupJobs.clusterAdmissionReports.image.tag=v1.31.6 \
-  --set cleanupJobs.updateRequests.image.registry=registry.k8s.io \
-  --set cleanupJobs.updateRequests.image.repository=kubectl \
-  --set cleanupJobs.updateRequests.image.tag=v1.31.6 \
-  --set cleanupJobs.ephemeralReports.image.registry=registry.k8s.io \
-  --set cleanupJobs.ephemeralReports.image.repository=kubectl \
-  --set cleanupJobs.ephemeralReports.image.tag=v1.31.6 \
-  --set cleanupJobs.clusterEphemeralReports.image.registry=registry.k8s.io \
-  --set cleanupJobs.clusterEphemeralReports.image.repository=kubectl \
-  --set cleanupJobs.clusterEphemeralReports.image.tag=v1.31.6 \
+  --set templating.enabled=false \
+  --set policyReportsCleanup.enabled=false \
+  --set cleanupJobs.admissionReports.enabled=false \
+  --set cleanupJobs.clusterAdmissionReports.enabled=false \
+  --set cleanupJobs.ephemeralReports.enabled=false \
+  --set cleanupJobs.clusterEphemeralReports.enabled=false \
+  --set cleanupJobs.updateRequests.enabled=false \
   > "$WORK_DIR/rendered.yaml"
 
 # --- Split CRDs and controller resources (Python, not awk) ---
@@ -117,14 +106,24 @@ import yaml, sys
 with open('${WORK_DIR}/rendered.yaml') as f:
     docs = list(yaml.safe_load_all(f))
 
+# Drop every helm lifecycle hook. These manifests are applied by ArgoCD from a
+# kustomize build -- there is no helm, no release, and no moment for a hook to
+# run at. What survives vendoring is an ordinary object applied at INSTALL
+# time, which for these is actively wrong: the pre-delete hooks scale kyverno
+# to zero and remove its webhooks, and a Job's pod template is immutable, so a
+# left-in hook Job wedges the next upgrade. The reasoning is recorded at length
+# in the vendored controller.yaml header; this is where it is enforced.
+docs = [d for d in docs
+        if d and not (d.get('metadata') or {}).get('annotations', {}).get('helm.sh/hook')]
+
 crds = [d for d in docs if d and d.get('kind') == 'CustomResourceDefinition']
 others = [d for d in docs if d and d.get('kind') != 'CustomResourceDefinition']
 
 with open('${WORK_DIR}/crds.yaml', 'w') as f:
-    yaml.dump_all(crds, f, default_flow_style=False, sort_keys=False)
+    yaml.dump_all(crds, f, default_flow_style=False, sort_keys=False, width=4096)
 
 with open('${WORK_DIR}/controller.yaml', 'w') as f:
-    yaml.dump_all(others, f, default_flow_style=False, sort_keys=False)
+    yaml.dump_all(others, f, default_flow_style=False, sort_keys=False, width=4096)
 "
 
 # --- Apply Kustomize patch (sync-wave on CRDs) ---
@@ -160,10 +159,10 @@ crds = [d for d in docs if d and d.get('kind') == 'CustomResourceDefinition']
 others = [d for d in docs if d and d.get('kind') != 'CustomResourceDefinition']
 
 with open('${WORK_DIR}/final-crds.yaml', 'w') as f:
-    yaml.dump_all(crds, f, default_flow_style=False, sort_keys=False)
+    yaml.dump_all(crds, f, default_flow_style=False, sort_keys=False, width=4096)
 
 with open('${WORK_DIR}/final-controller.yaml', 'w') as f:
-    yaml.dump_all(others, f, default_flow_style=False, sort_keys=False)
+    yaml.dump_all(others, f, default_flow_style=False, sort_keys=False, width=4096)
 "
 
 # --- Version labels ---
@@ -183,28 +182,61 @@ echo "    Updating provenance headers..."
 # with `# Vendored from helm chart (?<depName>\S+) v(?<currentValue>\S+)`.
 # Writing the version bare here would silently drop these files out of
 # Renovate's view, so strip any caller-supplied `v` and add exactly one.
-HEADER="# Vendored from helm chart kyverno v${NEW_VERSION} (https://kyverno.github.io/kyverno)"
+# The curated comment block in each destination file is PRESERVED. It records
+# why the hooks are excluded, why the report CRDs went away and which incidents
+# produced those decisions -- knowledge that does not survive a re-render and
+# cannot be recovered from the chart. Only the two machine-owned lines are
+# rewritten: the `# Vendored from` line (renovate.json matches it with
+# `# Vendored from helm chart (?<depName>\S+) v(?<currentValue>\S+)`, so the
+# `v` prefix is load-bearing) and the `# sha256:` digest.
+#
+# A first-time vendor has no block to preserve, so a minimal one is written.
+python3 - "$NEW_VERSION" "$SPOKE_DIR" "$WORK_DIR" <<'PYEOF'
+import sys, hashlib, os
 
-# Written into crd.yaml only. The split exists for a reason, and the reason
-# belongs next to the artifact rather than only in the script that made it.
-CRD_NOTE="# CRDs applied at sync-wave -5 so ArgoCD establishes them before
-# operators/resources that depend on them (ADR-023)."
+version, spoke_dir, work_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+header = f"# Vendored from helm chart kyverno v{version} (https://kyverno.github.io/kyverno)"
+crd_note = ("# CRDs applied at sync-wave -5 so ArgoCD establishes them before\n"
+            "# operators/resources that depend on them (ADR-023).")
 
-for f in "$WORK_DIR/final-controller.yaml" "$WORK_DIR/final-crds.yaml"; do
-  # Hash the YAML content under the same rule the verifier uses
-  # (scripts/validate/verify-vendor-digest.sh: everything except `# ` lines).
-  # Hashing the raw body instead would diverge the moment a rendered chart
-  # emits a comment of its own, and the gate would fail on a correct vendor.
-  CONTENT_HASH=$(grep -v '^# ' "$f" | sha256sum | cut -d' ' -f1)
-  DIGEST_LINE="# sha256: ${CONTENT_HASH}"
-  YAML_CONTENT=$(cat "$f")
+for src, dst_name, default_note in (
+    (f"{work_dir}/final-controller.yaml", "controller.yaml", None),
+    (f"{work_dir}/final-crds.yaml", "crd.yaml", crd_note),
+):
+    body = open(src).read()
 
-  if [ "$f" = "$WORK_DIR/final-crds.yaml" ]; then
-    printf '%s\n%s\n%s\n%s\n' "$HEADER" "$CRD_NOTE" "$DIGEST_LINE" "$YAML_CONTENT" > "$f"
-  else
-    printf '%s\n%s\n%s\n' "$HEADER" "$DIGEST_LINE" "$YAML_CONTENT" > "$f"
-  fi
-done
+    dst = os.path.join(spoke_dir, dst_name)
+    kept = []
+    if os.path.exists(dst):
+        for line in open(dst).read().split("\n"):
+            if not line.startswith("#"):
+                break
+            kept.append(line)
+    if kept:
+        head = [header if l.startswith("# Vendored from helm chart")
+                else ("# sha256: PLACEHOLDER" if l.startswith("# sha256:") else l)
+                for l in kept]
+    else:
+        head = [header] + ([default_note] if default_note else []) + ["# sha256: PLACEHOLDER"]
+
+    assembled = "\n".join(head) + "\n" + body
+
+    # Hash exactly what verify-vendor-digest.sh hashes: `grep -v '^# '`, which
+    # DROPS "# " prose but KEEPS bare "#" separator lines -- of which the
+    # preserved header has several. Hashing the body alone therefore disagreed
+    # with the verifier on every run. The digest line itself starts with "# ",
+    # so substituting it afterwards cannot change the hash.
+    lines = assembled.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    digest = hashlib.sha256(
+        ("\n".join(l for l in lines if not l.startswith("# ")) + "\n").encode()
+    ).hexdigest()
+
+    assembled = assembled.replace("# sha256: PLACEHOLDER", f"# sha256: {digest}", 1)
+
+    open(src, "w").write(assembled)
+PYEOF
 
 # --- Write ---
 echo "    Writing vendored files..."

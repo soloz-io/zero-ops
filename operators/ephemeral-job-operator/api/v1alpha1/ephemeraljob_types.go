@@ -366,7 +366,7 @@ type WorkspacePersistenceSpec struct {
 
 	// AppID is the ROOT of every object key for this workspace (§14.4):
 	//
-	//	<appId>/<workspaceId>/code/...
+	//	<appId>/<workspaceId>/...
 	//
 	// Required, not optional. The layout is app-rooted so that an app's other
 	// data — chat session assets at <appId>/<sessionId>/..., build artifacts —
@@ -380,6 +380,73 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	AppID string `json:"appId"`
+
+	// CheckpointIntervalSeconds turns on the periodic backstop.
+	//
+	// Unset (the default) means no periodic checkpoint: the workspace reaches
+	// object storage when someone asks for it and when the pod shuts down
+	// gracefully. That is right for an INTERACTIVE fleet, where a person is
+	// present and a Save control exists — a periodic upload of a tree being
+	// edited would mostly checkpoint half-finished states.
+	//
+	// It is wrong for an UNATTENDED one. A fleet whose agent runs a long
+	// pipeline with nobody watching has no one to press Save, so between the
+	// start of a run and its end the only thing standing between the work and
+	// nothing is an orderly shutdown — and SIGKILL, a node failure and an OOM
+	// kill all give no graceful window at all. This bounds that loss to one
+	// interval.
+	//
+	// It does not replace the teardown checkpoint, which stays and is the one
+	// checkpoint in the design taken while nothing is writing the tree.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=30
+	// +kubebuilder:validation:Maximum=3600
+	CheckpointIntervalSeconds *int32 `json:"checkpointIntervalSeconds,omitempty"`
+
+	// CheckpointOnShutdown controls the teardown checkpoint — the snapshot taken
+	// when the pod is stopped gracefully (idle reap, CR delete, drain, rollout).
+	//
+	// Unset means TRUE. It is the only checkpoint in the design taken while
+	// nothing is writing the tree, because a native sidecar is signalled after
+	// the workload has exited, so it is both the cheapest and the most
+	// trustworthy one. A fleet disabling it is asserting that its workspace is
+	// reproducible or disposable — a claim only that fleet can make, and not one
+	// to infer from silence.
+	//
+	// It is not a substitute for CheckpointIntervalSeconds and vice versa: this
+	// covers orderly shutdown, the interval covers everything that gives no
+	// graceful window at all.
+	//
+	// +optional
+	CheckpointOnShutdown *bool `json:"checkpointOnShutdown,omitempty"`
+
+	// SharedWorkspaceID names a SECOND workspace mounted inside this one, at
+	// <WorkspaceMountPath>/.global, for artifacts that belong to the APP
+	// rather than to this session.
+	//
+	// It is an ordinary workspace id under the same AppID — nothing about the
+	// key layout is special-cased:
+	//
+	//	<appId>/<workspaceId>/        this session
+	//	<appId>/<sharedWorkspaceId>/  shared across every session of the app
+	//
+	// Why a second workspace rather than a directory inside the first: a
+	// workspace's prefix, manifests and LATEST pointer are per-workspaceId. A
+	// session-scoped fleet (one workspace per session, which is what a
+	// per-artefact product like video generation needs) would therefore give
+	// every session its own private copy of the shared tree, and no session
+	// would ever see another's. Promoting the shared tree to its own workspace
+	// is what makes it shared, and costs no new mechanism.
+	//
+	// The session's own snapshot excludes `.global` (workspace-sync's skipDir),
+	// so the two never capture each other. A fleet that leaves this unset gets
+	// exactly today's behaviour: one workspace, nothing mounted inside it.
+	//
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	SharedWorkspaceID string `json:"sharedWorkspaceId,omitempty"`
 
 	// KeepCheckpoints is how many checkpoints this workspace retains
 	// (ADR-052 §14.2). Unset means 5.
