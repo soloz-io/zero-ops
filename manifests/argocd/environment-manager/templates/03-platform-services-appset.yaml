@@ -155,6 +155,51 @@ spec:
             extraManifestsPath: ''
           {{- end }}
 
+          {{- if include "environment-manager.burstSpokePool" $ }}
+          # ADR-052 burst capacity. Watches ONE workload cluster, named by
+          # burstSpokePool, because the clusterapi provider cannot discover it.
+          #
+          # Inline and value-gated rather than a descriptor, by the same test the
+          # support agent above applies: its PRESENCE is a function of a value.
+          # _burst-spoke-pool.tpl already states the contract -- "empty is legal
+          # and means no burst capacity on this box; the autoscaler component is
+          # simply not enabled then" -- but as a descriptor it shipped
+          # unconditionally, and a descriptor gate would take effect in a
+          # released box and not a development one (ADR-066 addendum 2).
+          #
+          # Unconditional, it did not fail loudly. Every templated field
+          # resolved to the empty string and the Deployment installed anyway,
+          # asking for a secret named "-kubeconfig":
+          #
+          #   --node-group-auto-discovery=clusterapi:clusterName=,namespace=platform-capi
+          #   MountVolume.SetUp failed for volume "workload-kubeconfig":
+          #     secret "-kubeconfig" not found
+          #
+          # x952 over 32h on nutgraf-hub, the pod ContainerCreating for 46h and
+          # its Application the only Degraded one on the box -- the exact shape
+          # ADR-052's 2026-09-02 amendment describes, where an ADR names an
+          # owner for Burst Node Count and nothing creates one.
+          - boundary: '03'
+            appName: 'cluster-autoscaler'
+            destinationNamespace: 'platform-capi'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/cluster-autoscaler'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              cluster-autoscaler:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
           - boundary: '03'
             appName: 'hub-gateway'
             destinationNamespace: 'platform-ops'
