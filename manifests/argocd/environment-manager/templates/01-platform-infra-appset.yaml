@@ -173,7 +173,36 @@ spec:
             isPlatformOwned: 'false'
             syncWave: '-1'
             repoURL: 'https://kyverno.github.io/kyverno'
-            targetRevision: '3.6.4'
+            # 3.9.1 (app v1.19.1). The version is load-bearing, not housekeeping.
+            #
+            # Every release from v1.12.5 to v1.18.x dereferences
+            # request.RequestKind in the webhook TRACE middleware with no nil
+            # check (pkg/webhooks/handlers/trace.go). When the API server sends
+            # an AdmissionReview without it, the handler panics mid-request:
+            #
+            #   http: panic serving 10.244.0.212:52644:
+            #     runtime error: invalid memory address or nil pointer dereference
+            #     pkg/webhooks/handlers/trace.go:74
+            #
+            # The API server sees the connection die, retries, and gives up at
+            # the webhook's 10s budget, so it surfaces as a TIMEOUT rather than
+            # a crash -- "context deadline exceeded" calling validate-policy --
+            # and on nutgraf-01 that failed every ClusterPolicy apply and held
+            # the whole spoke catalogue OutOfSync.
+            #
+            # Disabling tracing does NOT avoid it: the span attributes are
+            # arguments to tracing.Span(...), and Go evaluates arguments before
+            # the call, so the dereference happens whether tracing is on or not.
+            # The guard arrives in v1.19.0 (upstream 309f09df9, "handle nil
+            # RequestKind and RequestResource in trace middleware"), which makes
+            # v1.19.x the floor.
+            #
+            # 3.9.1 also drops the values 3.6.4 required but did not define --
+            # cleanupJobs, policyReportsCleanup and a bare top-level templating,
+            # which eight templates dereferenced and which had to be supplied
+            # here or the chart would not render at all. Those templates are
+            # gone, so that block is gone with them; 3.9.1 renders on defaults.
+            targetRevision: '3.9.1'
             path: ''
             chart: 'kyverno'
             directoryRecurse: ''
@@ -207,46 +236,6 @@ spec:
                   requests:
                     cpu: 50m
                     memory: 128Mi
-
-              # Keys the 3.6.4 chart REQUIRES but no longer defines.
-              #
-              # 3.6.4 dropped `cleanupJobs`, `policyReportsCleanup` and a bare
-              # top-level `templating` from values.yaml, but eight templates
-              # still dereference them, and kyverno ships no values.schema.json
-              # to catch it. Helm resolves a missing top-level key to nil and
-              # then fails hard on the field access, so WITHOUT this block the
-              # chart does not render at all:
-              #
-              #   cleanup/cleanup-update-requests.yaml:1:14
-              #     at <.Values.cleanupJobs.updateRequests.enabled>:
-              #     nil pointer evaluating interface {}.updateRequests
-              #
-              # Verified by rendering 3.6.4 with these values and without them.
-              #
-              # They are set to false rather than merely defined, because false
-              # is also what we want. The five cleanup CronJobs are the workloads
-              # this upgrade exists to remove -- they invoke /bin/bash inside
-              # registry.k8s.io/kubectl, which is distroless and has no shell --
-              # and the report CRDs they swept (AdmissionReport,
-              # ClusterAdmissionReport and friends) no longer exist in 3.6.4.
-              # Upstream did not delete the templates, only the values that gate
-              # them, so "absent" and "disabled" are the same outcome reached
-              # deliberately instead of by accident.
-              templating:
-                enabled: false
-              policyReportsCleanup:
-                enabled: false
-              cleanupJobs:
-                admissionReports:
-                  enabled: false
-                clusterAdmissionReports:
-                  enabled: false
-                ephemeralReports:
-                  enabled: false
-                clusterEphemeralReports:
-                  enabled: false
-                updateRequests:
-                  enabled: false
 
               # Enable reports controller
               reportsController:
