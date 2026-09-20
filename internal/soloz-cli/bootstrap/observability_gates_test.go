@@ -877,3 +877,108 @@ func TestVendoredChartsHaveNoShellInDistrolessImages(t *testing.T) {
 		}
 	}
 }
+
+// A vendored chart may not carry a helm hook ArgoCD cannot run, nor an
+// upgradeable-in-place one that lacks a delete policy.
+//
+// A helm hook is something helm runs at a moment in a release's life. A
+// vendored manifest is applied by ArgoCD from a kustomize build, so there is no
+// helm and no release -- but ArgoCD DOES map some hooks onto its own phases,
+// which is why this is two rules rather than a ban:
+//
+//	pre-install, pre-upgrade    -> PreSync     runs, and is fine
+//	post-install, post-upgrade  -> PostSync    runs, and is fine
+//	pre-delete, post-delete     -> nothing     applied as an ordinary object
+//	test                        -> nothing     applied as an ordinary object
+//
+// The second group is the dangerous one. Kyverno 3.2.6's three PRE-DELETE Jobs
+// scale kyverno to zero and strip its webhooks; applied at install time they
+// would dismantle the thing being installed. They stayed inert only because
+// ArgoCD declines to map pre-delete at all -- luck, not design. Its seven test
+// Pods ran once and lingered on every spoke.
+//
+// The first group still needs a delete policy, because a Job's pod template is
+// IMMUTABLE. kyverno-migrate-resources carried none, so the 3.2.6 -> 3.6.4
+// upgrade failed on it:
+//
+//	Job.batch "kyverno-migrate-resources" is invalid:
+//	spec.template.metadata.labels[controller-uid]: Required value
+//
+// which wedged the whole catalogue sync and would wedge every later upgrade.
+// cert-manager's startupapicheck is the counter-example that proves the rule:
+// same post-install shape, but `hook-delete-policy: before-hook-creation,...`,
+// so it is removed and recreated rather than patched, and it upgrades cleanly.
+func TestVendoredChartsCarryNoUnrunnableHelmHooks(t *testing.T) {
+	root := repoRoot(t)
+
+	// Hooks ArgoCD maps to a phase of its own. Anything else is applied as an
+	// ordinary object at install time.
+	runnable := map[string]bool{
+		"pre-install": true, "pre-upgrade": true,
+		"post-install": true, "post-upgrade": true,
+	}
+
+	for _, dir := range []string{
+		filepath.Join(root, "manifests", "spoke", "spoke-catalog"),
+		filepath.Join(root, "manifests", "hub-core-services"),
+	} {
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || filepath.Ext(path) != ".yaml" {
+				return err
+			}
+			raw, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+
+			dec := yaml.NewDecoder(bytes.NewReader(raw))
+			for {
+				var doc map[string]any
+				if err := dec.Decode(&doc); err != nil {
+					break
+				}
+				meta, _ := doc["metadata"].(map[string]any)
+				if meta == nil {
+					continue
+				}
+				ann, _ := meta["annotations"].(map[string]any)
+				if ann == nil {
+					continue
+				}
+				hook, _ := ann["helm.sh/hook"].(string)
+				if hook == "" {
+					continue
+				}
+				name, _ := meta["name"].(string)
+				kind, _ := doc["kind"].(string)
+
+				// A hook may name several phases.
+				for _, phase := range strings.Split(hook, ",") {
+					phase = strings.TrimSpace(phase)
+					if !runnable[phase] {
+						t.Errorf("%s: %s/%s carries helm.sh/hook: %s, which ArgoCD does "+
+							"not map to any phase.\nIt is applied as an ordinary object at "+
+							"install time -- a pre-delete hook would dismantle what is being "+
+							"installed. Exclude it when vendoring.", rel, kind, name, phase)
+					}
+				}
+
+				// A runnable hook still has to be replaceable.
+				if kind == "Job" {
+					pol, _ := ann["helm.sh/hook-delete-policy"].(string)
+					if !strings.Contains(pol, "before-hook-creation") {
+						t.Errorf("%s: Job/%s is a %s hook with no before-hook-creation in its "+
+							"delete policy (%q).\nA Job's pod template is immutable, so the "+
+							"next chart upgrade fails on it and wedges the sync.",
+							rel, name, hook, pol)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", dir, err)
+		}
+	}
+}
