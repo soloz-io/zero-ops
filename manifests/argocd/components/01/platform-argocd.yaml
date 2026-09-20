@@ -203,6 +203,46 @@ helmValues: |
   # lossy path to the API server, and the one with no values section until now.
   controller:
     {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
+    # /dev/shm, sized. Without this the container runtime's 64Mi default
+    # applies, and that is not enough to run this controller.
+    #
+    # `controller.diff.server.side: "true"` above makes every comparison write
+    # a temporary kubeconfig into /dev/shm via kubectl's ResourceOperations.
+    # Those files leak -- 680 of them, 65MB, oldest two days old, were sitting
+    # in a 64Mi tmpfs on nutgraf-hub. Once full, the failure is not a clean
+    # error:
+    #
+    #   CompareAppState error getting resource operations: error creating
+    #   kubectl ResourceOperations: failed to write kubeconfig:
+    #   write /dev/shm/3106729968: no space left on device
+    #
+    # then gitops-engine dereferences the dry-runner it failed to build --
+    # diff_options.go:69, K8sServerSideDryRunner.Run on a nil receiver -- and
+    # the controller panics and exits 2. It had restarted 260 times in 45h,
+    # and because /dev/shm belongs to the POD sandbox rather than the
+    # container, a restart does not clear it: the replacement container came
+    # up into the same full filesystem and panicked again.
+    #
+    # Nothing downstream reports the cause. Every Application sat at
+    # `SYNC STATUS: Unknown` with `HEALTH: Healthy`, which reads as fine --
+    # the false-green shape. The spoke catalogue stayed pinned on the revision
+    # it had when the loop started, so manifests that had already been
+    # published were never applied and superseded objects were never pruned.
+    #
+    # An emptyDir cannot be mounted over /dev/shm with the runtime's own mount
+    # still there, so this REPLACES it: medium Memory keeps it a tmpfs, and
+    # sizeLimit counts against the pod's memory, which is why it is 1Gi and
+    # not larger. That is ~10k of these files rather than ~680, which turns a
+    # two-day outage into a long-running leak -- so this raises the ceiling,
+    # it does not fix the leak, and the leak is upstream's.
+    volumes:
+      - name: dev-shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+    volumeMounts:
+      - name: dev-shm
+        mountPath: /dev/shm
   server:
     {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
     ingress:
@@ -250,6 +290,18 @@ helmValues: |
       enabled: true
   repoServer:
     {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
+    # Same 64Mi default, same reason to raise it: the repo server renders the
+    # charts this boundary installs, and its restart count on the same hub was
+    # 73. Sized smaller than the controller's because it holds rendered output
+    # rather than a file per comparison.
+    volumes:
+      - name: dev-shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 512Mi
+    volumeMounts:
+      - name: dev-shm
+        mountPath: /dev/shm
     env:
       # Default is 90s. Boundary 01 renders charts whose manifest sets are
       # large enough to exceed it -- the argo-cd chart itself, kyverno, and
