@@ -109,6 +109,30 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 	if err := os.MkdirAll(root, 0o777); err != nil {
 		return false, err
 	}
+	// Hand the ROOT DIRECTORY to the workload, always — before any restore
+	// decision below, and whether or not there is anything to restore.
+	//
+	// workspaceUID's contract already says "every directory the restore itself
+	// creates" must belong to the workload, but the only chown was inside the
+	// file-by-file path. A workspace with no checkpoint yet returns early from
+	// restoreFromManifest, so this directory kept the owner of whoever created
+	// it — this process. That was invisible while the process ran as the
+	// workload's own uid; it became a bug the moment it had to run as root to
+	// chown restored files at all.
+	//
+	// The visible symptom is not a permission error from the restore, which
+	// succeeds. It is the AGENT failing to write into its own workspace much
+	// later — "/workspace/.global is read-only" — with nothing connecting that
+	// to a directory created empty at pod start. MkdirAll's mode is also
+	// subject to umask (0777 lands as 0755 under the usual 022), so the mode
+	// alone cannot be relied on either.
+	uid := workspaceUID()
+	if err := os.Chown(root, uid, uid); err != nil {
+		// Not fatal: a root that is a mount point the kubelet owns may refuse,
+		// and the workload can still be fine if the mode is permissive. Logged
+		// loudly because if it is NOT fine, this line is the only warning.
+		log.Printf("WARNING: could not chown %s to uid %d — the workload may be unable to write it: %v", root, uid, err)
+	}
 	staging := s.StagingDir()
 	archivePath := filepath.Join(staging, "archive.sqsh")
 

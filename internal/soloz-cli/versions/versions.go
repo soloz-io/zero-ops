@@ -32,8 +32,8 @@ const (
 	// so a mismatch makes ArgoCD upgrade itself while the rest of boundary 01 is
 	// still syncing, restarting the application-controller and repo-server at the
 	// worst possible moment. It was 7.7.12 here against 7.8.0 in Git until
-	// 2026-09-05.
+	// 2026-09-05; 7.8.0 against 7.9.1 until 2026-09-20.
 	//
 	// scripts/validate/argocd-version-parity.sh enforces the equality in CI.
-	ArgoCDChartVersion = "7.8.0"
+	ArgoCDChartVersion = "7.9.1"
 )
