@@ -204,12 +204,26 @@ spec:
               oauth:
                 type: object
                 description: |
-                  OAuth clients this fleet declares (ADR-053). Only what the credential
-                  producer needs appears here: a confidential client receives a generated
-                  credential in Infisical, a public client holds no secret material and is
-                  listed so the set is complete. Grant types, scopes and redirect URIs are
-                  the registration controller's concern and reach it through the chart, not
-                  through this resource.
+                  OAuth clients this fleet declares (ADR-053). A confidential client
+                  receives a generated credential in Infisical; a public client holds no
+                  secret material and is listed so the set is complete.
+
+                  redirectPaths travels WITH the client, and the description here used to
+                  say the opposite -- that redirect URIs reach the registration controller
+                  through the chart rather than through this resource. That was true under
+                  Hydra, where an OAuth2Client CR carried them. Zitadel has no such
+                  controller: hub-operator reads them from THIS resource
+                  (ainativesaas_controller.go, declaredOAuthClients), so a schema that
+                  does not declare the field drops it before the controller ever sees it.
+
+                  Undeclared, the field was not ignored -- the apply was REFUSED:
+
+                    failed to create typed patch object (... Kind=AINativeSaaS):
+                    .spec.oauth.clients[0].redirectPaths: field not declared in schema
+
+                  which fails the fleet's XR, so the tenant record is never created and no
+                  OAuth client is provisioned at all. Grant types, scopes and response
+                  types remain the chart's concern and are deliberately absent.
                 properties:
                   clients:
                     type: array
@@ -229,6 +243,17 @@ spec:
                           enum:
                           - confidential
                           - public
+                        redirectPaths:
+                          type: array
+                          description: |
+                            Paths appended to the fleet's public host to form this client's
+                            registered callbacks. An issuer matches redirect URIs EXACTLY,
+                            with no wildcards, so a client provisioned without its callback
+                            fails at the authorization endpoint before any credential is
+                            entered -- which reads as a broken login page rather than as a
+                            missing registration.
+                          items:
+                            type: string
           status:
             type: object
             properties:
