@@ -85,14 +85,15 @@ spec:
     #
     # Rule 2 only sees a Pod, and some Pods are created by a controller from an
     # image reference held in a workload's environment — the SDK launches sandbox
-    # Pods from OPENCODE_IMAGE, OPENCODE_SANDBOX_IMAGE and K8S_AGENT_VAULT_IMAGE.
-    # A mutable tag there is admitted without complaint, because the Pod that
-    # violates rule 2 does not exist until someone uses the feature.
+    # Pods from K8S_AGENT_VAULT_IMAGE, and renderer Jobs from
+    # PROVIDER_EPHEMERAL_*_IMAGE. A mutable tag there is admitted without
+    # complaint, because the Pod that violates rule 2 does not exist until
+    # someone uses the feature.
     #
     # It then fails far from its cause: the user sees a workflow node in error,
     # while the admission denial is in the sandbox controller's log in another
-    # namespace. Two of those three carried tags and every sandbox launch was
-    # rejected (2026-08-31).
+    # namespace. This rule was added after two such variables carried tags and
+    # every sandbox launch was rejected (2026-08-31).
     #
     # Only entries with a literal value are checked; a valueFrom reference is
     # resolved at runtime and is not readable here.
