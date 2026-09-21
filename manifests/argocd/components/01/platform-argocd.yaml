@@ -194,10 +194,15 @@ helmValues: |
       # argocd-cmd-params-cm from these values and owns the field.
       controller.diff.server.side: "true"
 
-  # ArgoCD server ingress is deployed in 03-platform-services (after
-  # ingress-nginx controller is healthy). This avoids the webhook
-  # race: ingress-nginx controller must be running before any Ingress
-  # resource is applied, otherwise the validating webhook rejects.
+  # ArgoCD is reached through the hub Gateway's HTTPRoute, not an Ingress
+  # (ADR-086: Gateway API is the platform's ingress mechanism, served by the
+  # Cilium this platform already runs as its CNI). `ingress.enabled: false`
+  # below is therefore the permanent setting rather than a deferral.
+  #
+  # This note previously described sequencing against an ingress-nginx
+  # controller. No such controller is deployed, and Ingress NGINX is retired --
+  # best-effort maintenance ended in March 2026, with no further releases and no
+  # fixes for vulnerabilities found after it.
   # The application controller: a StatefulSet holding a leader-election lease
   # and watching every managed cluster. The component that suffers most from a
   # lossy path to the API server, and the one with no values section until now.

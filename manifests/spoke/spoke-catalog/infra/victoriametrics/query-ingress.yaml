@@ -68,56 +68,31 @@ spec:
 # This file creates the Gateway so a spoke carrying no tenant still terminates
 # TLS for its query endpoint; tenant-public-tls adds a listener per tenant
 # hostname to the same object.
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata:
-  name: tenant-tls-gateway
-  namespace: platform-ops
-  annotations:
-    external-dns.alpha.kubernetes.io/hostname: victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
-spec:
-  gatewayClassName: cilium
-  listeners:
-    # Named for what it serves, not for its protocol. The name is the
-    # ServerSideApply merge key, so it has to be unique against every listener
-    # tenant-public-tls contributes -- a generic `https` would be one tenant
-    # hostname away from silently overwriting this one.
-    - name: spoke-query
-      protocol: HTTPS
-      port: 443
-      hostname: victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: spoke-query-endpoint-tls
-            namespace: platform-ops
-      allowedRoutes:
-        namespaces:
-          # The route lives with the workload it fronts, in
-          # platform-observability, and this Gateway is in platform-ops with the
-          # other platform ingress. Selector rather than All: this listener
-          # serves one backend and nothing else may attach to it.
-          from: Selector
-          selector:
-            matchLabels:
-              kubernetes.io/metadata.name: platform-observability
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: spoke-query-endpoint
-  namespace: platform-observability
-spec:
-  parentRefs:
-    # The shared :443 Gateway, and the listener on it that this route belongs
-    # to. sectionName is required here: without it the route attaches to every
-    # listener whose hostname it matches, including tenant listeners.
-    - name: tenant-tls-gateway
-      namespace: platform-ops
-      sectionName: spoke-query
-  hostnames:
-    - victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
-  rules:
-    - backendRefs:
-        - name: spoke-query-endpoint
-          port: 8427
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The public query endpoint is BLOCKED, and its Gateway and HTTPRoute are
+# deliberately absent (ADR-051 amendment 2026-09-21, ADR-083).
+#
+# ADR-051 makes ListenerSet the normative ownership model: the platform owns the
+# Gateway and each consumer owns its own listener and certificate in its own
+# object. It also forbids introducing any alternate co-ownership mechanism in
+# the meantime — where ListenerSet is unavailable the capability is blocked
+# rather than approximated.
+#
+# This file previously contributed a `spoke-query` listener to the Gateway that
+# tenant-public-tls also renders. Two ArgoCD Applications writing one object are
+# not two ServerSideApply owners: they share the `argocd-controller` field
+# manager, so the later apply removes the earlier owner's listeners while the
+# Gateway continues to report itself programmed. There is no arrangement of two
+# writers that does not have this property.
+#
+# The Certificate above stays. It is issued by cert-manager, owned by nobody
+# else, and is the object a ListenerSet will reference unchanged — removing it
+# would cost an ACME issuance to re-obtain and prove nothing.
+#
+# UNBLOCKED BY: ADR-085's upgrade to Cilium 1.20 with Gateway API 1.6 and the
+# ListenerSet type served. At that point this file declares a ListenerSet
+# carrying the hostname and the certificate above, plus the HTTPRoute beneath
+# it, and attaches to the platform's Gateway on the same footing as a fleet.
+# ─────────────────────────────────────────────────────────────────────────────

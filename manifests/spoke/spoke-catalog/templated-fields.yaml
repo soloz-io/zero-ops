@@ -168,20 +168,12 @@
 # listener per tenant hostname to the same object.
 #
 # The hostname substitution is unchanged and still applies to the listener this
-# file contributes.
-- kind: Gateway
-  name: tenant-tls-gateway
-  fields:
-    - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
-
-- kind: HTTPRoute
-  name: spoke-query-endpoint
-  fields:
-    - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
-
-# The OIDC issuer vmauth verifies tokens against: the box's own Zitadel, at the
-# hostname hubdomain.go derives for it. A literal here would have every box
-# trusting one box's issuer.
+# The query endpoint's Gateway and HTTPRoute are absent from this component
+# while the capability is blocked (see infra/victoriametrics/query-ingress.yaml
+# and ADR-051's amendment of 2026-09-21). A declaration naming content that is
+# not rendered fails the packaging gate, which is the behaviour that caught the
+# last stale entry here -- so the declarations go when the objects do, and both
+# return together with the ListenerSet.
 - kind: ConfigMap
   name: spoke-query-endpoint-config
   fields:

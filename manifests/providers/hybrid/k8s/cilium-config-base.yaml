@@ -171,6 +171,18 @@ data:
   proxy-max-concurrent-retries: '128'
   http-retry-count: '3'
   external-envoy-proxy: 'true'
+  # INERT TODAY, AND A TRAP AT 1.20. Cilium 1.17's chart emits no such key and
+  # its agent ignores it; the key first exists at 1.20 (`envoyXdsMode`). So this
+  # says `ads` while the delivered Envoy bootstrap uses `apiConfigSource` --
+  # which is CORRECT for 1.17, because Cilium leaves the ADS server commented
+  # out (pkg/envoy/grpc.go) and an Envoy asking for StreamAggregatedResources
+  # gets `unknown service envoy.service.discovery.v3.AggregatedDiscoveryService`
+  # and resets its stream (ADR-046 §15).
+  #
+  # Left in place rather than deleted because ADR-085's upgrade has to decide
+  # it: at 1.20 this key becomes load-bearing, and shipping `ads` without
+  # re-generating the bootstrap to match would break xDS on the hop that starts
+  # honouring it. Delete or correct it there, with the bootstrap, in one change.
   envoy-xds-mode: ads
   envoy-base-id: '0'
   envoy-access-log-buffer-size: '4096'

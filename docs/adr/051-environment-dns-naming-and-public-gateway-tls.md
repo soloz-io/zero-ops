@@ -8,42 +8,72 @@
 
 ---
 
-> **Amendment 2026-09-21 — One Gateway per host port; purposes are listeners, not Gateways.**
-> This ADR wrote that the spoke's two Gateways "partition ports :80/:443", and
-> tenant-public-tls carried the invariant in its own comment: *this :443 Gateway
-> must never coexist with another claimant of :443*. Both were correct. Neither
-> could hold, because a comment in one chart cannot constrain another, and
-> ADR-083's query endpoint later added a second :443 Gateway on the same spoke.
+> **Amendment 2026-09-21 — Listener ownership is delegated; the Gateway is
+> infrastructure.**
 >
-> A Cilium Gateway in hostNetwork mode (ADR-046 §8) binds a real host port. Two
-> Gateways on one port is therefore a port conflict: envoy accepts whichever
-> arrives first and NACKs the other for the life of the cluster, `has duplicate
-> address '0.0.0.0:443' as existing listener`. Nothing above envoy reports it.
-> Both Gateways showed Programmed=True, both their routes Accepted with
-> ResolvedRefs=True, both certificates issued and synced — and the losing
-> hostname reset every TLS ClientHello without a ServerHello, which reads as a
-> broken certificate rather than as a port conflict. It cost a tenant's entire
-> public ingress while every status said healthy.
+> **A host port is claimed by exactly one Gateway.** A Cilium Gateway in
+> hostNetwork mode (ADR-046 §8) binds a real host port, so a second Gateway on
+> that port is a port conflict rather than a merge: the proxy keeps the first and
+> rejects the rest for the life of the cluster, reporting nothing that any
+> Kubernetes status surfaces. The spoke therefore carries one Gateway on :443 and
+> one on :80, and a purpose is never a Gateway of its own.
 >
-> **A port is claimed by exactly one Gateway. A purpose is a LISTENER on it, not
-> a Gateway of its own.** `spec.listeners` is `x-kubernetes-list-type: map` keyed
-> on `name`, so under ServerSideApply several owners contribute listeners to one
-> Gateway without removing each other's: spoke-catalog creates the object with
-> the platform's own listeners, and tenant-public-tls adds one per tenant
-> hostname. Co-ownership is safe because the merge key makes it safe, not by
-> convention.
+> **Listeners and certificates are owned by the consumer that declares them, in
+> its own object.** Each fleet, and each platform capability serving a public
+> hostname, owns one ListenerSet carrying its hostname and its certificate
+> reference, and attaches to the shared Gateway. The platform owns the Gateway,
+> the GatewayClass, the load balancer and `spec.allowedListeners`, which is the
+> policy admitting attachments — a Gateway admits none by default.
 >
-> This is the Gateway API expression of what ingress-nginx gets from one
-> controller merging many Ingress objects by host — the arrangement kubefirst
-> uses, and the property this platform had lost by giving each purpose its own
-> Gateway. What does NOT change is who owns routing: ADR-051 still assigns the
-> hostname route to the platform, and a tenant still cannot author one.
+>     platform        Gateway, GatewayClass, load balancer, allowedListeners
+>     each fleet      ListenerSet: hostname, certificate, its routes
+>     observability   ListenerSet, on the same footing as a fleet
 >
-> Listener NAMES are now load-bearing, since the name is the merge key: two
-> contributors choosing one name silently replace each other. Enforced by
-> `TestOneGatewayPerHostPortInTheSpokeCatalog`, which walks both trees — the
-> original conflict had one claimant in each, so a check reading only one would
-> have passed while the cluster was broken.
+> This is the requirement rather than a refinement of it: several independent
+> consumers contribute listeners to one shared Gateway without sharing write
+> ownership of the Gateway object. Arrangements in which two owners write one
+> Gateway's `spec.listeners` do not satisfy it, because ArgoCD applies every
+> Application under a single field manager — two Applications editing that field
+> are not two ServerSideApply owners, and the later apply removes the earlier
+> owner's listeners while the Gateway continues to report itself programmed. The
+> number of fleets a spoke can serve publicly is the number of distinct writers
+> the model allows, which under delegation is unbounded.
+>
+> It is also the Gateway API expression of what one ingress controller gives by
+> aggregating many Ingress objects by host, which is the arrangement kubefirst
+> uses: infrastructure shared, ownership not.
+>
+> **Routing authority is unchanged.** This ADR continues to assign the hostname
+> route to the platform, and a tenant still cannot author a route reaching its
+> own backends without traversing the authenticating gateway. What is delegated
+> is listener and certificate ownership.
+>
+> **No alternate listener-coownership mechanism is introduced.** ListenerSet is
+> normative. Where it is unavailable the capability is BLOCKED rather than
+> approximated: a spoke serves the public hostnames of one fleet, and that is
+> recorded as a limitation rather than engineered around.
+>
+> This is a prohibition because every approximation is cheaper than the upgrade
+> and worse than the absence. A second listen port with its own load balancer
+> makes a version gap permanent infrastructure. One Application rendering every
+> listener, or an operator assembling them, resolves the write conflict by
+> making one component know every fleet's hostname and certificate — which is
+> the ownership model this ADR exists to prevent, reintroduced under another
+> name. Manipulating field managers so several Applications may write one
+> object treats the symptom and leaves the resource model wrong. None is a step
+> toward ListenerSet; each is work it deletes, and each would be load-bearing
+> before it could be removed.
+>
+> **Prerequisite.** ListenerSet requires Cilium 1.20 with Gateway API 1.6 and
+> the ListenerSet type delivered ahead of the operator; ADR-085 carries that
+> upgrade as a platform compatibility project, with ADR-046's networking
+> invariants regression-tested at each hop. It is not carried inside a Gateway
+> change.
+>
+> Port exclusivity is enforced by
+> `TestOneGatewayPerHostPortInTheSpokeCatalog`, which reads every tree that
+> renders a Gateway onto a spoke, and by the live check in the ADR-046
+> validator.
 
 ---
 

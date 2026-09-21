@@ -8,16 +8,19 @@
 
 > Data stays in the cluster that produced it. Only the query travels.
 
-> **Amendment 2026-09-21 — the query endpoint is a listener, not a Gateway.**
-> §"spoke query endpoint" gave this path a Gateway of its own on :443. On a
-> spoke that also serves tenant hostnames that is a host-port conflict, because
-> a Cilium hostNetwork Gateway binds a real port — envoy NACKs one of the two
-> permanently while both report Programmed=True. The query endpoint is now a
-> listener named `spoke-query` on the spoke's single :443 Gateway, contributed
-> under ServerSideApply. See ADR-051's amendment of the same date for the rule
-> and the evidence; nothing about this ADR's topology, retention or identity
-> decisions changes.
-
+> **Amendment 2026-09-21 — the public query endpoint is blocked pending
+> ListenerSet.**
+> The endpoint's certificate is issued and its backend runs; what is absent is a
+> public listener. ADR-051 makes ListenerSet the normative ownership model for
+> listeners on a spoke's shared Gateway and forbids introducing any alternate
+> co-ownership mechanism in the meantime, so this endpoint does not contribute a
+> listener to a Gateway another Application also writes. ADR-085 carries the
+> Cilium and Gateway API versions that serve the type; the endpoint then owns a
+> ListenerSet on the same footing as a fleet.
+>
+> Collection, retention, tenancy and identity are unaffected. VictoriaMetrics
+> ingests and stores on the spoke as this ADR describes; the hub's federated
+> query reaches it once the listener exists.
 ---
 
 ## Topology

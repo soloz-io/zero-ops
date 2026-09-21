@@ -18,7 +18,7 @@
 validate_infisical_key_producers() {
     section "Every Infisical-backed ExternalSecret key has a producer"
 
-    local out
+    local out rc=0
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
 import glob, os, re, yaml
 
@@ -126,6 +126,11 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
     except Exception:
         continue
     for d in docs:
+        # A top-level LIST document (templated-fields.yaml and friends) is not a
+        # resource. Calling .get() on one raised AttributeError, python exited
+        # non-zero, and the empty stdout that produced was read as "no findings".
+        if not isinstance(d, dict):
+            continue
         if d.get("kind") != "ExternalSecret":
             continue
         store = (d.get("spec", {}).get("secretStoreRef") or {}).get("name", "")
@@ -194,7 +199,15 @@ for k in sorted(EXTERNAL):
     if k in wanted or k in wanted_cell:
         print("\t".join(["SEED", k, EXTERNAL[k]]))
 PY
-)
+) || rc=$?
+
+    # rc is captured because an EMPTY result and a CRASHED checker are the same
+    # string, and `-z "$out"` below cannot tell them apart. A checker that could
+    # not run has not found nothing.
+    if (( rc != 0 )); then
+        hard_fail "the checker exited ${rc} — it inspected nothing, and an empty result from a crashed checker is not a passing one"
+        return 1
+    fi
 
     if [[ -z "$out" ]]; then
         pass "no Infisical-backed ExternalSecrets found to check"

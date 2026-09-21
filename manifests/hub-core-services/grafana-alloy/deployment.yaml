@@ -440,6 +440,12 @@ metadata:
   namespace: platform-observability
   annotations:
     configmap.reloader.stakater.com/reload: grafana-alloy-node
+    # The Grafana Cloud credentials rotate (ADR-030 #3). Without this the
+    # ConfigMap reload above fires on a config change and nothing fires on a
+    # CREDENTIAL change: alloy keeps the old key in memory and its remote-write
+    # begins failing authentication, which reads as a Grafana Cloud outage
+    # rather than a stale secret.
+    secret.reloader.stakater.com/reload: grafana-cloud-credentials
 spec:
   selector:
     matchLabels:
@@ -512,6 +518,12 @@ metadata:
   namespace: platform-observability
   annotations:
     configmap.reloader.stakater.com/reload: grafana-alloy-cluster
+    # The Grafana Cloud credentials rotate (ADR-030 #3). Without this the
+    # ConfigMap reload above fires on a config change and nothing fires on a
+    # CREDENTIAL change: alloy keeps the old key in memory and its remote-write
+    # begins failing authentication, which reads as a Grafana Cloud outage
+    # rather than a stale secret.
+    secret.reloader.stakater.com/reload: grafana-cloud-credentials
 spec:
   replicas: 1
   selector:

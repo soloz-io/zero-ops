@@ -195,8 +195,9 @@ func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
 func (a *Auth) ensureProject(ctx context.Context, orgID, name string) (string, error) {
 	var found struct {
 		Result []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			State string `json:"state"`
 		} `json:"result"`
 	}
 	q := map[string]any{
@@ -205,10 +206,23 @@ func (a *Auth) ensureProject(ctx context.Context, orgID, name string) (string, e
 	if err := a.api.do(ctx, http.MethodPost, "/management/v1/projects/_search", orgID, q, &found); err != nil {
 		return "", err
 	}
+	// An inactive project takes its applications out of service with it, so the
+	// same reasoning as ensureApp applies: existence in the search index is not
+	// usability, and a project accepted without checking its state yields
+	// applications whose client ids the issuer refuses. Reactivated rather than
+	// replaced, because a new project would strip every grant and role the
+	// tenant's users hold.
 	for _, p := range found.Result {
-		if p.Name == name {
-			return p.ID, nil
+		if p.Name != name {
+			continue
 		}
+		if p.State == "PROJECT_STATE_INACTIVE" {
+			if err := a.api.do(ctx, http.MethodPost,
+				"/management/v1/projects/"+p.ID+"/_reactivate", orgID, map[string]any{}, nil); err != nil {
+				return "", fmt.Errorf("reactivate project %q (%s): %w", name, p.ID, err)
+			}
+		}
+		return p.ID, nil
 	}
 
 	var created struct {
@@ -370,8 +384,20 @@ func (a *Auth) ensureRoles(ctx context.Context, orgID, projectID string) error {
 }
 
 func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string) (string, error) {
-	id, _, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone)
-	return id, err
+	// The CLIENT id, which is the second return value. ensureApp returns
+	// (appID, clientID, clientSecret): taking the first hands back Zitadel's
+	// internal application id, and the two are indistinguishable by inspection --
+	// both are numeric strings of the same shape.
+	//
+	// Published as a client id it is refused at the authorization endpoint with
+	// `Errors.App.NotFound`, the same answer an identifier that was never
+	// allocated receives, so nothing in the refusal says the value is of the
+	// wrong KIND. Every layer above reports success: the application really was
+	// created, the operator really did publish what it was given, the
+	// ExternalSecret resolves, and the tenant's gateway starts. Only a login
+	// fails, and it fails identically to a tenant that was never provisioned.
+	_, clientID, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone)
+	return clientID, err
 }
 
 // OIDC client authentication methods, in the issuer's own vocabulary.
@@ -396,6 +422,7 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 		Result []struct {
 			ID         string `json:"id"`
 			Name       string `json:"name"`
+			State      string `json:"state"`
 			OIDCConfig struct {
 				ClientID string `json:"clientId"`
 			} `json:"oidcConfig"`
@@ -406,10 +433,38 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 		map[string]any{"query": map[string]any{"limit": 100}}, &existing); err != nil {
 		return "", "", "", err
 	}
+	// STATE, not merely existence. The search returns inactive applications
+	// alongside active ones, and an inactive application is not resolvable for
+	// authorization: the issuer answers `Errors.App.NotFound` for its client id,
+	// the same answer it gives for an identifier that was never allocated.
+	//
+	// Accepting one produced a loop that could not repair itself. This function
+	// returned the inactive application's client id, the caller published it as
+	// though provisioning had succeeded, the tenant's gateway presented it, and
+	// every login was refused. Each reconciliation found the same application
+	// and repeated the same answer, so the condition survived indefinitely while
+	// every layer above reported success — the Kubernetes resources healthy, the
+	// ExternalSecret resolving, the operator logging "Tenant identity
+	// provisioned" on every pass.
+	//
+	// An inactive application is reactivated rather than replaced. Its client id
+	// is already held by the tenant's gateway and by anything else configured
+	// from it, so replacing it would require every consumer to converge on a new
+	// identifier; reactivation restores the one they hold. A reactivation that
+	// fails leaves the application inactive and returns the error, because
+	// continuing would publish an identifier that still does not authorize.
 	for _, app := range existing.Result {
-		if app.Name == appName && app.OIDCConfig.ClientID != "" {
-			return app.ID, app.OIDCConfig.ClientID, "", nil
+		if app.Name != appName || app.OIDCConfig.ClientID == "" {
+			continue
 		}
+		if app.State == "APP_STATE_INACTIVE" {
+			if err := a.api.do(ctx, http.MethodPost,
+				"/management/v1/projects/"+projectID+"/apps/"+app.ID+"/_reactivate",
+				orgID, map[string]any{}, nil); err != nil {
+				return "", "", "", fmt.Errorf("reactivate application %q (%s): %w", appName, app.ID, err)
+			}
+		}
+		return app.ID, app.OIDCConfig.ClientID, "", nil
 	}
 
 	// A PUBLIC client: authMethodType NONE, no secret, PKCE carries the proof.
