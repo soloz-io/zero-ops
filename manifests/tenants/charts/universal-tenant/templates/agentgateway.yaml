@@ -517,6 +517,24 @@ kind: Deployment
 metadata:
   name: {{ $name }}
   namespace: tenant-{{ $t }}
+  annotations:
+    # The gateway reads its OAuth client id and cookie secret at STARTUP, so a
+    # rotation reaches a running pod only if something restarts it. Both values
+    # are delivered by ExternalSecret and both can change without any
+    # deployment changing: the client id is re-published whenever the platform
+    # re-registers the client at the issuer.
+    #
+    # Without this the pod keeps presenting the value it started with, and the
+    # issuer answers `Errors.App.NotFound` for every login -- while the Secret
+    # holds the correct id, the ExternalSecret reports synced, and the pod is
+    # Ready. The failure is entirely in the gap between the two, so nothing in
+    # the cluster reports it. Observed on nutgraf-01: the identifier was
+    # corrected at the issuer and in the Secret, and the gateway went on
+    # presenting the old one.
+    #
+    # Targeted rather than reloader.stakater.com/auto, matching the hub's own
+    # agentgateway and every other consumer on this platform.
+    secret.reloader.stakater.com/reload: "{{ $name }}-oidc-client,{{ $name }}-oidc-cookie-secret"
   labels:
     app: {{ $name }}
     # Required by enforce-tenant-abi/require-cost-labels, which matches every
