@@ -2,7 +2,17 @@ name: kube-sbt
 
 on:
   push:
-    branches: [main]
+    # feat/** as well as main, matching every other operator image this platform
+    # deploys (hub-operator, spoke-identity-operator, ephemeral-job-operator,
+    # ephemeral-vm-provisioner, workspace-sync, support-agent). Those were moved
+    # one at a time from 2026-06-04 onward; kube-sbt was not among them.
+    #
+    # The gap is invisible while it matters. A change merged to a feature branch
+    # builds no image, so the cluster keeps running the previous one and every
+    # symptom the change was meant to fix persists -- with the commit present in
+    # the tree, the tests green, and nothing reporting that the binary in the
+    # cluster is not the code in the branch.
+    branches: [main, feat/**]
     paths:
       - cmd/kube-sbt/**
       - internal/kube-sbt/**
