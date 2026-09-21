@@ -199,10 +199,13 @@ spec:
               # Environment-owned, never fleet-supplied (ADR-050). Passed as a
               # parameter so it overrides anything a fleet's values file might
               # set, rather than merging with it.
+              # Derived from this box's hub domain when not set explicitly.
+              # Read the raw value and these were empty on every box whose seed
+              # is declared in its own repository -- see _oidc-issuer.tpl.
               - name: oidcIssuer
-                value: {{ .Values.oidcIssuer | quote }}
+                value: {{ include "environment-manager.oidcIssuer" $ | quote }}
               - name: oidcJwksUrl
-                value: {{ .Values.oidcJwksUrl | quote }}
+                value: {{ include "environment-manager.oidcJwksUrl" $ | quote }}
 {{- if .Values.oidcScopes }}
             # A list, so it cannot go through `parameters` — those are flat
             # name/value strings.

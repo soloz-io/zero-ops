@@ -45,10 +45,44 @@ spec:
   # platform-infrastructure project, not tenant workloads.
   clusterResourceWhitelist: []
 
-  # Workloads may only be deployed into tenant namespaces on spoke clusters.
+  # Workloads may only be deployed into tenant namespaces, and never onto the
+  # management cluster.
+  #
+  # Expressed as a DENY of the management cluster plus an allow of tenant
+  # namespaces anywhere else, rather than as an allow of a cluster-name prefix.
+  #
+  # The prefix was 'spoke-pool-*', and it stopped being true when ADR-082 made a
+  # workload cluster's name the tenant's to choose: a repository holds one
+  # management cluster and as many workload clusters as it declares, each named
+  # by the tenant. A box whose cluster is called 'nutgraf-01' matched nothing,
+  # and the refusal names the destination rather than the rule --
+  #
+  #   application destination server '...' and namespace 'tenant-waypoint' do
+  #   not match any of the allowed destinations in project 'tenant-workloads'
+  #
+  # -- so it reads as a misconfigured Application rather than as a stale
+  # allowlist. Nothing else reported it: the ApplicationSet generated the
+  # Application, ArgoCD accepted it, and it sat at Unknown/Unknown.
+  #
+  # The management cluster is named rather than pattern-matched because it is
+  # the one cluster this chart knows by name. `in-cluster` is denied with it:
+  # ArgoCD registers the cluster it runs on under that name regardless of what
+  # the box calls itself, so denying only one of the two leaves the other as an
+  # unguarded route to the control plane.
+  # Both entries carry the SAME namespace pattern, and it is not '*'.
+  #
+  # ArgoCD evaluates a deny by name independently of the namespace
+  # (app_project_types.go isDestinationMatched: the first deny clause tests only
+  # the name), but it evaluates an ALLOW as name AND namespace. So an entry
+  # written `namespace: '*'` with a negated name denies the named cluster and
+  # simultaneously ALLOWS every other cluster in every namespace -- kube-system
+  # included. Keeping 'tenant-*' on both entries makes each one deny the cluster
+  # it names while allowing only tenant namespaces elsewhere.
   destinations:
     - namespace: 'tenant-*'
-      name: 'spoke-pool-*'
+      name: '!{{ include "environment-manager.clusterName" . }}'
+    - namespace: 'tenant-*'
+      name: '!in-cluster'
 
   # Explicit allowlist — only the resource kinds tenant workloads are permitted
   # to manage. Any resource not listed here is rejected by ArgoCD at sync time.

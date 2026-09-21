@@ -176,7 +176,8 @@ func (s Secrets) Prompt(spec Spec) (Secrets, error) {
 	}
 	if strings.TrimSpace(s.GitopsToken) == "" {
 		v, err := readSecret(
-			"GITOPS_TOKEN (write access to the tenant's repository, so Day-0 can commit): ")
+			"GITOPS_TOKEN (write access to the tenant's repositories, and the\n" +
+				"  organisation's \"Secrets: write\" so application builds inherit it): ")
 		if err != nil {
 			return s, err
 		}
@@ -374,6 +375,56 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 		}
 		fmt.Printf("[scaffold] ✓ %s set on %s\n", name, repo)
 	}
+
+	return setOrgGitopsToken(ctx, spec.GitOrg, s.GitopsToken)
+}
+
+// setOrgGitopsToken publishes GITOPS_TOKEN once at the ORGANISATION level, so
+// that every application repository the tenant owns can write the one line its
+// build owes the GitOps repository -- without the platform ever learning that
+// the repository exists.
+//
+// The alternative was a repository-level secret per application, and it does not
+// hold. `soloz tenant scaffold` knows exactly one repository: <tenant>-gitops.
+// Applications are the tenant's to create, rename and retire long after
+// scaffolding has run, so a platform that set their secrets would have to track
+// a set that changes without it -- and the failure when it falls behind is
+// silent. waypoint's bff has published a chart on every commit since September
+// and pinned a version NOT ONCE, because its deploy job reads a GITOPS_TOKEN
+// that nothing ever set. Three consecutive red runs, publish green each time.
+//
+// One credential, one place, inherited by construction. A repository added
+// tomorrow is covered the moment it exists.
+//
+// REQUIRED PERMISSION, and it is not the classic `admin:org`: a fine-grained
+// token needs only the organisation's "Secrets: write" permission. Read the
+// refusal carefully -- GitHub names both routes --
+//
+//	You must be an org admin or have the actions secrets fine-grained permission.
+//
+// so the narrow one is available and is what the prompt asks for.
+//
+// A failure here is REPORTED, NOT FATAL. The box it was scaffolding is complete
+// and bootstraps without this; what is missing is the credential a future
+// application build will need, and aborting the scaffold over it would destroy
+// a working repository to fix something no cluster depends on.
+func setOrgGitopsToken(ctx context.Context, org, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN",
+		"--org", org, "--visibility", "all")
+	cmd.Stdin = strings.NewReader(token)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("[scaffold] ! GITOPS_TOKEN not set on the %s organisation: %s\n",
+			org, firstLine(string(out)))
+		fmt.Printf("[scaffold]   Application builds cannot pin a chart version until it is.\n")
+		fmt.Printf("[scaffold]   Re-run with a token carrying the organisation's\n")
+		fmt.Printf("[scaffold]   \"Secrets: write\" permission, or set it once by hand:\n")
+		fmt.Printf("[scaffold]     gh secret set GITOPS_TOKEN --org %s --visibility all\n", org)
+		return nil
+	}
+	fmt.Printf("[scaffold] ✓ GITOPS_TOKEN set on the %s organisation (all repositories)\n", org)
 	return nil
 }
 
