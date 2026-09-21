@@ -19,7 +19,7 @@ an empty issuer and every fleet failed to render:
 That surfaced on the FLEET's Application, naming a template in a chart the
 tenant does not own, for a value the tenant was never asked for. The namespace
 it would have created was therefore never created either, so the workload
-Application beside it failed on "namespaces tenant-waypoint not found" -- a
+Application beside it failed on "namespaces tenant-<fleet> not found" -- a
 second, unrelated-looking error from the same missing value.
 
 An explicit oidcIssuer still wins. A box federating to an issuer that is not its
