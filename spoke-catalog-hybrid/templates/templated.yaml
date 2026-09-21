@@ -1,0 +1,537 @@
+{{- /*
+Objects whose content differs per spoke. Everything else in this
+component is emitted verbatim from files/ by content.yaml.
+*/ -}}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: crossplane-admin-credentials
+  namespace: platform-data
+spec:
+  data:
+  - remoteRef:
+      key: '{{ .Values.spokeName }}-crossplane-admin-password'
+    secretKey: password
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: infisical-backend
+  target:
+    creationPolicy: Owner
+    name: crossplane-admin-credentials
+    template:
+      data:
+        connectionString: 'postgresql://crossplane_admin:{{ "{{" }} .password {{ "}}" }}@shared-cnpg-rw.platform-data.svc.cluster.local:5432/postgres?sslmode=require
+
+          '
+        database: postgres
+        endpoint: shared-cnpg-rw.platform-data.svc.cluster.local
+        host: shared-cnpg-rw.platform-data.svc.cluster.local
+        password: '{{ "{{" }} .password {{ "}}" }}'
+        port: '5432'
+        username: crossplane_admin
+      engineVersion: v2
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  name: shared-cnpg
+  namespace: platform-data
+spec:
+  affinity:
+    enablePodAntiAffinity: true
+    nodeSelector:
+      node-role.kubernetes.io/worker: ''
+      workload-location: on-prem
+    topologyKey: kubernetes.io/hostname
+  backup:
+    barmanObjectStore:
+      data:
+        compression: gzip
+        jobs: 2
+      destinationPath: 's3://spoke-pool-backups/{{ .Values.spokeName }}/'
+      endpointURL: https://hel1.your-objectstorage.com
+      s3Credentials:
+        accessKeyId:
+          key: access-key-id
+          name: s3-credentials
+        region:
+          key: region
+          name: s3-credentials
+        secretAccessKey:
+          key: secret-access-key
+          name: s3-credentials
+      serverName: shared-cnpg-v3
+      wal:
+        compression: gzip
+        maxParallel: 2
+    retentionPolicy: 30d
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      postInitSQL:
+      - CREATE EXTENSION IF NOT EXISTS vector;
+      - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+      - ALTER ROLE app WITH CREATEROLE;
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.2
+  instances: 1
+  managed:
+    roles:
+    - createdb: true
+      createrole: true
+      ensure: present
+      login: true
+      name: crossplane_admin
+      passwordSecret:
+        name: crossplane-admin-credentials
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      checkpoint_completion_target: '0.9'
+      default_statistics_target: '100'
+      effective_cache_size: 1GB
+      effective_io_concurrency: '200'
+      maintenance_work_mem: 64MB
+      max_connections: '500'
+      max_wal_size: 4GB
+      min_wal_size: 1GB
+      random_page_cost: '1.1'
+      shared_buffers: 256MB
+      wal_buffers: 16MB
+      work_mem: 2621kB
+    shared_preload_libraries:
+    - pg_stat_statements
+    - vector
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  storage:
+    size: 100Gi
+    storageClass: local-path
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: s3-credentials
+  namespace: platform-data
+spec:
+  data:
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_ACCESS_KEY_ID'
+    secretKey: accessKeyId
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_SECRET_ACCESS_KEY'
+    secretKey: secretAccessKey
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: infisical-backend
+  target:
+    creationPolicy: Owner
+    name: s3-credentials
+    template:
+      data:
+        access-key-id: '{{ "{{" }} .accessKeyId {{ "}}" }}'
+        region: hel1
+        secret-access-key: '{{ "{{" }} .secretAccessKey {{ "}}" }}'
+      type: Opaque
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  name: grafana-cloud-credentials
+  namespace: platform-observability
+spec:
+  data:
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_PROMETHEUS_URL'
+    secretKey: PROMETHEUS_URL
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_PROMETHEUS_USER'
+    secretKey: PROMETHEUS_USER
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_URL'
+    secretKey: LOKI_URL
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_USER'
+    secretKey: LOKI_USER
+  - remoteRef:
+      key: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_API_KEY'
+    secretKey: API_KEY
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: infisical-backend
+  target:
+    creationPolicy: Owner
+    name: grafana-cloud-credentials
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    secret.reloader.stakater.com/reload: hetzner-dns
+  name: external-dns
+  namespace: platform-ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: external-dns
+    spec:
+      containers:
+      - args:
+        - '--domain-filter={{ .Values.global.hubDomain }}'
+        - '--txt-owner-id={{ .Values.spokeName }}'
+        - --source=gateway-httproute
+        - --source=gateway-grpcroute
+        - --provider=webhook
+        - --webhook-provider-url=http://127.0.0.1:8888
+        - --registry=txt
+        - --txt-prefix=extdns-
+        - --policy=sync
+        - --interval=1m
+        - --log-level=info
+        image: registry.k8s.io/external-dns/external-dns:v0.15.0@sha256:338dd8c526e1337a12db0c8ee81a59ce5815ea51b73756affcd1e5dca530105c
+        name: external-dns
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 48Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      - env:
+        - name: HETZNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: api-key
+              name: hetzner-dns
+        - name: SERVER_HOST
+          value: 127.0.0.1
+        - name: SERVER_PORT
+          value: '8888'
+        - name: DRY_RUN
+          value: 'false'
+        image: docker.io/hetzner/external-dns-hetzner-webhook:v0.3.4@sha256:17d6d7f09b3419e27eb1abd4a4a0d7fddac84192a2c681e65c356056fc3a9253
+        name: hetzner-webhook
+        resources:
+          limits:
+            cpu: 100m
+            memory: 96Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      nodeSelector:
+        node-role.kubernetes.io/worker: ''
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+      serviceAccountName: external-dns
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  name: infisical-backend
+spec:
+  provider:
+    infisical:
+      auth:
+        universalAuthCredentials:
+          clientId:
+            key: client-id
+            name: infisical-auth
+            namespace: platform-ops
+          clientSecret:
+            key: client-secret
+            name: infisical-auth
+            namespace: platform-ops
+      hostAPI: 'https://infisical.{{ .Values.global.hubDomain }}'
+      secretsScope:
+        environmentSlug: '{{ .Values.global.environmentSlug }}'
+        projectSlug: hub-secrets
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: 'platform@{{ .Values.global.hubDomain }}'
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    server: https://acme-v02.api.letsencrypt.org/directory
+    solvers:
+    - dns01:
+        webhook:
+          config:
+            tokenSecretKeyRef:
+              key: api-key
+              name: hetzner-dns
+          groupName: acme.nutgraf.in
+          solverName: hetzner
+      selector:
+        dnsZones:
+        - '{{ .Values.global.hubDomain }}'
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: 'platform@{{ .Values.global.hubDomain }}'
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    solvers:
+    - dns01:
+        webhook:
+          config:
+            tokenSecretKeyRef:
+              key: api-key
+              name: hetzner-dns
+          groupName: acme.nutgraf.in
+          solverName: hetzner
+      selector:
+        dnsZones:
+        - '{{ .Values.global.hubDomain }}'
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: tenant-gateway
+  namespace: platform-ops
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: Same
+    hostname: '*.{{ .Values.global.hubDomain }}'
+    name: http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    secret.reloader.stakater.com/reload: grafana-cloud-credentials
+  name: grafana-alloy
+  namespace: platform-observability
+spec:
+  selector:
+    matchLabels:
+      app: grafana-alloy
+  template:
+    metadata:
+      labels:
+        app: grafana-alloy
+    spec:
+      containers:
+      - args:
+        - run
+        - /etc/alloy/config.alloy
+        - --storage.path=/var/lib/alloy/data
+        - --server.http.listen-addr=0.0.0.0:12345
+        env:
+        - name: CELL_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['cell-id']
+        - name: TENANT_ID
+          value: '{{ .Values.global.tenantId }}'
+        envFrom:
+        - secretRef:
+            name: grafana-cloud-credentials
+        image: grafana/alloy:v1.5.1
+        name: alloy
+        ports:
+        - containerPort: 12345
+          name: http
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /etc/alloy
+          name: config
+        - mountPath: /var/lib/alloy/data
+          name: data
+        - mountPath: /var/log/pods
+          name: varlogpods
+          readOnly: true
+        - mountPath: /var/log/containers
+          name: varlogcontainers
+          readOnly: true
+      serviceAccountName: grafana-alloy
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - configMap:
+          name: alloy-config
+        name: config
+      - emptyDir: {}
+        name: data
+      - hostPath:
+          path: /var/log/pods
+        name: varlogpods
+      - hostPath:
+          path: /var/log/containers
+        name: varlogcontainers
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: spoke-query-endpoint-tls
+  namespace: platform-ops
+spec:
+  dnsNames:
+  - 'victoriametrics.{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+  secretName: spoke-query-endpoint-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: 'victoriametrics.{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'
+  name: tenant-tls-gateway
+  namespace: platform-ops
+spec:
+  gatewayClassName: cilium
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            kubernetes.io/metadata.name: platform-observability
+    hostname: 'victoriametrics.{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'
+    name: spoke-query
+    port: 443
+    protocol: HTTPS
+    tls:
+      certificateRefs:
+      - name: spoke-query-endpoint-tls
+        namespace: platform-ops
+      mode: Terminate
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: spoke-query-endpoint
+  namespace: platform-observability
+spec:
+  hostnames:
+  - 'victoriametrics.{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'
+  parentRefs:
+  - name: tenant-tls-gateway
+    namespace: platform-ops
+    sectionName: spoke-query
+  rules:
+  - backendRefs:
+    - name: spoke-query-endpoint
+      port: 8427
+---
+apiVersion: v1
+data:
+  auth.yml: "# One user, verified by JWT rather than by a shared secret.\n#\n# `oidc.issuer` makes vmauth fetch the issuer's JWKS and verify signatures\n# against it, so key rotation at the issuer is picked up without a redeploy\n# -- which is why this is OIDC discovery rather than a pinned public key.\nusers:\n  # match_claims sits INSIDE jwt, beside oidc -- not beside jwt.\n  #\n  # Both nestings were tried against the running endpoint. Outside jwt the\n  # process refuses to start: \"field match_claims not found in type\n  # main.UserInfo\". That is the right way for a security control to fail,\n  # and it is why the endpoint CrashLooped rather than serving the store\n  # with no verification at all.\n  - jwt:\n      oidc:\n        issuer: \"https://id.{{ .Values.global.hubDomain }}\"\n      # The audience the box's Grafana presents. A token minted for any\n      # other client of the same issuer is refused, so \"authenticated by\n      # Zitadel\" is not by itself sufficient to read this cluster's\n      # telemetry.\n      match_claims:\n        aud: \"spoke-query\"\n    url_map:\n      # Metrics: the Prometheus-compatible read API only. /api/v1/write is\n      # deliberately absent -- this endpoint answers questions and accepts\n      # no data, so a compromised token cannot poison the store.\n      - src_paths:\n          - \"/prometheus/api/v1/query\"\n          - \"/prometheus/api/v1/query_range\"\n          - \"/prometheus/api/v1/series\"\n          - \"/prometheus/api/v1/labels\"\n          - \"/prometheus/api/v1/label/.+/values\"\n          - \"/prometheus/api/v1/metadata\"\n        drop_src_path_prefix_parts: 1\n        url_prefix:\n          - \"http://vmsingle-platform.platform-observability.svc.cluster.local:8429\"\n      # Logs: LogsQL query, for the same reason.\n      - src_paths:\n          - \"/logs/select/.+\"\n        drop_src_path_prefix_parts: 1\n        url_prefix:\n          - \"http://vlogs-platform.platform-observability.svc.cluster.local:9428\"\n"
+kind: ConfigMap
+metadata:
+  name: spoke-query-endpoint-config
+  namespace: platform-observability
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+  name: platform
+  namespace: platform-observability
+spec:
+  removePvcAfterDelete: false
+  resources:
+    limits:
+      memory: 768Mi
+    requests:
+      cpu: 100m
+      memory: 384Mi
+  retentionPeriod: 15d
+  storage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+    storageClassName: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VLogs
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+  name: platform
+  namespace: platform-observability
+spec:
+  removePvcAfterDelete: false
+  resources:
+    limits:
+      memory: 768Mi
+    requests:
+      cpu: 100m
+      memory: 384Mi
+  retentionPeriod: 7d
+  storage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+    storageClassName: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

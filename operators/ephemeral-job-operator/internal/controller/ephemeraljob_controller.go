@@ -319,7 +319,28 @@ func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alp
 		if !jobIsFinished(&existing) {
 			return &existing, nil
 		}
-		log.FromContext(ctx).Info("replacing a finished Job for a new request",
+		// A finished Job THIS CR owns is this request's own completed work, not
+		// a leftover from an earlier one, and must be handed back rather than
+		// replaced.
+		//
+		// The replacement above is for a NEW EphemeralJob that finds a previous
+		// request's Job under the same derived name. It cannot tell the two
+		// apart by name, because the name is derived from the request — but it
+		// can by ownership, since every Job this controller creates is owned by
+		// the CR that asked for it.
+		//
+		// Without this, a status update that loses an optimistic-concurrency
+		// race ("the object has been modified") leaves the CR non-terminal
+		// while its Job is already Complete. The next pass reaches here, sees
+		// "finished", deletes the Job and runs the work again — and because the
+		// same race recurs, it runs again, and again. Observed live: a 20-scene
+		// render finished and uploaded video.mp4, then re-rendered from scratch
+		// twice more while the workflow that submitted it sat waiting for a
+		// callback that the replaced Job could no longer send.
+		if metav1.IsControlledBy(&existing, ej) {
+			return &existing, nil
+		}
+		log.FromContext(ctx).Info("replacing a finished Job from an earlier request",
 			"job", name, "succeeded", existing.Status.Succeeded, "failed", existing.Status.Failed)
 		// Foreground deletion, so the replacement is not created while the old
 		// pods are still being reaped — two Jobs with one name is not a state

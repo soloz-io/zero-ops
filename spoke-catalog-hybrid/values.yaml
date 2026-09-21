@@ -1,0 +1,10 @@
+# Defaults for the globals this component's templated fields read.
+# Written at package time from what was actually emitted, so a new
+# global is defaulted by the commit that introduces it. A chart with
+# no default renders nothing: the lookup hits a nil map and helm
+# fails the whole render.
+global:
+  hubDomain: ''
+  environmentSlug: ''
+  tenantId: ''
+  provider: ''

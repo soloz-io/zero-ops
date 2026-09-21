@@ -8,6 +8,18 @@
 
 > Data stays in the cluster that produced it. Only the query travels.
 
+> **Amendment 2026-09-21 — the query endpoint is a listener, not a Gateway.**
+> §"spoke query endpoint" gave this path a Gateway of its own on :443. On a
+> spoke that also serves tenant hostnames that is a host-port conflict, because
+> a Cilium hostNetwork Gateway binds a real port — envoy NACKs one of the two
+> permanently while both report Programmed=True. The query endpoint is now a
+> listener named `spoke-query` on the spoke's single :443 Gateway, contributed
+> under ServerSideApply. See ADR-051's amendment of the same date for the rule
+> and the evidence; nothing about this ADR's topology, retention or identity
+> decisions changes.
+
+---
+
 ## Topology
 
 Two clusters shown; every workload cluster is identical to the spoke. Everything

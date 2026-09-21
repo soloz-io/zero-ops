@@ -47,6 +47,7 @@ ignore: |
   manifests/hub-core-services/gateway/templates/
   manifests/hub-core-services/**/charts/
   manifests/spoke/**/charts/
+  spoke-catalog-hybrid/templates/
   internal/kube-sbt/providers/gitops/helm-chart/templates/
   # Go text/template assets are not valid plain YAML until rendered.
   internal/assets/manifests/addons/crs.yaml

@@ -8,6 +8,45 @@
 
 ---
 
+> **Amendment 2026-09-21 — One Gateway per host port; purposes are listeners, not Gateways.**
+> This ADR wrote that the spoke's two Gateways "partition ports :80/:443", and
+> tenant-public-tls carried the invariant in its own comment: *this :443 Gateway
+> must never coexist with another claimant of :443*. Both were correct. Neither
+> could hold, because a comment in one chart cannot constrain another, and
+> ADR-083's query endpoint later added a second :443 Gateway on the same spoke.
+>
+> A Cilium Gateway in hostNetwork mode (ADR-046 §8) binds a real host port. Two
+> Gateways on one port is therefore a port conflict: envoy accepts whichever
+> arrives first and NACKs the other for the life of the cluster, `has duplicate
+> address '0.0.0.0:443' as existing listener`. Nothing above envoy reports it.
+> Both Gateways showed Programmed=True, both their routes Accepted with
+> ResolvedRefs=True, both certificates issued and synced — and the losing
+> hostname reset every TLS ClientHello without a ServerHello, which reads as a
+> broken certificate rather than as a port conflict. It cost a tenant's entire
+> public ingress while every status said healthy.
+>
+> **A port is claimed by exactly one Gateway. A purpose is a LISTENER on it, not
+> a Gateway of its own.** `spec.listeners` is `x-kubernetes-list-type: map` keyed
+> on `name`, so under ServerSideApply several owners contribute listeners to one
+> Gateway without removing each other's: spoke-catalog creates the object with
+> the platform's own listeners, and tenant-public-tls adds one per tenant
+> hostname. Co-ownership is safe because the merge key makes it safe, not by
+> convention.
+>
+> This is the Gateway API expression of what ingress-nginx gets from one
+> controller merging many Ingress objects by host — the arrangement kubefirst
+> uses, and the property this platform had lost by giving each purpose its own
+> Gateway. What does NOT change is who owns routing: ADR-051 still assigns the
+> hostname route to the platform, and a tenant still cannot author one.
+>
+> Listener NAMES are now load-bearing, since the name is the merge key: two
+> contributors choosing one name silently replace each other. Enforced by
+> `TestOneGatewayPerHostPortInTheSpokeCatalog`, which walks both trees — the
+> original conflict had one claimant in each, so a check reading only one would
+> have passed while the cluster was broken.
+
+---
+
 > **Amendment 2026-09-18 — The subdomain is declared, not derived from the environment.**
 > One correction. It does not change a single published hostname; it changes what
 > decides them.

@@ -72,6 +72,7 @@ validate_tenant_ingress() {
 
     _validate_external_dns_runtime
     _validate_gateway_programmed
+    _validate_one_gateway_per_port
     _validate_routes_accepted
     _validate_spoke_certificates
 }
@@ -102,8 +103,77 @@ _validate_external_dns_runtime() {
     fi
 }
 
-# Accepted alone only means the config parsed. Programmed means an address was
-# assigned and the listeners are actually live.
+# ADR-051 (amendment 2026-09-21): a port is claimed by exactly one Gateway.
+#
+# A Cilium Gateway in hostNetwork mode (ADR-046 §8) binds a REAL host port, so
+# two Gateways on one port is a port conflict rather than a merge. Envoy keeps
+# the first and rejects the rest:
+#
+#   has duplicate address '0.0.0.0:443' as existing listener
+#
+# Checked LIVE and not only against the manifests, because the manifest gate
+# (TestOneGatewayPerHostPortInTheSpokeCatalog) can only prove that the sources
+# it knows about agree. It cannot see a Gateway left behind by an older bundle,
+# created by hand, or added by a chart introduced later -- which is how this
+# arrived: one claimant per source tree, each correct on its own.
+#
+# A purpose gets a LISTENER on the shared Gateway, never a Gateway of its own.
+_validate_one_gateway_per_port() {
+    # jsonpath cannot carry the parent's name into a nested range over its
+    # listeners, so the (port, gateway) pairing is built here instead.
+    local rows dupes
+    rows=""
+    local g p
+    while IFS= read -r g; do
+        [[ -n "$g" ]] || continue
+        for p in $(kc_spoke get gateway -A -o jsonpath="{range .items[?(@.metadata.name=='$g')]}{range .spec.listeners[*]}{.port}{' '}{end}{end}"); do
+            rows+="$p $g"$'\n'
+        done
+    done <<< "$(kc_spoke get gateway -A -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
+    rows=$(echo "$rows" | awk 'NF==2' | sort -u)
+
+    if [[ -z "$rows" ]]; then
+        soft_fail "no Gateway listeners found on the spoke -- nothing terminates tenant traffic"
+        return
+    fi
+
+    dupes=$(echo "$rows" | awk '{print $1}' | sort | uniq -d)
+    if [[ -z "$dupes" ]]; then
+        pass "every Gateway port has exactly one claimant (no envoy listener conflict)"
+    else
+        local port names
+        while IFS= read -r port; do
+            [[ -n "$port" ]] || continue
+            names=$(echo "$rows" | awk -v x="$port" '$1==x {print $2}' | sort -u | tr '\n' ' ')
+            hard_fail "port $port is claimed by more than one Gateway ($names) -- envoy NACKs all but the first, and the losing hostname resets every connection while still reporting Programmed=True. Give each purpose a LISTENER on one Gateway (ADR-051 amendment 2026-09-21)"
+        done <<< "$dupes"
+    fi
+
+    # Listener names are the ServerSideApply merge key across contributors, so a
+    # duplicate does not conflict -- it silently replaces, which is the same
+    # outage reached another way.
+    local dupnames d
+    dupnames=$(kc_spoke get gateway -A \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"/"}{range .spec.listeners[*]}{.name}{"\n"}{end}{end}' \
+        | grep -v '^$' | sort | uniq -d)
+    if [[ -n "$dupnames" ]]; then
+        while IFS= read -r d; do
+            [[ -n "$d" ]] || continue
+            hard_fail "listener $d is declared twice -- the name is the ServerSideApply merge key, so one contributor silently replaces the other"
+        done <<< "$dupnames"
+    fi
+}
+
+# Accepted alone only means the config parsed.
+#
+# Programmed does NOT mean the listeners are live, and this comment used to say
+# it did. On 2026-09-21 two Gateways claimed :443 on one spoke; envoy accepted
+# the first and NACKed the second for the life of the cluster, while BOTH
+# reported Programmed=True with their routes Accepted, ResolvedRefs=True and
+# their certificates issued. The losing hostname reset every TLS ClientHello.
+# Programmed is written by the Gateway controller from its own intent; it does
+# not survive a round trip through envoy. _validate_one_gateway_per_port
+# asserts what it cannot.
 _validate_gateway_programmed() {
     local st
     st=$(kc_spoke get gateway -n platform-ops \

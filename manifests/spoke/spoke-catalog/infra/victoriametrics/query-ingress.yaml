@@ -38,17 +38,51 @@ spec:
   dnsNames:
     - victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
 ---
+# The spoke's ONE :443 Gateway, contributed to rather than owned.
+#
+# This listener used to live on a Gateway of its own, `spoke-query-gateway`, and
+# that is a thing Cilium cannot do. A Cilium Gateway in hostNetwork mode
+# (ADR-046 §8) binds a real host port, so two Gateways claiming :443 on one node
+# is a port conflict -- envoy accepts the first and NACKs the second for the
+# life of the cluster:
+#
+#   NACK received: Error adding/updating listener(s)
+#   platform-ops/cilium-gateway-tenant-tls-gateway/listener: error adding
+#   listener: has duplicate address '0.0.0.0:443' as existing listener
+#
+# Nothing above envoy reports it. Both Gateways showed Programmed=True with
+# their routes Accepted and ResolvedRefs=True, both certificates were issued and
+# synced, and the losing hostname simply reset every TLS ClientHello -- which
+# reads as a broken certificate rather than as a port conflict. tenant-public-tls
+# already stated the invariant ("this :443 Gateway must never coexist with
+# another claimant of :443"); ADR-083 added this second claimant without seeing
+# it.
+#
+# So both contributors now write LISTENERS INTO ONE GATEWAY. spec.listeners is
+# `x-kubernetes-list-type: map` keyed on `name`, so under ServerSideApply each
+# contributor owns its own entries and neither removes the other's -- which is
+# what makes co-ownership safe rather than a last-writer-wins race. This is the
+# Gateway API expression of what ingress-nginx gets from one controller merging
+# many Ingress objects by host.
+#
+# This file creates the Gateway so a spoke carrying no tenant still terminates
+# TLS for its query endpoint; tenant-public-tls adds a listener per tenant
+# hostname to the same object.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: spoke-query-gateway
+  name: tenant-tls-gateway
   namespace: platform-ops
   annotations:
     external-dns.alpha.kubernetes.io/hostname: victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
 spec:
   gatewayClassName: cilium
   listeners:
-    - name: https
+    # Named for what it serves, not for its protocol. The name is the
+    # ServerSideApply merge key, so it has to be unique against every listener
+    # tenant-public-tls contributes -- a generic `https` would be one tenant
+    # hostname away from silently overwriting this one.
+    - name: spoke-query
       protocol: HTTPS
       port: 443
       hostname: victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
@@ -75,8 +109,12 @@ metadata:
   namespace: platform-observability
 spec:
   parentRefs:
-    - name: spoke-query-gateway
+    # The shared :443 Gateway, and the listener on it that this route belongs
+    # to. sectionName is required here: without it the route attaches to every
+    # listener whose hostname it matches, including tenant listeners.
+    - name: tenant-tls-gateway
       namespace: platform-ops
+      sectionName: spoke-query
   hostnames:
     - victoriametrics.CELL_NAME.SUBDOMAIN_DOMAIN
   rules:

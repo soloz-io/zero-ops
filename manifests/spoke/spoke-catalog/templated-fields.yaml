@@ -160,8 +160,17 @@
   fields:
     - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
 
+# The spoke's single :443 Gateway (ADR-051 amendment 2026-09-21). It was
+# `spoke-query-gateway` until that amendment made a port the property of ONE
+# Gateway: a Cilium hostNetwork Gateway binds a real host port, so a second
+# claimant of :443 is NACKed by envoy for the life of the cluster. This object
+# now carries the query endpoint as a LISTENER and tenant-public-tls adds one
+# listener per tenant hostname to the same object.
+#
+# The hostname substitution is unchanged and still applies to the listener this
+# file contributes.
 - kind: Gateway
-  name: spoke-query-gateway
+  name: tenant-tls-gateway
   fields:
     - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
 

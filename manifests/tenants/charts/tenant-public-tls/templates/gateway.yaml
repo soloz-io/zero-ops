@@ -1,17 +1,29 @@
 {{- include "tenant-public-tls.requirements" . }}
 {{- if .Values.public.hosts }}
 ---
-# Per-spoke shared TLS-termination Gateway (ADR-051, L2 split). This chart is
-# its SOLE owner — spoke-catalog owns tenant-gateway (:80, ACME solver
-# attachment + agentgateway plaintext hop) and never edits this object; this
-# chart never touches tenant-gateway. One HTTPS listener per DECLARED hostname:
-# Gateway API selects the listener by SNI, so per-tenant certificates terminate
-# on one Gateway without wildcards.
+# Per-spoke shared TLS-termination Gateway (ADR-051, L2 split). One HTTPS
+# listener per DECLARED hostname: Gateway API selects the listener by SNI, so
+# per-tenant certificates terminate on one Gateway without wildcards.
 #
-# Port partitioning (:80 vs :443) was verified empirically on Cilium v1.17.18
-# hostNetwork mode (see spoke-catalog/probes/l2-dual-gateway-probe.yaml): two
-# Gateways coexist cleanly on different ports. Same-port claims are first-wins,
-# so this :443 Gateway must never coexist with another claimant of :443.
+# This chart is a CONTRIBUTOR to this Gateway, not its sole owner. It used to be
+# the owner, and the sentence that stood here — "this :443 Gateway must never
+# coexist with another claimant of :443" — was correct and was then broken from
+# the other side: ADR-083's query endpoint added a second :443 Gateway on the
+# same spoke. A Cilium Gateway in hostNetwork mode binds a real host port, so
+# envoy NACKed one of the two permanently while every Kubernetes status kept
+# reporting Programmed=True.
+#
+# The object is now created by spoke-catalog (so a tenant-less spoke still
+# terminates TLS for its own endpoints) and both sides write only their own
+# listeners into it. spec.listeners is `x-kubernetes-list-type: map` keyed on
+# `name`, so under ServerSideApply each contributor's entries survive the
+# other's apply. Listener names here derive from the hostname, which keeps them
+# distinct from the platform's own.
+#
+# Port partitioning (:80 vs :443) still holds and is still verified empirically
+# on Cilium v1.17.18 hostNetwork mode (see
+# spoke-catalog/probes/l2-dual-gateway-probe.yaml): two Gateways coexist cleanly
+# on DIFFERENT ports. What is not allowed is two on the same one.
 #
 # DNS publication: external-dns runs with the gateway-httproute source on the
 # spoke and reads hostnames from listeners. The Cilium gateway Service is
