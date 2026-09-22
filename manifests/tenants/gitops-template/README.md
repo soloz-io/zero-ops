@@ -114,9 +114,30 @@ secret that is already supplied with nothing, and the workload reading it would
 start and fail -- so a half-filled file writes the half you filled and reports
 the rest as empty.
 
-The script does not decide which keys are yours to supply: it calls the same
-`soloz fleet secrets` that `status` and `set` use, so there is one answer to that
-question rather than two that can drift apart.
+The script is not a second way of doing this, and it does not decide which keys
+are yours to supply. It is the first-time entrypoint, and it calls the same
+commands you would otherwise run by hand:
+
+```
+./scripts/seed-secrets.sh dev --confirm
+        │
+        ├── soloz fleet secrets template dev   (only if .env is missing)
+        └── soloz fleet secrets import dev --from-env environments/dev/.env --confirm
+```
+
+So there is one answer to "which keys does this fleet declare" and one place the
+values are written, whichever you invoke. Use the script when you are supplying a
+fleet's secrets for the first time. Use `soloz fleet secrets import` directly when
+the values already exist in a file somewhere else and there is no skeleton to
+generate -- migrating a fleet that predates this is exactly that case. Use
+`soloz fleet secrets set` for one secret, or to rotate one.
+
+You never type the tenant or the cell. Both are read from
+`environments/<env>/values.yaml` -- `tenantId` and `cellId` -- and the storage
+path is derived from them, so the place a value is written and the place the
+workload reads it from cannot disagree. Naming that path by hand is how a secret
+ends up under a cell the fleet does not run on, which surfaces later as a store
+that appears broken rather than as the typo it was.
 
 ### How often you do this
 
