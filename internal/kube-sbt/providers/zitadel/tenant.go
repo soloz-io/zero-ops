@@ -176,7 +176,7 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		if perr != nil {
 			incomplete = append(incomplete, fmt.Sprintf("generate the owner's initial password: %v", perr))
 			out.Incomplete = incomplete
-		return out, nil
+			return out, nil
 		}
 		created, cerr := a.CreateUser(ctx, models.User{
 			Email:    ownerEmail,
@@ -188,7 +188,7 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		if cerr != nil {
 			incomplete = append(incomplete, fmt.Sprintf("create owner %q: %v", ownerEmail, cerr))
 			out.Incomplete = incomplete
-		return out, nil
+			return out, nil
 		}
 		owner = created
 		out.OwnerPassword = pw

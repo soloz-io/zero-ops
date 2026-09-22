@@ -363,3 +363,72 @@ _chain_nodes_ready() {
         hard_fail "$failure (matched $total node(s), $ready Ready)"
     fi
 }
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cluster DNS is answered on the node that asked
+# ──────────────────────────────────────────────────────────────────────────
+# The static counterpart asserts the manifests are in the local-redirect shape.
+# This asserts the datapath actually took it, which is a different claim and the
+# only one that matters: every failure this guards against left the manifests
+# correct, the pods Running and the Application Synced/Healthy.
+#
+# The evidence is the agent's own service table. A kube-dns ClusterIP that has
+# not been claimed looks like this --
+#
+#   3  10.96.0.10:53/UDP  ClusterIP  1 => 10.244.0.26:53/UDP (active)
+#                                    2 => 10.244.1.72:53/UDP (active)
+#
+# -- two cluster-wide CoreDNS backends, one of them on the far side of the
+# Tailscale overlay, chosen per connection by the socket load balancer. Roughly
+# half of every pod's DNS then crosses a link with ~207ms RTT and multi-second
+# stalls, and the queries that stall return EAI_AGAIN to the application. On
+# 2026-09-22 that was a Zitadel sign-in reporting "Could not create session for
+# user": a gRPC connect that never resolved its target, rendered as an identity
+# error.
+#
+# Claimed, the same row reads `LocalRedirect` with exactly the node's own cache
+# behind it. Nothing else distinguishes the two states -- not pod status, not
+# the DaemonSet, not the policy object's existence, which is why this check
+# reads the table rather than the objects.
+#
+# Asserted on EVERY agent: the redirect is programmed per node, and a node whose
+# agent missed it is a node whose pods are silently back on the overlay.
+validate_nodelocal_dns_redirect_programmed() {
+    section "cluster DNS answered node-locally (ADR-046)"
+
+    local pods pod table claimed=0 total=0 unclaimed=""
+    pods=$(kc -n kube-system get pods -l k8s-app=cilium \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+
+    if [[ -z "$pods" ]]; then
+        hard_fail "no cilium agent pods found — cannot tell whether cluster DNS is answered locally"
+        return
+    fi
+
+    while IFS= read -r pod; do
+        [[ -z "$pod" ]] && continue
+        total=$((total + 1))
+        table=$(kc -n kube-system exec "$pod" -c cilium-agent -- \
+            cilium-dbg service list 2>/dev/null | grep '10\.96\.0\.10:53')
+
+        if [[ -z "$table" ]]; then
+            unclaimed+=$'\n'"  $pod: no 10.96.0.10:53 entry in the service table at all"
+            continue
+        fi
+        if grep -q 'LocalRedirect' <<< "$table"; then
+            claimed=$((claimed + 1))
+        else
+            unclaimed+=$'\n'"  $pod: $(awk '{$1=""; print}' <<< "$table" | head -1 | xargs)"
+        fi
+    done <<< "$pods"
+
+    if (( total > 0 && claimed == total )); then
+        pass "kube-dns ClusterIP is LocalRedirect on all $total node(s) — DNS never leaves the node"
+    else
+        hard_fail "kube-dns ClusterIP is NOT redirected to the node-local cache on $((total - claimed)) of $total node(s).
+Those nodes' pods resolve through cluster-wide CoreDNS endpoints, so roughly half of every
+lookup crosses the Tailscale overlay and the ones that stall surface as EAI_AGAIN.
+Check enable-local-redirect-policy in cilium-config and the CiliumLocalRedirectPolicy
+in kube-system; with the flag off the policy is accepted and inert.${unclaimed}"
+    fi
+}

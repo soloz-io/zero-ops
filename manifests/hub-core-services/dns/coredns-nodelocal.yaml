@@ -1,66 +1,94 @@
 # NodeLocal DNSCache (ADR-046).
 #
-# A DaemonSet caching resolver on every node, listening on a link-local address
-# that never leaves the host. Pods resolve against it instead of the kube-dns
-# ClusterIP, so a query only crosses the node-to-node overlay on a cache miss —
+# A DaemonSet caching resolver on every node. Pods resolve against the one on
+# THEIR node, so a query only crosses the node-to-node overlay on a cache miss —
 # and then over TCP, where packet loss is retried by the transport rather than
-# returning NXDOMAIN to the caller.
+# surfacing to the caller as a resolution failure.
 #
 # This is the change that actually removes the failure mode. Distributing CoreDNS
 # (coredns-distribution.yaml beside this file) puts a resolver on each node, but a
 # pod still reaches it through a ClusterIP that may route to a replica on another
-# node — over the same lossy path. Only a node-local listener guarantees the common
-# case never touches the overlay.
+# node — over the same lossy path. Only a node-local listener guarantees the
+# common case never touches the overlay.
 #
-# ADDRESSING
-#   169.254.20.10  Link-local (RFC 3927), unroutable off-host by definition, and
-#                  the upstream convention for this component. Safe on any
-#                  cluster because nothing can route it anywhere — not a
-#                  cluster-specific value.
+# HOW PODS REACH IT: CiliumLocalRedirectPolicy, NOT a host-bound address
 #
-#   10.96.0.10     The kube-dns ClusterIP, bound on the node as well. This one IS
-#                  derived: it is the tenth address of the service CIDR, which
-#                  this platform pins to 10.96.0.0/12 in the CAPI ClusterClass
-#                  and both provider compositions. Every cluster the platform
-#                  creates therefore has kube-dns here.
+# Pods resolve against the kube-dns ClusterIP because kubelet advertises it, so
+# something has to turn a query for that address into a query answered on this
+# node. Two mechanisms can do that, and only one of them works here.
 #
-#                  It is nonetheless a restatement of a value owned elsewhere,
-#                  and the failure if they diverge is quiet: the cache would bind
-#                  an address nothing sends to, every query would go back over
-#                  the network, and the only symptom would be the intermittent
-#                  resolution failures this component exists to remove — with no
-#                  error anywhere pointing at the cause. Changing serviceSubnet
-#                  requires changing this in step.
+# The upstream NodeLocal DNSCache binds the kube-dns ClusterIP on the host and
+# relies on the service proxy leaving it alone. That holds under kube-proxy,
+# where a ClusterIP is a packet-level DNAT an earlier local bind can win. It does
+# NOT hold under `kube-proxy-replacement: true` (ADR-046 invariant): Cilium's
+# socket-level load balancer rewrites the destination inside connect(), in the
+# pod's own network namespace, BEFORE a packet exists. The host listener is never
+# consulted, and the query goes to whichever CoreDNS endpoint the socket LB
+# picked — on this topology, the other node, across VXLAN-over-Tailscale.
 #
-# WHY BIND THE CLUSTERIP
-#   Pods already resolve against 10.96.0.10 because kubelet advertises it. Binding
-#   it here means those queries are answered by this node's cache without any pod,
-#   kubelet or node configuration changing: existing pods are intercepted where
-#   they stand, and a node joined later is covered the moment this DaemonSet
-#   schedules on it.
+# That is not a theoretical gap. Measured on the hub, 40 lookups each from a pod
+# on the home worker:
 #
-#   The alternative — repointing kubelet at 169.254.20.10 — needs a per-node
-#   change outside reconciliation, applied by hand to every existing node and
-#   remembered for every future one. It also fails badly in the wrong order: a
-#   node told to resolve against an address where nothing listens cannot resolve
-#   anything, including the names needed to diagnose it.
+#     169.254.20.10 (this cache, directly)      40 ok   0 fail
+#     10.96.0.10    (kube-dns ClusterIP)        38 ok   2 fail
+#     CoreDNS on the same node                  40 ok   0 fail
+#     CoreDNS on the control plane (207ms RTT)  37 ok   3 fail
 #
-#   Misses forward to kube-dns-upstream, a Service selecting the CoreDNS pods
-#   directly. Forwarding to 10.96.0.10 instead would resolve to this very
-#   listener and loop.
+# The cache was running, Ready, and its Application Synced/Healthy the whole
+# time, and every pod's DNS was still going over the overlay. Nothing reported
+# it, because from every status surface the component was working. What it
+# actually produced was intermittent EAI_AGAIN — in the Zitadel login app, a
+# failed gRPC connect to the issuer that the login UI renders as "Could not
+# create session for user", i.e. a broken login with no wrong-password anywhere.
 #
-#   __PILLAR__CLUSTER__DNS__ is substituted at startup by the node-cache binary,
-#   which resolves the Service named by -upstreamsvc through the API server and
-#   writes its ClusterIP into the Corefile. A literal DNS name could not be used
-#   here: the cache would need working DNS in order to find its own upstream.
+# So the redirect is expressed to the datapath that is actually deciding:
+# CiliumLocalRedirectPolicy (bottom of this file) tells the socket LB to send
+# kube-dns ClusterIP traffic to the node-local backend instead of a cluster-wide
+# endpoint. This is Cilium's documented arrangement for exactly this component —
+# setup 1 ("full kube-proxy replacement") in
+# Documentation/network/kubernetes/local-redirect-policy.rst.
+#
+# It requires `enable-local-redirect-policy: 'true'` in cilium-config, which is
+# an ADR-046 datapath invariant for the same reason the others are: with it off,
+# the policy below is silently inert and this file is decoration.
+#
+# CONSEQUENCES OF USING THE POLICY RATHER THAN A HOST BIND
+#
+# The pods run in the POD network namespace (`hostNetwork: false`), because the
+# redirect targets Cilium endpoints and a host-networked pod is not one. That in
+# turn means the cache must not provision the link-local address or the NOTRACK
+# rules the upstream flavour installs — `-setupinterface=false`,
+# `-setupiptables=false`, `-skipteardown=true` — and the Corefile binds 0.0.0.0
+# rather than a static address, since there is no dummy interface to bind.
+#
+# `-localip` is still passed. The binary uses it for its own bookkeeping; it no
+# longer causes anything to be configured on the host.
+#
+#   169.254.20.10  Link-local (RFC 3927), the upstream convention for this
+#                  component. Unroutable off-host by definition.
+#
+#   10.96.0.10     The kube-dns ClusterIP: the tenth address of the service
+#                  CIDR, which this platform pins to 10.96.0.0/12 in the CAPI
+#                  ClusterClass and both provider compositions. A restatement of
+#                  a value owned elsewhere — changing serviceSubnet requires
+#                  changing this in step.
+#
+# Misses forward to kube-dns-upstream, a Service selecting the CoreDNS pods under
+# a ClusterIP the policy below does not redirect. Forwarding to kube-dns instead
+# would be redirected straight back to this listener and loop.
+#
+# __PILLAR__CLUSTER__DNS__ is substituted at startup by the node-cache binary,
+# which resolves the Service named by -upstreamsvc through the API server and
+# writes its ClusterIP into the Corefile. A literal DNS name could not be used
+# here: the cache would need working DNS in order to find its own upstream.
 ---
 # The cache's upstream for misses.
 #
-# A separate Service is required rather than reusing kube-dns: the DaemonSet now
-# binds the kube-dns ClusterIP on every node, so forwarding a miss to that address
-# would arrive back at this same listener and loop. This Service selects the same
-# CoreDNS pods under a different ClusterIP, which is not bound locally and
-# therefore routes to a real resolver.
+# A separate Service is required rather than reusing kube-dns: the local redirect
+# policy below claims the kube-dns ClusterIP on every node, so forwarding a miss
+# to that address would arrive back at this same listener and loop. This Service
+# selects the same CoreDNS pods under a different ClusterIP, which carries no
+# policy and therefore routes to a real resolver.
 apiVersion: v1
 kind: Service
 metadata:
@@ -98,6 +126,10 @@ metadata:
   labels:
     k8s-app: node-local-dns
 data:
+  # bind 0.0.0.0, not a static address: the pod runs in its own network
+  # namespace and the link-local dummy interface the upstream flavour would have
+  # created does not exist here. `health` likewise takes no host — it serves on
+  # the pod's own IP so the kubelet probe can reach it.
   Corefile: |
     cluster.local:53 {
         errors
@@ -107,19 +139,19 @@ data:
         }
         reload
         loop
-        bind 169.254.20.10 10.96.0.10
+        bind 0.0.0.0
         forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
         prometheus :9253
-        health 169.254.20.10:8080
+        health
     }
     in-addr.arpa:53 {
         errors
         cache 30
         reload
         loop
-        bind 169.254.20.10 10.96.0.10
+        bind 0.0.0.0
         forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
@@ -130,7 +162,7 @@ data:
         cache 30
         reload
         loop
-        bind 169.254.20.10 10.96.0.10
+        bind 0.0.0.0
         forward . __PILLAR__CLUSTER__DNS__ {
             force_tcp
         }
@@ -141,7 +173,7 @@ data:
         cache 30
         reload
         loop
-        bind 169.254.20.10 10.96.0.10
+        bind 0.0.0.0
         # External names go to the cluster resolver too, so the IPv4-only
         # upstream pinning stays in one place (the CoreDNS Corefile) rather than
         # being restated here. The hub's nodes have no working IPv6 route, and
@@ -171,14 +203,21 @@ spec:
       labels:
         k8s-app: node-local-dns
       annotations:
+        # Keep conntrack out of the DNS path. The upstream flavour achieves this
+        # with NOTRACK iptables rules it installs itself; those are disabled here
+        # (-setupiptables=false), so it is asked of Cilium instead.
+        policy.cilium.io/no-track-port: "53"
         prometheus.io/port: "9253"
         prometheus.io/scrape: "true"
     spec:
       priorityClassName: system-node-critical
       serviceAccountName: node-local-dns
-      # hostNetwork: the whole point is a listener on the node's own network
-      # namespace that pods reach without traversing the overlay.
-      hostNetwork: true
+      # NOT hostNetwork. A CiliumLocalRedirectPolicy redirects to Cilium
+      # endpoints, and a host-networked pod is not one — with hostNetwork: true
+      # the policy below matches no backend and silently does nothing.
+      hostNetwork: false
+      # Don't use cluster DNS: this IS cluster DNS, and resolving through itself
+      # at startup would deadlock.
       dnsPolicy: Default
       tolerations:
         - key: CriticalAddonsOnly
@@ -198,27 +237,35 @@ spec:
               memory: 64Mi
           args:
             - -localip
-            # Both: the link-local address and the kube-dns ClusterIP, so pods
-            # already pointed at the ClusterIP are served locally.
             - 169.254.20.10,10.96.0.10
             - -conf
             - /etc/Corefile
             - -upstreamsvc
             - kube-dns-upstream
-            # setupinterface/setupiptables are left at their defaults: the cache
-            # creates the dummy interface holding the link-local address and the
-            # NOTRACK rules that keep conntrack out of the DNS path. Disabling
-            # them requires the address to be provisioned by something else.
-          securityContext:
-            capabilities:
-              add: ["NET_ADMIN"]
+            # The three that make this the local-redirect flavour rather than the
+            # host-bound one. Without them the cache creates a dummy interface
+            # and NOTRACK rules for an address nothing is sent to, and tears the
+            # interface down on exit — none of which applies when the redirect is
+            # performed by the datapath. Requires an image >= 1.15.16, which is
+            # where -setupinterface gained a knob; pinned well above that.
+            - -skipteardown=true
+            - -setupinterface=false
+            - -setupiptables=false
           ports:
+            # Named, because the policy's toPorts references them by name.
+            - containerPort: 53
+              name: dns
+              protocol: UDP
+            - containerPort: 53
+              name: dns-tcp
+              protocol: TCP
             - containerPort: 9253
               name: metrics
               protocol: TCP
           livenessProbe:
+            # No host: the probe reaches the pod's own IP. Naming the link-local
+            # address here would probe an interface that is no longer created.
             httpGet:
-              host: 169.254.20.10
               path: /health
               port: 8080
             initialDelaySeconds: 60
@@ -226,8 +273,6 @@ spec:
           volumeMounts:
             - name: config-volume
               mountPath: /etc/coredns
-            - name: xtables-lock
-              mountPath: /run/xtables.lock
       volumes:
         - name: config-volume
           configMap:
@@ -235,7 +280,42 @@ spec:
             items:
               - key: Corefile
                 path: Corefile.base
-        - name: xtables-lock
-          hostPath:
-            path: /run/xtables.lock
-            type: FileOrCreate
+---
+# What actually puts the cache in the path.
+#
+# Tells Cilium's socket load balancer that a connection to the kube-dns ClusterIP
+# must be answered by the node-local-dns pod ON THE CALLER'S NODE, rather than by
+# any endpoint of the kube-dns Service. Without this the socket LB picks a
+# cluster-wide CoreDNS endpoint and the cache is bypassed entirely — see the
+# measurements at the top of this file.
+#
+# localEndpointSelector is node-scoped by construction: Cilium only ever selects
+# backends local to the node handling the connection, which is the whole property
+# being bought.
+apiVersion: cilium.io/v2
+kind: CiliumLocalRedirectPolicy
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  annotations:
+    # The Cilium CRDs arrive with Cilium itself, in the CAPI ClusterResourceSet
+    # addon (ADR-041), so on a new cluster this resource is validated against an
+    # API that does not yet serve cilium.io/v2 and ArgoCD's dry-run fails the
+    # whole sync.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  redirectFrontend:
+    serviceMatcher:
+      serviceName: kube-dns
+      namespace: kube-system
+  redirectBackend:
+    localEndpointSelector:
+      matchLabels:
+        k8s-app: node-local-dns
+    toPorts:
+      - port: "53"
+        name: dns
+        protocol: UDP
+      - port: "53"
+        name: dns-tcp
+        protocol: TCP

@@ -611,6 +611,8 @@ validate_adr046_datapath_invariants() {
             "ADR-046 §14: path-MTU discovery is what keeps the 1250B ceiling honest for traffic that ignores it"
         _adr046_expect "$p" kube-proxy-replacement true \
             "ADR-046 §24: the ClusterClass deletes kube-proxy, so Cilium IS the replacement"
+        _adr046_expect "$p" enable-local-redirect-policy true \
+            "ADR-046: NodeLocal DNSCache reaches pods ONLY through a CiliumLocalRedirectPolicy, because kube-proxy-replacement rewrites the kube-dns ClusterIP inside connect() before any host-bound listener can see it. False here and the policy is accepted, inert, and every pod's DNS crosses the overlay while the cache reports Ready"
 
         # Native-routing settings that must STAY off (§14, §17.1).
         local adnr drd
@@ -641,3 +643,106 @@ validate_adr046_datapath_invariants() {
         "ADR-046 §15: Envoy binds privileged host ports 80/443 and needs the capability retained"
 }
 
+
+# ──────────────────────────────────────────────────────────────────────────
+# NodeLocal DNSCache must be in the LOCAL-REDIRECT shape, not the host-bound one
+# ──────────────────────────────────────────────────────────────────────────
+# enable-local-redirect-policy above makes the policy possible; this makes it
+# apply.
+#
+# NodeLocal DNSCache ships in two mutually exclusive arrangements that look
+# almost identical in a diff:
+#
+#   host-bound       hostNetwork: true, binds 169.254.20.10 and the kube-dns
+#   (upstream)       ClusterIP on the node, creates a dummy interface and NOTRACK
+#                    rules itself. Depends on the service proxy leaving a locally
+#                    bound ClusterIP alone -- true under kube-proxy, FALSE under
+#                    Cilium's socket load balancer, which rewrites the
+#                    destination in the pod's own namespace before a packet
+#                    exists.
+#
+#   local-redirect   hostNetwork: false, binds 0.0.0.0 in the pod namespace, and
+#   (Cilium)         is put in the path by a CiliumLocalRedirectPolicy.
+#
+# Picking the first on this platform yields a component that is Running, Ready
+# and Synced/Healthy while doing nothing at all. Measured on the hub: 40/40
+# lookups succeeded against the cache directly, 38/40 against the kube-dns
+# ClusterIP from the same pod -- the failures being queries the socket LB had
+# sent to the CoreDNS replica on the far side of the Tailscale overlay. What
+# that surfaced as was EAI_AGAIN inside the Zitadel login app and a sign-in
+# reporting "Could not create session for user": an identity error for a DNS
+# fault, three layers from the cause.
+#
+# Asserted here because no status anywhere reports the difference, and because
+# reverting hostNetwork "back" to the upstream default would look entirely
+# reasonable in review.
+validate_adr046_nodelocal_dns_local_redirect() {
+    local f="manifests/hub-core-services/dns/coredns-nodelocal.yaml"
+    if [[ ! -f "$f" ]]; then
+        hard_fail "$f is missing -- NodeLocal DNSCache is what keeps pod DNS off the Tailscale overlay (ADR-046)"
+        return
+    fi
+
+    # One invocation, output captured: running the checker twice to re-read its
+    # findings is how a validator and its subject drift apart.
+    local findings rc
+    findings="$(python3 - "$f" <<'PYEOF'
+import sys, yaml
+
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+ds = next((d for d in docs if d.get("kind") == "DaemonSet"), None)
+lrp = next((d for d in docs if d.get("kind") == "CiliumLocalRedirectPolicy"), None)
+
+if ds is None:
+    print("no DaemonSet document -- the cache is not declared here at all")
+else:
+    spec = ds["spec"]["template"]["spec"]
+    if spec.get("hostNetwork", False):
+        print("the DaemonSet sets hostNetwork: true -- a CiliumLocalRedirectPolicy "
+              "redirects to Cilium endpoints and a host-networked pod is not one, so "
+              "the policy matches no backend and silently does nothing")
+    container = spec["containers"][0]
+    args = " ".join(container.get("args", []))
+    for flag in ("-setupinterface=false", "-setupiptables=false", "-skipteardown=true"):
+        if flag not in args:
+            print(f"node-cache is missing {flag} -- without it the cache provisions a "
+                  "link-local interface and NOTRACK rules for an address nothing is sent "
+                  "to, and tears that interface down on exit")
+    names = {p.get("name") for p in container.get("ports", [])}
+    for want in ("dns", "dns-tcp"):
+        if want not in names:
+            print(f"container port '{want}' is not named -- the policy's toPorts "
+                  "references it by name and cannot bind to an unnamed port")
+
+if lrp is None:
+    print("no CiliumLocalRedirectPolicy document -- under kube-proxy-replacement the "
+          "DaemonSet alone is not in the DNS path")
+else:
+    fe = lrp["spec"]["redirectFrontend"].get("serviceMatcher", {})
+    if (fe.get("serviceName"), fe.get("namespace")) != ("kube-dns", "kube-system"):
+        print(f"the policy's frontend is {fe}, not kube-dns/kube-system -- pods resolve "
+              "against that Service and no other")
+    sel = lrp["spec"]["redirectBackend"]["localEndpointSelector"]["matchLabels"]
+    if sel.get("k8s-app") != "node-local-dns":
+        print(f"the policy's backend selector is {sel}, which does not select the cache")
+PYEOF
+)"
+    rc=$?
+
+    # A crashed checker is a failure, not a pass. Three preflight modules once
+    # reported green because their python died before printing anything.
+    if [[ $rc -ne 0 ]]; then
+        hard_fail "coredns-nodelocal.yaml: the shape checker exited $rc without completing -- ${findings:-no output}"
+        return
+    fi
+
+    if [[ -z "$findings" ]]; then
+        pass "NodeLocal DNSCache is in the local-redirect shape and the policy selects it"
+        return
+    fi
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && hard_fail "coredns-nodelocal.yaml: $line"
+    done <<< "$findings"
+}

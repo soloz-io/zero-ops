@@ -1321,7 +1321,10 @@ from the cause and name nothing that would lead an operator back to it:
 - Cilium's VXLAN tunnel endpoint is derived from that same `InternalIP`, so cross-node
   pod traffic stops;
 - a pod therefore loses CoreDNS whenever the DNS replicas sit on the other node,
-  surfacing inside the container as `EAI_AGAIN`.
+  surfacing inside the container as `EAI_AGAIN`. (§34: `EAI_AGAIN` is not
+  diagnostic of this. It also occurs with the tunnel entirely healthy, every time
+  a query crosses it — which was the normal case until the local redirect landed.
+  Reaching for invariant 6 on seeing it sends you to a tunnel that is fine.)
 
 What was actually visible was Infisical in `CrashLoopBackOff` on *"Boot up migration
 failed"*, with `platform-db` reporting *"Cluster in healthy state"* and its pooler
@@ -2491,7 +2494,11 @@ CoreDNS (2 replicas) and node-local-dns (2) were `Running` for 32 hours across
 the window and logged no error. `10.96.0.10` is the kube-dns ClusterIP, which on
 this platform is bound on every node by the `hostNetwork` node-local-dns
 DaemonSet, so the query was answered locally and only a cache miss forwards
-upstream.
+upstream. **[Corrected by §34: this premise is false. The binding existed and
+nothing reached it — Cilium's socket load balancer rewrites the ClusterIP before
+a packet exists, so every query went to a cluster-wide CoreDNS endpoint. The
+suspect below, and this section's revisit trigger, both name a cache that was
+answering nothing.]**
 
 The placement is the part that belongs to this ADR. Both the ArgoCD
 application-controller and the repo-server it could not resolve run on
@@ -2544,6 +2551,137 @@ theorising further. Independently, ArgoCD components are a candidate for the
 Hetzner placement class on the same reasoning §24.5 applies to other
 availability-sensitive components — a control loop for the whole cell should not
 depend on the least reliable node in it.
+
+### 34. Cluster DNS is answered on the node that asked; the cache reaches pods through a local redirect (2026-09-22)
+
+**Decision — NodeLocal DNSCache is put in the DNS path by a
+`CiliumLocalRedirectPolicy`, not by binding the kube-dns ClusterIP on the host.**
+
+A pod's query to `10.96.0.10:53` is served by the `node-local-dns` pod on that
+pod's own node. Misses forward to `kube-dns-upstream` over TCP, where loss is
+retried by the transport. The node-to-node overlay carries cluster DNS only on a
+cache miss, and never carries a query that a local cache could have answered.
+
+The agent's service table is where this is true or false, and it is the only
+place that distinguishes the two states:
+
+```
+7  10.96.0.10:53/UDP  LocalRedirect  1 => 10.244.1.41:53/UDP (active)
+```
+
+One backend, on this node, `LocalRedirect`. `ClusterIP` with two cluster-wide
+CoreDNS backends is the unclaimed form and means the cache is bypassed.
+
+**Why the host-bound arrangement could not work here.** NodeLocal DNSCache ships
+in two mutually exclusive shapes. The upstream one runs `hostNetwork: true`,
+binds `169.254.20.10` and the kube-dns ClusterIP on the node, and installs its
+own dummy interface and NOTRACK rules. It relies on the service proxy leaving a
+locally bound ClusterIP alone — true under kube-proxy, and false here. §24 makes
+`kube-proxy-replacement: true` an invariant, and Cilium's socket load balancer
+rewrites the destination inside `connect()`, in the pod's own network namespace,
+**before a packet exists**. A listener on the host is never consulted. The
+socket LB picks a cluster-wide CoreDNS endpoint, and on this topology half of
+them are across the tailnet.
+
+So the redirect is expressed to the datapath that is actually deciding. This is
+Cilium's documented arrangement for this component — setup 1, "full kube-proxy
+replacement", in `Documentation/network/kubernetes/local-redirect-policy.rst`.
+It costs three consequential changes, all in
+`manifests/hub-core-services/dns/coredns-nodelocal.yaml`: the DaemonSet runs in
+the pod namespace (`hostNetwork: false`, because a host-networked pod is not a
+Cilium endpoint and the policy would match no backend), the cache no longer
+provisions the address or the NOTRACK rules (`-setupinterface=false`,
+`-setupiptables=false`, `-skipteardown=true`; conntrack exemption moves to the
+`policy.cilium.io/no-track-port` annotation), and the Corefile binds `0.0.0.0`
+because there is no dummy interface to bind.
+
+`enable-local-redirect-policy: 'true'` joins the §6/§14 datapath invariants in
+both providers' `cilium-config-base.yaml`. With it false the policy object is
+accepted and inert — which is the state this section was written from.
+
+**What this corrects in §33, and why that section could not find its cause.**
+§33 states:
+
+> `10.96.0.10` is the kube-dns ClusterIP, which on this platform is bound on
+> every node by the `hostNetwork` node-local-dns DaemonSet, so the query was
+> answered locally and only a cache miss forwards upstream.
+
+That premise is false and was false when written. The DaemonSet did bind the
+address; nothing reached the binding. Every pod's DNS was going to whichever
+CoreDNS replica the socket LB chose, per connection — so §33's leading suspect,
+*"a stale negative cache entry in node-local-dns"*, named a component that was
+never in the path, and its revisit trigger sends the next investigator to raise
+log verbosity on a cache that was answering nothing. §33's own honesty about
+being unverified is what makes it recoverable; the NXDOMAIN it could not explain
+remains unexplained, and this section does not claim to close it.
+
+The same misattribution appears earlier in this ADR, where `EAI_AGAIN` inside
+application containers is listed as a downstream consequence of the invariant-6
+InternalIP rebind. That mechanism is real and is a different one: it breaks the
+VXLAN tunnel outright. `EAI_AGAIN` also occurs with the tunnel entirely healthy,
+whenever a query crosses it, which is the case here.
+
+**Evidence.** Measured from a pod on `flatcar-hub-node-1`, 40 lookups per target:
+
+| target | ok | fail |
+|---|---|---|
+| `169.254.20.10` — the cache directly | 40 | 0 |
+| `10.96.0.10` — the kube-dns ClusterIP | 38 | 2 |
+| CoreDNS on the same node | 40 | 0 |
+| CoreDNS on the control plane (207ms RTT) | 37 | 3 |
+
+ICMP across the same path showed 0% loss at a stable 207ms, so the path is not
+lossy — it stalls, past a 2s resolver timeout, several percent of the time. The
+ClusterIP column is the average of the two CoreDNS columns because the socket LB
+was splitting across both, which is the signature of the cache being bypassed.
+
+**What it surfaced as.** A Zitadel sign-in at `waypoint.dev.nutgraf.in`
+reporting **"Could not create session for user"**. The login app's
+`createSession` gRPC call failed to resolve `zitadel`; a `ConnectError` carries
+no `failedAttempts` field, so `apps/login/src/lib/server/password.ts` falls to
+`errors.couldNotCreateSessionForUser` — the same string a genuine credential
+failure never produces. The tenant's account was correct throughout: active, in
+the tenant's organisation, email verified, password set, project role granted.
+Four hours went into the identity provisioner before the login pod's own log was
+read, where 35 of 270 lines were `getaddrinfo EAI_AGAIN zitadel`.
+
+That distance between cause and symptom is the argument for the gates below,
+not the fix itself.
+
+**Gates.** Both are in the ADR's own validators (`scripts/validate/*/046-*`):
+
+- preflight `validate_adr046_nodelocal_dns_local_redirect` asserts the manifests
+  are in the local-redirect shape — `hostNetwork: false`, the three flags, named
+  `dns`/`dns-tcp` ports, and a policy whose frontend is `kube-dns/kube-system`
+  and whose backend selects the cache. Reverting any one of them to the upstream
+  default would look entirely reasonable in review.
+- cluster `validate_nodelocal_dns_redirect_programmed` reads `cilium-dbg service
+  list` on **every** agent and requires `LocalRedirect`. The redirect is
+  programmed per node, and a node whose agent missed it is a node whose pods are
+  silently back on the overlay.
+
+The static gate asserts the manifests; the cluster gate asserts the datapath.
+Only the second one would have caught this, because every other surface —
+DaemonSet Ready 2/2, pods Running, `platform-dns` Synced/Healthy — reported
+correct throughout.
+
+**Delivery note.** The hub's `kube-system/cilium-config` is delivered by a
+ClusterResourceSet with strategy `ApplyOnce` and is reconciled by nothing
+afterwards, so the invariant above governs the next hub and had to be patched by
+hand on this one. The spoke-side base in `platform-capi` is ArgoCD-managed and
+follows the file. That asymmetry is not specific to this setting: **any** §6/§14
+datapath invariant changed after a hub exists needs the same manual step, and
+the cluster gate is what makes the drift visible rather than the file.
+
+Restart **`deploy/cilium-operator` as well as `ds/cilium`**. The operator is what
+registers `ciliumlocalredirectpolicies.cilium.io`, and the agents refuse to
+become ready until that CRD exists — `Still waiting for Cilium Operator to
+register the following CRDs`, once per second, forever. Restarting only the
+DaemonSet therefore takes every agent on the cell to `0/1` and leaves it there,
+because the operator still holds the pre-patch config and will never register
+what the agents are waiting for. This is not specific to this flag either: it is
+the shape of any Cilium feature whose enablement introduces a CRD.
+
 
 ## References
 

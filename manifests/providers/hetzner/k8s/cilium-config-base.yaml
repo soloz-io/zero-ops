@@ -101,7 +101,18 @@ data:
   iptables-random-fully: 'false'
   auto-direct-node-routes: 'false'
   direct-routing-skip-unreachable: 'false'
-  enable-local-redirect-policy: 'false'
+  # Required by NodeLocal DNSCache (manifests/hub-core-services/dns/coredns-nodelocal.yaml).
+  #
+  # With kube-proxy-replacement on, the socket load balancer rewrites a ClusterIP
+  # inside connect(), before a packet exists, so a node-local listener bound to the
+  # kube-dns ClusterIP is never consulted. A CiliumLocalRedirectPolicy is the only
+  # way to put a per-node backend in that path — and with this flag false the policy
+  # is accepted and silently does nothing, leaving every pod's DNS on the
+  # node-to-node overlay while the cache reports Ready and its Application Healthy.
+  #
+  # An ADR-046 datapath invariant for that reason: the failure it prevents is
+  # intermittent EAI_AGAIN with no error naming a cause.
+  enable-local-redirect-policy: 'true'
   # Named rather than detected, and tailscale0 is listed whether or not it exists
   # (ADR-075). A wildcard that matches nothing costs nothing, and an agent will not
   # use an interface that appeared after it started -- so a box that gains an
