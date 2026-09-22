@@ -424,9 +424,11 @@ spec:
                   max_client_conn: "300"
                   default_pool_size: "25"
                   ignore_startup_parameters: "search_path, extra_float_digits"
-                authQueryUser:
-                  secretRef:
-                    name: ""   # Patched: <tenantId>-db-credentials
+                # No authQuery, authQuerySecret or authQueryUser. Unset, CNPG runs its
+                # built-in Pooler integration and owns the auth path; supplying any of
+                # them disables that and makes this composition responsible for it.
+                # ADR-006 addendum (2026-09-23) records why, and what the previous
+                # value cost.
               template:
                 spec:
                   containers:
@@ -467,14 +469,6 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.tenantId
       toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
-    # Reference tenant-specific credentials secret (not shared app user)
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.pgbouncer.authQueryUser.secretRef.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-db-credentials"
     # Extract ACTUAL Pooler status from Spoke back to XR
     # Pooler CRs don't have status.conditions - they have status.instances
     - type: ToCompositeFieldPath

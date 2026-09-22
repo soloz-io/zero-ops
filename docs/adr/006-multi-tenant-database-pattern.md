@@ -70,3 +70,54 @@ See ADR-039 for the complete ownership matrix.
 - Debugging failures across multiple layers (Infisical API, ESO sync, provider-sql reconcile)
 - Not suitable for bootstrap users needed during cluster initialization (use postInitSQL for those)
 - Requires Kube-SBT to generate and upload credentials before Crossplane reconciles
+
+## Addendum (2026-09-23) — the Pooler's authentication is CNPG's, not this platform's
+
+**Decision.** A tenant's Pooler declares `poolMode` and `parameters` and nothing
+else. `authQuery`, `authQuerySecret` and any variation on them are left unset, so
+CNPG performs its built-in Pooler integration: it creates the
+`cnpg_pooler_pgbouncer` role and its lookup function in the Cluster, issues the
+client certificate, and writes PgBouncer's authentication configuration.
+Supplying an auth-query secret disables that integration and makes this platform
+responsible for all of it, including the authentication SQL. Nothing here needs
+that ownership.
+
+This is step 7 of the flow above, and the addendum exists because that step
+described a connection URL whose Pooler did not exist.
+
+**What was wrong.** The tenant composition set
+`spec.pgbouncer.authQueryUser.secretRef.name`. `authQueryUser` is not a field in
+CNPG's Pooler schema in any version — the schema has `authQuerySecret` — so every
+Pooler create was rejected by the API server:
+
+```
+.spec.pgbouncer.authQueryUser: field not declared in schema
+```
+
+No Pooler has ever existed on a spoke built by this composition.
+
+**Why nothing reported it.** Step 7's ExternalSecret templates the connection URL
+from `db-credentials` rather than from the Pooler, so it resolves and reports
+`SecretSynced` while naming `<tenant>-pooler.platform-data.svc` — a Service with
+nothing behind it. Applications read that as `DATABASE_URL`. The secret is
+healthy, the ExternalSecret is healthy, and the address does not exist. Only the
+Crossplane Object carried the error, and only the composite's readiness reflected
+it, which is a surface nobody watches until something else asks why a tenant is
+not Ready.
+
+**Why the fix is removal and not a rename.** `authQuerySecret` is not the
+corrected spelling of the same intent — it starts a different, manually managed
+authentication path and requires `authQuery` alongside it. The comment on the
+original field said it was there to reference tenant-specific credentials rather
+than a shared app user, and that is precisely what the built-in integration
+already provides.
+
+**The precedent was already in the repository.** The hub's own pooler declares
+exactly `poolMode` and `parameters` and has run since the hub was built. The
+tenant composition was the outlier, not the pattern — so this is a correction
+toward something already proven here, not a new position.
+
+**Consequence.** A composite is not Ready until its Pooler is, which is the
+behaviour that surfaced this. That readiness is worth keeping: the alternative is
+a tenant reporting Ready while the address its applications connect to resolves
+to nothing.
