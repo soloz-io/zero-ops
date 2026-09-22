@@ -169,6 +169,14 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			case err != nil:
 				logger.Error(err, "Failed to provision tenant identity; will retry", "tenant", tenantId)
 			default:
+				// Provisioned, but perhaps not usable. The identifiers below are
+				// real either way; this is the only place that says a tenant
+				// which looks finished cannot be signed in to, so it is logged
+				// at error level rather than as debug detail.
+				if len(identity.Incomplete) > 0 {
+					logger.Error(nil, "Tenant identity provisioned but INCOMPLETE; logins will fail until this is resolved",
+						"tenant", tenantId, "incomplete", identity.Incomplete)
+				}
 				// Persist the allocated client id where the tenant's gateway
 				// reads it. Nothing downstream can derive this value, and the
 				// gateway will not start without it, so provisioning that did

@@ -43,6 +43,13 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
 
+	// What did not finish. Every step below that is non-fatal -- the tenant is
+	// still worth returning, because its client id must not be lost -- appends
+	// here rather than discarding its error, and the function returns them with
+	// the partial identity. A caller receives both: the identifiers it can
+	// publish, and the reason the tenant is not yet usable.
+	var incomplete []string
+
 	orgID, err := a.ensureOrg(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("ensure organisation for %q: %w", tenantID, err)
@@ -103,7 +110,7 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// GrantRequired the moment they try to use it.
 	if selfRegistration {
 		if gerr := a.grantUngrantedMembers(ctx, orgID, projectID); gerr != nil {
-			_ = gerr
+			incomplete = append(incomplete, fmt.Sprintf("grant self-registered members: %v", gerr))
 		}
 	}
 
@@ -111,7 +118,12 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// Non-fatal: the tenant's identity is correct either way, and failing here
 	// would discard a client id that was already allocated.
 	if rerr := a.EnsureTenantSelfRegistration(ctx, orgID, selfRegistration); rerr != nil {
-		_ = rerr
+		// Reported, not discarded. This policy is what the login UI reads to
+		// decide whether to offer a register link at all -- Zitadel's
+		// apps/login/src/components/username-form.tsx gates it on allowRegister
+		// -- so losing this error leaves a tenant whose users have no way in and
+		// nothing saying why.
+		incomplete = append(incomplete, fmt.Sprintf("set self-registration=%v: %v", selfRegistration, rerr))
 	}
 
 	out := &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}
@@ -122,9 +134,32 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	owner, err := a.findUserByEmail(ctx, ownerEmail)
 	if err != nil && !isNotFound(err) {
 		// Could not tell whether the owner exists. Creating one now risks a
-		// duplicate account, so the tenant is reported without an owner and the
-		// next reconcile retries.
+		// duplicate account, so the tenant is returned without an owner and the
+		// next reconcile retries -- but INCOMPLETE, because a tenant with no
+		// owner account refuses every login.
+		incomplete = append(incomplete, fmt.Sprintf("look up owner %q: %v", ownerEmail, err))
+		out.Incomplete = incomplete
 		return out, nil
+	}
+
+	// THIS organisation's user, or none. The search is global -- it carries no
+	// organisation -- so it answers "does this email exist anywhere in the
+	// issuer", which is a different question from the one being asked.
+	//
+	// Adopting whatever it returns has two consequences and both are silent. The
+	// tenant gets no owner account of its own, so its organisation stays empty
+	// and every login at its hostname is refused with "User not found in the
+	// system" while the tenant looks fully provisioned from every other side.
+	// And the grant below is then applied to a user belonging to SOMEONE ELSE's
+	// organisation -- most likely the platform's own, since that is where an
+	// operator's address already exists -- which hands a foreign account admin
+	// on this tenant's project.
+	//
+	// The response already carries the owning organisation; the caller discarded
+	// it. Compared here, so a user found outside this organisation is treated as
+	// absent and one is created in the right place.
+	if owner != nil && owner.TenantID != orgID {
+		owner = nil
 	}
 
 	if owner == nil {
@@ -139,7 +174,9 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		// it; it is never reset on a later reconcile.
 		pw, perr := generateInitialPassword()
 		if perr != nil {
-			return out, nil
+			incomplete = append(incomplete, fmt.Sprintf("generate the owner's initial password: %v", perr))
+			out.Incomplete = incomplete
+		return out, nil
 		}
 		created, cerr := a.CreateUser(ctx, models.User{
 			Email:    ownerEmail,
@@ -149,7 +186,9 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 			Roles:    []string{"admin"},
 		})
 		if cerr != nil {
-			return out, nil
+			incomplete = append(incomplete, fmt.Sprintf("create owner %q: %v", ownerEmail, cerr))
+			out.Incomplete = incomplete
+		return out, nil
 		}
 		owner = created
 		out.OwnerPassword = pw
@@ -158,8 +197,16 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// Idempotent, and repeated on every reconcile so a grant removed by hand
 	// converges back rather than leaving the owner locked out of their own
 	// tenant.
-	_ = a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"})
-	_ = a.EnsureOrgOwner(ctx, orgID, owner.ID)
+	// An owner holding no role is refused at login with GrantRequired, so these
+	// are part of "the tenant is usable" rather than decoration.
+	if gerr := a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"}); gerr != nil {
+		incomplete = append(incomplete, fmt.Sprintf("grant the owner a project role: %v", gerr))
+	}
+	if oerr := a.EnsureOrgOwner(ctx, orgID, owner.ID); oerr != nil {
+		incomplete = append(incomplete, fmt.Sprintf("make the owner an organisation manager: %v", oerr))
+	}
+
+	out.Incomplete = incomplete
 
 	return out, nil
 }

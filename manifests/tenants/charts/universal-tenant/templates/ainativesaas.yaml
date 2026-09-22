@@ -62,10 +62,19 @@ spec:
     {{- end }}
   {{- end }}
 
-  {{- with .Values.identity }}
+  # Unconditional, and read directly. The chart's own values.yaml supplies
+  # `identity.selfRegistration: false`, so `.Values.identity` exists after every
+  # merge -- a `with` guard around it can never skip, and a `| default false`
+  # beside a value that already has a default can never change the output. Both
+  # only masked the case where the map genuinely went missing, which would emit
+  # no identity at all and read as a tenant that asked for nothing rather than
+  # as a broken values composition.
+  #
+  # Three layers, each with one job: values.yaml is the packaging default, the
+  # XRD's `default: false` is the API contract, and the tenant's own repository
+  # is the only place an override is written.
   identity:
-    selfRegistration: {{ .selfRegistration | default false }}
-  {{- end }}
+    selfRegistration: {{ .Values.identity.selfRegistration }}
 
   {{- with .Values.cache }}
   cache:

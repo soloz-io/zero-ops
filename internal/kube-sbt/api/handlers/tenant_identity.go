@@ -108,6 +108,14 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		"projectRef": identity.ProjectRef,
 		"clientId":   identity.ClientID,
 	}
+	// What did not finish, when anything did not. Carried in a SUCCESSFUL
+	// response on purpose: the identifiers above are real and must be published,
+	// and the tenant is nonetheless not yet usable. Sending a failure status
+	// instead would suppress the identifiers to report a problem with something
+	// else.
+	if len(identity.Incomplete) > 0 {
+		resp["incomplete"] = identity.Incomplete
+	}
 	// Present ONLY on the call that created the owner's account. Its absence on
 	// later calls is the signal that no new credential exists, so a caller that
 	// persists it unconditionally would overwrite a stored password with an

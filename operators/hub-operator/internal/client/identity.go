@@ -80,6 +80,15 @@ type TenantIdentity struct {
 	// Empty means no new credential exists — not that the password is unknown —
 	// so it must never be persisted as an empty value over a stored one.
 	OwnerPassword string `json:"ownerPassword,omitempty"`
+
+	// Incomplete says what did not finish. Empty means the tenant is usable.
+	//
+	// It arrives on a SUCCESSFUL response, because the identifiers above are
+	// real and must be published even when a later step failed. A tenant is
+	// then provisioned and unusable at the same time -- its organisation
+	// exists, its application exists, its hostname serves, and a login is
+	// refused -- which is a state nothing else reports.
+	Incomplete []string `json:"incomplete,omitempty"`
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.

@@ -25,6 +25,23 @@ type OAuthClient struct {
 // TenantIdentity is what a tenant needs in order to authenticate, and the only
 // output of identity provisioning that anything downstream consumes.
 type TenantIdentity struct {
+	// Incomplete says what did not finish, and is empty when the tenant is
+	// usable.
+	//
+	// Provisioning has two halves with different consequences. The identifiers
+	// above must reach the tenant's gateway or nothing starts, so they are
+	// returned even when a later step fails. Whether anyone can SIGN IN is
+	// separate -- an owner that was not created, a role that was not granted, a
+	// registration policy that was not set -- and each of those is invisible
+	// from outside: the organisation exists, the application exists, the
+	// hostname serves, and the login is refused.
+	//
+	// Carried on the result rather than returned as an error because every layer
+	// between the provider and the operator drops the value when an error is
+	// returned, which would lose the client id to report a problem with
+	// something else.
+	Incomplete []string
+
 	// TenantRef is the provider's own identifier for the tenant — the thing that
 	// OWNS the tenant's users. It is what appears in a token as the tenant, so it
 	// is the value an authorisation decision compares against.
