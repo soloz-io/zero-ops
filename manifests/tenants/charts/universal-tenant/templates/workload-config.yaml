@@ -1,0 +1,32 @@
+{{- if not .Values.deployXR }}
+{{- if .Values.config }}
+# The fleet's own non-secret configuration (ADR-087).
+#
+# Model names, bucket names, base URLs, provider endpoint identifiers -- values
+# the TENANT owns and nothing protects by concealing. They live in the fleet's
+# values.yaml, so the change that alters behaviour is the change that is
+# reviewed, and reading them needs no credential.
+#
+# Separate from tenant-public-endpoint, which carries the same KIND of value
+# under a different System of Record: that ConfigMap is the PLATFORM's endpoints
+# (issuer, JWKS, public base URL), written by the platform and not the fleet's to
+# set. Merging them would put two owners in one object.
+#
+# Why this is not delivered through the secret path, which already worked:
+# eleven of the twenty-three keys in waypoint's single ExternalSecret were values
+# of this kind. In a secret store they could not be diffed, could not be read
+# without a credential, and -- because an ExternalSecret fails as a whole -- a
+# mistyped bucket name withheld an OAuth credential from a different workload.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.tenantId }}-config
+  namespace: tenant-{{ .Values.tenantId }}
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+data:
+{{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

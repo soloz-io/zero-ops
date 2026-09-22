@@ -57,6 +57,104 @@ Your build writes `Chart.yaml`; you write `values.yaml`. Same division as
 `bundle.yaml` and `values.yaml` above, and for the same reason: two writers, no
 shared field, nothing to arbitrate.
 
+## Supplying an application's secrets
+
+Three kinds of value reach a workload, and they are separated by **who owns the
+value** rather than by how they are delivered.
+
+**The platform generates what it owns.** A confidential OAuth client, a cache, a
+database: you declare the CAPABILITY in your fleet's `values.yaml` and the
+credentials are created and delivered for you. You never see them, and listing
+their keys yourself claims to supply something you cannot produce.
+
+**Git carries what is not secret.** Model names, bucket names, base URLs,
+endpoint identifiers go in `config`. They are reviewed in the change that alters
+them and readable without a credential. A model name should be a one-line commit,
+not a credential rotation.
+
+**You supply the rest.** Declare each one under `secrets` with the capability it
+serves and the workloads that read it. Then, from the root of this repository:
+
+```
+soloz fleet secrets status <env>            what is declared, and what is present
+soloz fleet secrets set <env> <KEY>         supply one value
+```
+
+`set` prompts with echo disabled, or takes `--stdin` so a password manager can
+pipe into it. There is deliberately no flag that takes the value as an argument:
+that puts it in your shell history and in the process table. There is no batch
+form either, because a batch means a file and a file means secrets sitting on
+your machine.
+
+Rotation is `set` again. The value is replaced, the delivery mechanism sees the
+change on its next refresh, and the workload restarts on it.
+
+`status` prints key NAMES and never values, and is safe to paste into a ticket.
+It also tells you what an absent secret actually costs: secrets are delivered one
+object per workload, and that object is ATOMIC -- one key the provider cannot
+supply fails all of them, so every container reading any key in it cannot start.
+That is why the declaration names workloads, and why a non-secret does not belong
+in `secrets`: a mistyped bucket name there withholds a credential from something
+unrelated.
+
+Your repository ships a script for the first-time case:
+
+```
+./scripts/seed-secrets.sh <env>              generate the file, or show what would be written
+./scripts/seed-secrets.sh <env> --confirm    write it
+```
+
+Run with no `.env` present and it generates one holding exactly the keys your
+fleet declares, with the capability each serves as its comment -- so there is no
+list to transcribe and nothing to mistype. Fill in the values, run it again to
+see what it would write, then add `--confirm`.
+
+An entry you have not filled in is never written. It would otherwise replace a
+secret that is already supplied with nothing, and the workload reading it would
+start and fail -- so a half-filled file writes the half you filled and reports
+the rest as empty.
+
+The script does not decide which keys are yours to supply: it calls the same
+`soloz fleet secrets` that `status` and `set` use, so there is one answer to that
+question rather than two that can drift apart.
+
+### How often you do this
+
+Once per secret, for the life of the box -- not per application, and not per
+rebuild.
+
+A key is supplied once and delivered to every workload that declares it, so a
+fleet's count is its number of distinct secrets and not its number of
+applications: one shared token read by four workloads is one `set`.
+
+**Rebuilding the cluster does not mean re-entering them.** Your secret store's
+data is in the platform database, which backs up to object storage outside the
+box, and the master keys that decrypt it are escrowed to an Infisical you control
+and the platform does not. A rebuild restores the database and reads the same
+master keys back from the escrow, so every secret is present and readable before
+any workload starts. That is what the escrow is for: an escrow only one side can
+reach is a backup with no restore.
+
+So the realistic lifetime of a fleet with ten secrets is ten `set` calls -- or one
+`import` if you are migrating -- then nothing until you rotate one or declare a
+new capability. If you find yourself re-entering values after a rebuild, the
+escrow or the database backup is broken, and that is the thing to fix rather than
+a step to repeat.
+
+### Migrating a fleet that predates this
+
+If your values are currently in a `KEY=VALUE` file:
+
+```
+soloz fleet secrets import <env> --from-env <file>
+```
+
+It lists what it would write and writes nothing until you add `--confirm`, and it
+writes **only keys your fleet declares** -- a seed file usually carries
+configuration and connection settings alongside the secrets, and those belong in
+`config` or nowhere. Delete the file afterwards: what remains is a second copy
+that nothing rotates.
+
 ## Leaving
 
 Revoke the platform's app installation. Proposals stop arriving; nothing stops

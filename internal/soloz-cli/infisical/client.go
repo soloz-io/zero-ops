@@ -12,6 +12,7 @@ import (
 	"net/url"
 	neturl "net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -406,4 +407,67 @@ func GetInfisicalConfig(ctx context.Context, clientset *kubernetes.Clientset) (*
 		ProjectSlug:     projectSlug,
 		EnvironmentSlug: environmentSlug,
 	}, nil
+}
+
+// ListSecretNames returns the NAMES of the secrets at a path, and never their
+// values.
+//
+// The response body carries `secretValue` on every entry, and this function
+// deliberately does not have a field for it. That is the whole point of the
+// shape: `soloz fleet secrets status` prints what it gets back, so a struct
+// with a value field is one formatting mistake away from a credential on a
+// terminal and in a scrollback buffer. A caller that cannot obtain a value
+// cannot leak one.
+//
+// An absent folder is not an error. A fleet that has had nothing supplied yet
+// has no folder at all, and that is the NORMAL state for a tenant between
+// declaring a secret and supplying it -- the state `status` exists to report.
+func (c *Client) ListSecretNames(ctx context.Context, projectSlug, environmentSlug, secretPath string) ([]string, error) {
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	q := neturl.Values{}
+	q.Set("workspaceId", workspaceId)
+	q.Set("environment", environmentSlug)
+	q.Set("secretPath", secretPath)
+	url := fmt.Sprintf("%s%s?%s", c.baseURL, PathSecretsRawList, q.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// secretKey only. See the note above on why there is no value field.
+	var body struct {
+		Secrets []struct {
+			SecretKey string `json:"secretKey"`
+		} `json:"secrets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("failed to decode secret listing: %w", err)
+	}
+
+	names := make([]string, 0, len(body.Secrets))
+	for _, s := range body.Secrets {
+		names = append(names, s.SecretKey)
+	}
+	sort.Strings(names)
+	return names, nil
 }

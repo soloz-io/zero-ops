@@ -178,22 +178,53 @@ database:
 #         verbs: ["get", "list", "create", "patch", "delete"]
 workloadRbac: []
 
-# ADR-047 Tier 2: Platform-rendered ExternalSecrets for fleet application secrets.
-# Rendered only when deployXR=false (spoke provisioning). Delivers secrets from
-# Infisical into the tenant namespace via the tenant-scoped SecretStore.
-# remoteKey is the Infisical folder path; remoteProperty is the key within it
-# (same convention as the tenant database composition, ADR-003/ADR-030).
+# ADR-087 supersedes the flat `externalSecrets` list that stood here.
+#
+# It delivered one ExternalSecret per FLEET, from remote paths each entry wrote
+# out in full, and drew no line between configuration and secret material. All
+# three were load-bearing defects rather than untidiness: the object is atomic so
+# a fleet-wide grouping couples unrelated workloads' failures, a per-entry
+# absolute path is a per-entry opportunity to name the wrong cell, and eleven of
+# waypoint's twenty-three keys were not secrets at all.
+#
+# Removed rather than deprecated. Leaving it in place would be two mechanisms for
+# one job, and the one being replaced is the one that already shipped -- so a
+# fleet could keep using it and never learn why the new one exists.
+#
+# `config` and `secrets` below are its replacement.
+
+
+# ADR-087: the fleet's non-secret configuration, delivered as ConfigMap
+# <tenantId>-config. A map of KEY: value. Values the tenant owns and nothing
+# protects by concealing -- model names, bucket names, base URLs, provider
+# endpoint identifiers. In git, so the change that alters behaviour is the change
+# that is reviewed.
 # Example:
-# externalSecrets:
-#   - name: waypoint-app-secrets
-#     secretStoreRef:
-#       name: tenant-secret-store
-#       kind: SecretStore
-#     data:
-#       - secretKey: AI_GATEWAY_API_KEY
-#         remoteKey: /spoke-pool/<cellId>/tenants/<tenant>/app-secrets
-#         remoteProperty: AI_GATEWAY_API_KEY
-externalSecrets: []
+# config:
+#   LLM_MODEL_NAME: claude-sonnet-5
+#   S3_BUCKET_NAME: waypoint-dev
+config: {}
+
+# ADR-087: the fleet's secrets, declared here and supplied out of band.
+#
+# Delivered as ONE ExternalSecret PER WORKLOAD, named
+# <tenantId>-<workload>-secrets, because the object is atomic and its key set is
+# therefore the blast radius of any one key being wrong.
+#
+# Each entry declares the key, the capability it serves, and the workloads that
+# read it. All three are required; the template refuses an entry missing either
+# of the last two. The Infisical path is derived from cellId and tenantId and is
+# never written per key.
+#
+# Platform-generated credentials are NOT declared here. A fleet that declares a
+# confidential OAuth client, a cache or a database has thereby declared their
+# credentials, and hub-operator writes them (ADR-053).
+# Example:
+# secrets:
+#   - name: AI_GATEWAY_API_KEY
+#     capability: "the AI gateway the SDK calls"
+#     workloads: [sdk]
+secrets: []
 
 # ADR-047 Tier 2: Sandbox capabilities for the fleet.
 sandbox:

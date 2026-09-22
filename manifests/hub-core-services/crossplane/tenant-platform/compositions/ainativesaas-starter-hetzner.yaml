@@ -489,256 +489,55 @@ spec:
           convert:
             toType: bool
 
-  # 3. PostgREST Deployment - Wrapped in provider-kubernetes Object
-  #    Uses tenant-specific credentials from db-credentials-secret.
-  - name: postgrest-deployment
-    base:
-      apiVersion: kubernetes.crossplane.io/v1alpha2
-      kind: Object
-      spec:
-        managementPolicies:
-          - "*"
-        forProvider:
-          manifest:
-            apiVersion: apps/v1
-            kind: Deployment
-            metadata:
-              namespace: ""  # Patched
-              labels:
-                app: postgrest
-                cost-center: data-plane
-            spec:
-              replicas: 1
-              selector:
-                matchLabels:
-                  app: postgrest
-              template:
-                metadata:
-                  labels:
-                    app: postgrest
-                    cost-center: data-plane
-                spec:
-                  securityContext:
-                    runAsNonRoot: true
-                    runAsUser: 65532
-                    fsGroup: 65532
-                    seccompProfile:
-                      type: RuntimeDefault
-                  containers:
-                  - name: postgrest
-                    image: postgrest/postgrest:v12.0.2@sha256:79369c0cdf9d7112ed4e327bc1b80156be11575dd66fbda245077a2d13b803bc
-                    securityContext:
-                      allowPrivilegeEscalation: false
-                      readOnlyRootFilesystem: true
-                      capabilities:
-                        drop:
-                        - ALL
-                    ports:
-                    - containerPort: 3000
-                      name: http
-                    env:
-                    - name: PGRST_DB_URI
-                      valueFrom:
-                        secretKeyRef:
-                          name: ""   # Patched: <tenantId>-db-credentials
-                          key: url
-                    - name: PGRST_DB_SCHEMA
-                      value: "public"
-                    - name: PGRST_DB_ANON_ROLE
-                      value: ""  # Patched: tenant-<tenantId>-user
-                    - name: PGRST_JWT_SECRET
-                      valueFrom:
-                        secretKeyRef:
-                          name: hub-ory-jwt-secret
-                          key: secret
-                    - name: PGRST_JWT_CACHE_MAX_LIFETIME
-                      value: "3600"
-                    resources:
-                      requests:
-                        cpu: 100m
-                        memory: 128Mi
-                      limits:
-                        cpu: 500m
-                        memory: 512Mi
-        providerConfigRef:
-          name: ""  # Patched from cellId
-    patches:
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.cellId
-      toFieldPath: spec.providerConfigRef.name
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "postgrest-%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "postgrest-%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.namespace
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.labels['tenant-id']
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels['tenant-id']
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.template.metadata.labels['tenant-id']
-    # PGRST_DB_URI sourced from tenant-specific credentials secret (not shared postgres user)
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[0].valueFrom.secretKeyRef.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-pooler-app"
-    # PGRST_DB_ANON_ROLE set to tenant user (not shared postgres)
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].env[2].value
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s-user"
-    # Extract ACTUAL Deployment status from Spoke back to XR
-    # Use availableReplicas > 0 as readiness indicator (simpler than conditions)
-    - type: ToCompositeFieldPath
-      fromFieldPath: status.atProvider.manifest.status.availableReplicas
-      toFieldPath: status.postgrestReady
-      transforms:
-        - type: math
-          math:
-            type: ClampMin
-            clampMin: 1
-        - type: convert
-          convert:
-            toType: bool
-
-  # 4. PostgREST Service - Wrapped in provider-kubernetes Object
-  - name: postgrest-service
-    base:
-      apiVersion: kubernetes.crossplane.io/v1alpha2
-      kind: Object
-      spec:
-        managementPolicies:
-          - "*"
-        forProvider:
-          manifest:
-            apiVersion: v1
-            kind: Service
-            metadata:
-              namespace: ""  # Patched
-            spec:
-              type: ClusterIP
-              ports:
-              - port: 3000
-                targetPort: 3000
-                protocol: TCP
-                name: http
-              selector:
-                app: postgrest
-        providerConfigRef:
-          name: ""  # Patched from cellId
-    patches:
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.cellId
-      toFieldPath: spec.providerConfigRef.name
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "postgrest-%s-service"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "postgrest-%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.namespace
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.spec.selector['tenant-id']
-
-
-  # 6. PostgREST JWT Secret Distribution - Wrapped in provider-kubernetes Object
-  #    Pulls the centralized auth secret from Infisical into the tenant namespace.
-  #    Follows ADR-003 Pattern B: Infisical → ESO → Spoke K8s Secret.
-  - name: postgrest-jwt-secret
-    base:
-      apiVersion: kubernetes.crossplane.io/v1alpha2
-      kind: Object
-      spec:
-        managementPolicies: ["*"]
-        forProvider:
-          manifest:
-            apiVersion: external-secrets.io/v1
-            kind: ExternalSecret
-            metadata:
-              name: hub-ory-jwt-secret
-              namespace: ""  # Patched
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                name: tenant-secret-store  # ISOLATION: Explicitly scoped to the tenant
-                kind: SecretStore
-              target:
-                name: hub-ory-jwt-secret
-                creationPolicy: Owner
-                template:
-                  type: Opaque
-                  engineVersion: v2
-                  data:
-                    secret: "{{ .secret }}"
-              data:
-                - secretKey: secret
-                  remoteRef:
-                    key: hub-hydra-system-secret
-        providerConfigRef:
-          name: ""  # Patched from cellId
-    readinessChecks:
-      - type: MatchCondition
-        matchCondition:
-          type: Ready
-          status: "True"
-    patches:
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.cellId
-      toFieldPath: spec.providerConfigRef.name
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: metadata.name
-      transforms:
-      - type: string
-        string:
-          fmt: "%s-postgrest-jwt-secret"
-    - type: FromCompositeFieldPath
-      fromFieldPath: spec.tenantId
-      toFieldPath: spec.forProvider.manifest.metadata.namespace
-      transforms:
-      - type: string
-        string:
-          fmt: "tenant-%s"
+  # PostgREST is REMOVED, and with it hub-ory-jwt-secret (2026-09-23).
+  #
+  # WHAT WAS HERE
+  #
+  # A PostgREST Deployment and Service exposing the tenant's database as a REST
+  # API (ADR-008), plus an ExternalSecret delivering the token-signing secret it
+  # validated requests with.
+  #
+  # WHY IT COULD NOT WORK
+  #
+  # That ExternalSecret was named hub-ory-jwt-secret and read the remote key
+  # `hub-hydra-system-secret` -- both Ory artefacts. The platform's issuer is
+  # Zitadel (ADR-081), which signs with RS256 and publishes a JWKS; there is no
+  # shared HMAC secret to distribute and nothing has written that remote key
+  # since Ory was removed. The key is also BARE rather than an absolute path,
+  # so it was looked up at the Infisical root -- the same defect the cache
+  # credential carried, and it fails identically as "could not get secret data
+  # from provider".
+  #
+  # WHAT IT COST, AND WHY IT WAS INVISIBLE
+  #
+  # This was the ONLY resource here carrying a readinessCheck. It never became
+  # Ready, so every tenant XR composed by this Composition sat at
+  # `Ready: False, reason: Creating` permanently -- waypoint included, four days
+  # after it was provisioned and while every other part of it worked. The
+  # tenant's own ArgoCD Application reported Synced and Healthy throughout,
+  # because it was: the XR had been applied successfully. Nothing anywhere named
+  # a secret.
+  #
+  # WHY REMOVED RATHER THAN REPOINTED
+  #
+  # Deleting only the ExternalSecret would have been worse than leaving it.
+  # PostgREST does not fail without PGRST_JWT_SECRET -- it starts and serves
+  # every request as PGRST_DB_ANON_ROLE, which here is the tenant's own database
+  # user. The missing secret is the only thing that has been holding that
+  # Deployment in CreateContainerConfigError; removing it would have produced an
+  # unauthenticated REST API over the tenant's database.
+  #
+  # Repointing it needs the issuer's JWKS delivered into the tenant namespace as
+  # content, not as the URL that tenant-public-endpoint already carries: this
+  # PostgREST build does not fetch a JWKS from a URL, and a static copy goes
+  # stale when the issuer rotates. That is a design this platform does not have
+  # yet, and it is worth having -- but it is a capability to reintroduce
+  # deliberately, not a secret to quietly re-point.
+  #
+  # ADR-008 still names PostgREST as part of this composition's shape. When it
+  # returns it needs JWKS delivery first, and the fleet should have to ask for it
+  # rather than receiving an unrouted API it never requested: nothing routed to
+  # this one, and no application in this box's fleets ever called it.
 
   # 7. Infisical Credentials for SDK (ADR-003, ADR-019)
   #    Pulls the Machine Identity credentials from the shared Infisical path.

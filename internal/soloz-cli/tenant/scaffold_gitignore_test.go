@@ -108,3 +108,33 @@ func TestScaffoldedRepoShipsNoCredentialDirectory(t *testing.T) {
 		t.Error(".gitignore does not mention .state/; the exclusion that keeps resume working is undocumented")
 	}
 }
+
+// A scaffolded shell script must arrive executable.
+//
+// copyPlatformTree writes 0o644 deliberately -- an embedded FS reports its own
+// permissions rather than the repository's -- so the executable bit is derived
+// from the name. Without it the tenant runs ./scripts/seed-secrets.sh, gets
+// "permission denied", and has no reason to think that is their filesystem
+// rather than a defect in what they were handed.
+func TestScaffoldedScriptsAreExecutable(t *testing.T) {
+	dir := render(t, testSpec())
+
+	var checked int
+	err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(p, ".sh") {
+			return err
+		}
+		checked++
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("%s is not executable (mode %v)", p, info.Mode().Perm())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked == 0 {
+		t.Fatal("no .sh files in the scaffolded tree: this test would pass vacuously, " +
+			"and the scripts a tenant is supposed to receive are missing")
+	}
+}

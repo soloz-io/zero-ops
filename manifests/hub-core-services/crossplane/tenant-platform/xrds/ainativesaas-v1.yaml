@@ -66,20 +66,6 @@ spec:
                     enum:
                     - transaction
                     default: transaction
-              postgrest:
-                type: object
-                description: "PostgREST configuration"
-                properties:
-                  dbSchema:
-                    type: string
-                    description: "PostgreSQL schema to expose via REST API"
-                    default: "public"
-                  jwtCacheSize:
-                    type: integer
-                    description: "JWT cache size (number of tokens)"
-                    default: 10000
-                    minimum: 1000
-                    maximum: 100000
               resourceQuota:
                 type: object
                 description: "Namespace resource quota limits"
@@ -299,6 +285,3 @@ spec:
               poolerReady:
                 type: boolean
                 description: "True when CNPG Pooler CR is Ready"
-              postgrestReady:
-                type: boolean
-                description: "True when PostgREST Deployment is Ready"

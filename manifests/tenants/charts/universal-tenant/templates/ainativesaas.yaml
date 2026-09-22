@@ -6,12 +6,6 @@
   {{- $poolerMaxConn = .Values.pooler.maxConnections | default 25 -}}
   {{- $poolerMode = .Values.pooler.poolMode | default "transaction" -}}
 {{- end -}}
-{{- $dbSchema := "public" -}}
-{{- $jwtCacheSize := 10000 -}}
-{{- if .Values.postgrest -}}
-  {{- $dbSchema = .Values.postgrest.dbSchema | default "public" -}}
-  {{- $jwtCacheSize = .Values.postgrest.jwtCacheSize | default 10000 -}}
-{{- end -}}
 ---
 apiVersion: nutgraf.in/v1alpha1
 kind: AINativeSaaS
@@ -33,10 +27,6 @@ spec:
   pooler:
     maxConnections: {{ $poolerMaxConn }}
     poolMode: {{ $poolerMode }}
-
-  postgrest:
-    dbSchema: {{ $dbSchema }}
-    jwtCacheSize: {{ $jwtCacheSize }}
 
   {{- /* Unconditional: values.yaml supplies resourceQuota and all four of its
          fields, so neither a guard nor a `| default` beside them could ever

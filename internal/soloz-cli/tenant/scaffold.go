@@ -659,7 +659,18 @@ func copyPlatformTree(src, dst string) error {
 		// 0o644 rather than the source mode: an embedded FS reports its own
 		// permissions, not the repository's, so preserving them would give a
 		// released run different modes from a development one for the same file.
-		return os.WriteFile(target, b, 0o644)
+		//
+		// Shell scripts are the exception, and are derived from the NAME rather
+		// than from the source mode for the same reason. A scaffolded script
+		// that arrives non-executable reads as broken -- the tenant runs
+		// ./scripts/<x>.sh, gets "permission denied", and has no reason to
+		// think that is their own filesystem rather than a defect in what they
+		// were given.
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(target, ".sh") {
+			mode = 0o755
+		}
+		return os.WriteFile(target, b, mode)
 	})
 }
 
