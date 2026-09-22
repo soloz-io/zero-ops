@@ -1,5 +1,5 @@
-{{- if and .Values.deployXR (ne (((.Values.database | default dict).enabled) | toString) "false") }}
-{{- $databaseName := ((.Values.database | default dict).name) | default (printf "tenant-%s-db" .Values.tenantId) -}}
+{{- if and .Values.deployXR (ne ((.Values.database.enabled) | toString) "false") }}
+{{- $databaseName := (.Values.database.name) | default (printf "tenant-%s-db" .Values.tenantId) -}}
 {{- $poolerMaxConn := 25 -}}
 {{- $poolerMode := "transaction" -}}
 {{- if .Values.pooler -}}
@@ -38,19 +38,20 @@ spec:
     dbSchema: {{ $dbSchema }}
     jwtCacheSize: {{ $jwtCacheSize }}
 
-  {{- if .Values.resourceQuota }}
+  {{- /* Unconditional: values.yaml supplies resourceQuota and all four of its
+         fields, so neither a guard nor a `| default` beside them could ever
+         fire. The XRD carries the same four defaults as the API contract. */}}
   resourceQuota:
-    cpu: {{ .Values.resourceQuota.cpu | default "1000m" }}
-    memory: {{ .Values.resourceQuota.memory | default "2Gi" }}
-    storage: {{ .Values.resourceQuota.storage | default "10Gi" }}
-    pods: {{ .Values.resourceQuota.pods | default "10" | quote }}
-  {{- end }}
+    cpu: {{ .Values.resourceQuota.cpu }}
+    memory: {{ .Values.resourceQuota.memory }}
+    storage: {{ .Values.resourceQuota.storage }}
+    pods: {{ .Values.resourceQuota.pods | quote }}
 
   {{- if .Values.ownerEmail }}
   ownerEmail: {{ .Values.ownerEmail }}
   {{- end }}
 
-  {{- if (.Values.gateway | default dict).enabled }}
+  {{- if .Values.gateway.enabled }}
   gateway:
     enabled: true
     {{- with .Values.gateway.hostnames }}
@@ -99,7 +100,7 @@ spec:
     created with no callback and login fails at the authorization endpoint.
     A fleet declaring no clients passes nothing and receives none.
   */}}
-  {{- with (.Values.oauth | default dict).clients }}
+  {{- with .Values.oauth.clients }}
   oauth:
     clients:
     {{- range . }}
