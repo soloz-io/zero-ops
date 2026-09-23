@@ -143,6 +143,36 @@ Scaffolding is not told which application repositories exist: applications are
 created, renamed and retired by the tenant long after scaffolding has run, and a
 platform tracking that set would fall behind it silently.
 
+**The organisation-wide form requires a paid plan.** On GitHub's free plan an
+organisation secret is delivered only to PUBLIC repositories. The write
+succeeds, the API reports the secret with visibility `all`, it appears in each
+repository's list of available organisation secrets -- and every private
+repository's workflow receives an empty string, with nothing at any layer
+reporting that it was withheld. The build then fails on *"Invalid username or
+token"*, which names the credential rather than the delivery, and sends the
+operator to re-mint a token that was read correctly.
+
+So on a free plan the credential is published PER REPOSITORY. That is strictly
+weaker and the weakness is the one this decision was taken to avoid: a
+repository created tomorrow is NOT covered, and must be given the credential
+when it is created. The platform cannot close that gap from outside -- it is the
+plan's boundary, not a design choice -- so it is stated rather than worked
+around. `soloz tenant set-gitops-token --discover --gitops-repo <repo>` covers the set
+that exists; `--repo owner/name` covers one.
+
+The discovered set is DERIVED, never enumerated, for the same reason this
+decision refuses to track application repositories: a repository needs the
+credential exactly when one of its workflows reads `secrets.GITOPS_TOKEN` and
+names this box's GitOps repository, and that is readable from the workflows
+themselves. Publishing to every repository in the organisation would be the
+easier implementation and the wrong one -- most have nothing to do with this
+box, and a credential that can write a tenant's GitOps repository should not sit
+in a repository that never asked for it.
+
+The CLI detects the plan and refuses the organisation form where it would be
+silently ineffective, because a credential that looks present everywhere except
+where it is read is worse than one that was never set.
+
 Published by the Day-0 CLI at scaffold, and republishable afterwards
 (`soloz tenant set-gitops-token`). The publication is deliberately non-fatal --
 a box is complete without it and aborting a scaffold would destroy a working

@@ -91,7 +91,8 @@ func readTokenValue(cmd *cobra.Command) (string, error) {
 // printed in a warning. That makes the tenant perform a step ADR-084 assigns to
 // the platform, once per box, from a message they saw days earlier.
 func newTenantSetGitopsTokenCmd() *cobra.Command {
-	var org, token string
+	var org, repo, gitopsRepo, token string
+	var allRepos bool
 	cmd := &cobra.Command{
 		Use:          "set-gitops-token",
 		Short:        "Publish the organisation credential application builds use",
@@ -106,6 +107,9 @@ a chart version.
 
 The token needs that one fine-grained permission, not admin:org.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if repo == "" && org == "" {
+				return fmt.Errorf("pass --org (organisation-wide) or --repo owner/name (one repository)")
+			}
 			if strings.TrimSpace(token) == "" {
 				// Never an argument: a token passed as a flag value is in shell
 				// history and in the process table.
@@ -123,21 +127,95 @@ The token needs that one fine-grained permission, not admin:org.`,
 				}
 				token = v
 			}
-			if err := tenant.PublishOrgGitopsToken(cmd.Context(), org, token); err != nil {
-				return err
-			}
 			// The LENGTH, never the value. An operator who pasted nothing sees
 			// a number that is obviously wrong; one who pasted correctly sees a
 			// number that matches what they hold.
-			fmt.Printf("\n  GITOPS_TOKEN published on the %s organisation (%d characters).\n",
-				org, len(strings.TrimSpace(token)))
+			n := len(strings.TrimSpace(token))
+
+			if repo != "" {
+				if err := tenant.PublishRepoGitopsToken(cmd.Context(), repo, token); err != nil {
+					return err
+				}
+				fmt.Printf("\n  GITOPS_TOKEN published on %s (%d characters).\n\n", repo, n)
+				return nil
+			}
+
+			// Whether the organisation form will actually deliver, checked
+			// BEFORE publishing. On the free plan an organisation secret does
+			// not reach private repositories: the write succeeds, the secret is
+			// listed against the repository, and the workflow receives an empty
+			// string. Publishing without saying so produces a credential that
+			// looks present everywhere except where it is read.
+			reaches, plan, perr := tenant.OrgSecretsReachPrivateRepos(cmd.Context(), org)
+			if perr != nil {
+				fmt.Printf("  note: %v\n", perr)
+			}
+
+			if !reaches && !allRepos {
+				return fmt.Errorf("the %s organisation is on the %s plan, where an organisation "+
+					"secret is delivered only to PUBLIC repositories.\n\n"+
+					"Publishing it here would succeed, appear in each repository's list of "+
+					"available organisation secrets, and arrive in every private repository's "+
+					"workflow as an empty string -- with nothing at any layer reporting that it "+
+					"was withheld.\n\n"+
+					"Publish per repository instead:\n"+
+					"  soloz tenant set-gitops-token --repo <owner>/<name>\n"+
+					"  soloz tenant set-gitops-token --org %s --discover --gitops-repo <owner>/<name>\n\n"+
+					"The second covers every repository that exists TODAY. One created later is "+
+					"not covered and must be given the credential when it is created -- which is "+
+					"the inheritance this plan does not provide.", org, plan, org)
+			}
+
+			if allRepos {
+				if gitopsRepo == "" {
+					return fmt.Errorf("--gitops-repo owner/name is required: it is what identifies " +
+						"which repositories write to THIS box, and without it the only alternative " +
+						"is publishing the credential to every repository in the organisation")
+				}
+				repos, err := tenant.ReposNeedingGitopsToken(cmd.Context(), org, gitopsRepo)
+				if err != nil {
+					return err
+				}
+				if len(repos) == 0 {
+					return fmt.Errorf("no repository in %s has a workflow that reads "+
+						"secrets.GITOPS_TOKEN and names %s.\n\n"+
+						"Nothing needs the credential yet. An application repository needs it once "+
+						"its build commits a chart version here", org, gitopsRepo)
+				}
+				var failed int
+				for _, r := range repos {
+					if err := tenant.PublishRepoGitopsToken(cmd.Context(), r, token); err != nil {
+						fmt.Printf("  FAILED  %-44s %v\n", r, err)
+						failed++
+						continue
+					}
+					fmt.Printf("  set     %s\n", r)
+				}
+				fmt.Printf("\n  GITOPS_TOKEN published on %d of %d repository/repositories that write\n",
+					len(repos)-failed, len(repos))
+				fmt.Printf("  to %s (%d characters).\n", gitopsRepo, n)
+				fmt.Printf("  A repository created later is NOT covered: run this again, or use --repo.\n\n")
+				if failed > 0 {
+					return fmt.Errorf("%d repository/repositories did not receive the credential", failed)
+				}
+				return nil
+			}
+
+			if err := tenant.PublishOrgGitopsToken(cmd.Context(), org, token); err != nil {
+				return err
+			}
+			fmt.Printf("\n  GITOPS_TOKEN published on the %s organisation (%d characters).\n", org, n)
 			fmt.Printf("  Every application repository inherits it, including ones created later.\n\n")
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&org, "org", "", "Git organisation to publish the credential on")
+	cmd.Flags().StringVar(&repo, "repo", "", "Publish on ONE repository (owner/name) instead of the organisation")
+	cmd.Flags().BoolVar(&allRepos, "discover", false, "Find the repositories whose workflows write to --gitops-repo and publish on those")
+	cmd.Flags().StringVar(&gitopsRepo, "gitops-repo", "", "This box's GitOps repository (owner/name), used to identify which repositories write to it")
 	cmd.Flags().StringVar(&token, "token", "", "The token; omit to read it from stdin, which keeps it out of shell history")
-	cmd.MarkFlagRequired("org")
+	cmd.MarkFlagsMutuallyExclusive("repo", "org")
+	cmd.MarkFlagsMutuallyExclusive("repo", "discover")
 	return cmd
 }
 

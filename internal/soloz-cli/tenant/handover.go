@@ -3,6 +3,7 @@ package tenant
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"io"
@@ -428,12 +429,8 @@ func publishOrgSecret(ctx context.Context, org, token string) error {
 	//
 	// GitHub tokens are far longer than this; the bound only has to be tight
 	// enough to catch an empty or single-character read.
-	if n := len(strings.TrimSpace(token)); n < 20 {
-		return fmt.Errorf("the token read was %d characters, which is too short to be a "+
-			"GitHub token -- nothing was published.\n\n"+
-			"A paste into a no-echo prompt that does not register looks exactly like this: "+
-			"the command succeeds, the secret is created empty, and the build that reads it "+
-			"fails on \"Invalid username or token\" as though the credential were wrong", n)
+	if err := checkTokenPlausible(token); err != nil {
+		return err
 	}
 
 	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN",
@@ -449,6 +446,26 @@ func setOrgGitopsToken(ctx context.Context, org, token string) error {
 	if strings.TrimSpace(token) == "" {
 		return nil
 	}
+
+	// Scaffold knows ONE repository -- the GitOps repository it just created --
+	// so on a plan where organisation secrets do not reach private repositories
+	// that is the one it can cover. It is also the only one that exists at this
+	// point: applications are created later, and each will need the credential
+	// when it is.
+	//
+	// Publishing organisation-wide anyway would be worse than doing nothing. It
+	// succeeds, the secret is listed against every repository, and every private
+	// repository's workflow receives an empty string -- a credential that looks
+	// present everywhere except where it is read.
+	if reaches, plan, perr := OrgSecretsReachPrivateRepos(ctx, org); perr == nil && !reaches {
+		fmt.Printf("[scaffold] ! %s is on the %s plan: an organisation secret reaches only PUBLIC\n", org, plan)
+		fmt.Printf("[scaffold]   repositories, so publishing one would arrive empty in every private\n")
+		fmt.Printf("[scaffold]   repository's build. Setting it per repository instead.\n")
+		fmt.Printf("[scaffold]   Each application repository needs it when it is created:\n")
+		fmt.Printf("[scaffold]     soloz tenant set-gitops-token --repo <owner>/<name>\n")
+		return nil
+	}
+
 	if err := publishOrgSecret(ctx, org, token); err != nil {
 		fmt.Printf("[scaffold] ! GITOPS_TOKEN not set on the %s organisation: %s\n",
 			org, firstLine(err.Error()))
@@ -767,6 +784,144 @@ func PublishOrgGitopsToken(ctx context.Context, org, token string) error {
 			"GitHub names both routes in its refusal, which is why it reads as though a\n"+
 			"fine-grained permission were missing from a classic token that cannot carry one.",
 			org, err, org)
+	}
+	return nil
+}
+
+// orgSecretsReachPrivateRepos reports whether an ORGANISATION secret is
+// delivered to this organisation's private repositories.
+//
+// On GitHub's free plan it is not. The write succeeds, the API reports the
+// secret with visibility "all", it appears in the repository's own list of
+// available organisation secrets -- and the workflow receives an empty string.
+// Nothing at any layer says the value was withheld.
+//
+// That cost a full diagnostic cycle here: a token was re-minted twice, the
+// publishing command was hardened twice, and the actual answer was the
+// organisation's billing plan. So this is checked and SAID, rather than left
+// for the next person to rediscover from a blank line in a workflow log.
+func OrgSecretsReachPrivateRepos(ctx context.Context, org string) (bool, string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "api",
+		"/orgs/"+org, "--jq", ".plan.name").CombinedOutput()
+	if err != nil {
+		// Not fatal to the caller: the plan is advisory, and refusing to publish
+		// because it could not be read would be worse than publishing.
+		return true, "", fmt.Errorf("could not read the %s organisation's plan: %s", org, firstLine(string(out)))
+	}
+	plan := strings.TrimSpace(string(out))
+	return plan != "free", plan, nil
+}
+
+// PublishRepoGitopsToken publishes GITOPS_TOKEN on ONE repository.
+//
+// The per-repository form exists because organisation secrets do not reach
+// private repositories on the free plan, which is the arrangement most boxes
+// start on. It is weaker than the organisation form in exactly the way ADR-084
+// describes -- a repository created tomorrow is NOT covered, and must be given
+// the credential when it is created -- and that is the trade the plan imposes
+// rather than one the platform chose.
+func PublishRepoGitopsToken(ctx context.Context, repo, token string) error {
+	if strings.TrimSpace(repo) == "" {
+		return fmt.Errorf("no repository: pass owner/name")
+	}
+	if !strings.Contains(repo, "/") {
+		return fmt.Errorf("repository %q is not owner/name", repo)
+	}
+	if err := checkTokenPlausible(token); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN", "--repo", repo)
+	cmd.Stdin = strings.NewReader(token)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("publish GITOPS_TOKEN on %s: %s", repo, firstLine(string(out)))
+	}
+	return nil
+}
+
+// ReposNeedingGitopsToken finds the repositories whose workflows actually write
+// to this box's GitOps repository.
+//
+// DERIVED, never enumerated. ADR-084 says the platform is not told which
+// application repositories exist -- they are created, renamed and retired by the
+// tenant long after scaffolding -- so a list held anywhere falls behind
+// silently. The same argument rules out publishing to every repository in the
+// organisation: most of them have nothing to do with this box, and a credential
+// that can write a tenant's GitOps repository should not sit in a repository
+// that never needed it.
+//
+// A repository needs the credential exactly when one of its workflows reads
+// `secrets.GITOPS_TOKEN` AND names this GitOps repository. Both halves matter:
+// the first finds the workflows that will fail without it, and the second keeps
+// one organisation's second box from receiving the first box's credential.
+//
+// Read from the workflow files rather than GitHub's code search, which returns
+// nothing for private repositories on this plan and would silently discover an
+// empty set -- indistinguishable from "no repository needs it".
+func ReposNeedingGitopsToken(ctx context.Context, org, gitopsRepo string) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "repo", "list", org,
+		"--limit", "500", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("list repositories in %s: %s", org, firstLine(string(out)))
+	}
+
+	var needing []string
+	for _, repo := range strings.Split(string(out), "\n") {
+		repo = strings.TrimSpace(repo)
+		if repo == "" || repo == gitopsRepo {
+			// The GitOps repository is the destination, not a writer.
+			continue
+		}
+		if repoWritesTo(ctx, repo, gitopsRepo) {
+			needing = append(needing, repo)
+		}
+	}
+	return needing, nil
+}
+
+// repoWritesTo reports whether any workflow in repo both reads the credential
+// and names the GitOps repository.
+//
+// A repository that cannot be read is treated as not needing it. The
+// alternative -- failing the whole discovery on one unreadable repository --
+// would block a credential every other repository does need, over one the
+// operator may not even own.
+func repoWritesTo(ctx context.Context, repo, gitopsRepo string) bool {
+	listing, err := exec.CommandContext(ctx, "gh", "api",
+		"/repos/"+repo+"/contents/.github/workflows", "--jq", ".[].name").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	for _, wf := range strings.Split(string(listing), "\n") {
+		wf = strings.TrimSpace(wf)
+		if wf == "" {
+			continue
+		}
+		body, err := exec.CommandContext(ctx, "gh", "api",
+			"/repos/"+repo+"/contents/.github/workflows/"+wf, "--jq", ".content").CombinedOutput()
+		if err != nil {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(
+			strings.ReplaceAll(strings.TrimSpace(string(body)), "\n", ""))
+		if err != nil {
+			continue
+		}
+		text := string(decoded)
+		if strings.Contains(text, "secrets.GITOPS_TOKEN") && strings.Contains(text, gitopsRepo) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkTokenPlausible rejects a value too short to be a GitHub token.
+func checkTokenPlausible(token string) error {
+	if n := len(strings.TrimSpace(token)); n < 20 {
+		return fmt.Errorf("the token read was %d characters, which is too short to be a "+
+			"GitHub token -- nothing was published.\n\n"+
+			"A paste into a no-echo prompt that does not register looks exactly like this: "+
+			"the command succeeds, the secret is created empty, and the build that reads it "+
+			"fails on \"Invalid username or token\" as though the credential were wrong", n)
 	}
 	return nil
 }
