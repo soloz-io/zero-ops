@@ -66,9 +66,13 @@ func readTokenValue(cmd *cobra.Command) (string, error) {
 		return strings.TrimSpace(string(b)), nil
 	}
 
+	// Say what this value IS, not what permission it needs. The permission
+	// belongs to the gh login performing the write, and describing it here sent
+	// an operator to mint a new PAT when the one they had was fine.
 	fmt.Print("\nGITOPS_TOKEN\n" +
-		"  A fine-grained token with the organisation's \"Secrets: write\" permission.\n" +
-		"  Not admin:org.\n\n" +
+		"  The credential application builds will use to commit a chart version\n" +
+		"  into this tenant's GitOps repository. Needs write access to that\n" +
+		"  repository; it is stored, not used to store itself.\n\n" +
 		"Token (not echoed): ")
 	b, err := term.ReadPassword(fd)
 	fmt.Println()

@@ -733,10 +733,22 @@ func PublishOrgGitopsToken(ctx context.Context, org, token string) error {
 		return fmt.Errorf("no token: pass one with --token or on stdin")
 	}
 	if err := publishOrgSecret(ctx, org, token); err != nil {
+		// TWO credentials are involved and the refusal names neither. The token
+		// read above is the VALUE being stored; the write itself is performed by
+		// whatever `gh` is logged in as. A 403 here is almost always the second
+		// one, and an error that talks about the first sends the operator to
+		// re-mint a token that was never the problem.
 		return fmt.Errorf("could not publish GITOPS_TOKEN on the %s organisation: %w\n\n"+
-			"The token needs the organisation's \"Secrets: write\" permission. GitHub names\n"+
-			"both routes in its refusal, so read it carefully -- the fine-grained permission\n"+
-			"is sufficient and admin:org is not required.", org, err)
+			"This is about the credential `gh` is authenticated with, NOT the token you\n"+
+			"just supplied -- that one is the value being stored and is never used to\n"+
+			"perform the write. Check it with `gh auth status`.\n\n"+
+			"Writing an organisation secret needs one of:\n"+
+			"  - admin:org on the gh login:  gh auth refresh -h github.com -s admin:org\n"+
+			"  - a fine-grained PAT with the organisation's \"Secrets: write\", supplied\n"+
+			"    for this one call:          GH_TOKEN=<pat> soloz tenant set-gitops-token --org %s\n\n"+
+			"GitHub names both routes in its refusal, which is why it reads as though a\n"+
+			"fine-grained permission were missing from a classic token that cannot carry one.",
+			org, err, org)
 	}
 	return nil
 }
