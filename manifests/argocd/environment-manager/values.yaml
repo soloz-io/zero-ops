@@ -296,7 +296,19 @@ oidcJwksUrl: ""
 # in its own claims mints them only for the scope that asks; omit one and the
 # token still verifies, it simply arrives without the claim, and the failure
 # surfaces later as a missing tenant or an empty role list.
-oidcScopes: []
+oidcScopes:
+  # Zitadel carries tenancy STRUCTURALLY -- an Organization owns the user rather
+  # than the tenant being an attribute written onto them -- and mints the claim
+  # that says so only for the scope that asks. Without this the token verifies,
+  # carries no tenancy, and every consumer reading the claim contract resolves
+  # an empty tenant: auth-proxy rejects the request, zero-ops-auth's validator
+  # refuses the token as tenant-less, and a fleet's SPA renders its
+  # "no tenant" state on a successful login.
+  - urn:zitadel:iam:user:resourceowner
+  # Roles, nested as { roleKey: { grantingOrgID: domain } }. Same property: the
+  # claim exists only for this scope, and its absence means no roles rather than
+  # an error -- so every requireRole() check denies and nothing says why.
+  - urn:zitadel:iam:org:project:roles
 
 # Coordinates of this cluster's Infisical instance, consumed by the Hub's PKI
 # ClusterIssuers (ADR-035).
