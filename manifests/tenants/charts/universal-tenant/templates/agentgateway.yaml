@@ -409,6 +409,27 @@ data:
   # Scheme included: consumers paste this in front of a path, and the SDK's
   # callback guard rejects anything that is not http(s) and public.
   PUBLIC_BASE_URL: https://{{ $host }}
+  # The callback the platform REGISTERED for each confidential OAuth client this
+  # fleet declares, keyed by client name.
+  #
+  # Published for exactly the reason PUBLIC_BASE_URL and OIDC_ISSUER_URL are:
+  # the value is the platform's, the workload needs it, and a workload that
+  # types its own is a second copy free to disagree. It did -- waypoint's BFF
+  # carried https://api.waypoint.dev.nutgraf.in/... while the platform had
+  # registered https://waypoint.dev.nutgraf.in/... against the issuer. An issuer
+  # matches redirect URIs EXACTLY, so that is redirect_uri_mismatch at the
+  # authorization endpoint: a login that fails before any credential is entered,
+  # naming a hostname that appears in no manifest the operator would think to
+  # read.
+  #
+  # Composed here because an env var cannot be built from another env var, and
+  # the chart's only channel into a workload is this ConfigMap -- a workload
+  # Application is single-source and receives no Helm values (ADR-073).
+{{- range (.Values.oauth | default dict).clients }}
+{{- if and (eq .type "confidential") .redirectPaths }}
+  OAUTH_{{ .name | upper | replace "-" "_" }}_REDIRECT_URI: https://{{ $host }}{{ index .redirectPaths 0 }}
+{{- end }}
+{{- end }}
   # The issuer this fleet's workloads must validate tokens against — the SAME
   # value the gateway policy above authenticates with.
   #
