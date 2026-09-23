@@ -562,7 +562,21 @@ spec:
         # this tenant's declarations must restart this pod. AgentGateway watches
         # its file and hot-reloads, but a ConfigMap update is not guaranteed to
         # land as a write it notices.
-        checksum/config: {{ printf "%s%s%s%s%s" (toString $hosts) $issuer $bff $sdk (.Files.Get "templates/agentgateway.yaml" | sha256sum) | sha256sum }}
+        #
+        # Hashed over the RENDERED ConfigMap, not over a list of the values that
+        # feed it. The list form named hosts, issuer, bff and sdk, and was
+        # therefore blind to every other input: adding the OIDC scopes Zitadel
+        # needs changed the ConfigMap, left this digest identical, and the
+        # gateway went on serving a 36-hour-old configuration from memory while
+        # ArgoCD reported the Application Synced and the ConfigMap plainly
+        # carried the new value. A hand-maintained list of inputs is wrong the
+        # moment an input is added, and wrong silently.
+        # .Values wholesale, not a list of the ones this template reads. Any
+        # value that can reach the rendered config is covered by construction,
+        # including one added later by someone who never sees this line. The
+        # cost is a restart when an unrelated value changes, which for a
+        # two-replica canary is cheaper than the failure it replaces.
+        checksum/config: {{ printf "%s%s" (toYaml .Values | sha256sum) (.Files.Get "templates/agentgateway.yaml" | sha256sum) | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
       # Pod-level, not only container-level. The tenant admission policy reads
