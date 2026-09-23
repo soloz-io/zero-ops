@@ -65,4 +65,25 @@ type TenantIdentity struct {
 	// caller must persist it. Re-issuing one on each reconcile would silently
 	// lock out whoever is already using the account.
 	OwnerPassword string
+
+	// Clients are the confidential OAuth clients the fleet declared. Empty when
+	// it declared none, which is the common case.
+	Clients []DeclaredClient
+}
+
+// DeclaredClient is one confidential OAuth client the fleet declared, with the
+// credentials the issuer minted for it.
+//
+// Returned rather than stored here for the same reason OwnerPassword is: this
+// service provisions at the issuer and the CALLER owns where secrets live
+// (ADR-003). A client whose credentials were minted and not persisted is worse
+// than one never created -- the issuer has rotated the secret and nothing holds
+// the new value.
+type DeclaredClient struct {
+	// Name as the fleet declared it. The caller derives its key names from this.
+	Name string
+	// ClientID and ClientSecret as minted. ClientSecret is present only when
+	// this call created or regenerated the client.
+	ClientID     string
+	ClientSecret string
 }

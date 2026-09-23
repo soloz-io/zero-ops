@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -93,6 +94,42 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		return
 	}
 
+	// The clients the fleet DECLARED, provisioned after the tenant's own
+	// identity exists.
+	//
+	// This loop is the whole reason a fleet may declare a confidential client.
+	// It was written on ControlPlane.EnsureTenantIdentity, which nothing
+	// reaches: this service constructs no ControlPlane, and the route is wired
+	// straight to the provider. So a fleet declaring a client got a 200, no
+	// credential, and no error -- its ExternalSecret then sat in
+	// SecretSyncedError naming keys nothing had ever written.
+	//
+	// Credentials are RETURNED, not stored. This service provisions at the
+	// issuer; the caller owns where secrets live (ADR-003), which is the same
+	// division OwnerPassword and OIDC_CLIENT_ID already follow.
+	for _, decl := range clients {
+		if !decl.Confidential || decl.Name == "" {
+			continue
+		}
+		appName := tenantID + "-" + decl.Name
+		clientID, clientSecret, cerr := h.provisioner.EnsureConfidentialClient(
+			c.Request.Context(), tenantID, appName, false)
+		if cerr != nil {
+			// Reported, not fatal. The tenant identity itself succeeded and is
+			// worth returning; a client that failed is named in Incomplete so
+			// the caller learns which capability is missing rather than
+			// discovering it as a workload that will not start.
+			identity.Incomplete = append(identity.Incomplete,
+				fmt.Sprintf("provision declared client %q: %v", decl.Name, cerr))
+			continue
+		}
+		identity.Clients = append(identity.Clients, models.DeclaredClient{
+			Name:         decl.Name,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		})
+	}
+
 	// Published before the response. A caller that saw success and then found no
 	// client id could not tell "not provisioned" from "provisioned, publish
 	// failed", and only the second needs a retry.
@@ -122,6 +159,17 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 	// empty value.
 	if identity.OwnerPassword != "" {
 		resp["ownerPassword"] = identity.OwnerPassword
+	}
+	if len(identity.Clients) > 0 {
+		out := make([]map[string]string, 0, len(identity.Clients))
+		for _, dc := range identity.Clients {
+			out = append(out, map[string]string{
+				"name":         dc.Name,
+				"clientId":     dc.ClientID,
+				"clientSecret": dc.ClientSecret,
+			})
+		}
+		resp["clients"] = out
 	}
 	c.JSON(http.StatusOK, resp)
 }

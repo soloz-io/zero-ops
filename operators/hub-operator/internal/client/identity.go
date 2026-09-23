@@ -89,6 +89,12 @@ type TenantIdentity struct {
 	// exists, its application exists, its hostname serves, and a login is
 	// refused -- which is a state nothing else reports.
 	Incomplete []string `json:"incomplete,omitempty"`
+
+	// Clients are the confidential OAuth clients the fleet declared, with the
+	// credentials the issuer minted. Returned rather than stored by the identity
+	// service: it provisions at the issuer and this operator owns where secrets
+	// live, the same division OwnerPassword already follows.
+	Clients []DeclaredClient `json:"clients,omitempty"`
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
@@ -159,3 +165,10 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, own
 // provider has no tenant to provision. Sentinel so a caller can treat it as a
 // steady state rather than a failure to retry.
 var ErrIdentityProvisioningUnsupported = fmt.Errorf("identity service: provider does not provision tenant identities")
+
+// DeclaredClient is one confidential OAuth client and its minted credentials.
+type DeclaredClient struct {
+	Name         string `json:"name"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+}

@@ -196,6 +196,30 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// enter it has a password nobody holds. Guarded on non-empty:
 				// the field is absent on every reconcile after the first, and
 				// writing it blindly would replace a stored password with "".
+				// The declared clients' credentials, published under the same
+				// key names the fleet's ExternalSecret reads. Without this the
+				// client exists at the issuer and nothing holds its secret, so
+				// the workload that authenticates with it cannot start.
+				for _, dc := range identity.Clients {
+					if dc.ClientID != "" {
+						if err := r.publishTenantSecret(ctx, cellId, tenantId,
+							secrets.InfisicalOAuthClientIDKey(dc.Name), dc.ClientID); err != nil {
+							logger.Error(err, "Failed to publish OAuth client id",
+								"tenant", tenantId, "client", dc.Name)
+						}
+					}
+					// Empty when the client already existed and was not
+					// regenerated: the stored secret is still the live one, and
+					// overwriting it with "" would destroy a working credential.
+					if dc.ClientSecret != "" {
+						if err := r.publishTenantSecret(ctx, cellId, tenantId,
+							secrets.InfisicalOAuthClientSecretKey(dc.Name), dc.ClientSecret); err != nil {
+							logger.Error(err, "Failed to publish OAuth client secret",
+								"tenant", tenantId, "client", dc.Name)
+						}
+					}
+				}
+
 				if identity.OwnerPassword != "" {
 					if err := r.publishTenantSecret(ctx, cellId, tenantId, "OWNER_INITIAL_PASSWORD", identity.OwnerPassword); err != nil {
 						logger.Error(err, "Provisioned the tenant owner but could not publish their initial password",
