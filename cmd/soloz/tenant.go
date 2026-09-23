@@ -126,7 +126,11 @@ The token needs that one fine-grained permission, not admin:org.`,
 			if err := tenant.PublishOrgGitopsToken(cmd.Context(), org, token); err != nil {
 				return err
 			}
-			fmt.Printf("\n  GITOPS_TOKEN published on the %s organisation.\n", org)
+			// The LENGTH, never the value. An operator who pasted nothing sees
+			// a number that is obviously wrong; one who pasted correctly sees a
+			// number that matches what they hold.
+			fmt.Printf("\n  GITOPS_TOKEN published on the %s organisation (%d characters).\n",
+				org, len(strings.TrimSpace(token)))
 			fmt.Printf("  Every application repository inherits it, including ones created later.\n\n")
 			return nil
 		},

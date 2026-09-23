@@ -418,6 +418,24 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 // when it did not, and the next thing they do is wonder why their build still
 // cannot pin a version.
 func publishOrgSecret(ctx context.Context, org, token string) error {
+	// A plausible length, before anything is sent.
+	//
+	// gh accepts whatever arrives on stdin and exits 0, so a paste that did not
+	// register produces a published secret containing nothing and a command that
+	// reports success. Downstream that is indistinguishable from a wrong token:
+	// the build fails on "Invalid username or token", which sends the operator
+	// to re-mint a credential that was never read.
+	//
+	// GitHub tokens are far longer than this; the bound only has to be tight
+	// enough to catch an empty or single-character read.
+	if n := len(strings.TrimSpace(token)); n < 20 {
+		return fmt.Errorf("the token read was %d characters, which is too short to be a "+
+			"GitHub token -- nothing was published.\n\n"+
+			"A paste into a no-echo prompt that does not register looks exactly like this: "+
+			"the command succeeds, the secret is created empty, and the build that reads it "+
+			"fails on \"Invalid username or token\" as though the credential were wrong", n)
+	}
+
 	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN",
 		"--org", org, "--visibility", "all")
 	cmd.Stdin = strings.NewReader(token)
