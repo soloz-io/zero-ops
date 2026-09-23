@@ -408,16 +408,32 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 // and bootstraps without this; what is missing is the credential a future
 // application build will need, and aborting the scaffold over it would destroy
 // a working repository to fix something no cluster depends on.
-func setOrgGitopsToken(ctx context.Context, org, token string) error {
-	if strings.TrimSpace(token) == "" {
-		return nil
-	}
+// publishOrgSecret performs the write and REPORTS ITS FAILURE.
+//
+// Separate from setOrgGitopsToken because the two callers want opposite things
+// from a failure. Scaffold wants to continue: the box is complete without this
+// credential and aborting would destroy a working repository over something no
+// cluster depends on. An operator who ran the retry deliberately wants the
+// opposite -- a retry that prints a warning and exits 0 has told them it worked
+// when it did not, and the next thing they do is wonder why their build still
+// cannot pin a version.
+func publishOrgSecret(ctx context.Context, org, token string) error {
 	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN",
 		"--org", org, "--visibility", "all")
 	cmd.Stdin = strings.NewReader(token)
 	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", firstLine(string(out)))
+	}
+	return nil
+}
+
+func setOrgGitopsToken(ctx context.Context, org, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+	if err := publishOrgSecret(ctx, org, token); err != nil {
 		fmt.Printf("[scaffold] ! GITOPS_TOKEN not set on the %s organisation: %s\n",
-			org, firstLine(string(out)))
+			org, firstLine(err.Error()))
 		fmt.Printf("[scaffold]   Application builds cannot pin a chart version until it is.\n")
 		fmt.Printf("[scaffold]   Re-run with a token carrying the organisation's\n")
 		fmt.Printf("[scaffold]   \"Secrets: write\" permission, or set it once by hand:\n")
@@ -716,5 +732,11 @@ func PublishOrgGitopsToken(ctx context.Context, org, token string) error {
 	if strings.TrimSpace(token) == "" {
 		return fmt.Errorf("no token: pass one with --token or on stdin")
 	}
-	return setOrgGitopsToken(ctx, org, token)
+	if err := publishOrgSecret(ctx, org, token); err != nil {
+		return fmt.Errorf("could not publish GITOPS_TOKEN on the %s organisation: %w\n\n"+
+			"The token needs the organisation's \"Secrets: write\" permission. GitHub names\n"+
+			"both routes in its refusal, so read it carefully -- the fine-grained permission\n"+
+			"is sufficient and admin:org is not required.", org, err)
+	}
+	return nil
 }

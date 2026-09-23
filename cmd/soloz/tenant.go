@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 )
@@ -50,6 +51,33 @@ func newTenantCmd() *cobra.Command {
 
 var workloadCluster tenant.WorkloadCluster
 
+// readTokenValue obtains a credential without it landing anywhere durable.
+//
+// Echo is disabled when stdin is a terminal, so a pasted token does not remain
+// on screen or in the scrollback. When stdin is a pipe it is read straight
+// through, which is what a password manager or a CI step does.
+func readTokenValue(cmd *cobra.Command) (string, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		b, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", fmt.Errorf("read token from stdin: %w", err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+
+	fmt.Print("\nGITOPS_TOKEN\n" +
+		"  A fine-grained token with the organisation's \"Secrets: write\" permission.\n" +
+		"  Not admin:org.\n\n" +
+		"Token (not echoed): ")
+	b, err := term.ReadPassword(fd)
+	fmt.Println()
+	if err != nil {
+		return "", fmt.Errorf("read token: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
 // newTenantSetGitopsTokenCmd republishes the organisation credential an
 // application build needs.
 //
@@ -75,13 +103,21 @@ a chart version.
 The token needs that one fine-grained permission, not admin:org.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(token) == "" {
-				// Read from stdin so it is never an argument: a token passed as
-				// a flag value is in shell history and in the process table.
-				b, err := io.ReadAll(cmd.InOrStdin())
+				// Never an argument: a token passed as a flag value is in shell
+				// history and in the process table.
+				//
+				// Prompted when a person is typing, piped when they are not.
+				// Reading stdin unconditionally is what this did first, and on a
+				// terminal that is an unannounced block: no prompt, no cursor,
+				// nothing to indicate it wants input or that Ctrl-D ends it. It
+				// reads as a hang, which is the worst thing a credential command
+				// can do -- the operator cannot tell whether it is waiting or
+				// has already made a remote call.
+				v, err := readTokenValue(cmd)
 				if err != nil {
-					return fmt.Errorf("read token from stdin: %w", err)
+					return err
 				}
-				token = strings.TrimSpace(string(b))
+				token = v
 			}
 			if err := tenant.PublishOrgGitopsToken(cmd.Context(), org, token); err != nil {
 				return err
