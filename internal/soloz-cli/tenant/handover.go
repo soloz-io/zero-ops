@@ -692,3 +692,29 @@ func LocalHandover(ctx context.Context, s Spec, secrets Secrets, w io.Writer) er
 func shellQuote(v string) string {
 	return "'" + strings.ReplaceAll(strings.TrimSpace(v), "'", `'\''`) + "'"
 }
+
+// PublishOrgGitopsToken republishes the organisation's GITOPS_TOKEN for a box
+// that already exists.
+//
+// SetSecrets does this once, during scaffold, and deliberately does not fail the
+// scaffold when it cannot: the box is complete without it and aborting would
+// destroy a working repository over a credential no cluster depends on. The
+// consequence is that a scaffold whose token lacked the organisation's
+// "Secrets: write" permission leaves a box permanently short of it, with no way
+// back that does not involve scaffolding again -- which is not a thing anyone
+// can do to a running box.
+//
+// So the retry is a command. What it replaces is an operator pasting
+// `gh secret set` from a warning printed days earlier, which is the platform
+// asking a tenant to do the platform's job (ADR-084 assigns this credential to
+// the Day-0 CLI).
+func PublishOrgGitopsToken(ctx context.Context, org, token string) error {
+	if strings.TrimSpace(org) == "" {
+		return fmt.Errorf("no organisation: the credential is published at the organisation " +
+			"level so every application repository inherits it, and there is no default")
+	}
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("no token: pass one with --token or on stdin")
+	}
+	return setOrgGitopsToken(ctx, org, token)
+}

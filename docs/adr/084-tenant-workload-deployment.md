@@ -143,6 +143,16 @@ Scaffolding is not told which application repositories exist: applications are
 created, renamed and retired by the tenant long after scaffolding has run, and a
 platform tracking that set would fall behind it silently.
 
+Published by the Day-0 CLI at scaffold, and republishable afterwards
+(`soloz tenant set-gitops-token`). The publication is deliberately non-fatal --
+a box is complete without it and aborting a scaffold would destroy a working
+repository over a credential no cluster depends on -- which means a scaffold
+whose token lacked the organisation's "Secrets: write" permission leaves the
+credential unset. Without a retry the only recovery was an operator pasting a
+`gh secret set` line out of a warning printed days earlier, which is the tenant
+performing a step this ADR assigns to the platform. The retry is a command for
+that reason.
+
 This is weaker than a credential held only inside the cluster, where an
 application's build holds nothing and the platform's automation supplies the
 write. That arrangement requires an in-cluster workflow engine and runners

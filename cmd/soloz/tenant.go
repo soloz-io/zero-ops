@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,11 +30,11 @@ var (
 	scaffoldLocal           bool
 	// -1 rather than 0, because 0 is a real worker count and the default depends
 	// on the environment, which is not known when flags are declared.
-	scaffoldWorkers  int
+	scaffoldWorkers int
 	// workloadClusterWorkers is read through the -1 sentinel above rather than
 	// written straight onto the struct, so "not passed" survives to Add().
 	workloadClusterWorkers int
-	scaffoldNoPrompt bool
+	scaffoldNoPrompt       bool
 )
 
 func newTenantCmd() *cobra.Command {
@@ -42,11 +43,59 @@ func newTenantCmd() *cobra.Command {
 		Short: "Onboard and maintain tenant boxes",
 	}
 	cmd.AddCommand(newTenantScaffoldCmd())
+	cmd.AddCommand(newTenantSetGitopsTokenCmd())
 	cmd.AddCommand(newAddWorkloadClusterCmd())
 	return cmd
 }
 
 var workloadCluster tenant.WorkloadCluster
+
+// newTenantSetGitopsTokenCmd republishes the organisation credential an
+// application build needs.
+//
+// It exists because scaffold's attempt is non-fatal by design: a token without
+// the organisation's "Secrets: write" permission leaves the box complete and the
+// credential unset, and the only recovery was the `gh secret set` line scaffold
+// printed in a warning. That makes the tenant perform a step ADR-084 assigns to
+// the platform, once per box, from a message they saw days earlier.
+func newTenantSetGitopsTokenCmd() *cobra.Command {
+	var org, token string
+	cmd := &cobra.Command{
+		Use:          "set-gitops-token",
+		Short:        "Publish the organisation credential application builds use",
+		SilenceUsage: true,
+		Long: `Publish GITOPS_TOKEN at the organisation level, so every application
+repository the tenant owns inherits it (ADR-084).
+
+Scaffold does this already. This re-runs it for a box whose scaffold-time token
+lacked the organisation's "Secrets: write" permission -- the case where the
+scaffold succeeded, printed a warning, and left application builds unable to pin
+a chart version.
+
+The token needs that one fine-grained permission, not admin:org.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(token) == "" {
+				// Read from stdin so it is never an argument: a token passed as
+				// a flag value is in shell history and in the process table.
+				b, err := io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return fmt.Errorf("read token from stdin: %w", err)
+				}
+				token = strings.TrimSpace(string(b))
+			}
+			if err := tenant.PublishOrgGitopsToken(cmd.Context(), org, token); err != nil {
+				return err
+			}
+			fmt.Printf("\n  GITOPS_TOKEN published on the %s organisation.\n", org)
+			fmt.Printf("  Every application repository inherits it, including ones created later.\n\n")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&org, "org", "", "Git organisation to publish the credential on")
+	cmd.Flags().StringVar(&token, "token", "", "The token; omit to read it from stdin, which keeps it out of shell history")
+	cmd.MarkFlagRequired("org")
+	return cmd
+}
 
 // newAddWorkloadClusterCmd declares an additional workload cluster in a
 // repository that already holds a management cluster.
