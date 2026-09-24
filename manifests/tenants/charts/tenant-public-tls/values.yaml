@@ -8,6 +8,11 @@
 
 # Tenant identifier from fleet-registry. Required.
 tenantId: ""
+# The product whose gateway this routes to (ADR-088). Required: this chart
+# renders into the SHARED platform-ops namespace, so without it two apps of one
+# tenant produce one HTTPRoute and one Certificate between them -- and the
+# second silently replaces the first.
+appId: ""
 
 # Declared public hostnames. This schema matches fleet-registry
 # tenants/<t>/<e>/values.yaml VERBATIM — that file is passed directly as Helm

@@ -65,7 +65,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'environments/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -74,9 +74,10 @@ spec:
 
   template:
     metadata:
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-public-tls'
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-public-tls'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+          app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: public-tls
