@@ -50,7 +50,7 @@ type Fleet struct {
 // name a cell the fleet does not run on -- which fails as "could not get secret
 // data from provider", indistinguishable from a store or auth fault.
 func (f Fleet) SecretPath() string {
-	return fmt.Sprintf("/spoke-pool/%s/tenants/%s/apps/%s", f.CellID, f.TenantID, f.AppID)
+	return fmt.Sprintf("/spoke-pool/%s/tenants/%s", f.CellID, f.AppID)
 }
 
 // Load reads one environment's fleet declaration.

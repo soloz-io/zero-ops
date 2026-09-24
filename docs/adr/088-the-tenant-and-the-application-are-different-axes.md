@@ -72,7 +72,7 @@ For this box: `tenantId: nutgraf`, and `appId` is `waypoint` or `oranger`.
 |---|---|---|
 | Identity | Zitadel organisation | Zitadel project within it |
 | Namespace | — | `{tenantId}-{appId}` |
-| Secret prefix | `/spoke-pool/{cellId}/tenants/{tenantId}/` | `.../apps/{appId}/` |
+| Secret prefix | — | `/spoke-pool/{cellId}/tenants/{appId}/` |
 | Cost attribution | `tenant-id` label | `app-id` label |
 | Network boundary | intra-tenant egress is expressible | default-deny per app |
 | Repository | one GitOps repository per tenant | one directory per app |
@@ -107,7 +107,7 @@ against `nutgraf` alone cannot be split between products, and one against
 |---|---|---|
 | Namespace | `tenant-waypoint` | `tenant-nutgraf-waypoint` |
 | Labels | `tenant-id: waypoint` | `tenant-id: nutgraf`, `app-id: waypoint` |
-| Secret prefix | `/spoke-pool/nutgraf-01/tenants/waypoint/` | `/spoke-pool/nutgraf-01/tenants/nutgraf/apps/waypoint/` |
+| Secret prefix | `/spoke-pool/nutgraf-01/tenants/waypoint/` | unchanged — see below |
 | Database | `tenant-waypoint-db` | `nutgraf-waypoint-db` |
 | Zitadel | org `waypoint`, one project | org `nutgraf`, project `waypoint` |
 
@@ -129,9 +129,23 @@ from one matching nothing.
 
 So: one change, applied while the fleet is down, in this order within it.
 
-1. **Copy the secret material** to the new prefix, leaving the old in place.
-   Nothing reads the new path yet, and the old path stays readable until the
-   last step, so this is reversible on its own.
+1. **Nothing.** The secret path does not move.
+
+   An earlier draft of this ADR moved it to
+   `/spoke-pool/<cell>/tenants/<tenant>/apps/<app>/` so the path would read the
+   way the hierarchy actually is, and required every existing key to be copied
+   there first. That was wrong in proportion: the segment named `tenants`
+   already holds the PRODUCT -- before this split the field feeding it was
+   called tenantId but carried one -- so the path's CONTENT was correct and only
+   its label was not.
+
+   Copying live key material is a data migration. Bundling one with an
+   identifier rename made the riskiest step in this change serve its least
+   valuable part, and an ExternalSecret fails as a WHOLE object (ADR-087), so a
+   partial copy withholds unrelated keys from unrelated workloads.
+
+   The label is corrected on its own, later, when moving material is the only
+   thing that can go wrong.
 2. **Render everything against both axes** — charts, Kyverno ABI, spoke-catalog
    policies, AppSet generators, `soloz-cli` scaffolding and path builder,
    workload charts in every application repository.
@@ -218,14 +232,16 @@ total and the per-product split; today's single label gives neither reliably.
 The identity model stops fighting the runtime. Zitadel's org → project is used
 as designed rather than pinned to one project per org.
 
-Secret paths stop lying. `/spoke-pool/{cell}/tenants/{tenant}/apps/{app}/` reads
-the way the hierarchy actually is.
+Secret paths are left alone, deliberately. They still read `tenants/<app>/`,
+which is inaccurate and harmless: the content is right. Correcting it is its own
+change with its own risk, and pairing it with this one would have meant moving
+live key material on the same day the namespaces changed.
 
 ### Negative
 
 It is a large migration across 34 files carrying `tenant-id` and 21 carrying the
-namespace pattern, plus the Kyverno ABI, the XRD, the AppSet generators, the
-Infisical layout and every workload chart in every application repository. It is
+namespace pattern, plus the Kyverno ABI, the XRDs, the AppSet generators and
+every workload chart in every application repository. It is
 applied as one change, so it is reviewed as one change — there is no smaller
 increment that leaves the fleet in a working state.
 

@@ -575,7 +575,7 @@ func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cell
 // so "already exists" must be success rather than a conflict the caller has to
 // interpret.
 func (r *AINativeSaaSReconciler) publishTenantSecret(ctx context.Context, cellId, tenantId, appId, key, value string) error {
-	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, tenantId, appId)
+	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
 
 	exists, err := r.InfisicalClient.SecretExists(ctx, path, key)
 	if err != nil {

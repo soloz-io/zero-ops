@@ -45,14 +45,24 @@ app-id: {{ include "universal-tenant.appId" . }}
 {{/*
 Where this app's secret material lives (ADR-031 cell scoping, ADR-087 layout).
 
-  /spoke-pool/<cell>/tenants/<tenant>/apps/<app>/KEY
+  /spoke-pool/<cell>/tenants/<app>/KEY
 
-The cell segment already carried the customer while the segment called `tenants`
-carried the product -- the inversion ADR-088 is named for. The reading order is
-now the containment order.
+The segment is the APP, and always has been: before ADR-088 the field feeding it
+was called tenantId but held a product. So the CONTENT of this path was already
+right and only its label was wrong.
+
+ADR-088 first moved it to /tenants/<tenant>/apps/<app>/, which reads correctly
+and requires every existing key to be copied to a new location. That is a data
+migration bought for a naming improvement, and it was the riskiest step in a
+change that otherwise only renames identifiers -- an ExternalSecret fails as a
+WHOLE object (ADR-087), so a partial copy withholds unrelated keys from
+unrelated workloads.
+
+Deferred deliberately. The path is corrected on its own, when moving it is the
+only thing that can go wrong, rather than on the day the namespaces change too.
 */}}
 {{- define "universal-tenant.secretPrefix" -}}
-/spoke-pool/{{ required "cellId must be supplied" .Values.cellId }}/tenants/{{ include "universal-tenant.tenantId" . }}/apps/{{ include "universal-tenant.appId" . }}
+/spoke-pool/{{ required "cellId must be supplied" .Values.cellId }}/tenants/{{ include "universal-tenant.appId" . }}
 {{- end -}}
 
 {{/*

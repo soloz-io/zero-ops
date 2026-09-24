@@ -119,21 +119,19 @@ spec:
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
                     - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
               - type: CombineFromComposite
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
                     - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
 
           # Resource 2: CNPG Database CR
@@ -269,21 +267,19 @@ spec:
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
                     - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
               - type: CombineFromComposite
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
                     - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
               # Dynamic configuration values (not secrets)
               - type: FromCompositeFieldPath

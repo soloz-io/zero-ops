@@ -537,9 +537,7 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 		"/spoke-pool",
 		fmt.Sprintf("/spoke-pool/%s", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants", cellID),
-		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, tenantID),
-		fmt.Sprintf("/spoke-pool/%s/tenants/%s/apps", cellID, tenantID),
-		fmt.Sprintf("/spoke-pool/%s/tenants/%s/apps/%s", cellID, tenantID, appID),
+		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, appID),
 	}
 
 	for _, folder := range foldersToEnsure {

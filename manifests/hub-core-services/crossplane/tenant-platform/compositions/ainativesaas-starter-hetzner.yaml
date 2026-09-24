@@ -151,11 +151,10 @@ spec:
       combine:
         variables:
           - fromFieldPath: spec.cellId
-          - fromFieldPath: spec.tenantId
           - fromFieldPath: spec.appId
         strategy: string
         string:
-          fmt: "/spoke-pool/%s/tenants/%s/apps/%s/CACHE_PASSWORD"
+          fmt: "/spoke-pool/%s/tenants/%s/CACHE_PASSWORD"
       toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
     - type: FromCompositeFieldPath
       fromFieldPath: spec.cellId

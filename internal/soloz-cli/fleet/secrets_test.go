@@ -24,10 +24,11 @@ func fleetFixture() Fleet {
 // The path is derived from the fleet's own declaration. Written out per key, it
 // was twenty-three chances to name the wrong cell.
 func TestSecretPathIsDerived(t *testing.T) {
-	// Both axes, in containment order (ADR-088). The cell segment already
-	// carried the customer while the segment called `tenants` carried the
-	// product, so the path read as a hierarchy that was not one.
-	if got, want := fleetFixture().SecretPath(), "/spoke-pool/nutgraf-01/tenants/acme/apps/storefront"; got != want {
+	// The segment is the APP. That is what it always held -- before ADR-088 the
+	// field feeding it was called tenantId but carried a product -- so the
+	// content was right and only the label was wrong. Correcting the label
+	// means moving live key material, which is deferred to its own change.
+	if got, want := fleetFixture().SecretPath(), "/spoke-pool/nutgraf-01/tenants/storefront"; got != want {
 		t.Fatalf("SecretPath() = %q, want %q", got, want)
 	}
 }
