@@ -87,7 +87,7 @@ spec:
                       type: Format
                       fmt: "%s-db-credentials-restore"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -103,7 +103,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
@@ -239,7 +239,7 @@ spec:
                       type: Format
                       fmt: "%s-pooler-app-secret"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -255,7 +255,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
@@ -287,7 +287,7 @@ spec:
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
               # HARDENING (ADR-030): Pooler host as discrete key for sidecars and audit tooling
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.host
                 transforms:
                   - type: string
@@ -343,7 +343,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.passwordSecretRef.name
                 transforms:
                   - type: string
