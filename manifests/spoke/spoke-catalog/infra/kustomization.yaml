@@ -93,6 +93,19 @@ resources:
   # IPv4-only CoreDNS upstreams (spoke nodes have no working IPv6 default
   # route; AAAA-first resolution broke ESO/ExternalSecrets). See coredns.yaml.
   - coredns.yaml
+  # Pod DNS answered on the pod's own node (ADR-046 §34).
+  #
+  # kubeadm placed both CoreDNS replicas on the control plane while every tenant
+  # workload runs on a home worker, so every lookup crossed the Tailscale
+  # overlay: measured 48/50 from a tenant pod. The failures surface as the
+  # application's own error -- "fetch failed" from the BFF, EAI_AGAIN from a
+  # schema migration -- and never as a DNS fault.
+  #
+  # Distribution spreads the replicas; the cache is what removes the crossing.
+  # Both are required: under kube-proxy-replacement the cache is reachable only
+  # through the CiliumLocalRedirectPolicy the second file carries.
+  - coredns-distribution.yaml
+  - coredns-nodelocal.yaml
   # TenantDatabase XRD + composition (ADR-047): spoke-side Crossplane reconciles
   # TenantDatabase XRs pushed from the hub via provider-kubernetes remote pattern.
   # Vendored copies of manifests/spoke/xrds + manifests/spoke/compositions.

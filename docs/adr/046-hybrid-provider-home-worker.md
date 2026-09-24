@@ -2665,6 +2665,15 @@ Only the second one would have caught this, because every other surface —
 DaemonSet Ready 2/2, pods Running, `platform-dns` Synced/Healthy — reported
 correct throughout.
 
+**Every cluster, not only the hub.** This applies to a spoke identically, and
+the spoke is worse placed: kubeadm put both CoreDNS replicas on the control
+plane while every tenant workload runs on a home worker, so every lookup crossed
+the overlay. Measured from a tenant pod on nutgraf-01: 48 of 50. It surfaced as
+the BFF answering "SDK notification service unavailable: fetch failed" and a
+schema migration dying on EAI_AGAIN for shared-cnpg-rw -- an application error
+and a database error, neither naming DNS. The manifests therefore live in the
+spoke catalogue as well as in hub-core-services.
+
 **Delivery note.** The hub's `kube-system/cilium-config` is delivered by a
 ClusterResourceSet with strategy `ApplyOnce` and is reconciled by nothing
 afterwards, so the invariant above governs the next hub and had to be patched by
