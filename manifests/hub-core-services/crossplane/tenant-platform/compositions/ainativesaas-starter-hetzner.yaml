@@ -373,11 +373,21 @@ spec:
                 matchLabels:
                   app.kubernetes.io/component: cache
               # DNS out, tenant namespace in. The cache reaches nothing else.
+              #
+              # Both DNS backends: CoreDNS directly, or the node-local cache
+              # when the redirect policy is in force. Under
+              # `kube-proxy-replacement: true` Cilium enforces egress on the
+              # service ENDPOINT, not the ClusterIP, so naming only kube-dns
+              # stops matching the moment that redirect lands -- see
+              # spoke-catalog/infra/tenant-dns-egress.yaml for the incident.
               egress:
               - toEndpoints:
                 - matchLabels:
                     k8s:io.kubernetes.pod.namespace: kube-system
                     k8s:k8s-app: kube-dns
+                - matchLabels:
+                    k8s:io.kubernetes.pod.namespace: kube-system
+                    k8s:k8s-app: node-local-dns
                 toPorts:
                 - ports:
                   - {port: "53", protocol: UDP}

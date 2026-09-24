@@ -95,6 +95,10 @@ resources:
   # carrying the hub's address; it was under providers/hybrid/ for that reason
   # alone, which left Hetzner tenants unenforced. See the file.
   - tenant-identity-egress.yaml
+  # Cluster DNS for tenant workloads, granted by the platform rather than
+  # declared by each workload chart. Listed after the anchor above because it
+  # adds an allowance to the set that file places under enforcement.
+  - tenant-dns-egress.yaml
   # IPv4-only CoreDNS upstreams (spoke nodes have no working IPv6 default
   # route; AAAA-first resolution broke ESO/ExternalSecrets). See coredns.yaml.
   - coredns.yaml

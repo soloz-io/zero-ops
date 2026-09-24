@@ -53,13 +53,12 @@ data:
       forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
 
-    // PostgREST metrics scraping
-    prometheus.scrape "postgrest" {
-      targets = [{
-        __address__ = "postgrest.platform-data.svc:3000",
-      }]
-      forward_to = [prometheus.relabel.add_cell_id.receiver]
-    }
+    // PostgREST was removed from the tenant platform on 2026-09-24 -- it was the
+    // only readiness-gated resource in the composition and blocked every tenant
+    // XR -- so its scrape goes with it. A named target that no longer resolves
+    // does not fail loudly: alloy retries it forever, `up` for the job sits at 0
+    // for the life of the cluster, and the series it produces is
+    // indistinguishable from a component that is genuinely down.
 
     // Add cell_id and cluster labels to all metrics
     prometheus.relabel "add_cell_id" {
@@ -194,7 +193,7 @@ data:
       // to a destination they did not choose.
       //
       // The metrics pipeline above was already bounded: every target is named
-      // (kube-state-metrics, cnpg, postgrest). This closes the log path to the
+      // (kube-state-metrics, cnpg). This closes the log path to the
       // same rule. A tenant opts their own namespaces in under §7.2.
       rule {
         source_labels = ["__meta_kubernetes_namespace_label_topology_platform_io_role"]

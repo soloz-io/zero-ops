@@ -172,10 +172,35 @@ data:
                   # renders as "<redacted>" otherwise, forwarding a well-formed
                   # header carrying nothing.
                   Authorization: '"Bearer " + jwt.rawToken.unredacted()'
+                  # sub and email are registered OIDC claims: every issuer emits
+                  # them under these names, so the expressions resolve.
                   X-Auth-Subject: jwt.sub
                   X-Auth-Email: jwt.email
-                  X-Auth-Role: jwt.role
-                  X-Auth-Tenant: jwt.tenant_id
+                  # X-Auth-Role and X-Auth-Tenant are deliberately NOT sent.
+                  #
+                  # They read `jwt.role` and `jwt.tenant_id`, and neither claim
+                  # exists in the token. Zitadel spells the tenant
+                  # `urn:zitadel:iam:user:resourceowner:id` and the roles
+                  # `urn:zitadel:iam:org:project:roles`; `tenant_id` is a field
+                  # the platform sets on its OWN session model after reading
+                  # that, never something the issuer emits. So both headers
+                  # forwarded empty, which is worse than absent: they look like
+                  # identity assertions and carry nothing.
+                  #
+                  # Neither can be fixed by naming the real claim here. The
+                  # tenant's spelling is issuer-specific and ADR-059 keeps every
+                  # such literal in one table (providers/zitadel/claims.go), not
+                  # duplicated into a tenant chart. Roles cannot be computed at
+                  # a gateway at all: the claim is nested
+                  # { role: { grantingTenantID: domain } } and must be filtered
+                  # to the tenant the request is for -- flattening it to a
+                  # scalar returns a role granted in a DIFFERENT tenant, the
+                  # cross-tenant privilege leak rolesGrantedInTenant() exists to
+                  # prevent.
+                  #
+                  # Nothing is lost. The BFF derives both from the Authorization
+                  # token it validates itself, and treats these headers as
+                  # "convenience claims only; never a source of identity".
         - name: {{ $t }}-spa
           backends:
           - host: {{ $frontend }}

@@ -105,6 +105,11 @@ spec:
   # No ingress rules, and no `ingress` key. The absent key cannot be widened by
   # adding one more entry to a list that already exists.
   egress:
+    # Name resolution, against whichever component answers it on this node:
+    # CoreDNS directly, or the node-local cache when the redirect policy is in
+    # force. Peers in a `to` list are OR, so both are allowed always. Naming
+    # only kube-dns made this rule stop matching the instant that redirect
+    # landed -- see tenant-dns-egress.yaml for why, and for the measurements.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -112,6 +117,12 @@ spec:
           podSelector:
             matchLabels:
               k8s-app: kube-dns
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: node-local-dns
       ports:
         - protocol: UDP
           port: 53

@@ -87,11 +87,18 @@ spec:
             - port: "5432"
               protocol: TCP
 
-    # DNS for FQDN rules.
+    # DNS for FQDN rules. Both backends: CoreDNS directly, or the node-local
+    # cache when the redirect policy is in force. Naming only kube-dns made this
+    # rule stop matching the instant that redirect landed, because Cilium
+    # enforces egress on the service ENDPOINT under kube-proxy-replacement --
+    # see tenant-dns-egress.yaml for the incident and the measurements.
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:k8s-app: kube-dns
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: node-local-dns
       toPorts:
         - ports:
             - port: "53"

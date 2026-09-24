@@ -32,6 +32,12 @@ spec:
     # Name resolution. Without it the agent cannot resolve the support endpoint
     # and fails closed, which is correct but reports as a transmission failure
     # rather than as a missing rule.
+    #
+    # Both DNS backends: CoreDNS directly, or the node-local cache when the
+    # redirect policy is in force. Peers in a `to` list are OR, so both are
+    # allowed always. Naming only kube-dns made rules of this shape stop
+    # matching the instant that redirect landed on the spokes, because Cilium
+    # enforces egress on the service ENDPOINT under kube-proxy-replacement.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -39,6 +45,12 @@ spec:
           podSelector:
             matchLabels:
               k8s-app: kube-dns
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: node-local-dns
       ports:
         - protocol: UDP
           port: 53

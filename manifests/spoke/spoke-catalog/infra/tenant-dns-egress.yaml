@@ -1,0 +1,91 @@
+# Cluster DNS for tenant workloads, granted by the platform.
+#
+# WHY THE PLATFORM GRANTS THIS AND A WORKLOAD DOES NOT DECLARE IT
+#
+# DNS reachability is a property of the cluster, not of an application. Every
+# workload chart used to declare it for itself, naming the platform's DNS
+# implementation by label:
+#
+#     toEndpoints:
+#       - matchLabels:
+#           k8s:io.kubernetes.pod.namespace: kube-system
+#           k8s:k8s-app: kube-dns
+#
+# That places the identity of the platform's DNS backend inside the tenant
+# contract, where a tenant cannot be expected to maintain it and has no reason
+# to know it. On 2026-09-24 it cost the fleet its DNS. A CiliumLocalRedirectPolicy
+# moved pod DNS to a node-local cache (ADR-046 §34); the backend behind the
+# kube-dns ClusterIP became a pod labelled `k8s-app: node-local-dns`; and because
+# `kube-proxy-replacement: true` is a datapath invariant here, Cilium enforces
+# egress against the SERVICE ENDPOINT rather than the ClusterIP -- stated in
+# Documentation/security/policy/language.rst, and the reason the rules above had
+# ever worked. Every one of them stopped matching at the same instant.
+# Resolution from a tenant pod, same pod, before and after:
+#
+#     sdk-workload.tenant-waypoint     48/50  ->  0/60
+#     shared-cnpg-rw.platform-data     50/50  ->  0/60
+#
+# The defect was not the redirect. It was ten separate policies each encoding
+# which DNS the platform runs, so one datapath change broke all of them at once
+# and each had to be found. This grants it once, from the component that owns
+# the answer, and the tenant contract stops mentioning DNS at all.
+#
+# WHY BOTH BACKENDS ARE NAMED, AND NOT A ROLE LABEL
+#
+# A platform-owned `dns/role: cluster-dns` label carried by every DNS component,
+# selected here, would also work. It was rejected: it creates an invariant that
+# has to be remembered on every future DNS component, and its failure mode is
+# the silent loss of all DNS -- the same failure this file exists to make
+# impossible, moved one level down. The platform knows which DNS it runs. That
+# knowledge belongs in one platform-owned file, expressed in the labels
+# Kubernetes and NodeLocal DNSCache already guarantee.
+#
+# Both are listed unconditionally, not switched on whether the cache is
+# deployed. A rule that has to know is a rule that breaks during the very change
+# it exists to survive; an allowance for a backend that is not present selects
+# nothing and costs nothing.
+#
+# WHAT THIS DOES NOT DO
+#
+# It does not put any workload into enforcement. Tenant endpoints are already
+# selected by tenant-identity-egress.yaml, so this adds an allowance to a set
+# that is already default-deny. A policy selecting endpoints nothing else
+# selects would flip them from default-allow to default-deny, which is why the
+# selector here is exactly that file's and not a wider one.
+#
+# The Cilium CRDs arrive with Cilium itself, in the CAPI ClusterResourceSet
+# addon (ADR-041), so on a new spoke this resource is validated against an API
+# that does not yet serve cilium.io/v2 and ArgoCD's dry-run fails the whole
+# sync. See sandbox-network-policy.yaml for the incident this comes from.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: tenant-dns-egress
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # The same selector tenant-identity-egress.yaml uses, for the same reason:
+  # `tenant-id` is required on tenant workloads by the ABI policy
+  # (enforce-tenant-abi), so it covers present and future fleets without
+  # naming one (ADR-047).
+  endpointSelector:
+    matchExpressions:
+      - key: tenant-id
+        operator: Exists
+  egress:
+    # Cluster DNS, whichever component is answering it on this node: CoreDNS
+    # directly, or the node-local cache when the redirect policy is in force.
+    # Separate matchLabels entries are OR -- both are allowed, always.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: node-local-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

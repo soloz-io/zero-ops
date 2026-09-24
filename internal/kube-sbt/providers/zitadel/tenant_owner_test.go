@@ -27,7 +27,7 @@ func (r *ownerRecorder) handler() http.Handler {
 		switch {
 		case req.URL.Path == "/admin/v1/orgs/_search":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"result": []map[string]any{{"id": "org-waypoint", "name": "waypoint"}},
+				"result": []map[string]any{{"id": "org-acme", "name": "acme"}},
 			})
 		case req.URL.Path == "/management/v1/projects/_search":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -82,7 +82,7 @@ func TestEnsureTenantIdentity_DoesNotAdoptAnOwnerFromAnotherOrganisation(t *test
 	a, srv := newOwnerAuth(t, rec)
 	defer srv.Close()
 
-	if _, err := a.EnsureTenantIdentity(context.Background(), "waypoint",
+	if _, err := a.EnsureTenantIdentity(context.Background(), "acme",
 		"operator@example.test", false, nil, nil, nil); err != nil {
 		t.Fatalf("EnsureTenantIdentity: %v", err)
 	}
@@ -98,8 +98,8 @@ func TestEnsureTenantIdentity_DoesNotAdoptAnOwnerFromAnotherOrganisation(t *test
 			"this tenant has none — its login answers \"User not found in the system\" " +
 			"while every other signal says the tenant is ready")
 	}
-	if rec.createdIn != "org-waypoint" {
-		t.Errorf("owner created in org %q, want org-waypoint", rec.createdIn)
+	if rec.createdIn != "org-acme" {
+		t.Errorf("owner created in org %q, want org-acme", rec.createdIn)
 	}
 }
 
@@ -107,11 +107,11 @@ func TestEnsureTenantIdentity_DoesNotAdoptAnOwnerFromAnotherOrganisation(t *test
 // for the same address in the same organisation is what the lookup exists to
 // prevent.
 func TestEnsureTenantIdentity_ReusesAnOwnerAlreadyInThisOrganisation(t *testing.T) {
-	rec := &ownerRecorder{foundInOrg: "org-waypoint"}
+	rec := &ownerRecorder{foundInOrg: "org-acme"}
 	a, srv := newOwnerAuth(t, rec)
 	defer srv.Close()
 
-	if _, err := a.EnsureTenantIdentity(context.Background(), "waypoint",
+	if _, err := a.EnsureTenantIdentity(context.Background(), "acme",
 		"operator@example.test", false, nil, nil, nil); err != nil {
 		t.Fatalf("EnsureTenantIdentity: %v", err)
 	}

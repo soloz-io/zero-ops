@@ -10,10 +10,10 @@ import (
 
 func fleetFixture() Fleet {
 	return Fleet{
-		TenantID: "waypoint",
+		TenantID: "acme",
 		CellID:   "nutgraf-01",
 		Secrets: []Declaration{
-			{Name: "WAYPOINT_INTERNAL_TOKEN", Capability: "the BFF/SDK channel", Workloads: []string{"bff", "sdk"}},
+			{Name: "ACME_INTERNAL_TOKEN", Capability: "the BFF/SDK channel", Workloads: []string{"bff", "sdk"}},
 			{Name: "AI_GATEWAY_API_KEY", Capability: "the AI gateway", Workloads: []string{"sdk"}},
 			{Name: "S3_ACCESS_KEY_ID", Capability: "object storage", Workloads: []string{"sdk"}},
 		},
@@ -23,14 +23,14 @@ func fleetFixture() Fleet {
 // The path is derived from the fleet's own declaration. Written out per key, it
 // was twenty-three chances to name the wrong cell.
 func TestSecretPathIsDerived(t *testing.T) {
-	if got, want := fleetFixture().SecretPath(), "/spoke-pool/nutgraf-01/tenants/waypoint"; got != want {
+	if got, want := fleetFixture().SecretPath(), "/spoke-pool/nutgraf-01/tenants/acme"; got != want {
 		t.Fatalf("SecretPath() = %q, want %q", got, want)
 	}
 }
 
 func TestJoinSeparatesPresentAbsentAndOrphan(t *testing.T) {
 	// db-credentials is platform-written and appears in no fleet's `secrets:`.
-	s := Join(fleetFixture(), []string{"WAYPOINT_INTERNAL_TOKEN", "db-credentials"})
+	s := Join(fleetFixture(), []string{"ACME_INTERNAL_TOKEN", "db-credentials"})
 
 	var present, absent, orphan []string
 	for _, e := range s.Entries {
@@ -44,7 +44,7 @@ func TestJoinSeparatesPresentAbsentAndOrphan(t *testing.T) {
 		}
 	}
 
-	if want := []string{"WAYPOINT_INTERNAL_TOKEN"}; !reflect.DeepEqual(present, want) {
+	if want := []string{"ACME_INTERNAL_TOKEN"}; !reflect.DeepEqual(present, want) {
 		t.Errorf("present = %v, want %v", present, want)
 	}
 	if want := []string{"AI_GATEWAY_API_KEY", "S3_ACCESS_KEY_ID"}; !reflect.DeepEqual(absent, want) {
@@ -60,7 +60,7 @@ func TestJoinSeparatesPresentAbsentAndOrphan(t *testing.T) {
 // The consequence a per-key list understates. One absent key fails the whole
 // ExternalSecret, so the SDK loses all three of its keys -- not the one.
 func TestWithheldWorkloadsReportsTheWholeObject(t *testing.T) {
-	s := Join(fleetFixture(), []string{"WAYPOINT_INTERNAL_TOKEN"})
+	s := Join(fleetFixture(), []string{"ACME_INTERNAL_TOKEN"})
 
 	got := s.WithheldWorkloads()
 	if got["sdk"] != 3 {
@@ -75,7 +75,7 @@ func TestWithheldWorkloadsReportsTheWholeObject(t *testing.T) {
 }
 
 func TestWithheldIsEmptyWhenEverythingIsSupplied(t *testing.T) {
-	s := Join(fleetFixture(), []string{"WAYPOINT_INTERNAL_TOKEN", "AI_GATEWAY_API_KEY", "S3_ACCESS_KEY_ID"})
+	s := Join(fleetFixture(), []string{"ACME_INTERNAL_TOKEN", "AI_GATEWAY_API_KEY", "S3_ACCESS_KEY_ID"})
 	if n := len(s.Missing()); n != 0 {
 		t.Fatalf("Missing() = %d entries, want 0", n)
 	}
@@ -115,7 +115,7 @@ func TestLoadRejectsAFleetWithNoPath(t *testing.T) {
 		name, body, wantErr string
 	}{
 		{"no tenantId", "cellId: nutgraf-01\n", "tenantId"},
-		{"no cellId", "tenantId: waypoint\n", "cellId"},
+		{"no cellId", "tenantId: acme\n", "cellId"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -147,7 +147,7 @@ func TestLoadReadsDeclarations(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `
-tenantId: waypoint
+tenantId: acme
 cellId: nutgraf-01
 secrets:
   - name: AI_GATEWAY_API_KEY

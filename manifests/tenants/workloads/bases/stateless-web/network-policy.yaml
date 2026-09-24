@@ -13,17 +13,18 @@ spec:
       app: workload
 
   egress:
-    # 1. DNS — required for all FQDN-based rules.
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:k8s-app: kube-dns
-      toPorts:
-        - ports:
-            - port: "53"
-              protocol: UDP
-            - port: "53"
-              protocol: TCP
+    # 1. DNS is deliberately absent, and this is the reference expression of
+    #    that (ADR-084). The platform grants cluster DNS to every tenant
+    #    workload -- spoke catalogue, tenant-dns-egress.yaml -- because which
+    #    component answers DNS is a property of the cluster, not of an
+    #    application, and a tenant cannot maintain that knowledge.
+    #
+    #    This rule used to name `k8s-app: kube-dns` here, and so did every
+    #    workload chart that took this base as its model. On 2026-09-24 a
+    #    CiliumLocalRedirectPolicy moved pod DNS to a node-local cache; under
+    #    `kube-proxy-replacement: true` Cilium enforces egress on the service
+    #    ENDPOINT rather than the ClusterIP, so the backend label changed and
+    #    every one of those rules stopped matching at the same instant.
 
     # 2. Internal CNPG database on the spoke.
     - toEndpoints:
