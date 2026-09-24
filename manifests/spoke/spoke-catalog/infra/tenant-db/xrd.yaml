@@ -23,11 +23,31 @@ spec:
             type: object
             required:
               - tenantId
+              - appId
+              - scopeId
               - databaseName
             properties:
               tenantId:
                 type: string
-                description: "Tenant identifier (RFC 1123 compliant, e.g., 'app-creator')"
+                description: >-
+                  The organisation whose box this is (ADR-088). Attribution
+                  only -- names and paths are built from the two below, because
+                  two apps of one tenant each have a database.
+              appId:
+                type: string
+                description: >-
+                  The product this database belongs to (ADR-088). Namespaced
+                  object names are built from this: the namespace already
+                  carries both axes, so the objects inside it need only the app.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              scopeId:
+                type: string
+                description: >-
+                  "<tenantId>-<appId>". Namespaces, cluster-scoped Crossplane
+                  resources and the postgres role are built from this -- the
+                  things that would collide between two apps of one tenant.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                maxLength: 127
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 maxLength: 63
               databaseName:
