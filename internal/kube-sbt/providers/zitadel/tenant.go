@@ -1,6 +1,8 @@
 package zitadel
 
 import (
+	"errors"
+	"strings"
 	"context"
 	"fmt"
 	"net/http"
@@ -38,7 +40,30 @@ var defaultRoles = []struct{ Key, Display string }{
 // The order is a dependency chain, not a preference: an application belongs to a
 // project, a project belongs to an organisation, and a role belongs to a
 // project.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+// ErrOrgUnadopted is returned when an organisation already exists under this
+// tenant's name but no immutable binding records it as this tenant's.
+//
+// It is not a failure to fix by retrying. It means the platform cannot tell
+// whether that organisation is this tenant's -- carrying its users, grants and
+// OAuth clients -- or someone else's that happens to share a name. Creating a
+// second one resolves the ambiguity by destroying it: a ZITADEL organisation is
+// a security boundary and a user belongs to exactly one, so the tenant ends up
+// with two principals and every live session on the wrong side of the split.
+//
+// That is what happened on 2026-09-24. Renaming waypoint to nutgraf made the
+// name search miss, a second organisation was created with its own clients, and
+// logins failed with an audience the gateway had never issued for.
+var ErrOrgUnadopted = errors.New("zitadel: organisation exists but is not adopted")
+
+// EnsureTenantIdentity reconciles one tenant's identity against a KNOWN
+// organisation.
+//
+// knownOrgID is the immutable binding (ADR-088), held in the tenant record.
+// Empty means the tenant has none yet, and the only safe outcomes are then:
+// create an organisation because none exists, or return ErrOrgUnadopted because
+// one does. The name is never used to decide that an existing organisation is
+// this tenant's -- a name is a presentation attribute and changes.
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -50,9 +75,9 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// publish, and the reason the tenant is not yet usable.
 	var incomplete []string
 
-	orgID, err := a.ensureOrg(ctx, tenantID)
+	orgID, err := a.resolveOrg(ctx, tenantID, knownOrgID)
 	if err != nil {
-		return nil, fmt.Errorf("ensure organisation for %q: %w", tenantID, err)
+		return nil, fmt.Errorf("resolve organisation for %q: %w", tenantID, err)
 	}
 
 	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
@@ -186,7 +211,23 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 			Roles:    []string{"admin"},
 		})
 		if cerr != nil {
-			incomplete = append(incomplete, fmt.Sprintf("create owner %q: %v", ownerEmail, cerr))
+			// A 409 here is NOT "the same person, attach them". A user belongs
+			// to exactly one ZITADEL organisation and cannot be moved between
+			// them; the same address in two organisations is two accounts, not
+			// one principal. Email equality is not an identity key, and reading
+			// it as one would let a rename silently re-home a tenant's owner.
+			//
+			// So it is reported, with what it actually means, and the tenant is
+			// returned incomplete. Resolving it is an explicit decision about
+			// WHICH organisation is this tenant's (ADR-088).
+			detail := cerr.Error()
+			if strings.Contains(detail, "409") || strings.Contains(detail, "already exists") {
+				detail = fmt.Sprintf("%v -- this address already has an account in ANOTHER organisation. "+
+					"A user cannot be moved between organisations, so this is not resolved by retrying: "+
+					"either this tenant is bound to the wrong organisation (check status.identity.zitadelOrgId) "+
+					"or the owner needs a distinct account here", cerr)
+			}
+			incomplete = append(incomplete, fmt.Sprintf("create owner %q: %s", ownerEmail, detail))
 			out.Incomplete = incomplete
 			return out, nil
 		}
@@ -211,7 +252,66 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	return out, nil
 }
 
-func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
+// resolveOrg turns a tenant into its organisation id WITHOUT trusting the name.
+//
+//   knownOrgID set   -> verify it still exists and use it. The name may have
+//                       changed; that is expected and is not this function's
+//                       business.
+//   knownOrgID empty -> a name search decides only between "create" and
+//                       "stop". A hit is NOT adoption: it is an organisation
+//                       whose ownership the platform cannot establish, so it
+//                       returns ErrOrgUnadopted and the operator reports it.
+//
+// The asymmetry is the point. Creating on a miss is safe -- nothing exists to
+// conflict with. Adopting on a hit is not, because a name is not an identity.
+func (a *Auth) resolveOrg(ctx context.Context, name, knownOrgID string) (string, error) {
+	if knownOrgID != "" {
+		ok, err := a.orgExists(ctx, knownOrgID)
+		if err != nil {
+			return "", fmt.Errorf("verify bound organisation %s: %w", knownOrgID, err)
+		}
+		if !ok {
+			// Deleted upstream. Silently creating a replacement would strip
+			// every user and grant the tenant had; say so instead.
+			return "", fmt.Errorf("%w: bound organisation %s no longer exists and will not be recreated automatically", ErrOrgUnadopted, knownOrgID)
+		}
+		return knownOrgID, nil
+	}
+
+	existing, err := a.findOrgByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	if existing != "" {
+		return "", fmt.Errorf("%w: %q is organisation %s, which no tenant record claims. Adopt it explicitly (record status.identity.zitadelOrgId) or rename it; a second organisation would split this tenant's users from its clients", ErrOrgUnadopted, name, existing)
+	}
+	return a.createOrg(ctx, name)
+}
+
+// orgExists answers whether an organisation id is still live.
+func (a *Auth) orgExists(ctx context.Context, orgID string) (bool, error) {
+	var got struct {
+		Org struct {
+			ID string `json:"id"`
+		} `json:"org"`
+	}
+	if err := a.api.do(ctx, http.MethodGet, "/management/v1/orgs/me", orgID, nil, &got); err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "NotFound") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// findOrgByName returns an organisation id, or "" when none carries the name.
+//
+// Split out of the old ensureOrg deliberately. Finding and creating were one
+// call, so "no organisation of this name" and "this tenant has no organisation"
+// were the same answer -- and a rename made the first true while the second was
+// false. Separating them lets the caller decide, which is where the decision
+// belongs (ADR-088).
+func (a *Auth) findOrgByName(ctx context.Context, name string) (string, error) {
 	var found struct {
 		Result []struct {
 			ID   string `json:"id"`
@@ -229,7 +329,10 @@ func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
 			return o.ID, nil
 		}
 	}
+	return "", nil
+}
 
+func (a *Auth) createOrg(ctx context.Context, name string) (string, error) {
 	var created struct {
 		ID string `json:"id"`
 	}
@@ -237,6 +340,17 @@ func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 	return created.ID, nil
+}
+
+// RenameOrg changes an organisation's NAME, leaving its id untouched.
+//
+// This is how a tenant rename reaches the identity provider: the binding is the
+// id, the name is presentation. Note that ZITADEL may derive the default domain
+// from the name, which can affect login names -- so this is an explicit
+// migration step with its own verification, never a side effect of
+// reconciliation.
+func (a *Auth) RenameOrg(ctx context.Context, orgID, name string) error {
+	return a.api.do(ctx, http.MethodPut, "/management/v1/orgs/me", orgID, map[string]any{"name": name}, nil)
 }
 
 func (a *Auth) ensureProject(ctx context.Context, orgID, name string) (string, error) {
@@ -746,9 +860,15 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName s
 		return "", "", fmt.Errorf("zitadel: appName is required")
 	}
 
-	orgID, err := a.ensureOrg(ctx, tenantID)
+	// A confidential client is provisioned INTO an existing tenant, so its
+	// organisation is already bound. Passing "" here would let this path create
+	// the second organisation the identity path refuses to.
+	orgID, err := a.findOrgByName(ctx, tenantID)
 	if err != nil {
-		return "", "", fmt.Errorf("ensure organisation for %q: %w", tenantID, err)
+		return "", "", fmt.Errorf("find organisation for %q: %w", tenantID, err)
+	}
+	if orgID == "" {
+		return "", "", fmt.Errorf("no organisation for tenant %q: provision the tenant's identity before its confidential clients", tenantID)
 	}
 	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
 	if err != nil {

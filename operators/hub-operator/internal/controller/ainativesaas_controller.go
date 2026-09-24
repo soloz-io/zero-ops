@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -172,7 +173,12 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// tenant. Absent means false, so a fleet that says nothing gets the
 			// closed behaviour rather than inheriting somebody else's choice.
 			selfReg, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "identity", "selfRegistration")
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, ownerEmail, selfReg, redirects, postLogout, oauthClients)
+			// The IMMUTABLE binding (ADR-088). Empty on a tenant provisioned
+			// before this field existed, which is exactly the state that needs
+			// adopting rather than guessing: the identity service will refuse
+			// to create a second organisation and say so.
+			knownOrgID, _, _ := unstructured.NestedString(ainativesaas.Object, "status", "identity", "zitadelOrgId")
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, ownerEmail, selfReg, redirects, postLogout, oauthClients)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
@@ -186,6 +192,22 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				if len(identity.Incomplete) > 0 {
 					logger.Error(nil, "Tenant identity provisioned but INCOMPLETE; logins will fail until this is resolved",
 						"tenant", tenantId, "incomplete", identity.Incomplete)
+				}
+				// Record the binding, once. From here the organisation is
+				// resolved by id and a rename can never produce a second one.
+				//
+				// Written before the client id below on purpose: if this
+				// reconcile dies between the two, the next one still resolves
+				// the SAME organisation rather than creating another.
+				if knownOrgID == "" && identity.TenantRef != "" {
+					if err := unstructured.SetNestedField(ainativesaas.Object, identity.TenantRef, "status", "identity", "zitadelOrgId"); err == nil {
+						_ = unstructured.SetNestedField(ainativesaas.Object, time.Now().UTC().Format(time.RFC3339), "status", "identity", "adoptedAt")
+						if err := r.Status().Update(ctx, ainativesaas); err != nil {
+							logger.Error(err, "Could not record the identity binding; it will be retried", "tenant", tenantId, "orgId", identity.TenantRef)
+						} else {
+							logger.Info("Bound tenant to its ZITADEL organisation", "tenant", tenantId, "orgId", identity.TenantRef)
+						}
+					}
 				}
 				// Persist the allocated client id where the tenant's gateway
 				// reads it. Nothing downstream can derive this value, and the

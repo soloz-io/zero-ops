@@ -276,6 +276,36 @@ spec:
           status:
             type: object
             properties:
+              identity:
+                type: object
+                description: >-
+                  The IMMUTABLE binding between this tenant and its ZITADEL
+                  organisation (ADR-088). Written once, on first adoption or
+                  first creation, and never derived from a name again.
+
+                  A tenant's organisation is a security boundary and a user
+                  belongs to exactly one. Resolving it by name meant a rename
+                  produced a SECOND organisation with its own OAuth clients
+                  while every live user, grant and session stayed in the first
+                  -- which is what broke logins on 2026-09-24.
+                properties:
+                  zitadelOrgId:
+                    type: string
+                    description: >-
+                      The organisation id. Immutable. A change to tenantId,
+                      appId or any other presentation attribute must leave this
+                      untouched; renaming the tenant updates the organisation's
+                      NAME through UpdateOrganization, which does not change
+                      this id.
+                  adoptedAt:
+                    type: string
+                    format: date-time
+                    description: >-
+                      When the binding was established. Present means the
+                      organisation is adopted and reconciliation may proceed;
+                      absent with an organisation already existing under this
+                      name means reconciliation must STOP and report, never
+                      create a second one.
               provisionedOAuthClients:
                 type: array
                 description: |

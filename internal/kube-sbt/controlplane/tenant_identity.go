@@ -21,7 +21,7 @@ import (
 // allocated by the issuer, so it cannot be derived and cannot be written into a
 // values file ahead of time; publishing it here is what lets a tenant be
 // onboarded without anyone copying an identifier between systems.
-func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("controlplane: tenantID is required")
 	}
@@ -36,7 +36,7 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, owne
 		return nil, fmt.Errorf("controlplane: the configured identity provider does not provision tenant identities")
 	}
 
-	identity, err := provisioner.EnsureTenantIdentity(ctx, tenantID, ownerEmail, selfRegistration, redirectURIs, postLogoutURIs, oauthClients)
+	identity, err := provisioner.EnsureTenantIdentity(ctx, tenantID, knownOrgID, ownerEmail, selfRegistration, redirectURIs, postLogoutURIs, oauthClients)
 	if err != nil {
 		return nil, fmt.Errorf("controlplane: provision identity for tenant %q: %w", tenantID, err)
 	}

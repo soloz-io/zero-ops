@@ -35,6 +35,10 @@ type ensureTenantIdentityRequest struct {
 	// missing registration.
 	RedirectURIs   []string `json:"redirectUris"`
 	PostLogoutURIs []string `json:"postLogoutUris"`
+	// KnownOrgID is the IMMUTABLE binding from the tenant's record (ADR-088).
+	// Empty means unbound: the service may then create an organisation if none
+	// exists, and must REFUSE if one does, rather than adopting it by name.
+	KnownOrgID string `json:"knownOrgId"`
 	// OwnerEmail is granted administrative access, so the tenant has someone who
 	// can sign in to it at all.
 	OwnerEmail string `json:"ownerEmail"`
@@ -88,7 +92,7 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		})
 	}
 
-	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
+	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.KnownOrgID, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return

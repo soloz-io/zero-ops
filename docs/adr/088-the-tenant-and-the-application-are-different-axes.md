@@ -206,6 +206,65 @@ products of one customer need different secrets, different RBAC or different
 blast radius — at which point they are sharing an isolation boundary precisely
 because nobody wrote down that they should not.
 
+## Identity is bound to an immutable key, never to a name
+
+This section exists because the migration broke logins, and the way it broke
+them is a defect in this ADR rather than in the migration.
+
+`ensureOrg(ctx, tenantID)` resolved a tenant's ZITADEL organisation **by name**
+and created one when the search missed. Renaming `waypoint` to `nutgraf` was
+therefore indistinguishable from onboarding a customer: a second organisation
+appeared, with its own OAuth clients, while every live user, grant and session
+stayed in the first. The gateway went on minting tokens for the old client, the
+BFF began expecting the new one, and `/auth/me` answered 401.
+
+An organisation is ZITADEL's security boundary and a user belongs to exactly
+one. So this is not a cosmetic duplicate: it is a second security principal
+created by an attribute change.
+
+### The invariant
+
+```
+A tenant's ZITADEL organisation is an IMMUTABLE identity binding.
+
+    tenantUID  ->  zitadelOrgID
+
+A change to a tenant's name, slug, appId or any other presentation attribute
+MUST NOT create an organisation. OAuth clients, users, grants and organisation
+resources MUST remain attached to the same zitadelOrgID across every rename.
+
+If the binding is absent, reconciliation MUST enter an ADOPTION state and
+report it. It MUST NOT create a second organisation, and it MUST NOT infer the
+binding from a name search.
+```
+
+`tenantUID` is the identity; `tenantId` and `appId` are presentation. The
+binding is recorded in the XR's status, which is the tenant's durable record,
+and is written once.
+
+### 409 is not adoption
+
+When the owner already exists, ZITADEL answers:
+
+```
+409 User already exists (V3-DKcYh)
+```
+
+That MUST NOT be read as "the same tenant, therefore safe to attach". A user
+belongs to one organisation and cannot be moved between them; the same address
+in two organisations is two accounts, not one principal. Email equality is not
+an identity key, and treating it as one would encode exactly the model this
+section removes.
+
+The correct response is to report the organisation as unadopted and stop.
+
+### Renaming a tenant
+
+A rename updates the organisation's NAME through ZITADEL's UpdateOrganization,
+which leaves the organisation id untouched. It can change the default domain and
+therefore login names, so it is an explicit migration step with its own
+verification -- not something reconciliation performs as a side effect.
+
 ## Ownership
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |

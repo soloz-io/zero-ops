@@ -98,7 +98,7 @@ type TenantIdentity struct {
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
 	// Sent as declared. The service provisions exactly this set and no more, so a
 	// fleet that declares nothing gets no clients rather than a default one.
 	clients := make([]map[string]any, 0, len(oauthClients))
@@ -113,6 +113,7 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, own
 	body, err := json.Marshal(map[string]any{
 		"redirectUris":     redirectURIs,
 		"postLogoutUris":   postLogoutURIs,
+		"knownOrgId":       knownOrgID,
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
 		"oauthClients":     clients,

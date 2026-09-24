@@ -20,6 +20,13 @@ import (
 // Callers type-assert and skip when unimplemented, so the absence is a
 // capability the platform can observe rather than a runtime failure.
 type ITenantIdentityProvisioner interface {
+	// knownOrgID is the IMMUTABLE binding from the tenant's record (ADR-088).
+	// Empty means unbound, and an implementation must then either create --
+	// when nothing exists -- or refuse. It must never adopt an organisation by
+	// name: a name is a presentation attribute, and treating a rename as a new
+	// tenant produces a second security principal whose users are not the
+	// first's.
+	//
 	// EnsureTenantIdentity makes a tenant's identity resources exist and returns
 	// them. Idempotent: it runs on every reconcile, and a partial failure must
 	// leave the next attempt able to finish rather than to conflict.
@@ -32,7 +39,7 @@ type ITenantIdentityProvisioner interface {
 	// selfRegistration is reconciled, not applied once: it is a security
 	// boundary, and one that lives only in a provider console can be re-opened
 	// by an upgrade or a support session with nothing to notice.
-	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
+	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
 
 	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
 	//
