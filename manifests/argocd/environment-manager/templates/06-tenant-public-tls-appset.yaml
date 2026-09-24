@@ -77,7 +77,7 @@ spec:
       name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-public-tls'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
-          app-id: '{{"{{"}} .appId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: public-tls

@@ -170,7 +170,7 @@ spec:
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.name
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.owner
                 transforms:
                   - type: string
@@ -385,7 +385,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-default-privileges-tables"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.role
                 transforms:
                   - type: string
@@ -426,7 +426,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-default-privileges-sequences"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.role
                 transforms:
                   - type: string

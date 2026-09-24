@@ -1,23 +1,34 @@
-# What one fleet is, in one environment.
+# What one APP is, in one environment.
 #
-# Copy to environments/<ENVIRONMENT>/values.yaml. A fleet is a deployment
-# boundary that gets its own namespace, quota and public hostnames (ADR-047 as
-# amended by ADR-062). Your box may hold several.
+# Copy to environments/<ENVIRONMENT>/<APP>/values.yaml. Three levels since
+# ADR-088: the environment, then the app, then a directory per workload. Every
+# DIRECTORY beside this file is a workload and is generated as an Application;
+# see templates/workload/. A per-app concern therefore belongs in this file or
+# in another file, never in a sibling directory.
 #
-# Boundaries 05 and 06 glob environments/*/values.yaml, so this file existing is
-# what makes the fleet real. Every DIRECTORY beside it is an application and is
-# generated as one; see templates/workload/. A per-fleet concern therefore belongs
-# in this file or in another file, never in a sibling directory.
+# Boundaries 05 and 06 glob environments/*/*/values.yaml, so this file existing
+# is what makes the app real.
 #
-# One fleet per environment: the environment directory IS the boundary, following
-# kubefirst's shape (ADR-073). A second fleet in the same environment has nowhere
-# to go until a discriminator is added back.
+# A tenant may hold SEVERAL apps in one environment, which is the whole point of
+# the split: environments/dev/waypoint/ and environments/dev/oranger/ are two
+# products of one customer, each with its own namespace, database and policy.
+# Before ADR-088 an environment held exactly one, because the single identifier
+# could not tell a second product from a second customer.
 #
 # This file is yours. The platform never writes it.
 
-# Required. Names the namespace (tenant-<tenantId>) and the metering labels every
-# workload in it must carry.
-tenantId: <FLEET_ID>
+# Required. The ORGANISATION whose box this is -- the customer, not the product.
+# The same value in every app's file on this box. It names the metering label
+# every workload must carry, and is half of the namespace.
+tenantId: <TENANT_ID>
+
+# Required. The PRODUCT this file describes, and the isolation unit: it gets the
+# namespace (tenant-<tenantId>-<appId>), the database, the secret prefix and the
+# network policy.
+#
+# It does NOT default to tenantId. That default is the collapse ADR-088 removes,
+# and it would be invisible in every file that relied on it.
+appId: <APP_ID>
 
 # Required. Must match the cell-id label on the spoke cluster this fleet runs on,
 # or no Application is generated for it -- deliberately: a certificate or an XR
