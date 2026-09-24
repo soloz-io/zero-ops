@@ -14730,8 +14730,6 @@ stringData:
                   # POD_CIDR must match clusterPoolIPv4PodCIDRList in
                   # manifests/providers/hybrid/k8s/spokepool-hybrid-composition.yaml.
                   POD_CIDR="10.244.0.0/16"
-                  # Tailscale's CGNAT range; every tailnet peer carries an address in it.
-                  TAILNET_CIDR="100.64.0.0/10"
                   echo "Starting hostNetwork gateway mangle guard (inbound 80/443 + replies from ${POD_CIDR})..."
                   while true; do
                     # 1. Inbound to the host-bound Gateway listeners (ADR-046 addendum 8).
@@ -14739,30 +14737,115 @@ stringData:
                       iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -m multiport --dports 80,443 -j RETURN 2>/dev/null || true
                       echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for dports 80/443"
                     fi
-                    # 3. Overlay traffic to tailnet peers must not be captured by the to-proxy
-                    #    rule (ADR-046 addendum 28). ip rule 9 sends anything marked 0x200 to
-                    #    table 2004, which is `local default dev lo` - a catch-all that makes
-                    #    EVERY destination local. Envoy's upstream connection carries that mark
-                    #    and the encapsulated VXLAN packet inherits it, so the outer packet
-                    #    addressed to a peer's tailnet IP is delivered to loopback instead of
-                    #    tailscale0. It is never dropped, only misrouted, so neither node logs
-                    #    anything: the sender reports handing it to cilium_vxlan and the receiver
-                    #    never sees it. Cross-node Envoy upstreams fail while ordinary pod traffic
-                    #    over the same tunnel succeeds, because only the proxy path carries 0x200.
-                    #
-                    #    Resolving tailnet destinations ahead of the mark rule fixes the outer
-                    #    packet without touching marks. It cannot affect the proxy redirect, which
-                    #    exists for traffic addressed to pods, not to tailnet addresses.
-                    if ! ip rule list | grep -q "to ${TAILNET_CIDR} lookup 52"; then
-                      ip rule add priority 8 to "${TAILNET_CIDR}" lookup 52 2>/dev/null || true
-                      echo "[$(date -u +%T)] Re-inserted ip rule: tailnet ${TAILNET_CIDR} -> table 52"
-                    fi
+                    # The addendum-28 tailnet `ip rule` used to be asserted here and now
+                    # lives in cilium-tailnet-mark-exemption-guard below. It is not a
+                    # property of the host-network Gateway and was needed on every node,
+                    # while the two iptables rules around it are written for a listener
+                    # that exists only on the control plane. Sharing one DaemonSet meant
+                    # the nodeSelector that scopes them also scoped it, so the nodes
+                    # carrying every tenant workload had no tailnet exemption at all.
                     # 2. Replies from backend pods to Envoy's ephemeral upstream ports
                     #    (ADR-046 addendum 27). --dst-type LOCAL keeps this to traffic
                     #    terminating on this node; pod->pod traffic is untouched.
                     if ! iptables -t mangle -C CILIUM_PRE_mangle -p tcp -s "${POD_CIDR}" -m addrtype --dst-type LOCAL -j RETURN 2>/dev/null; then
                       iptables -t mangle -I CILIUM_PRE_mangle 1 -p tcp -s "${POD_CIDR}" -m addrtype --dst-type LOCAL -j RETURN 2>/dev/null || true
                       echo "[$(date -u +%T)] Re-inserted mangle RETURN rule for pod replies (${POD_CIDR} -> LOCAL)"
+                    fi
+                    sleep 3
+                  done
+    ---
+    # The addendum-28 tailnet exemption, on EVERY node.
+    #
+    # WHY IT IS SEPARATE FROM THE GUARD ABOVE
+    #
+    # It used to be a third assertion inside cilium-hostnetwork-mangle-guard,
+    # which is pinned to the control plane because the other two assertions are
+    # iptables rules written for the host-network Gateway listener -- an object
+    # that exists on no other node. The nodeSelector scoping those also scoped
+    # this, and this one is not about the Gateway at all.
+    #
+    # The consequence was that the nodes carrying EVERY tenant workload had none
+    # of the exemptions. Measured:
+    #
+    #   control-plane   8: from all to 100.64.0.0/10 lookup 52
+    #                   9: from all fwmark 0x200/0xf00 lookup 2004
+    #   worker          9: from all fwmark 0x200/0xf00 lookup 2004   (nothing ahead)
+    #
+    # ADR-046 addendum 28's own conclusion is that "the mark is applied broadly
+    # and every path that must not be captured has to be exempted explicitly".
+    # A home worker runs the proxy datapath like any other node, joins the same
+    # tailnet and reaches its peers over the same VXLAN, so it takes the same
+    # fault -- silently, because a misrouted packet is never dropped and neither
+    # end logs anything.
+    #
+    # Splitting rather than widening the existing guard is deliberate. Whether
+    # the two Gateway iptables rules are inert on a worker has NOT been
+    # established, and assuming it is the reasoning that produced three of these
+    # addenda in the first place.
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: cilium-tailnet-mark-exemption-guard
+      namespace: kube-system
+    ---
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: cilium-tailnet-mark-exemption-guard
+      namespace: kube-system
+      labels:
+        app.kubernetes.io/name: cilium-tailnet-mark-exemption-guard
+        app.kubernetes.io/part-of: cilium
+    spec:
+      selector:
+        matchLabels:
+          name: cilium-tailnet-mark-exemption-guard
+      updateStrategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            name: cilium-tailnet-mark-exemption-guard
+        spec:
+          hostNetwork: true
+          hostPID: true
+          # No nodeSelector. That absence is the whole point of this DaemonSet.
+          tolerations:
+            - operator: Exists
+          priorityClassName: system-node-critical
+          serviceAccountName: cilium-tailnet-mark-exemption-guard
+          terminationGracePeriodSeconds: 0
+          containers:
+            - name: guard
+              image: "quay.io/cilium/cilium:v1.17.18@sha256:2f2c611db8de2f9c4846ee80fa3371617218dcd0cce42cf0d7d40b4d06458a23"
+              securityContext:
+                privileged: true
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Tailscale's CGNAT range; every tailnet peer carries an address in it.
+                  TAILNET_CIDR="100.64.0.0/10"
+                  echo "Starting tailnet mark-exemption guard on $(hostname) (${TAILNET_CIDR} -> table 52)..."
+                  while true; do
+                    # ADR-046 addendum 28. ip rule 9 sends anything marked 0x200 to
+                    # table 2004, which is `local default dev lo` - a catch-all that
+                    # makes EVERY destination local. A proxied connection carries that
+                    # mark and the encapsulated VXLAN packet inherits it, so the OUTER
+                    # packet addressed to a peer's tailnet IP is delivered to loopback
+                    # instead of tailscale0. It is never dropped, only misrouted, so
+                    # neither node logs anything: the sender reports handing it to
+                    # cilium_vxlan and the receiver never sees it. Cross-node proxied
+                    # traffic fails while ordinary pod traffic over the same tunnel
+                    # succeeds, because only the proxy path carries 0x200.
+                    #
+                    # Resolving tailnet destinations AHEAD of the mark rule fixes the
+                    # outer packet without touching marks. It cannot affect the proxy
+                    # redirect, which exists for traffic addressed to pods, not to
+                    # tailnet addresses.
+                    if ! ip rule list | grep -q "to ${TAILNET_CIDR} lookup 52"; then
+                      ip rule add priority 8 to "${TAILNET_CIDR}" lookup 52 2>/dev/null || true
+                      echo "[$(date -u +%T)] Re-inserted ip rule: tailnet ${TAILNET_CIDR} -> table 52"
                     fi
                     sleep 3
                   done
