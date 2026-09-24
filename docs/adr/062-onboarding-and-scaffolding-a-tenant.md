@@ -3,7 +3,7 @@
 **Date:** 2026-09-06
 **Status:** Proposed
 
-*Amended by: ADR-065 (The Control Plane Ships Into the Box), ADR-073 (Workload Delivery is Version Pinning)*
+*Amended by: ADR-065 (The Control Plane Ships Into the Box), ADR-073 (Workload Delivery is Version Pinning), ADR-088 (The Tenant and the Application Are Different Axes)*
 
 > A tenant's control plane runs in that tenant's own box (ADR-065). Workload state
 > is published from a tenant-owned repository and the gitops repository holds a
@@ -195,6 +195,15 @@ The scaffolding template is a second expression of what a box contains, alongsid
 Supersedes ADR-004. The dual-repository contract is replaced by the separation above.
 
 Amends ADR-047. The rejection of fleets authoring external workload repositories stands on its original ground. `fleetId` is `tenantId` throughout.
+
+> **Withdrawn by ADR-088.** `fleetId` is `tenantId` resolved the vocabulary
+> problem this ADR's own context describes — "the word 'fleet' names two
+> different things" — by deleting a level rather than naming one. The level it
+> deleted was the tenant, which this ADR defines two sections above as the owner
+> of a box: "A tenant is onboarded by creating and scaffolding the repositories
+> its box reconciles." What the identifier then held was the product. ADR-088
+> separates them: `tenantId` is the organisation whose box it is, `appId` is a
+> product on it. Everything else in this amendment stands.
 
 Amends ADR-007. The spoke flow is unchanged in mechanism, but the repository it names now holds the platform's own cluster instances.
 

@@ -22,13 +22,42 @@ spec:
             type: object
             required:
             - tenantId
+            # Required, not optional-with-a-default. An appId that falls back to
+            # tenantId is the single-axis model wearing the new field's name, and
+            # the fallback would be invisible in every claim that relied on it.
+            - appId
+            - scopeId
             - tier
             - cellId
             - database
             properties:
               tenantId:
                 type: string
-                description: "Unique tenant identifier (e.g., 'acme')"
+                description: >-
+                  The organisation whose box this is (ADR-088). NOT a product:
+                  until 2026-09-24 this field held one, which is why a customer
+                  running two products had two tenants and no way to say they
+                  were the same customer.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                minLength: 3
+                maxLength: 63
+              scopeId:
+                type: string
+                description: >-
+                  "<tenantId>-<appId>", combined once by the chart. Every
+                  namespace, object name and secret path is built from this, so
+                  the compositions need one field rather than a two-field
+                  combine at every one of sixty-five patch sites.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                minLength: 3
+                maxLength: 127
+              appId:
+                type: string
+                description: >-
+                  A product running on the tenant's box (ADR-088). The
+                  isolation unit: it gets the namespace, the database, the
+                  secret prefix and the policy. Does not default to tenantId --
+                  that default is the collapse ADR-088 removes.
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 minLength: 3
                 maxLength: 63
@@ -49,8 +78,12 @@ spec:
                 properties:
                   name:
                     type: string
-                    description: "Deterministic database name: tenant-<tenantId>-db"
-                    pattern: '^tenant-[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
+                    description: >-
+                      Deterministic database name: <tenantId>-<appId>-db
+                      (ADR-088). One per APP -- two products of one customer are
+                      as separated in their data as two customers, and sharing
+                      takes a `sharedData` declaration naming both sides.
+                    pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
               pooler:
                 type: object
                 description: "PgBouncer pooler configuration"

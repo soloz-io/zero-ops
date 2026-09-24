@@ -107,7 +107,7 @@ func withInfisical(ctx context.Context, fn func(*infisical.Client, *infisical.Co
 
 func newFleetSecretsStatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "status <environment>",
+		Use: "status <environment> <app>",
 		// Read on the command that returns the error, not on its parent.
 		SilenceUsage: true,
 		Short:        "Report which declared secrets are present, by name",
@@ -119,9 +119,9 @@ operator can act on -- and with the workloads it takes down, because an
 ExternalSecret is atomic and one absent key withholds every other key in it.
 
 Exits non-zero when anything declared is absent, so a pipeline can gate on it.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			f, err := fleet.Load(fleetRepoRoot, args[0])
+			f, err := fleet.Load(fleetRepoRoot, args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -199,7 +199,7 @@ func printStatus(s fleet.Status, environment string) {
 func newFleetSecretsSetCmd() *cobra.Command {
 	var fromStdin bool
 	cmd := &cobra.Command{
-		Use:          "set <environment> <KEY>",
+		Use:          "set <environment> <app> <KEY>",
 		SilenceUsage: true,
 		Short:        "Supply one declared secret",
 		Long: `Write one value to this fleet's secret path.
@@ -214,10 +214,10 @@ means secrets at rest on a laptop.
 
 Re-running is how a secret is rotated. The value is replaced, ESO delivers it
 within its refresh interval, and the workload's reloader restarts on the change.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			environment, key := args[0], args[1]
-			f, err := fleet.Load(fleetRepoRoot, environment)
+			environment, app, key := args[0], args[1], args[2]
+			f, err := fleet.Load(fleetRepoRoot, environment, app)
 			if err != nil {
 				return err
 			}
@@ -290,7 +290,7 @@ func newFleetSecretsImportCmd() *cobra.Command {
 	var fromEnv string
 	var confirm bool
 	cmd := &cobra.Command{
-		Use:          "import <environment> --from-env <file>",
+		Use:          "import <environment> <app> --from-env <file>",
 		SilenceUsage: true,
 		Short:        "Migrate a fleet whose secrets predate ADR-087",
 		Long: `Read a KEY=VALUE file once and write every DECLARED key it carries.
@@ -301,13 +301,13 @@ an input to the migration, not a location where secrets live, and should be
 deleted once this has run.
 
 Without --confirm it lists the key names it would write and writes nothing.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			environment := args[0]
+			environment, app := args[0], args[1]
 			if fromEnv == "" {
 				return fmt.Errorf("--from-env is required: import reads a file, and there is no default one")
 			}
-			f, err := fleet.Load(fleetRepoRoot, environment)
+			f, err := fleet.Load(fleetRepoRoot, environment, app)
 			if err != nil {
 				return err
 			}
@@ -442,7 +442,7 @@ func readEnvFile(path string) (map[string]string, error) {
 // did not ask for it.
 func newFleetSecretsTemplateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:          "template <environment>",
+		Use:          "template <environment> <app>",
 		Short:        "Print a .env skeleton holding exactly the keys this fleet declares",
 		SilenceUsage: true,
 		Long: `Generate the file that ` + "`import`" + ` reads, with one empty entry per declared
@@ -450,9 +450,9 @@ secret and the capability each serves as its comment.
 
 Redirect it to a file, fill in the values, import it, and delete it. The
 skeleton carries no values and is safe to commit nowhere.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			f, err := fleet.Load(fleetRepoRoot, args[0])
+			f, err := fleet.Load(fleetRepoRoot, args[0], args[1])
 			if err != nil {
 				return err
 			}

@@ -79,7 +79,7 @@ spec:
                   status: "True"
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -87,7 +87,7 @@ spec:
                       type: Format
                       fmt: "%s-db-credentials-restore"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -95,7 +95,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-db-credentials-restore"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -103,7 +103,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
@@ -120,18 +120,20 @@ spec:
                   variables:
                     - fromFieldPath: spec.cellId
                     - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
               - type: CombineFromComposite
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
                     - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
 
           # Resource 2: CNPG Database CR
@@ -170,7 +172,7 @@ spec:
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.name
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.spec.owner
                 transforms:
                   - type: string
@@ -231,7 +233,7 @@ spec:
                   status: "True"
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -239,7 +241,7 @@ spec:
                       type: Format
                       fmt: "%s-pooler-app-secret"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -247,7 +249,7 @@ spec:
                       type: Format
                       fmt: "%s-pooler-app-externalsecret"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -255,7 +257,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
@@ -268,18 +270,20 @@ spec:
                   variables:
                     - fromFieldPath: spec.cellId
                     - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
               - type: CombineFromComposite
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
                     - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.appId
                   strategy: string
                   string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
+                    fmt: "/spoke-pool/%s/tenants/%s/apps/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
               # Dynamic configuration values (not secrets)
               - type: FromCompositeFieldPath
@@ -287,7 +291,7 @@ spec:
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
               # HARDENING (ADR-030): Pooler host as discrete key for sidecars and audit tooling
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.host
                 transforms:
                   - type: string
@@ -327,7 +331,7 @@ spec:
                 deletionPolicy: Delete
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -335,7 +339,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.passwordSecretRef.namespace
                 transforms:
                   - type: string
@@ -343,7 +347,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.passwordSecretRef.name
                 transforms:
                   - type: string
@@ -377,7 +381,7 @@ spec:
                 deletionPolicy: Delete
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -385,7 +389,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-default-privileges-tables"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.role
                 transforms:
                   - type: string
@@ -418,7 +422,7 @@ spec:
                 deletionPolicy: Delete
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -426,7 +430,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-default-privileges-sequences"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.role
                 transforms:
                   - type: string

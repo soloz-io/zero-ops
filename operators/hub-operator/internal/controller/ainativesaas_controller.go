@@ -71,6 +71,16 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	// ADR-088. Required on the XRD, so an XR without it is one written against
+	// the pre-split schema -- skipping is correct: seeding it under a path built
+	// from the tenant alone would put one product's credentials where another
+	// product of the same customer would read them.
+	appId, found, err := unstructured.NestedString(ainativesaas.Object, "spec", "appId")
+	if err != nil || !found || appId == "" {
+		logger.Info("AINativeSaaS missing spec.appId, skipping", "name", req.Name)
+		return ctrl.Result{}, nil
+	}
+
 	cellId, found, err := unstructured.NestedString(ainativesaas.Object, "spec", "cellId")
 	if err != nil || !found || cellId == "" {
 		logger.Info("AINativeSaaS missing spec.cellId, skipping", "name", req.Name)
@@ -120,7 +130,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// credential is not evidence of loss.
 	cacheIsFirstTime := !r.isConditionTrue(ainativesaas, conditionTypeCacheSeeded)
 
-	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, isFirstTime, nil, cacheEnabled, cacheIsFirstTime, gatewayEnabled)
+	result, err := r.InfisicalClient.EnsureTenantFolderAndCredentials(ctx, cellId, tenantId, appId, isFirstTime, nil, cacheEnabled, cacheIsFirstTime, gatewayEnabled)
 	if err != nil {
 		logger.Error(err, "Failed to ensure tenant credentials in Infisical", "tenant", tenantId, "cell", cellId)
 		if result != nil && result.Result == secrets.EnsureMissing {
@@ -202,7 +212,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// the workload that authenticates with it cannot start.
 				for _, dc := range identity.Clients {
 					if dc.ClientID != "" {
-						if err := r.publishTenantSecret(ctx, cellId, tenantId,
+						if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
 							secrets.InfisicalOAuthClientIDKey(dc.Name), dc.ClientID); err != nil {
 							logger.Error(err, "Failed to publish OAuth client id",
 								"tenant", tenantId, "client", dc.Name)
@@ -212,7 +222,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					// regenerated: the stored secret is still the live one, and
 					// overwriting it with "" would destroy a working credential.
 					if dc.ClientSecret != "" {
-						if err := r.publishTenantSecret(ctx, cellId, tenantId,
+						if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
 							secrets.InfisicalOAuthClientSecretKey(dc.Name), dc.ClientSecret); err != nil {
 							logger.Error(err, "Failed to publish OAuth client secret",
 								"tenant", tenantId, "client", dc.Name)
@@ -221,7 +231,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 
 				if identity.OwnerPassword != "" {
-					if err := r.publishTenantSecret(ctx, cellId, tenantId, "OWNER_INITIAL_PASSWORD", identity.OwnerPassword); err != nil {
+					if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OWNER_INITIAL_PASSWORD", identity.OwnerPassword); err != nil {
 						logger.Error(err, "Provisioned the tenant owner but could not publish their initial password",
 							"tenant", tenantId, "owner", ownerEmail)
 					} else {
@@ -237,11 +247,11 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// that to the DEFAULT organisation — the platform's own. The
 				// account is created in the wrong tenant and nothing reports it,
 				// because from the issuer's side nothing went wrong.
-				if err := r.publishTenantSecret(ctx, cellId, tenantId, "OIDC_ORG_ID", identity.TenantRef); err != nil {
+				if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_ORG_ID", identity.TenantRef); err != nil {
 					logger.Error(err, "Provisioned tenant identity but could not publish its organisation id",
 						"tenant", tenantId)
 				}
-				if err := r.publishTenantClientID(ctx, cellId, tenantId, identity.ClientID); err != nil {
+				if err := r.publishTenantClientID(ctx, cellId, tenantId, appId, identity.ClientID); err != nil {
 					logger.Error(err, "Provisioned tenant identity but could not publish its client id; will retry",
 						"tenant", tenantId)
 				} else {
@@ -555,8 +565,8 @@ func tenantGatewayHosts(obj *unstructured.Unstructured) []string {
 // and an "already exists" answer must be success rather than a conflict — but
 // the value is also re-asserted rather than left, so a client id that changed
 // upstream converges instead of being pinned by whatever ran first.
-func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cellId, tenantId, clientID string) error {
-	return r.publishTenantSecret(ctx, cellId, tenantId, "OIDC_CLIENT_ID", clientID)
+func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cellId, tenantId, appId, clientID string) error {
+	return r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_CLIENT_ID", clientID)
 }
 
 // publishTenantSecret writes one value to the tenant's Infisical folder.
@@ -564,8 +574,8 @@ func (r *AINativeSaaSReconciler) publishTenantClientID(ctx context.Context, cell
 // Idempotent: create when absent, update when present. Reconciliation repeats,
 // so "already exists" must be success rather than a conflict the caller has to
 // interpret.
-func (r *AINativeSaaSReconciler) publishTenantSecret(ctx context.Context, cellId, tenantId, key, value string) error {
-	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, tenantId)
+func (r *AINativeSaaSReconciler) publishTenantSecret(ctx context.Context, cellId, tenantId, appId, key, value string) error {
+	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, tenantId, appId)
 
 	exists, err := r.InfisicalClient.SecretExists(ctx, path, key)
 	if err != nil {

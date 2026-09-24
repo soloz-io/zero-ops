@@ -54,6 +54,14 @@ func TestSpokeCatalogExternallyProvidedCRDsSkipDryRun(t *testing.T) {
 		if ext := filepath.Ext(path); ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
+		// templated-fields.yaml NAMES kinds, it does not declare objects: its
+		// entries are {kind, name, fields} telling the packager which rendered
+		// object to template. A `kind:` there is a selector, and the annotation
+		// this test looks for belongs on the manifest it selects -- which is
+		// checked on its own file.
+		if filepath.Base(path) == "templated-fields.yaml" {
+			return nil
+		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return err

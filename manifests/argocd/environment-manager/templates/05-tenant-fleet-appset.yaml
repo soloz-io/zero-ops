@@ -39,7 +39,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'environments/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -48,9 +48,10 @@ spec:
 
   template:
     metadata:
-      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-xr'
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-xr'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: xr
@@ -99,7 +100,7 @@ spec:
 
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}'
 
       syncPolicy:
         automated:
@@ -144,7 +145,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                - path: 'environments/*/values.yaml'
+                - path: 'environments/*/*/values.yaml'
 
           - clusters:
               selector:
@@ -153,9 +154,10 @@ spec:
 
   template:
     metadata:
-      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-spoke'
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-spoke'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: spoke
@@ -223,7 +225,7 @@ spec:
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
-        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}'
 
       syncPolicy:
         automated:
@@ -294,7 +296,7 @@ spec:
                     repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
                     revision: main
                     files:
-                      - path: 'environments/*/values.yaml'
+                      - path: 'environments/*/*/values.yaml'
 
                 # One entry per application directory under that fleet. A
                 # directory generator rather than a files generator over
@@ -330,12 +332,22 @@ spec:
 
   template:
     metadata:
-      # .path is the FLEET directory (environments/<env>), from the files
-      # generator; .app.path is the APPLICATION directory beneath it, from the
+      # .path is the APPLICATION directory (environments/<env>/<app>), from the
+      # files generator; .app.path is a WORKLOAD directory beneath it, from the
       # directories generator under its pathParamPrefix.
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .app.path.basename {{"}}"}}'
+      #
+      # `.app` is the prefix's name and now names a workload rather than an
+      # app (ADR-088 moved the values file down a level). Renaming the prefix
+      # would be clearer and is not worth a generator rewrite on a live fleet;
+      # read it as "the thing under the values file".
+      #
+      # The appId segment is what stops two apps of one tenant colliding: both
+      # have a `bff` workload in `dev`, and without it each pair generates one
+      # Application name twice -- where the second silently replaces the first.
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .app.path.basename {{"}}"}}'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         workload: '{{"{{"}} .app.path.basename {{"}}"}}'
         resource-type: workload
@@ -365,7 +377,7 @@ spec:
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
-        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}'
 
       syncPolicy:
         automated:

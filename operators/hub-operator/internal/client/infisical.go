@@ -513,7 +513,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 // ADR-003: The folder hierarchy /spoke-pool/<cellId>/tenants/<tenantId> must exist before
 // secrets can be placed inside it. The ESO Infisical provider splits remoteRef.key on the
 // last '/' so the secret name is the final segment and the folder path is the prefix.
-func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID string) error {
+func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID, appID string) error {
 	logger := log.FromContext(ctx)
 
 	// Ensure we have a valid token
@@ -529,13 +529,17 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 
 	// Build folder hierarchy from root to leaf. ESO remoteRef.key uses the last path
 	// segment as the secret name and the prefix as the folder path, so the folder
-	// hierarchy need only go to /spoke-pool/<cellId>/tenants/<tenantId>.
-	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>
+	// hierarchy need only go to /spoke-pool/<cellId>/tenants/<tenantId>/apps/<appId>.
+	// ADR-003 path pattern, extended by ADR-088 with the app level: one
+	// customer's two products keep separate folders, so a key written for one
+	// is not readable by the other's ExternalSecret.
 	foldersToEnsure := []string{
 		"/spoke-pool",
 		fmt.Sprintf("/spoke-pool/%s", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, tenantID),
+		fmt.Sprintf("/spoke-pool/%s/tenants/%s/apps", cellID, tenantID),
+		fmt.Sprintf("/spoke-pool/%s/tenants/%s/apps/%s", cellID, tenantID, appID),
 	}
 
 	for _, folder := range foldersToEnsure {

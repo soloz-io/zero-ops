@@ -20,7 +20,13 @@ spec:
   rules:
 
     # Rule 1: All Deployments, Jobs, and Rollouts in tenant namespaces must carry
-    # tenant-id and cost-center labels for attribution and chargeback.
+    # tenant-id, app-id and cost-center labels for attribution and chargeback.
+    #
+    # BOTH axes, because attribution needs both (ADR-088). A cost line against
+    # the tenant alone cannot be split between that customer's products, and one
+    # against the product alone cannot be billed to anyone. Until 2026-09-24
+    # `tenant-id` held a product name and there was no field for the customer at
+    # all, so neither figure was available while the label looked sufficient.
     - name: require-cost-labels
       match:
         any:
@@ -32,11 +38,12 @@ spec:
               namespaces:
                 - "tenant-*"
       validate:
-        message: "tenant-id and cost-center labels are required on all tenant workloads"
+        message: "tenant-id, app-id and cost-center labels are required on all tenant workloads (ADR-088)"
         pattern:
           metadata:
             labels:
               tenant-id: "?*"
+              app-id: "?*"
               cost-center: "?*"
 
     # Rule 1b: No tenant may declare a Gateway.

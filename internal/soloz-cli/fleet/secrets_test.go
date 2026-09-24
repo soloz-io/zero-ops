@@ -11,6 +11,7 @@ import (
 func fleetFixture() Fleet {
 	return Fleet{
 		TenantID: "acme",
+		AppID:    "storefront",
 		CellID:   "nutgraf-01",
 		Secrets: []Declaration{
 			{Name: "ACME_INTERNAL_TOKEN", Capability: "the BFF/SDK channel", Workloads: []string{"bff", "sdk"}},
@@ -23,7 +24,10 @@ func fleetFixture() Fleet {
 // The path is derived from the fleet's own declaration. Written out per key, it
 // was twenty-three chances to name the wrong cell.
 func TestSecretPathIsDerived(t *testing.T) {
-	if got, want := fleetFixture().SecretPath(), "/spoke-pool/nutgraf-01/tenants/acme"; got != want {
+	// Both axes, in containment order (ADR-088). The cell segment already
+	// carried the customer while the segment called `tenants` carried the
+	// product, so the path read as a hierarchy that was not one.
+	if got, want := fleetFixture().SecretPath(), "/spoke-pool/nutgraf-01/tenants/acme/apps/storefront"; got != want {
 		t.Fatalf("SecretPath() = %q, want %q", got, want)
 	}
 }
@@ -119,7 +123,7 @@ func TestLoadRejectsAFleetWithNoPath(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			envDir := filepath.Join(dir, "environments", "dev")
+			envDir := filepath.Join(dir, "environments", "dev", "acme")
 			if err := os.MkdirAll(envDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +133,7 @@ func TestLoadRejectsAFleetWithNoPath(t *testing.T) {
 
 			// Half a path is worse than none: it produces a valid string naming
 			// a folder that will never hold anything.
-			_, err := Load(dir, "dev")
+			_, err := Load(dir, "dev", "acme")
 			if err == nil {
 				t.Fatalf("Load() accepted a fleet with no %s", tc.wantErr)
 			}
@@ -142,7 +146,7 @@ func TestLoadRejectsAFleetWithNoPath(t *testing.T) {
 
 func TestLoadReadsDeclarations(t *testing.T) {
 	dir := t.TempDir()
-	envDir := filepath.Join(dir, "environments", "dev")
+	envDir := filepath.Join(dir, "environments", "dev", "acme")
 	if err := os.MkdirAll(envDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +162,7 @@ secrets:
 		t.Fatal(err)
 	}
 
-	f, err := Load(dir, "dev")
+	f, err := Load(dir, "dev", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}

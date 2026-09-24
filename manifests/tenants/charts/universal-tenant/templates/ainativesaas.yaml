@@ -1,5 +1,9 @@
 {{- if and .Values.deployXR (ne ((.Values.database.enabled) | toString) "false") }}
-{{- $databaseName := (.Values.database.name) | default (printf "tenant-%s-db" .Values.tenantId) -}}
+{{- /* One logical database per APP (ADR-088). Being siblings grants nothing:
+       two apps of one customer are as separated in their data as two apps of
+       different customers. Sharing takes a `sharedData` declaration naming
+       both sides. */ -}}
+{{- $databaseName := (.Values.database.name) | default (include "universal-tenant.databaseName" .) -}}
 {{- $poolerMaxConn := 25 -}}
 {{- $poolerMode := "transaction" -}}
 {{- if .Values.pooler -}}
@@ -10,14 +14,20 @@
 apiVersion: nutgraf.in/v1alpha1
 kind: AINativeSaaS
 metadata:
-  name: {{ .Values.tenantId }}
-  namespace: tenant-{{ .Values.tenantId }}
+  name: {{ include "universal-tenant.tenantId" . }}-{{ include "universal-tenant.appId" . }}
+  namespace: {{ include "universal-tenant.namespace" . }}
   labels:
-    tenant-id: {{ .Values.tenantId }}
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
     tier: {{ .Values.tier }}
     cell-id: {{ .Values.cellId }}
 spec:
-  tenantId: {{ .Values.tenantId }}
+  tenantId: {{ include "universal-tenant.tenantId" . }}
+  appId: {{ include "universal-tenant.appId" . }}
+  # Combined once, here, rather than at every Crossplane patch site that builds
+  # a name or a path from it. Sixty-five two-field combines would be
+  # sixty-five chances to produce a plausible wrong name instead of an error.
+  scopeId: {{ include "universal-tenant.tenantId" . }}-{{ include "universal-tenant.appId" . }}
   tier: {{ .Values.tier }}
   cellId: {{ .Values.cellId }}
 

@@ -30,9 +30,15 @@ type Declaration struct {
 	Workloads []string `yaml:"workloads"`
 }
 
-// Fleet is the part of environments/<env>/values.yaml this package reads.
+// Fleet is the part of environments/<env>/<app>/values.yaml this package reads.
+//
+// TenantID is the organisation whose box this is; AppID is the product
+// (ADR-088). They were one field until 2026-09-24, which is why the path below
+// read /tenants/<product>/ while the cell segment above it already carried the
+// customer.
 type Fleet struct {
 	TenantID string        `yaml:"tenantId"`
+	AppID    string        `yaml:"appId"`
 	CellID   string        `yaml:"cellId"`
 	Secrets  []Declaration `yaml:"secrets"`
 }
@@ -44,15 +50,15 @@ type Fleet struct {
 // name a cell the fleet does not run on -- which fails as "could not get secret
 // data from provider", indistinguishable from a store or auth fault.
 func (f Fleet) SecretPath() string {
-	return fmt.Sprintf("/spoke-pool/%s/tenants/%s", f.CellID, f.TenantID)
+	return fmt.Sprintf("/spoke-pool/%s/tenants/%s/apps/%s", f.CellID, f.TenantID, f.AppID)
 }
 
 // Load reads one environment's fleet declaration.
-func Load(repoRoot, environment string) (*Fleet, error) {
-	path := filepath.Join(repoRoot, "environments", environment, "values.yaml")
+func Load(repoRoot, environment, app string) (*Fleet, error) {
+	path := filepath.Join(repoRoot, "environments", environment, app, "values.yaml")
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("no fleet at %s: this command runs from the root of a "+
+		return nil, fmt.Errorf("no app at %s: this command runs from the root of a "+
 			"tenant's GitOps repository, and <env> names a directory under environments/: %w",
 			path, err)
 	}

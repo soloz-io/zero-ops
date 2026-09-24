@@ -23,13 +23,29 @@ spec:
             type: object
             required:
               - tenantId
+              - appId
+              - scopeId
               - databaseName
             properties:
               tenantId:
                 type: string
-                description: "Tenant identifier (RFC 1123 compliant, e.g., 'app-creator')"
+                description: >-
+                  The organisation whose box this is (ADR-088). Used for
+                  attribution labels only -- names and paths are built from
+                  scopeId, because two apps of one tenant each have a database.
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                maxLength: 63
+              appId:
+                type: string
+                description: "The product this database belongs to (ADR-088)."
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+              scopeId:
+                type: string
+                description: >-
+                  "<tenantId>-<appId>", combined once by the chart rather than in
+                  sixty-five Crossplane patches. Every namespace, object name and
+                  role below is built from this.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                maxLength: 127
               databaseName:
                 type: string
                 description: "Database name (e.g., 'tenant-app-creator-db')"

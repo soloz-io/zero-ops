@@ -21,7 +21,10 @@ import (
 const (
 	// Enterprise Alignment: ADR-003 / ADR-031 Isolation Boundaries
 	InfisicalSharedPathFormat = "/spoke-pool/%s/shared"
-	InfisicalTenantPathFormat = "/spoke-pool/%s/tenants/%s"
+	// ADR-088: cell, then TENANT, then APP. The cell segment already carried
+	// the customer while the segment called `tenants` carried the product, so
+	// the path read as a hierarchy it was not. Takes cellId, tenantId, appId.
+	InfisicalTenantPathFormat = "/spoke-pool/%s/tenants/%s/apps/%s"
 
 	// credentialRotationBackoff is the minimum interval between self-healing
 	// rotations of stale shared credentials per cell. A persistently-invalid
@@ -1076,9 +1079,9 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
-func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
-	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "cell", cellId)
-	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId)
+func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId, appId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
+	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "app", appId, "cell", cellId)
+	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId, appId)
 
 	// Declared with the other outcomes so every early return reports it. A
 	// tenant with no cache reports Skipped, never AlreadyExists — the controller

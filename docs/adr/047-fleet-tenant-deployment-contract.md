@@ -3,7 +3,7 @@
 **Date:** 2026-08-13
 **Status:** Accepted
 
-*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-073 (Workload Delivery is Version Pinning), ADR-074 (Withdrawing Atlas)*
+*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-073 (Workload Delivery is Version Pinning), ADR-074 (Withdrawing Atlas), ADR-088 (The Tenant and the Application Are Different Axes)*
 
 > `fleetId` is `tenantId` throughout (ADR-062). The rejection of fleets authoring
 > external workload repositories stands, but on new ground: ADR-073 replaces
@@ -11,6 +11,21 @@
 > identifies the content, and withdraws `workloads.gitRepo`, `gitPath` and
 > `gitRevision` from the fleet values schema. ADR-074 withdraws the `migrations`
 > block with them.
+>
+> **ADR-088 withdraws the first sentence.** `fleetId` is `tenantId` was a
+> collapse of two levels, not a rename of one: this ADR's own definition of a
+> fleet — "a **tenant-owned** logical product/deployment boundary… belonging to
+> one tenant" — has a tenant above the fleet, and the identifier deleted the
+> tenant rather than the fleet. The product boundary is now `appId` and the
+> owning organisation is `tenantId`, and neither defaults to the other. Read
+> `{fleetId}-xr`, `{fleetId}-spoke` and `tenant-{fleetId}-workloads` below as
+> keyed on the APPLICATION; what they are named after ADR-088's migration is
+> settled there, not here.
+>
+> Everything else in this ADR stands unchanged. The tier model, the rejection of
+> fleets authoring RBAC and ExternalSecrets, and the namespace as the primary
+> isolation boundary are all statements about the product boundary, which is the
+> level that keeps them.
 
 ## Context
 

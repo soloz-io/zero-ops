@@ -36,11 +36,20 @@ validate_manifest_renders() {
                      --set environmentRevision=main \
                      --set instanceRepoURL=https://github.com/example-org/example-gitops --set hubDomain=dev.example.test)
 
+    # ADR-088: the tenant chart renders one APP of one TENANT, and neither
+    # identifier defaults to the other. A fixture short of either reports the
+    # chart broken when it is the fixture that is incomplete.
+    local ut_values=(--set tenantId=example --set appId=demo --set cellId=cell-01
+                     --set oidcIssuer=https://id.example.test)
+
     local chart
     for chart in manifests/argocd/environment-manager manifests/tenants/charts/universal-tenant internal/kube-sbt/providers/gitops/helm-chart; do
         local values=()
         if [[ "$chart" == "manifests/argocd/environment-manager" ]]; then
             values=("${em_values[@]}")
+        fi
+        if [[ "$chart" == "manifests/tenants/charts/universal-tenant" ]]; then
+            values=("${ut_values[@]}")
         fi
         if err=$(helm template "$VALIDATE_ROOT/$chart" "${values[@]+"${values[@]}"}" 2>&1 >/dev/null); then
             pass "helm renders: $chart"

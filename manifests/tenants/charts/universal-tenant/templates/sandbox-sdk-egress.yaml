@@ -24,9 +24,10 @@ apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: sandbox-to-sdk
-  namespace: tenant-{{ .Values.tenantId }}
+  namespace: {{ include "universal-tenant.namespace" . }}
   labels:
-    tenant-id: {{ .Values.tenantId }}
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
 spec:
   # The label the agent-sandbox CONTROLLER puts on every pod it creates. The
   # label the SDK writes into the Sandbox CR's podTemplate never reaches the pod
@@ -39,7 +40,7 @@ spec:
   egress:
     - toEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: tenant-{{ .Values.tenantId }}
+            k8s:io.kubernetes.pod.namespace: {{ include "universal-tenant.namespace" . }}
             k8s:app: sdk
       toPorts:
         - ports:

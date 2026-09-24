@@ -138,7 +138,7 @@ validate_adr087_secrets_are_grouped_per_workload() {
 
     local out
     out="$(helm template ut "$chart" \
-        --set deployXR=false --set tenantId=t --set cellId=c \
+        --set deployXR=false --set tenantId=t --set appId=a --set cellId=c \
         --set oidcIssuer=https://x --set oidcJwksUrl=https://x/k \
         --set 'secrets[0].name=A' --set 'secrets[0].capability=cap-a' --set 'secrets[0].workloads[0]=one' \
         --set 'secrets[1].name=B' --set 'secrets[1].capability=cap-b' --set 'secrets[1].workloads[0]=two' \
@@ -160,7 +160,10 @@ print(" ".join(sorted(got)))
 PYEOF
     names="$(printf '%s' "$out" | python3 "$script")"
     rm -f "$script"
-    if [[ "$names" == "t-one-secrets t-two-secrets" ]]; then
+    # <tenant>-<app>-<workload>-secrets since ADR-088. The app segment is not
+    # decoration: two products of one customer each have a `bff`, and a name
+    # built from the tenant alone would be one object claimed by two workloads.
+    if [[ "$names" == "t-a-one-secrets t-a-two-secrets" ]]; then
         pass "two workloads' secrets render as two ExternalSecrets, not one"
     else
         hard_fail "secrets for two workloads rendered as: ${names:-<none>} — ADR-087 requires one ExternalSecret per workload, because the object is atomic and its key set is the blast radius of any one key being wrong"

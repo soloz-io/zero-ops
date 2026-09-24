@@ -279,3 +279,16 @@ resourceQuota:
   storage: "10Gi"
   # Max pods
   pods: "10"
+
+# Data shared between apps of this tenant (ADR-088).
+#
+# Empty by default, and that is the secure state: each app has its own database
+# and being siblings grants nothing. A share is a declaration naming both sides,
+# never something inherited from sharing a tenant.
+#
+#   sharedData:
+#     - name: user-directory
+#       owner: waypoint          # the app whose database it is
+#       readers: [oranger]       # apps granted a role on it
+#       privileges: [CONNECT]    # optional; CONNECT when omitted
+sharedData: []

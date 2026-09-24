@@ -1,5 +1,9 @@
 {{- if and (not .Values.deployXR) .Values.gateway.enabled }}
-{{- $t := .Values.tenantId }}
+{{- /* Every derived name below is per-APP, not per-tenant (ADR-088). A gateway,
+       an OAuth client and a set of backends belong to one product; two products
+       of one customer share none of them, and a name built from the tenant
+       alone would have collided the moment the customer ran a second app. */ -}}
+{{- $t := include "universal-tenant.appId" . }}
 {{- $hosts := .Values.gateway.hostnames }}
 {{- if not $hosts }}{{ fail "gateway.hostnames must list at least one hostname when gateway.enabled" }}{{ end }}
 {{- /* The browser-facing host is the first declared. The OAuth redirect must
@@ -15,7 +19,7 @@
        route to another fleet's services; one that could name its own client id
        could claim another fleet's OAuth client. Both follow from the tenant
        identity by platform convention (ADR-053 for the client id). */ -}}
-{{- $ns := printf "tenant-%s" $t }}
+{{- $ns := include "universal-tenant.namespace" . }}
 {{- $bff := printf "bff-workload.%s.svc.cluster.local:3001" $ns }}
 {{- /* The SDK owns workflow hooks, so it owns the endpoint that resumes them
        (ADR-024). Derived like the others: a fleet able to name this backend
@@ -60,13 +64,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $name }}
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ $name }}-config
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 data:
   # nginx config for the callback shim below.
   #
@@ -427,9 +431,10 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tenant-public-endpoint
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
   labels:
-    tenant-id: {{ $t }}
+    tenant-id: {{ include "universal-tenant.tenantId" $ }}
+    app-id: {{ include "universal-tenant.appId" $ }}
 data:
   # Scheme included: consumers paste this in front of a path, and the SDK's
   # callback guard rejects anything that is not http(s) and public.
@@ -502,7 +507,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: {{ $name }}-oidc-cookie-secret
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -535,7 +540,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: {{ $name }}-oidc-client
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 spec:
   # Shorter than the cookie secret's hour. This value appears for the first time
   # when a tenant is provisioned, and until it arrives the gateway cannot start —
@@ -562,7 +567,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
   annotations:
     # The gateway reads its OAuth client id and cookie secret at STARTUP, so a
     # rotation reaches a running pod only if something restarts it. Both values
@@ -588,7 +593,8 @@ metadata:
     # platform-ops, outside that match, so moving it here brought it under rules
     # it had never had to meet. cost-center is the platform's because the
     # platform, not the fleet, decides this workload runs and how large it is.
-    tenant-id: {{ $t }}
+    tenant-id: {{ include "universal-tenant.tenantId" $ }}
+    app-id: {{ include "universal-tenant.appId" $ }}
     cost-center: platform
     workload-class: stateless-web
 spec:
@@ -745,7 +751,7 @@ apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
   name: {{ $name }}-from-platform-ops
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 spec:
   from:
     - group: gateway.networking.k8s.io
@@ -760,10 +766,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
   labels:
     app: {{ $name }}
-    tenant-id: {{ $t }}
+    tenant-id: {{ include "universal-tenant.tenantId" $ }}
+    app-id: {{ include "universal-tenant.appId" $ }}
 spec:
   selector:
     app: {{ $name }}
