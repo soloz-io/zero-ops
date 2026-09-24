@@ -138,6 +138,16 @@
   fields:
     - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
 
+- kind: CiliumClusterwideNetworkPolicy
+  name: tenant-identity-endpoint-egress
+  # The identity endpoints a tenant workload may reach: its OWN hub's, not the
+  # platform's. This object named the hub by IP until 2026-09-24 and was absent
+  # from this list, so the published catalogue carried one box's address to
+  # every box -- which both failed to allow that box's hub and granted its
+  # tenants egress to a machine belonging to someone else.
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
 # ADR-078 add.1 §7: Alloy stamps `cluster` and `tenant` on everything it sends.
 # cluster comes from the cell-id label at runtime; tenant is a fact about the
 # box and has to be substituted, or every spoke reports tenant="platform" and

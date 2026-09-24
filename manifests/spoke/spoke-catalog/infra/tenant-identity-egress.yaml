@@ -1,0 +1,87 @@
+# Egress from tenant workloads to this box's identity endpoints.
+#
+# WHY THIS EXISTS AT ALL
+#
+# The tenant contract names these endpoints by FQDN, in `toFQDNs`, which is the
+# right way to express it. Cilium enforces such a rule against a cache of
+# name-to-IP mappings it builds by proxying the workload's own DNS queries, and
+# on this fleet that proxy never receives a query: the redirect is programmed,
+# the mark is set, and the TPROXY rule matches, but nothing arrives at the
+# listening socket. Measured on every node, control plane included, so it is not
+# a property of the home workers. See .agents/spec/enhancements/2026-08-31.md
+# items 9 and 10 for the evidence and for the two candidate fixes that were
+# tested and did not work.
+#
+# So the rule below is INERT today, and says so rather than implying otherwise.
+# What actually carries this traffic is the `toEntities: world` rule on 443 that
+# each workload chart ships -- a far wider allowance, and the one that should be
+# narrowed once the FQDN cache populates.
+#
+# WHAT IT DOES TODAY
+#
+# It is the enforcement anchor. Selecting every `tenant-id` endpoint is what
+# puts tenant workloads into default-deny egress at all (ADR-021); without it a
+# workload whose chart ships no CiliumNetworkPolicy would egress anywhere. That
+# is its whole live effect, and it is the reason this file is not simply
+# deleted now that its allowance grants nothing the charts do not already.
+#
+# WHY IT NAMES NO ADDRESS
+#
+# It carried the hub's public IP as a /32, because an inert FQDN rule allows
+# nothing and something had to. That address is a PER-BOX fact: every box's hub
+# has its own, and this one moved within a single environment's life
+# (65.109.41.23 -> 65.109.41.89) with nothing reporting the staleness, because
+# the charts' `world` rule was carrying the traffic regardless.
+#
+# The catalogue is PUBLISHED, so the literal reached every box that pulled the
+# bundle -- where it neither matched that box's hub nor stopped granting every
+# tenant workload egress to one particular machine belonging to someone else.
+# ADR-063 is the general form: one cluster's address in a published chart is
+# inherited by every cluster rendering from it.
+#
+# The hostnames below carry the platform's domain only as the literal that
+# templated-fields.yaml substitutes for `.Values.global.hubDomain`, exactly as
+# it does for the ClusterSecretStore, the ACME issuers and the tenant Gateway.
+#
+# WHY IT IS IN THE SHARED BASE
+#
+# It lived under providers/hybrid/ because that is where the dead DNS proxy was
+# found, and because it carried an address -- the kustomization there said so:
+# "Environment-scoped because it carries an address". With the address gone that
+# reason is gone, and what remains is provider-neutral: a tenant workload may
+# reach its own hub's identity endpoints and nothing else by default, on any
+# provider. Leaving it under one provider meant hybrid tenants were enforced and
+# Hetzner tenants were not, for no reason but which directory it landed in.
+#
+# The Cilium CRDs arrive with Cilium itself, in the CAPI ClusterResourceSet
+# addon (ADR-041), so on a new spoke this resource is validated against an API
+# that does not yet serve cilium.io/v2 and ArgoCD's dry-run fails the whole
+# sync. See sandbox-network-policy.yaml for the incident this comes from.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: tenant-identity-endpoint-egress
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Every tenant workload. `tenant-id` is stamped by the tenant kustomization's
+  # commonLabels and is required on tenant workloads by the ABI policy
+  # (enforce-tenant-abi), so selecting on its presence covers present and future
+  # fleets without naming one (ADR-047).
+  endpointSelector:
+    matchExpressions:
+      - key: tenant-id
+        operator: Exists
+  egress:
+    # The hub's identity endpoints, by name: the issuer the BFF fetches JWKS
+    # from, and the two the browser is redirected to. Inert until Cilium's DNS
+    # proxy receives queries; correct on every box the moment it does, because
+    # the domain is substituted per box.
+    - toFQDNs:
+        - matchName: id.dev.nutgraf.in
+        - matchName: auth.dev.nutgraf.in
+        - matchName: console.dev.nutgraf.in
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

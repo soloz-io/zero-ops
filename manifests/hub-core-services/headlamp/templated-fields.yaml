@@ -1,8 +1,14 @@
-# Headlamp's OIDC issuer and callback, and the DNS record it publishes. A
-# callback URL on the platform's domain is one no tenant's browser returns to.
+# Headlamp's OIDC issuer and callback. A callback URL on the platform's domain
+# is one no tenant's browser returns to.
+#
+# The dashboard's DNS record is deliberately NOT declared here. It is published
+# from the `dashboard` HTTPRoute in the gateway chart, which carries its own
+# external-dns target templated from hubIngressAddress (ADR-063). A DNSEndpoint
+# CR used to sit beside this entry and publish the same hostname a second time;
+# this declaration substituted its DOMAIN and left its ADDRESS a literal, so
+# every box rendered a record pointing at one particular hub. The two sources
+# then disagreed on the live box -- the HTTPRoute won -- which is how a wrong
+# address survived here unnoticed.
 - kind: Deployment
   name: headlamp
-  fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
-- kind: DNSEndpoint
-  name: dashboard
   fields: [{replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]

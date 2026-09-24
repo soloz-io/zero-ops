@@ -90,6 +90,11 @@ resources:
   - agent-sandbox/controller.yaml
   # ADR-047: platform-owned default-deny for sandbox pods
   - sandbox-network-policy.yaml
+  # ADR-021/ADR-047: the default-deny anchor for tenant workloads, and their
+  # egress to this box's identity endpoints. Provider-neutral since it stopped
+  # carrying the hub's address; it was under providers/hybrid/ for that reason
+  # alone, which left Hetzner tenants unenforced. See the file.
+  - tenant-identity-egress.yaml
   # IPv4-only CoreDNS upstreams (spoke nodes have no working IPv6 default
   # route; AAAA-first resolution broke ESO/ExternalSecrets). See coredns.yaml.
   - coredns.yaml
