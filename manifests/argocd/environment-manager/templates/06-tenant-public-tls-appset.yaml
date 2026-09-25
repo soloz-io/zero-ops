@@ -61,11 +61,56 @@ spec:
     #    does not exist yet.
     - matrix:
         generators:
-          - git:
-              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
-              revision: main
-              files:
-                - path: 'environments/*/*/values.yaml'
+          - matrix:
+              generators:
+                # Fleet DIRECTORIES, not a filename glob -- because `exclude`
+                # exists on a directories generator and does NOT exist on a
+                # files one (GitFileGeneratorItem declares only `path`).
+                #
+                # That asymmetry is the whole reason this is shaped like this.
+                # `*` in either generator crosses `/`, so
+                # `environments/*/*/values.yaml` matched a WORKLOAD's chart
+                # values three levels down as readily as a fleet's declaration
+                # two levels down. The workload file carries no `cellId`, the
+                # cluster selector below interpolates one, and the generator
+                # failed outright:
+                #
+                #   failed to execute go template {{"{{"}} .cellId {{"}}"}}:
+                #   map has no entry for key "cellId"
+                #
+                # Nothing looked broken. Every Application already generated
+                # stayed, kept syncing its own source and went on reporting
+                # Healthy; what stopped was the platform's ability to create,
+                # retarget or remove any of them.
+                #
+                # Setting `exclude` on the files generator instead is worse than
+                # the bug: the field is not in the CRD, so server-side apply
+                # REFUSES the ApplicationSet and the parent Application cannot
+                # diff at all.
+                #
+                #   .spec.generators[0].matrix.generators[0].git.files[1]
+                #   .exclude: field not declared in schema
+                #
+                # Depth is expressible here and only here.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    # Prefixed so it cannot collide with the `.path` the files
+                    # generator below exports; downstream templates read that
+                    # one, unchanged.
+                    pathParamPrefix: fleetdir
+                    directories:
+                      - path: 'environments/*/*'
+                      - path: 'environments/*/*/*'
+                        exclude: true
+
+                # That fleet's declaration, addressed exactly rather than
+                # matched. Supplies tenantId, appId and cellId, and `.path`.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    files:
+                      - path: '{{"{{"}} .fleetdir.path.path {{"}}"}}/values.yaml'
 
           - clusters:
               selector:
