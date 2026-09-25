@@ -3452,9 +3452,59 @@ declared in Git.
 - ADR-046 §11 — placement classes
 - `crossplane-capi-ownership-pattern` — why CAPI objects are wrapped in `provider-kubernetes` `Object`
 - ADR-047 §Sandbox Workloads — the platform-capability contract this ADR extends to elastic capacity
-- `manifests/spoke/spoke-catalog/infra/agent-sandbox/` — the upstream CRD that must not be forked
+- `manifests/spoke/spoke-catalog/infra/agent-sandbox/` — the upstream CRD that
+  must not be forked. Its own repository is vendored at
+  `zero-ops/reference-projects/sandbox/agent-sandbox`, and it is the one
+  reference that models durable sandbox state as **ordinary Kubernetes
+  storage**: `volumeClaimTemplates` on the Sandbox blueprint, with
+  `operatingMode: Suspended` terminating the Pod while *"retaining the Sandbox
+  object and its volumes"*. That is the PVC path §14.7 records as rejected, with
+  its reasons — consult it before re-proposing one, not after.
 - `manifests/spoke/spoke-catalog/infra/sandbox-network-policy.yaml` — the egress control that keeps working unchanged
 - Kueue (`sigs.k8s.io/kueue`) — the admission/fairness layer adopted in §15; its custom-workload integration pattern (a controller creates a `Workload` object and waits for admission before creating the underlying resource) is the extension point `ephemeral-job-operator` uses, the same one batch/v1 Job, JobSet, and RayJob integrations use
 - `zero-ops/reference-projects/sandbox/agent-sandbox/examples/latebind-storage-gke-sandbox` — the quiescence-via-finalizer pattern an earlier revision of §14 mirrored, and which §14.1 rejects: it coordinates a flush against a *claim* the orchestrator deletes, whereas this design's pod is reaped on idle timeout independently of its CR, so the two lifetimes never coincide
-- `zero-ops/reference-projects/sandbox/sandbox0` — `pkg/rootfsblock/objectstore.go`'s `PutIfAbsentContext`, the content-addressed conditional-write principle §14's snapshot engine applies at file granularity instead of Sandbox0's own block granularity
-- `zero-ops/reference-projects/sandbox/sandbox-sdk` — the squashfs + FUSE overlayfs restore pattern §14.2 adopts: `mksquashfs` for archive creation, `squashfuse` for read-only lower layer mounting, `fuse-overlayfs` for writable overlay, presigned-URL direct upload/download for R2/S3 transfers
+- `zero-ops/reference-projects/sandbox/sandbox0` — `pkg/rootfsblock/objectstore.go`'s
+  `PutIfAbsentContext`, the content-addressed conditional-write principle §14's
+  snapshot engine applies at file granularity instead of Sandbox0's own block
+  granularity.
+
+  Also the closest prior art for the boundaries §14.7 draws, and worth
+  consulting on three of them specifically (`docs/self-hosted`):
+
+  - **Privilege lives in a node daemon, never in the workload.** `manager` owns
+    RootFS metadata; **`ctld` owns node-local block attachment and the exact
+    active writer**; the workload runs under `runsc`. That split is what §14.7
+    adopts, arrived at independently on different infrastructure.
+  - **Single-writer is explicit**, held by the node daemon rather than emerging
+    from a storage placement. §18.1's guarantee lost its enforcement when §14.2
+    removed the RWO binding, and this is the shape that replaces it.
+  - **Teardown requires proof.** A terminal lease releases only after a
+    reconciler proves the old writer, process, mount, network state and cgroup
+    absent — *"driver disappearance alone is never terminal proof."* §14.7's
+    teardown rule is this rule.
+- `zero-ops/reference-projects/sandbox/sandbox-sdk` — the squashfs + FUSE
+  overlayfs restore pattern §14.2 adopts: `mksquashfs` for archive creation,
+  `squashfuse` for the read-only lower layer, `fuse-overlayfs` for the writable
+  overlay, presigned-URL direct upload/download for R2/S3 transfers.
+
+  **Consult it for the mechanism. Do not take its placement or its error
+  handling without reading §14.7 first**, because §14.2 took both and one of
+  them could not survive the trip:
+
+  - **It runs each sandbox in its own VM** (`docs/ARCHITECTURE.md`, "VM-based
+    isolation"). A privileged FUSE mount beside the workload crosses no tenant
+    boundary there. This platform runs shared-kernel Pods under `restricted`,
+    where the same arrangement is refused at admission. The mechanism was
+    portable; the isolation it assumed was not, and that is the whole of
+    §14.2's defect.
+  - **It has no fallback.** `packages/sandbox-container/src/services/backup-service.ts`
+    returns `BACKUP_RESTORE_FAILED` from both the `squashfuse` and the
+    `fuse-overlayfs` branch, unmounting on the way out, and keeps no second
+    representation to fall back to. Our file-by-file fallback was ours — an
+    accident of §14's content-addressed store predating §14.2's archive — and
+    §14.7 removes it for parity.
+  - Its base filesystem is otherwise **ephemeral** (`Sleeping (state lost)`);
+    only session metadata is durable. `mountBucket` (s3fs-FUSE, caller-supplied
+    endpoint and options) is a separate mechanism from `createBackup`/
+    `restoreBackup`, and the two should not be read as one design.
+  - It has **no periodic snapshot**, which §14.6 already records.
