@@ -127,7 +127,10 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 	// subject to umask (0777 lands as 0755 under the usual 022), so the mode
 	// alone cannot be relied on either.
 	uid := workspaceUID()
-	if err := os.Chown(root, uid, uid); err != nil {
+	// Same reasoning as chownTree: nothing to hand over when this process is
+	// already the workload's uid, and the root is frequently a kubelet-created
+	// mount point it cannot chown at all.
+	if err := chownRootIfNeeded(root, uid); err != nil {
 		// Not fatal: a root that is a mount point the kubelet owns may refuse,
 		// and the workload can still be fine if the mode is permissive. Logged
 		// loudly because if it is NOT fine, this line is the only warning.
@@ -305,6 +308,16 @@ func mountFuse(ctx context.Context, workspaceRoot, staging, archivePath string) 
 // built — but upperDir, the writable layer mountFuse creates fresh on every
 // restore, is written by this process directly and needs the same chown as
 // the slow path's chownTree below. See mountFuse for what shipped without it.
+// chownRootIfNeeded is chownTree's single-entry twin, kept separate because the
+// root is the one path most likely to be a mount point and least likely to
+// matter: the workload writes INTO it, not to it.
+func chownRootIfNeeded(root string, uid int) error {
+	if os.Getuid() == uid {
+		return nil
+	}
+	return os.Chown(root, uid, uid)
+}
+
 func workspaceUID() int {
 	if v := os.Getenv("WORKSPACE_UID"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -315,7 +328,27 @@ func workspaceUID() int {
 }
 
 // chownTree gives a file-by-file restore back to the workload.
+// chownTree hands a restored tree to the workload.
+//
+// It is a NO-OP when this process already runs as that uid, and returns
+// immediately rather than walking. That is not an optimisation: a process is
+// permitted to chown a file to its own uid only where it already owns it, and
+// the one thing it never owns is the mount point the kubelet created --
+// root:root, whatever is mounted there. Walking into it fails:
+//
+//	serve failed: restore on startup: chown restored workspace to uid 1000:
+//	lchown /workspace/.global: operation not permitted
+//
+// and the pod crashlooped on a directory it did not need to own. Mode 0777 on
+// an emptyDir already lets it write there, which is all the restore requires.
+//
+// The chown exists for the case this binary ran as root and had to hand
+// ownership over. Running as the workload's own uid, every file it writes is
+// correctly owned when it is written, so there is nothing to hand over.
 func chownTree(root string, uid int) error {
+	if os.Getuid() == uid {
+		return nil
+	}
 	return filepath.Walk(root, func(p string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
