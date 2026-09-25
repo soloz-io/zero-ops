@@ -69,7 +69,7 @@ spec:
             # never published this image; the first CI run replaces it with a
             # real digest and the workflow fails loudly if it cannot.
             - name: WORKSPACE_SYNC_IMAGE
-              value: ghcr.io/soloz-io/workspace-sync@sha256:1c57d91a8c51aab3f7236d17fe7b1532d263b22929aa240002509e5a2cfba7a2
+              value: ghcr.io/soloz-io/workspace-sync@sha256:8caf3254692022eecbf2672b86dcb1bea6b2ae752389cdefa88e258f98113ed3
             # The object-store credential, by reference — the SAME Secret each
             # fleet's own SDK binds S3 from, rendered into that fleet's
             # namespace by an ExternalSecret from Infisical (ADR-003, ADR-047
