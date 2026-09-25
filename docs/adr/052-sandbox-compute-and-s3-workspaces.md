@@ -2127,35 +2127,52 @@ workspace; they must never become an indirect way to choose a bucket or a prefix
 A fleet that could would have recovered, by another route, the privilege this
 amendment removes. This is §19.1's invariant applied to storage.
 
-##### App-scoped workspaces, and an unresolved contract
+##### Single-writer, re-enforced for an app-scoped workspace
 
-The platform supports a second workspace identity under the same app, mounted at
-a reserved directory inside the session's tree, with each checkpoint excluding
-the other's root. That nesting is the capability: it is what lets app-scoped
-state be read as ordinary files by anything in the workspace, with no second
-access mechanism. **It is not flattened into a sibling volume** — an earlier
-draft of this amendment proposed that, and it would have withdrawn a capability
-fleets already build on.
+§18.1 is normative: a workspace is single-writer, serial-session. It held because
+sessions sharing a workspace were serialised onto one node by the RWO PVC
+binding, and §14.2 removed the PVC without replacing the serialisation. The
+guarantee has been stated and unenforced since.
 
-The app-scoped instance needs none of the privilege this amendment removes. It
-has no archive and no device access; it observes the session's mount rather than
-publishing its own, and restores from content-addressed objects. Its posture is
-`runAsNonRoot`, `runAsUser: 1000`, `drop: [ALL]`, the same as every other
-container in the pod.
+Whether that matters depends on what the workspace identity resolves to, and
+there are two cases:
 
-**An unresolved contract, recorded rather than settled.** §18.1 states that
-multi-reader and multi-writer workspaces are not supported and MUST NOT be
-presented as available. An app-scoped workspace is shared by construction:
-several sessions of one app resolve the same identity concurrently, which is
-what makes it app-scoped. The platform therefore offers a capability its own
-durability contract excludes.
+- **Session-scoped.** The workspace is the session's. One session provisions one
+  sandbox at a time, so single-writer holds by construction and needs nothing
+  added.
+- **App-scoped.** The workspace is the APP's, so several concurrent sessions of
+  one app resolve the same identity. Each is a different session, so nothing
+  session-shaped constrains them, and they become concurrent writers of one
+  tree. This is the case the RWO binding was carrying.
 
-Concurrent reads are not the hazard; concurrent checkpoints of one tree are.
-Resolving this needs a decision — most likely a designated writer for an
-app-scoped workspace, with other sessions mounting it read-only — and that
-decision is not taken here. It is named so that it is not mistaken for
-something §14.7 settled, and so that no fleet is told the guarantee holds when
-it does not.
+**The control plane holds the writer, in the sandbox registry.** A sandbox row
+records the workspace it holds, and a partial unique index over active rows
+permits exactly one. A second live sandbox for an app-scoped workspace is
+refused rather than admitted as a second writer.
+
+This is deliberately in the control plane and not in the storage layer. §14.7
+moves the mount to node infrastructure, and a node plugin can enforce single
+writer per NODE — which is not the guarantee: two sessions of one app may be
+scheduled anywhere. The registry is the one place that sees every sandbox for a
+workspace regardless of where it runs.
+
+A refusal is not smoothed over. Two agents editing one tree produce a state
+neither intended, so the caller decides whether to wait for the lease to expire
+or report the workspace busy; the platform's part is to make the second writer
+impossible rather than to choose between them.
+
+##### A second workspace identity
+
+The CRD carries `workspacePersistence.sharedWorkspaceId`, which provisions a
+second instance against another identity under the same app. The platform's
+obligations for it are exactly those above: it is a workspace, §18.1 applies to
+it as to any other, and its container runs the same unprivileged posture as
+every other container in the pod.
+
+What a fleet mounts it at, why, and how it reconciles concurrent access across
+its own sessions is that fleet's design and belongs in that fleet's ADR. The
+platform provides the identity and the isolation; it does not decide what the
+tree is for.
 
 ##### Until the storage layer exists
 
