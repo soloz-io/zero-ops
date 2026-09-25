@@ -1,7 +1,8 @@
 # ADR-052: Elastic Burst Capacity for Tenant Workloads
 
 **Date:** 2026-08-23
-**Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06, 2026-09-06b). §§16–19 are
+**Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06, 2026-09-06b,
+2026-09-07, 2026-09-25). §§16–19 are
 normative contracts — durable work, control-plane availability, workspace
 durability, tenant isolation — not aspirational sections. **§19 is
 conditionally satisfied and is the one open approval gate.** It carries four
@@ -1062,6 +1063,12 @@ here.
 
 #### §14.2 Squashfs-based O(1) restore and PVC decoupling (Amendment 2026-09-06b)
 
+> **Its privilege decision is superseded by §14.7 (2026-09-25).** The squashfs
+> archive, S3 as source of truth and the rejection of a node-pinned PVC all
+> stand. Placing the FUSE mount in a container beside the tenant's workload does
+> not: it broke §19.1's normative pod-security rows and §18.1's single-writer
+> enforcement, and no sandbox requesting a workspace has been admitted since.
+
 **The gap.** §14's restore path materialises a checkpoint by downloading every
 file individually from S3 — O(n) where n is the number of files in the workspace.
 A 10,000-file workspace takes minutes to restore. The user-facing "undo to
@@ -1885,6 +1892,227 @@ timer: a crash, a SIGKILL or node loss between saves loses everything since the
 last one. That is the same exposure the reference design accepts, and it is why
 the UI prompts for a save each time the preview refreshes with new work rather
 than leaving the user to remember.
+
+#### §14.7 Privilege belongs to the storage layer, not to the sandbox pod (Amendment 2026-09-25)
+
+**Supersedes §14.2's privilege decision.** §14.2's squashfs archive, its
+S3-as-source-of-truth and its rejection of a node-pinned PVC all stand. What is
+withdrawn is the conclusion it drew from them: that the FUSE mount may live in a
+container beside the tenant's workload.
+
+**The evidence.** No sandbox requesting a workspace has ever started in a tenant
+namespace. The EphemeralJob is created, the operator retries forever, and no Pod
+is admitted:
+
+```
+pods "ej-sandbox-playground-…" is forbidden: violates PodSecurity "restricted:latest":
+  privileged            (container "workspace-sync" must not set privileged=true)
+  allowPrivilegeEscalation != false   (workspace-sync)
+  unrestricted capabilities           (workspace-sync, workspace-sync-shared)
+  runAsNonRoot != true                (workspace-sync, workspace-sync-shared)
+  runAsUser=0                         (workspace-sync, workspace-sync-shared)
+```
+
+The caller sees a step that never returns. Nothing reports a policy decision —
+the failure is an admission refusal inside a controller's retry loop, three
+systems away from the user waiting on it.
+
+**This ADR contradicted itself for nineteen days.** §19.1 is normative and dated
+2026-09-06. It requires `pod-security.kubernetes.io/enforce: restricted`,
+`runAsNonRoot`, `runAsUser: 1000` and `drop: [ALL]` on the sandbox pod, names
+§14's PVC as the storage control, and states the invariant that ties the table
+together. §14.2 landed the next day as `2026-09-06b` and broke three of those
+rows. §18.1 lost its enforcement in the same change: a workspace is
+single-writer *because* sessions sharing a `workspaceId` are serialised by the
+RWO PVC binding, and §14.2 removed the PVC without replacing the serialisation.
+
+**Why the justification does not hold.** §14.2 argued:
+
+> What keeps it inside §19.6 is *where* the privilege sits: the container is
+> platform-authored and platform-owned … and the **tenant's workload container
+> is unchanged**.
+
+Pod Security Admission evaluates the **whole Pod**. The threat model §19 names
+is *"tenant-authored agent code with a shell"* — the strongest on the platform —
+and that code runs in this Pod. A privileged container beside it does not produce
+a platform Pod containing a tenant container; it produces a privileged Pod
+containing untrusted workload. **Authorship of a Pod spec is not a trust
+boundary. What runs in the Pod is.**
+
+That also disposes of relocating the Pod to a namespace whose policy permits
+privilege: the tenant code travels with it.
+
+§14.2 took the squashfs mechanism from the Cloudflare sandbox SDK and cited it as
+prior art. Cloudflare runs each sandbox in **its own VM**, so a privileged mount
+inside crosses no tenant boundary. This platform runs shared-kernel Pods under
+`restricted`. The mechanism was portable; the isolation it assumed was not.
+
+##### Decision
+
+**The privileged filesystem operation moves out of the sandbox Pod and into
+platform-owned node storage infrastructure. The sandbox Pod receives a volume and
+stays `restricted`.**
+
+```
+tenant namespace, PSA restricted
+┌──────────────────────────────┐
+│ sandbox Pod                  │
+│   tenant workload            │   runAsNonRoot, drop: [ALL],
+│   workspace-sync (unpriv.)   │   no device access
+└──────────────┬───────────────┘
+               │  volume
+               ▼
+        node storage plugin        privileged, platform-owned, no tenant code,
+        (DaemonSet, one per node)  one per node — not two per sandbox
+               │
+               ▼
+        S3: content-addressed objects + manifests + archive.sqsh
+```
+
+CSI volumes are a permitted volume type under the Restricted profile, which is
+what makes this a resolution rather than a relocation. Every gain §14.2 bought is
+kept: the archive remains the O(1) restore primitive, S3 remains the source of
+truth once the pod is gone, the workspace is still not pinned to a node, and the
+operator still does no PVC lookup-or-create. What changes is only **where the
+mount happens**.
+
+##### What is NOT adopted, and why
+
+**A PVC per sandbox on `hcloud-volumes`.** Rejected on four counts, not one:
+`ATTACHREQUIRED: true` puts attach/detach latency on the sandbox start path;
+per-node attachment limits cap concurrency independently of CPU and memory; RWO
+cannot serve a second workspace; and a 10 GiB floor prices a workspace that is
+usually tens of megabytes. §14.2's node-pinning objection to `local-path` also
+still stands. This is recorded explicitly because the cost argument alone invites
+re-proposal.
+
+**A general-purpose S3 filesystem driver.** Mountpoint for S3 is read-oriented
+and lacks POSIX rename; JuiceFS needs a metadata engine, which is a new stateful
+component on the critical path; s3fs-backed drivers are the same s3fs this
+amendment exists to remove. All three solve a problem this platform does not
+have. **The workspace is a checkpoint store with a local working layer, not a
+mounted object store** — §14.2 established that and it is reaffirmed here.
+
+**A PSA exemption for the operator's ServiceAccount.** PSA exempts usernames,
+RuntimeClasses and namespaces. The Pod is created by the Job controller, not by
+the operator's identity, so the exemption would not apply where it was intended
+and would be too broad where it did.
+
+**Lowering the namespace to `baseline`.** Baseline forbids `privileged` as well,
+so it does not work; and it would void §19.1 for every other Pod in the namespace.
+
+##### Checkpointing is this platform's contract, not a storage semantic
+
+The node plugin's teardown RPC is the **boundary at which** a final flush and
+checkpoint are performed. It is not a checkpoint primitive: the storage interface
+defines removal of a publication and says nothing about application durability.
+Writing it the other way would make this platform's durability contract read as
+something the storage layer guarantees.
+
+```
+RUNNING
+  ├── periodic checkpoint      driver-owned, per publication (§14.6 intent rules apply)
+  └── user-initiated Save      see below
+
+TERMINATING
+  ├── final flush / checkpoint platform-defined
+  ├── publication removed      storage interface
+  └── volume unmounted
+```
+
+Using the teardown boundary preserves the ordering §14.1 chose the native sidecar
+for: the kubelet tears the volume down after the workload's containers have
+exited, so the tree is read only once it has stopped being written.
+
+**Every checkpoint operation MUST be idempotent**, because these RPCs are retried
+and reconciled. The store is content-addressed, so this is cheap to honour.
+
+**Teardown requires proof, not inference.** A publication is released only after
+the mount, the writer and the process are observed absent. Sandbox0 states the
+same rule for the same reason — *"driver disappearance alone is never terminal
+proof"* — and it is what makes §18.1's single-writer guarantee enforceable now
+that the RWO binding is gone. **The node plugin owns the single active writer per
+workspace, explicitly, and that replaces the serialisation §14.2 removed.**
+
+##### No agent-facing API, and only one control path
+
+waypoint ADR-037 §1 deleted the turn-boundary checkpoint client on purpose:
+a trigger there means the agent runtime knows a persistence layer exists, and it
+buys nothing over the periodic backstop and teardown snapshot. **That coupling
+MUST NOT be reintroduced**, and this amendment does not reintroduce it.
+
+- **Restore is not a control operation.** ADR-037 §6: restoring records a
+  one-shot pin and deletes the sandbox; the next provision carries
+  `workspacePersistence.checkpointId`, which the storage layer honours when it
+  materialises the volume. §14.3's pinned read-only path is unaffected.
+- **Listing checkpoints is not a sandbox concern.** The SDK reads the manifests.
+- **User-initiated Save is the sole control path**, and ADR-037 §10 makes it a
+  workflow. harness-runtime's role is stated there: *"This is a PROXY, not a
+  policy … It forwards a request a human made."*
+
+Save is therefore rare, human-initiated and worth auditing — which is what
+justifies expressing it as a **Kubernetes resource** rather than a network
+endpoint on the privileged plugin. A request carries an immutable workspace and
+session identity and an explicit target node; the node-local agent watches only
+that stream and acts only on publications it holds. Authentication, authorisation,
+routing, reconciliation and audit come from the API server.
+
+This also preserves a property the sidecar had and must not be lost: the sidecar
+binds `127.0.0.1`, so nothing outside the Pod can reach it. **Tenant code must
+likewise be unable to address the privileged component directly.** An endpoint on
+the node plugin that a sandbox could dial would be strictly worse than today.
+
+##### The tenant selects no storage configuration
+
+Workspace identity travels as volume attributes. That mechanism carries an
+explicit warning where attributes expose administrator-controlled parameters, so:
+
+> **Tenant-authored resources MUST NOT be able to select volume attributes,
+> object-store locations, host paths, mount options, credentials or any other
+> driver configuration. Workspace attributes are generated exclusively by the
+> operator from an authenticated workspace identity, and inline use of this
+> driver is admission-restricted to the operator.**
+
+`appId`, `workspaceId` and checkpoint identifiers are **opaque**. They name a
+workspace; they must never become an indirect way to choose a bucket or a prefix.
+A fleet that could would have recovered, by another route, the privilege this
+amendment removes. This is §19.1's invariant applied to storage.
+
+##### The shared workspace stays where oranger ADR-002 put it
+
+oranger ADR-002 §2 decided that app-scoped artifacts are a **second workspace
+identity** mounted at a reserved directory *inside* the session tree, with each
+checkpoint excluding the other's root. That nesting is load-bearing: it is what
+lets three specialists read the brand brief as ordinary files. **It is not
+flattened into a second sibling volume**, and an earlier draft of this amendment
+that proposed doing so was wrong.
+
+oranger ADR-002 §5 already decided the shared instance's posture: it has no
+archive, no device access, and *"runs unprivileged, observing the session's mount
+rather than publishing its own."*
+
+**That decision is not met in the cluster, and the gap is small.** The shared
+container drops `privileged`, so §5's intent landed — but it still runs as uid 0
+with no capabilities dropped, for exactly one reason: the restore chowns the tree,
+and `/workspace/.global` is created by the session instance as root, so a shared
+instance at uid 1000 fails with `lchown … operation not permitted`. Root is held
+to work around a directory created with the wrong owner by its sibling.
+
+**Conformance fix, independent of the storage-layer work:** create the reserved
+directory owned by the workload uid (or carry it through `fsGroup`), skip
+ownership changes that are already correct, and run the shared instance as uid
+1000 with `drop: [ALL]`. This makes oranger ADR-002 §5 true as written and removes
+one of the two containers from the admission failure without waiting for the node
+plugin.
+
+##### Until the storage layer exists
+
+Sandboxes requesting a workspace do not start. That is the correct behaviour for
+an unresolved contradiction in a normative contract: it fails closed, at
+admission, rather than running tenant code beside a privileged container.
+
+An agent definition may drop `persistent_workspace` to exercise the rest of the
+path. That is a diagnostic, recorded as one, and it is not a fix.
 
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 

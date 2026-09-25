@@ -204,7 +204,7 @@ func workspaceSyncContainerFor(
 	// So the choice is privileged or no FUSE, and the ADR should say so rather
 	// than describe a middle ground that does not exist.
 	//
-	// SUPERSEDED BY ADR-090. The justification that followed here -- that the
+	// SUPERSEDED BY ADR-052 §14.7. The justification that followed here -- that the
 	// container is platform-authored and platform-owned, so the tenant's own
 	// container being unprivileged is enough -- does not hold. Pod Security
 	// Admission evaluates the WHOLE Pod, and this Pod exists to run tenant
@@ -219,9 +219,14 @@ func workspaceSyncContainerFor(
 	//   "restricted:latest": privileged (container "workspace-sync" must not
 	//   set securityContext.privileged=true) ...
 	//
-	// ADR-090 moves the mount to a platform-owned CSI node plugin, where the
-	// privilege belongs to storage infrastructure running no tenant code. This
-	// container is what that replaces.
+	// §14.7 moves the mount to platform-owned node storage infrastructure, where
+	// the privilege belongs to a component running no tenant code. This container
+	// is what that replaces.
+	//
+	// The SHARED instance is separable and smaller: oranger ADR-002 §5 already
+	// decided it runs unprivileged, and it does drop `privileged` -- it holds uid
+	// 0 only to chown a reserved directory its sibling created as root. See
+	// §14.7's conformance fix.
 	privileged := true
 	sidecarSec := &corev1.SecurityContext{
 		Privileged:             &privileged,
