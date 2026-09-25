@@ -1905,7 +1905,7 @@ namespace. The EphemeralJob is created, the operator retries forever, and no Pod
 is admitted:
 
 ```
-pods "ej-sandbox-playground-…" is forbidden: violates PodSecurity "restricted:latest":
+pods "ej-sandbox-…" is forbidden: violates PodSecurity "restricted:latest":
   privileged            (container "workspace-sync" must not set privileged=true)
   allowPrivilegeEscalation != false   (workspace-sync)
   unrestricted capabilities           (workspace-sync, workspace-sync-shared)
@@ -1954,20 +1954,45 @@ platform-owned node storage infrastructure. The sandbox Pod receives a volume an
 stays `restricted`.**
 
 ```
-tenant namespace, PSA restricted
-┌──────────────────────────────┐
-│ sandbox Pod                  │
-│   tenant workload            │   runAsNonRoot, drop: [ALL],
-│   workspace-sync (unpriv.)   │   no device access
-└──────────────┬───────────────┘
-               │  volume
-               ▼
-        node storage plugin        privileged, platform-owned, no tenant code,
-        (DaemonSet, one per node)  one per node — not two per sandbox
-               │
-               ▼
-        S3: content-addressed objects + manifests + archive.sqsh
+tenant namespace — PSA restricted
+┌───────────────────────────────────────────────┐
+│ sandbox Pod                                   │
+│   tenant workload                             │  runAsNonRoot, runAsUser 1000,
+│                                               │  drop: [ALL], no device access,
+│   /workspace           ← session identity     │  NO privileged container
+│   /workspace/<reserved> ← app identity        │
+└───────────────────────▲───────────────────────┘
+                        │  volume, published by the plugin
+┌───────────────────────┴───────────────────────┐
+│ node-local scratch    THE WORKING FILESYSTEM  │  ordinary node disk;
+│   the tree the workload reads and writes      │  nothing durable lives here
+└───────────────────────▲───────────────────────┘
+                        │  materialise ▲  /  checkpoint ▼
+┌───────────────────────┴───────────────────────┐
+│ node storage plugin   DaemonSet, one per node │  the ONLY privileged
+│   publish → materialise  teardown → checkpoint│  component, platform-owned,
+│   periodic checkpoint worker per publication  │  runs no tenant code
+└───────────────────────▲───────────────────────┘
+                        │
+┌───────────────────────┴───────────────────────┐
+│ object store          THE DURABLE RECORD      │  content-addressed objects,
+│   nothing mounts this; the plugin alone       │  per-checkpoint manifests,
+│   reads and writes it                         │  archive for O(1) restore
+└───────────────────────────────────────────────┘
 ```
+
+Three layers, three roles, and conflating any two of them is how this went wrong
+before: **the object store is the durable record, node-local scratch is the
+working filesystem, and the plugin is the mechanism that moves between them.**
+The object store is never mounted. A design in which it were would be the remote
+POSIX filesystem this amendment rejects.
+
+Both workspace identities resolve into the one working tree — the app-scoped one
+at a reserved directory inside the session's — and each checkpoint excludes the
+other's root. Neither is a separate mount.
+
+No container in the sandbox Pod performs a filesystem operation on the
+workspace's behalf. That is the difference from §14.2, and it is the whole of it.
 
 CSI volumes are a permitted volume type under the Restricted profile, which is
 what makes this a resolution rather than a relocation. Every gain §14.2 bought is
@@ -2034,33 +2059,36 @@ proof"* — and it is what makes §18.1's single-writer guarantee enforceable no
 that the RWO binding is gone. **The node plugin owns the single active writer per
 workspace, explicitly, and that replaces the serialisation §14.2 removed.**
 
-##### No agent-facing API, and only one control path
+##### The platform offers no workload-facing checkpoint API
 
-waypoint ADR-037 §1 deleted the turn-boundary checkpoint client on purpose:
-a trigger there means the agent runtime knows a persistence layer exists, and it
-buys nothing over the periodic backstop and teardown snapshot. **That coupling
-MUST NOT be reintroduced**, and this amendment does not reintroduce it.
+Durability is bounded by the platform's own periodic checkpoint and its teardown
+checkpoint. **The platform exposes no interface a sandbox workload can call to
+trigger one**, and adding one would make the workload aware of a persistence
+layer it is the point of this design to hide.
 
-- **Restore is not a control operation.** ADR-037 §6: restoring records a
-  one-shot pin and deletes the sandbox; the next provision carries
-  `workspacePersistence.checkpointId`, which the storage layer honours when it
-  materialises the volume. §14.3's pinned read-only path is unaffected.
-- **Listing checkpoints is not a sandbox concern.** The SDK reads the manifests.
-- **User-initiated Save is the sole control path**, and ADR-037 §10 makes it a
-  workflow. harness-runtime's role is stated there: *"This is a PROXY, not a
-  policy … It forwards a request a human made."*
+Two operations therefore remain outside that surface:
 
-Save is therefore rare, human-initiated and worth auditing — which is what
-justifies expressing it as a **Kubernetes resource** rather than a network
-endpoint on the privileged plugin. A request carries an immutable workspace and
-session identity and an explicit target node; the node-local agent watches only
-that stream and acts only on publications it holds. Authentication, authorisation,
-routing, reconciliation and audit come from the API server.
+- **Restore is provisioning, not a control call.** A workspace is restored by
+  creating a sandbox whose `workspacePersistence` names a `checkpointId`. The
+  storage layer honours it when it materialises the volume. There is no
+  operation that rewrites a running sandbox's tree, which also removes the class
+  of fault where files change under open descriptors. §14.3's pinned read-only
+  path is unaffected.
+- **Enumerating checkpoints is a control-plane read.** Manifests are S3 objects;
+  listing them requires no sandbox and no platform endpoint.
 
-This also preserves a property the sidecar had and must not be lost: the sidecar
-binds `127.0.0.1`, so nothing outside the Pod can reach it. **Tenant code must
-likewise be unable to address the privileged component directly.** An endpoint on
-the node plugin that a sandbox could dial would be strictly worse than today.
+A **human-initiated** checkpoint is the one case the platform does serve, and it
+is served as a Kubernetes resource rather than as a network endpoint: rare,
+attributable, and worth an audit record. A request names a workspace, a session
+and a target node; the node-local component acts only on publications it holds.
+Authentication, authorisation, routing, reconciliation and audit come from the
+API server rather than from a new control plane.
+
+**The privileged component MUST NOT be addressable by a sandbox.** Today's
+sidecar binds `127.0.0.1`, so nothing outside the pod can reach it; a node-level
+endpoint a sandbox could dial would be a weaker boundary than the one being
+replaced. A fleet reaches this capability through the platform's control plane,
+never by connecting to the storage layer.
 
 ##### The tenant selects no storage configuration
 
@@ -2078,32 +2106,35 @@ workspace; they must never become an indirect way to choose a bucket or a prefix
 A fleet that could would have recovered, by another route, the privilege this
 amendment removes. This is §19.1's invariant applied to storage.
 
-##### The shared workspace stays where oranger ADR-002 put it
+##### App-scoped workspaces, and an unresolved contract
 
-oranger ADR-002 §2 decided that app-scoped artifacts are a **second workspace
-identity** mounted at a reserved directory *inside* the session tree, with each
-checkpoint excluding the other's root. That nesting is load-bearing: it is what
-lets three specialists read the brand brief as ordinary files. **It is not
-flattened into a second sibling volume**, and an earlier draft of this amendment
-that proposed doing so was wrong.
+The platform supports a second workspace identity under the same app, mounted at
+a reserved directory inside the session's tree, with each checkpoint excluding
+the other's root. That nesting is the capability: it is what lets app-scoped
+state be read as ordinary files by anything in the workspace, with no second
+access mechanism. **It is not flattened into a sibling volume** — an earlier
+draft of this amendment proposed that, and it would have withdrawn a capability
+fleets already build on.
 
-oranger ADR-002 §5 already decided the shared instance's posture: it has no
-archive, no device access, and *"runs unprivileged, observing the session's mount
-rather than publishing its own."*
+The app-scoped instance needs none of the privilege this amendment removes. It
+has no archive and no device access; it observes the session's mount rather than
+publishing its own, and restores from content-addressed objects. Its posture is
+`runAsNonRoot`, `runAsUser: 1000`, `drop: [ALL]`, the same as every other
+container in the pod.
 
-**That decision is not met in the cluster, and the gap is small.** The shared
-container drops `privileged`, so §5's intent landed — but it still runs as uid 0
-with no capabilities dropped, for exactly one reason: the restore chowns the tree,
-and `/workspace/.global` is created by the session instance as root, so a shared
-instance at uid 1000 fails with `lchown … operation not permitted`. Root is held
-to work around a directory created with the wrong owner by its sibling.
+**An unresolved contract, recorded rather than settled.** §18.1 states that
+multi-reader and multi-writer workspaces are not supported and MUST NOT be
+presented as available. An app-scoped workspace is shared by construction:
+several sessions of one app resolve the same identity concurrently, which is
+what makes it app-scoped. The platform therefore offers a capability its own
+durability contract excludes.
 
-**Conformance fix, independent of the storage-layer work:** create the reserved
-directory owned by the workload uid (or carry it through `fsGroup`), skip
-ownership changes that are already correct, and run the shared instance as uid
-1000 with `drop: [ALL]`. This makes oranger ADR-002 §5 true as written and removes
-one of the two containers from the admission failure without waiting for the node
-plugin.
+Concurrent reads are not the hazard; concurrent checkpoints of one tree are.
+Resolving this needs a decision — most likely a designated writer for an
+app-scoped workspace, with other sessions mounting it read-only — and that
+decision is not taken here. It is named so that it is not mistaken for
+something §14.7 settled, and so that no fleet is told the guarantee holds when
+it does not.
 
 ##### Until the storage layer exists
 
@@ -2111,8 +2142,9 @@ Sandboxes requesting a workspace do not start. That is the correct behaviour for
 an unresolved contradiction in a normative contract: it fails closed, at
 admission, rather than running tenant code beside a privileged container.
 
-An agent definition may drop `persistent_workspace` to exercise the rest of the
-path. That is a diagnostic, recorded as one, and it is not a fix.
+A workload that declares no workspace is unaffected and starts normally, which
+makes provisioning without one a way to isolate this from an unrelated fault.
+That is a diagnostic, recorded as one, and it is not a fix.
 
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 
