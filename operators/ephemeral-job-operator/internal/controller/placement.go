@@ -49,7 +49,29 @@ const (
 	WorkloadLocationValue = "hetzner"
 
 	// The home-lab side of the hybrid spoke (ADR-046 §13).
-	WorkloadLocationHome = "home"
+	//
+	// "on-prem", NOT "home". The value is what provision-flatcar-worker.sh puts
+	// on the node at join time, and every other consumer agrees with it: the
+	// hybrid composition's default nodeSelector, the local-path and Hetzner CSI
+	// addons' node affinity, hub-bootstrap.sh's worker selector, and the
+	// bootstrap orchestrator's postconditions.
+	//
+	// This constant said "home" and nothing anywhere sets that. The pod was
+	// therefore well-formed, admissible and permanently unschedulable:
+	//
+	//   0/3 nodes are available: 1 node(s) had untolerated taint
+	//   {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match Pod's
+	//   node affinity/selector.
+	//
+	// which surfaces as EphemeralJob phase Provisioning / WaitingForCapacity --
+	// a message about capacity for what is actually a label mismatch, so it
+	// reads as "the cluster is full" rather than "this selector matches nothing".
+	//
+	// ADR-046's prose is inconsistent on this and is the likely origin: §13 says
+	// home workers are labelled workload-location=home, while §11's own table of
+	// default workloads says on-prem. The running cluster and every script that
+	// writes the label say on-prem.
+	WorkloadLocationHome = "on-prem"
 
 	// ADR-046 §11: workload-location is never sufficient alone. Propagated from
 	// the MachineDeployment by CAPI — kubelet cannot self-register a
