@@ -202,11 +202,26 @@ func workspaceSyncContainerFor(
 	//     capabilities. These do not.
 	//
 	// So the choice is privileged or no FUSE, and the ADR should say so rather
-	// than describe a middle ground that does not exist. What keeps this within
-	// §19.6 is that the container is platform-authored and platform-owned: a
-	// fleet cannot supply it, name its image, or exec into it, and the tenant's
-	// own workload container is unchanged — unprivileged, no added
-	// capabilities, no device access, and still no ServiceAccount token.
+	// than describe a middle ground that does not exist.
+	//
+	// SUPERSEDED BY ADR-090. The justification that followed here -- that the
+	// container is platform-authored and platform-owned, so the tenant's own
+	// container being unprivileged is enough -- does not hold. Pod Security
+	// Admission evaluates the WHOLE Pod, and this Pod exists to run tenant
+	// code. A privileged container beside that code produces a privileged Pod
+	// containing untrusted workload; who wrote the Pod spec is not a trust
+	// boundary, and no namespace this Pod could be moved to changes that.
+	//
+	// The result is that no sandbox requesting a durable workspace is admitted
+	// into a tenant namespace at all:
+	//
+	//   pods "ej-sandbox-..." is forbidden: violates PodSecurity
+	//   "restricted:latest": privileged (container "workspace-sync" must not
+	//   set securityContext.privileged=true) ...
+	//
+	// ADR-090 moves the mount to a platform-owned CSI node plugin, where the
+	// privilege belongs to storage infrastructure running no tenant code. This
+	// container is what that replaces.
 	privileged := true
 	sidecarSec := &corev1.SecurityContext{
 		Privileged:             &privileged,
