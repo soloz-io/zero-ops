@@ -361,6 +361,79 @@ above is platform-owned and enforced by post-bootstrap validation. ADR-046 §11
 holds the isolation mechanics and the cutover procedure that implements this
 contract.
 
+### Recovery point
+
+**Recovery point is bounded by the latest successfully archived WAL. The latest
+successful base backup provides the recovery base. WAL-archive and base-backup
+freshness are continuously monitored and alertable.**
+
+Stated deliberately in those terms rather than as "RPO equals the backup
+interval", which understates the guarantee and misdescribes the mechanism.
+CloudNativePG replays archived WAL forward from the base backup, so a spoke whose
+nightly backup last succeeded at 01:00 and whose archive kept working until 13:55
+recovers to 13:55, not to 01:00 — an observed difference of thirteen hours on
+2026-09-25. The corollary is the part that matters operationally: the recovery
+point is set by the ARCHIVE, not by the schedule, so an archive that has silently
+stopped freezes the recovery point while every base backup and every dashboard
+continues to look unremarkable.
+
+### Recovery is a bootstrap, and incarnations are explicit
+
+CloudNativePG has no in-place recovery. Restoring a physical backup **is** the
+bootstrap of a new cluster, and `spec.bootstrap` is read exactly once, at
+creation, then ignored for the life of the cluster. Restoring is therefore a
+manifest transition followed by a delete/recreate — never a command issued
+against a running cluster — and a cluster that already exists cannot be restored
+by editing it.
+
+Because a rebuild lands in an object store that already holds the previous
+cluster's WALs, and barman refuses to interleave two databases under one
+`serverName`, each rebuild takes a new **incarnation**: `shared-cnpg-v<N>`. Two
+fields must move together and must never be equal:
+
+| field | value |
+|---|---|
+| `spec.bootstrap.recovery.source` | the PREVIOUS incarnation, read-only |
+| `spec.backup.barmanObjectStore.serverName` | the NEXT incarnation |
+
+A cluster whose archive target is also its recovery source is recovering from
+itself. A cluster that archives to an incarnation already in use archives
+nothing: `WAL archive check failed ... Expected empty archive`, which leaves
+`ContinuousArchiving=False`, blocks every base backup queued behind it, and does
+so while the Cluster reports `healthy`.
+
+**`bootstrap.recovery` is not the steady state.** `destinationPath` is per-spoke,
+so a newly provisioned spoke has no archive under any incarnation; a provider
+manifest that permanently declared recovery would make every first-ever
+provisioning fail to bootstrap at all. `initdb` is the declared default and
+recovery is a deliberate, validated, temporary transition.
+
+**The transition is tool-enforced, not hand-edited.** `make
+cnpg-bump-incarnation PROVIDER=<provider>` moves both fields and refuses to write
+anything unless the manifest is in exactly the expected shape;
+`make cnpg-settle-incarnation` returns it to `initdb` once the recovered cluster
+is healthy and archiving. `make cnpg-incarnation-check` reports any provider left
+mid-recovery — that state restores the same old incarnation on the next rebuild
+and silently discards everything written since, which is the failure this
+mechanism exists to prevent and the one that leaves no trace until someone goes
+looking for missing data. It is deliberately NOT a merge gate: the release that
+performs a recovery is mid-recovery by construction, so gating merges on it would
+block the change it exists to support. The condition is temporal — mid-recovery
+for an hour is the procedure, mid-recovery for a week is the bug — so it belongs
+on a schedule. The repository previously carried this rule as a
+comment reading "BUMP THE SUFFIX whenever the cluster is recreated"; it was
+honoured once and missed on the next rebuild. A comment is not a mechanism.
+
+### Recoverability is alerted, because health is not
+
+Every alert in `spoke-catalog/infra/victoriametrics/cnpg-backup-alerts.yaml`
+fires on a condition CNPG itself reports as compatible with `Cluster in healthy
+state`, and that is the point: the operator is not wrong when it says Postgres is
+up and serving, it simply has no opinion about whether the box is recoverable.
+The signals are unarchived WAL backlog, a cluster that has never completed a
+backup, a stale newest backup, failures newer than the last success, and an
+archive reporting no recoverability point.
+
 ## References
 
 - **ADR 003**: ESO-Infisical Integration Pattern

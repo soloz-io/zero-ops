@@ -1,4 +1,4 @@
-.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean e2e-verify e2e-workload
+.PHONY: build clean test install sqlc-generate migrate-up migrate-down build-all build-auth-proxy build-mcp-server build-kube-sbt build-hub cli-release cli-fetch publish-local e2e e2e-fresh e2e-clean e2e-verify e2e-workload cnpg-bump-incarnation cnpg-settle-incarnation cnpg-incarnation-check
 
 # Build variables
 AUTH_PROXY_BINARY=auth-proxy
@@ -238,3 +238,47 @@ migrate-down:
 	@echo "Rolling back database migrations..."
 	@atlas migrate down --dir file://internal/db/migrations --url "$(DATABASE_URL)"
 	@echo "✓ Migrations rolled back"
+
+# ── CNPG archive incarnations (ADR-014 recovery contract) ────────────────────
+#
+# Restoring a CNPG cluster is a MANIFEST transition followed by a delete/recreate,
+# never a command against a live cluster: CloudNativePG has no in-place recovery,
+# and bootstrap is read once, at creation. These targets perform that transition
+# deterministically so the two fields that must agree cannot drift apart by hand.
+#
+#   make cnpg-bump-incarnation PROVIDER=hybrid    initdb @vN  -> recovery <-vN, archive v(N+1)
+#   make cnpg-settle-incarnation PROVIDER=hybrid  recovery    -> initdb @ current archive
+#   make cnpg-incarnation-check                   CI: both providers are settled
+#
+# Add DRY_RUN=1 to print the diff without touching the working tree.
+cnpg-bump-incarnation:
+	@test -n "$(PROVIDER)" || { echo "ERROR: PROVIDER is required (hybrid|hetzner)"; exit 2; }
+	@./scripts/cnpg-bump-incarnation.sh --provider $(PROVIDER) --mode recover $(if $(DRY_RUN),--dry-run,)
+
+cnpg-settle-incarnation:
+	@test -n "$(PROVIDER)" || { echo "ERROR: PROVIDER is required (hybrid|hetzner)"; exit 2; }
+	@./scripts/cnpg-bump-incarnation.sh --provider $(PROVIDER) --mode settle $(if $(DRY_RUN),--dry-run,)
+
+# Reports whether each provider is settled; exits non-zero if any is not.
+#
+# NOT a pull-request gate, and the distinction is load-bearing: the release that
+# PERFORMS a recovery is mid-recovery by construction, so gating merges on this
+# would block exactly the change it exists to support. The condition being
+# guarded is temporal — "a provider was left in recovery" — so this belongs on a
+# schedule (or in the operator's hands), where being mid-recovery for an hour is
+# fine and being mid-recovery for a week is the bug.
+#
+# That bug is worth the target: a provider left in recovery restores the SAME old
+# incarnation on its next rebuild and silently discards everything written since
+# the last restore, leaving no trace until someone goes looking for missing data.
+cnpg-incarnation-check:
+	@echo "Checking CNPG providers are settled (bootstrap.initdb, no externalClusters)..."
+	@fail=0; for p in hybrid hetzner; do \
+	  f="manifests/spoke/spoke-catalog/providers/$$p/cnpg-cluster.yaml"; \
+	  if ! ./scripts/cnpg-bump-incarnation.sh --provider $$p --mode recover --dry-run >/dev/null 2>&1; then \
+	    echo "  ✗ $$p is NOT settled — run: make cnpg-settle-incarnation PROVIDER=$$p"; fail=1; \
+	  else \
+	    echo "  ✓ $$p settled ($$(grep -m1 'serverName: ' $$f | awk '{print $$2}'))"; \
+	  fi; \
+	done; \
+	test $$fail -eq 0

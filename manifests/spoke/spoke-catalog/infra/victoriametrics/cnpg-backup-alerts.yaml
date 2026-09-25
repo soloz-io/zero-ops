@@ -1,0 +1,147 @@
+---
+# ADR-014 recovery contract, made observable.
+#
+# On a hybrid spoke the tenant database lives on local-path, which is node-pinned:
+# the volume dies with the node. The ONLY restore path is the barman archive in
+# Hetzner Object Storage, so an archive that has quietly stopped working is not a
+# degraded backup — it is the total loss of the recovery point, and nothing else
+# reports it.
+#
+# Every alert here fires on a condition CloudNativePG itself considers compatible
+# with `Cluster in healthy state`. That is the whole point. On 2026-09-25 the
+# spoke's cluster was rebuilt empty, could not archive a single WAL because the
+# serverName still pointed at the previous incarnation's data, and reported
+# healthy for hours while holding no data and producing no backups. The operator
+# was not wrong: Postgres was up and serving. It simply has no opinion about
+# whether the box is recoverable.
+#
+# Metric names are the ones the CNPG instance exporter actually publishes on
+# :9187, read off the live spoke rather than taken from documentation:
+#
+#   cnpg_collector_pg_wal_archive_status{value="ready"|"done"}
+#   cnpg_collector_last_available_backup_timestamp
+#   cnpg_collector_last_failed_backup_timestamp
+#   cnpg_collector_first_recoverability_point
+#
+# All four read 0 on a cluster that has never completed a backup, which is why
+# the "never" and "stale" cases below are separate rules: a single
+# `time() - last_available > threshold` fires immediately and identically for a
+# thirty-second-old cluster and a month-abandoned one, and an alert that cries on
+# every fresh install is an alert that gets silenced.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cnpg-backup-alerts
+  namespace: platform-observability
+  labels:
+    app: victoriametrics
+    component: alerting
+    # ADR-078 §6: platform rules are selected by this label. Without it VMAlert's
+    # ruleSelector matches nothing and this file is evaluated by no one.
+    app.kubernetes.io/managed-by: platform
+spec:
+  groups:
+    - name: platform.cnpg.recoverability
+      interval: 60s
+      rules:
+        # THE one that would have caught 2026-09-25 within fifteen minutes.
+        #
+        # `ready` counts WAL segments Postgres has finished and handed to the
+        # archiver; `done` counts those the archiver acknowledged. A healthy
+        # cluster drains ready to 0 continuously. When barman refuses the
+        # destination — the classic case being a serverName that already holds an
+        # earlier incarnation's WALs, "Expected empty archive" — ready climbs
+        # forever, no base backup can start behind it, and the pod stays Running.
+        #
+        # 15m rather than instant: a busy checkpoint legitimately queues a few
+        # segments for a minute or two.
+        - alert: CNPGWalArchiveBacklog
+          expr: |
+            cnpg_collector_pg_wal_archive_status{value="ready"} > 0
+          for: 15m
+          labels:
+            severity: critical
+            component: database
+          annotations:
+            summary: "CNPG {{ $labels.namespace }}/{{ $labels.pod }} has unarchived WAL"
+            description: >-
+              {{ $value }} WAL segment(s) have been waiting to archive for 15m.
+              While this is true no base backup can complete and the recovery
+              point is frozen at the last successfully archived WAL. Check the
+              Cluster's ContinuousArchiving condition; the usual cause is
+              backup.barmanObjectStore.serverName still naming a previous
+              incarnation, which barman refuses to write into. Fix with
+              `make cnpg-bump-incarnation PROVIDER=<provider>`.
+
+        # A cluster that has never produced a backup. Distinct from staleness
+        # because the timestamp is 0, not old, and because the remedy is
+        # different: this is a misconfiguration, not a missed schedule.
+        - alert: CNPGNeverBackedUp
+          expr: |
+            cnpg_collector_last_available_backup_timestamp == 0
+          for: 2h
+          labels:
+            severity: critical
+            component: database
+          annotations:
+            summary: "CNPG {{ $labels.namespace }}/{{ $labels.pod }} has never completed a backup"
+            description: >-
+              No base backup has ever succeeded for this cluster. On local-path
+              storage that means it has no recovery path at all: losing the node
+              loses the database outright. 2h of grace so a freshly provisioned
+              spoke can take its first backup before this fires.
+
+        # Staleness, guarded against the never-backed-up case above so the two
+        # cannot both fire for the same cluster.
+        - alert: CNPGBackupStale
+          expr: |
+            cnpg_collector_last_available_backup_timestamp > 0
+            and
+            (time() - cnpg_collector_last_available_backup_timestamp) > 93600
+          for: 30m
+          labels:
+            severity: warning
+            component: database
+          annotations:
+            summary: "CNPG {{ $labels.namespace }}/{{ $labels.pod }} backup is stale"
+            description: >-
+              The newest base backup is {{ $value | humanizeDuration }} old.
+              The schedule is daily, so 26h allows one missed run plus clock
+              skew before complaining.
+
+        # Backups actively failing. Catches the case where an old backup keeps
+        # CNPGBackupStale quiet while every new attempt errors.
+        - alert: CNPGBackupFailing
+          expr: |
+            cnpg_collector_last_failed_backup_timestamp
+              > cnpg_collector_last_available_backup_timestamp
+          for: 30m
+          labels:
+            severity: critical
+            component: database
+          annotations:
+            summary: "CNPG {{ $labels.namespace }}/{{ $labels.pod }} backups are failing"
+            description: >-
+              The most recent backup attempt failed more recently than the last
+              success, so the recovery point is no longer advancing even though a
+              usable backup still exists.
+
+        # The recovery point itself, stated directly rather than inferred.
+        # first_recoverability_point is the earliest timestamp the archive can
+        # restore to; 0 means the archive cannot restore to anything.
+        - alert: CNPGNoRecoverabilityPoint
+          expr: |
+            cnpg_collector_first_recoverability_point == 0
+            and
+            cnpg_collector_last_available_backup_timestamp > 0
+          for: 1h
+          labels:
+            severity: critical
+            component: database
+          annotations:
+            summary: "CNPG {{ $labels.namespace }}/{{ $labels.pod }} reports no recoverability point"
+            description: >-
+              A base backup exists but the archive reports no point it can
+              recover to, which means the WAL needed to make that backup
+              consistent is missing. Treat the backup as unusable until this
+              clears.

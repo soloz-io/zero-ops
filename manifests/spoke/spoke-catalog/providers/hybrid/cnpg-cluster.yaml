@@ -52,14 +52,27 @@ spec:
       - "vector"
 
   bootstrap:
-    initdb:
-      database: app
-      owner: app
-      postInitSQL:
-        - CREATE EXTENSION IF NOT EXISTS vector;
-        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-        - ALTER ROLE app WITH CREATEROLE;
-
+    recovery:
+      source: shared-cnpg-v3
+  externalClusters:
+    - name: shared-cnpg-v3
+      barmanObjectStore:
+        destinationPath: s3://spoke-pool-backups/
+        serverName: shared-cnpg-v3
+        endpointURL: https://hel1.your-objectstorage.com
+        s3Credentials:
+          accessKeyId:
+            name: s3-credentials
+            key: access-key-id
+          secretAccessKey:
+            name: s3-credentials
+            key: secret-access-key
+          region:
+            name: s3-credentials
+            key: region
+        wal:
+          compression: gzip
+          maxParallel: 2
   storage:
     size: 100Gi
     # local-path is node-pinned: the data lives on the exact home worker that bound
@@ -107,7 +120,7 @@ spec:
       # rewrites it to .../<spoke>/), so this name only ever collides with an
       # EARLIER incarnation of the SAME spoke — which is precisely what a
       # local-path rebuild produces every time.
-      serverName: shared-cnpg-v3
+      serverName: shared-cnpg-v4
       # ADR-014 backup contract: Hetzner Object Storage, hel1.
       endpointURL: https://hel1.your-objectstorage.com
       s3Credentials:

@@ -169,6 +169,14 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.name
+              # appId, NOT scopeId, and ADR-088 already settled this (de2162c4):
+              # the credentials the workload holds name tenant-<appId>-user, and a
+              # renamed role is a NEW role that owns nothing -- the migration then
+              # connects successfully and is refused CREATE SCHEMA.
+              #
+              # scopeId is left building namespaces and cluster-scoped names, which
+              # are the things that would actually collide between two apps of one
+              # tenant. The db-user Role below must use appId for the same reason.
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.owner
@@ -330,8 +338,25 @@ spec:
                   name: default
                 deletionPolicy: Delete
             patches:
+              # appId, matching the database owner above and the credentials the
+              # workload actually holds (tenant-<appId>-user, from the secret
+              # store). de2162c4 moved the owner and this name to appId together
+              # for that reason; this one was left on scopeId, and the two only
+              # agreed because the pre-ADR-088 role of the old name still existed
+              # in PostgreSQL and satisfied both.
+              #
+              # Rebuilding the cluster from empty removed it and split them apart:
+              # the composition created tenant-nutgraf-waypoint-user while the SDK
+              # authenticated as tenant-waypoint-user and got
+              #   FATAL 28P01: password authentication failed for user
+              #   "tenant-waypoint-user"
+              # on every start, which reads like a rotated password and is not one.
+              #
+              # Only the ROLE NAME moves. passwordSecretRef.namespace below stays
+              # scopeId: that is a namespace (tenant-<tenantId>-<appId>), and
+              # namespaces are exactly what scopeId is still for.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.scopeId
+                fromFieldPath: spec.appId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string

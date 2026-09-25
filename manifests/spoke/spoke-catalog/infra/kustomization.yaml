@@ -47,6 +47,9 @@ resources:
   - victoriametrics/query-endpoint.yaml
   - victoriametrics/query-ingress.yaml
   - victoriametrics/network-policy.yaml
+  # ADR-014 recovery contract made observable: every rule here fires on a
+  # condition CNPG itself reports as "Cluster in healthy state".
+  - victoriametrics/cnpg-backup-alerts.yaml
   - grafana-cloud-es.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml

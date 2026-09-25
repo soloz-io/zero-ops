@@ -30,6 +30,27 @@
   fields:
     - path: [spec, backup, barmanObjectStore, destinationPath]
       value: 's3://spoke-pool-backups/{{ .Values.spokeName }}/'
+    # The SAME prefix on the RECOVERY source, and it is a SECOND, independent
+    # copy of the object-store configuration: externalClusters inherits nothing
+    # from spec.backup above. Templating only the backup path leaves recovery
+    # reading the bucket ROOT -- s3://spoke-pool-backups/<incarnation>/ rather
+    # than s3://spoke-pool-backups/<spoke>/<incarnation>/ -- where no spoke has
+    # ever written anything, and CNPG fails the restore with
+    #
+    #   Recovering from external cluster ... sourceName=shared-cnpg-v3
+    #   Error while restoring a backup: no target backup found
+    #
+    # which names the source it could not find and says nothing about the path
+    # it searched, so it reads as a missing BACKUP rather than a wrong PREFIX.
+    # Observed on the 2026-09-25 restore, against an archive that was intact and
+    # listable throughout.
+    #
+    # The index is why externalClusters is declared in EVERY state, including the
+    # steady one where bootstrap is initdb and nothing reads it: this assignment
+    # resolves a concrete path, so an entry that only existed during a recovery
+    # would fail packaging for every spoke in between.
+    - path: [spec, externalClusters, 0, barmanObjectStore, destinationPath]
+      value: 's3://spoke-pool-backups/{{ .Values.spokeName }}/'
 
 - kind: ExternalSecret
   name: s3-credentials

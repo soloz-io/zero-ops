@@ -53,7 +53,25 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
         - ALTER ROLE app WITH CREATEROLE;
-
+  externalClusters:
+    - name: shared-cnpg-v3
+      barmanObjectStore:
+        destinationPath: s3://spoke-pool-backups/
+        serverName: shared-cnpg-v3
+        endpointURL: https://hel1.your-objectstorage.com
+        s3Credentials:
+          accessKeyId:
+            name: s3-credentials
+            key: access-key-id
+          secretAccessKey:
+            name: s3-credentials
+            key: secret-access-key
+          region:
+            name: s3-credentials
+            key: region
+        wal:
+          compression: gzip
+          maxParallel: 2
   storage:
     size: 100Gi
     storageClass: hcloud-volumes

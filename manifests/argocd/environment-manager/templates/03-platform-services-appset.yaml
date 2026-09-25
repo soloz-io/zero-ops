@@ -633,6 +633,36 @@ spec:
                 - op: replace
                   path: /spec/backup/barmanObjectStore/destinationPath
                   value: 's3://spoke-pool-backups/{{"{{"}}.name{{"}}"}}/'
+            # The SAME per-spoke prefix on the RECOVERY source.
+            #
+            # externalClusters is a second, independent copy of the object-store
+            # configuration, and it is the one a restore actually reads. Patching
+            # only the backup path above leaves recovery pointing at the bucket
+            # ROOT — s3://spoke-pool-backups/<incarnation>/ instead of
+            # s3://spoke-pool-backups/<spoke>/<incarnation>/ — where no spoke has
+            # ever written anything. CNPG then fails the restore with
+            #
+            #   Recovering from external cluster ... sourceName=shared-cnpg-v3
+            #   Error while restoring a backup: no target backup found
+            #
+            # which names the source it could not find and says nothing about the
+            # path it looked in, so it reads as a missing BACKUP rather than a
+            # wrong PREFIX. Observed on the 2026-09-25 restore, against an archive
+            # that was intact and listable the whole time.
+            #
+            # This is why externalClusters is declared in EVERY state, including
+            # the steady one where bootstrap is initdb and nothing reads it. A
+            # JSON-Patch op against an absent path fails the whole kustomization,
+            # so a patch that only applied during a recovery would take every
+            # spoke's sync down in between recoveries. An inert externalClusters
+            # entry costs nothing and keeps this target always present.
+            - target:
+                kind: Cluster
+                name: shared-cnpg
+              patch: |
+                - op: replace
+                  path: /spec/externalClusters/0/barmanObjectStore/destinationPath
+                  value: 's3://spoke-pool-backups/{{"{{"}}.name{{"}}"}}/'
             # ADR-014 backup contract: per-spoke S3 keys in the hub-secrets
             # project at /spoke-pool/<spoke>/shared/. The hcloud-token is an
             # HCloud API token, NOT a Hetzner Object Storage key — it fails with
