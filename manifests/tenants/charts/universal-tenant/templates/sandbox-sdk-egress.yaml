@@ -29,19 +29,85 @@ metadata:
     tenant-id: {{ include "universal-tenant.tenantId" . }}
     app-id: {{ include "universal-tenant.appId" . }}
 spec:
-  # The label the agent-sandbox CONTROLLER puts on every pod it creates. The
-  # label the SDK writes into the Sandbox CR's podTemplate never reaches the pod
-  # — the controller owns that label space and replaces it — which is why the
-  # default-deny policy selected nothing for as long as it selected on that one.
+  # `agents.x-k8s.io/sandbox`, the same key the platform's clusterwide
+  # agent-sandbox-default-deny selects on, and NOT sandbox-name-hash.
+  #
+  # This selected sandbox-name-hash until 2026-09-25, which is a label the
+  # agent-sandbox CONTROLLER writes. Sandboxes on this platform are created by
+  # ephemeral-job-operator, whose pods carry
+  #
+  #   agents.x-k8s.io/sandbox: "true"
+  #   waypoint-sandbox-name: <name>
+  #   waypoint.session.id: <session>
+  #
+  # and no name-hash at all. So this policy selected NOTHING while the clusterwide
+  # default-deny — selecting `agents.x-k8s.io/sandbox` Exists — selected every one
+  # of them. The sandbox was default-denied on egress with nothing widening it,
+  # and a policy that appears in `kubectl get cnp` as Valid was governing zero
+  # endpoints. Selecting the key the default-deny itself uses is what keeps the
+  # two from drifting apart again.
   endpointSelector:
     matchExpressions:
-      - key: agents.x-k8s.io/sandbox-name-hash
+      - key: agents.x-k8s.io/sandbox
         operator: Exists
   egress:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: {{ include "universal-tenant.namespace" . }}
             k8s:app: sdk
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+# This fleet's SDK -> its sandboxes (ADR-047). The other half of the pair above,
+# and it never existed.
+#
+# The SDK does not merely receive from a sandbox, it INITIATES: provisionSandbox
+# is followed by waitHttpReady polling GET /healthz/ready, then POST
+# /session/<id>/message, then a GET /event SSE stream. All three are SDK -> pod on
+# 3000, and the SDK's own egress contract is default-deny, enumerating postgres,
+# the cache, infisical, builder-serve, code-builders and oranger-serve — every
+# sibling it talks to except the sandboxes.
+#
+# The failure is silent and reads as anything but a policy problem. Cilium DROPS
+# the packets rather than refusing them, so the connect hangs instead of erroring;
+# waitHttpReady's 2s per-attempt AbortSignal then fires, the outer deadline
+# expires, and the run fails with
+#
+#   Step failed (oranger/send-message): Failed to proxy message: Timed out
+#   waiting for sandbox <name> HTTP readiness — still Running
+#
+# naming a sandbox that is 4/4 Running and serving 200s to its own kubelet probe
+# the whole time. sandbox-k8s logs only on SUCCESS, so a run that only ever times
+# out leaves no SDK log line at all, and the client sits on a 202 forever.
+#
+# It does not reproduce locally: `pnpm local:stack-k8s` brings up a kind cluster
+# with no CiliumNetworkPolicies, so every pod reaches every other pod and this
+# path works. The dev spoke enforces the contract; the local cluster has nothing
+# to enforce.
+#
+# Selected by label, not by name: sandbox pods are ephemeral and their names carry
+# a per-session suffix, so a name-based rule would need rewriting per session.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sdk-to-sandbox
+  namespace: {{ include "universal-tenant.namespace" . }}
+  labels:
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
+spec:
+  endpointSelector:
+    matchLabels:
+      k8s:app: sdk
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: agents.x-k8s.io/sandbox
+              operator: Exists
+          matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ include "universal-tenant.namespace" . }}
       toPorts:
         - ports:
             - port: "3000"
