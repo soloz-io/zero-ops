@@ -39,7 +39,26 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
+                # A FLEET's values, and only a fleet's.
+                #
+                # `*` in this generator crosses `/` -- it is not a single path
+                # segment -- so this pattern alone also matches a WORKLOAD's
+                # values at environments/<env>/<app>/<workload>/values.yaml.
+                # Such a file holds chart overrides and carries no `cellId`, and
+                # one appearing was enough to take every generator below with
+                # it: `failed to execute go template {{ .cellId }}: map has no
+                # entry for key "cellId"`, and all three ApplicationSets stopped
+                # generating within a minute of the file being committed.
+                #
+                # Nothing looked broken. The Applications these had already
+                # created stayed, kept syncing their own sources and went on
+                # reporting Healthy; what stopped was the platform's ability to
+                # create, retarget or remove any of them. The exclusion is what
+                # keeps the two kinds of values file apart, because the glob
+                # cannot.
                 - path: 'environments/*/*/values.yaml'
+                - path: 'environments/*/*/*/values.yaml'
+                  exclude: true
 
           - clusters:
               selector:
@@ -145,7 +164,26 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
+                # A FLEET's values, and only a fleet's.
+                #
+                # `*` in this generator crosses `/` -- it is not a single path
+                # segment -- so this pattern alone also matches a WORKLOAD's
+                # values at environments/<env>/<app>/<workload>/values.yaml.
+                # Such a file holds chart overrides and carries no `cellId`, and
+                # one appearing was enough to take every generator below with
+                # it: `failed to execute go template {{ .cellId }}: map has no
+                # entry for key "cellId"`, and all three ApplicationSets stopped
+                # generating within a minute of the file being committed.
+                #
+                # Nothing looked broken. The Applications these had already
+                # created stayed, kept syncing their own sources and went on
+                # reporting Healthy; what stopped was the platform's ability to
+                # create, retarget or remove any of them. The exclusion is what
+                # keeps the two kinds of values file apart, because the glob
+                # cannot.
                 - path: 'environments/*/*/values.yaml'
+                - path: 'environments/*/*/*/values.yaml'
+                  exclude: true
 
           - clusters:
               selector:
@@ -296,7 +334,26 @@ spec:
                     repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
                     revision: main
                     files:
+                      # A FLEET's values, and only a fleet's.
+                      #
+                      # `*` in this generator crosses `/` -- it is not a single path
+                      # segment -- so this pattern alone also matches a WORKLOAD's
+                      # values at environments/<env>/<app>/<workload>/values.yaml.
+                      # Such a file holds chart overrides and carries no `cellId`, and
+                      # one appearing was enough to take every generator below with
+                      # it: `failed to execute go template {{ .cellId }}: map has no
+                      # entry for key "cellId"`, and all three ApplicationSets stopped
+                      # generating within a minute of the file being committed.
+                      #
+                      # Nothing looked broken. The Applications these had already
+                      # created stayed, kept syncing their own sources and went on
+                      # reporting Healthy; what stopped was the platform's ability to
+                      # create, retarget or remove any of them. The exclusion is what
+                      # keeps the two kinds of values file apart, because the glob
+                      # cannot.
                       - path: 'environments/*/*/values.yaml'
+                      - path: 'environments/*/*/*/values.yaml'
+                        exclude: true
 
                 # One entry per application directory under that fleet. A
                 # directory generator rather than a files generator over
