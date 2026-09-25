@@ -1,7 +1,8 @@
 # ADR-046: Hybrid Provider Cell (Hetzner Control Plane + Home-Lab Workers)
 
 **Date:** 2026-08-12
-**Status:** Accepted
+**Status:** Accepted (corrected 2026-09-25 — the home class selects
+`workload-location: on-prem`; see Placement classes)
 
 *Amended by: ADR-075 (On-Prem Nodes are a Capability, Not a Provider)*
 
@@ -80,7 +81,9 @@ The shared ClusterClass exposes two variables:
   (`ControlPlaneEndpointSet` condition).
 
 Burst workers carry kubelet label `workload-location=hetzner`; home workers are
-labeled `workload-location=home` by the join script.
+labeled `workload-location=on-prem` by the join script (`provision-flatcar-worker.sh`).
+See the correction under Placement classes: the CLASS is named `home`, the label
+VALUE is `on-prem`, and this sentence said `home` for both until 2026-09-25.
 
 ### Home-Worker Lifecycle (Unmanaged)
 
@@ -484,7 +487,7 @@ unchanged: every stateful workload runs on **worker nodes only**
 (`nodeSelector: node-role.kubernetes.io/worker: ""` — key-only label, never
 `"true"`), control-plane nodes keep `control-plane:NoSchedule`, and placement is
 declared, never inferred from storage binding. Hybrid adds one orthogonal axis:
-`workload-location` (home vs hetzner), which determines the storage class a
+`workload-location` (`on-prem` vs `hetzner`), which determines the storage class a
 stateful workload may use.
 
 **Failure that motivated this model.** On `spoke-pool-hybrid-dev-01`,
@@ -499,9 +502,30 @@ class ADR-014 now bans.
 
 #### Placement classes (one per location)
 
+> **Correction 2026-09-25 — the label value is `on-prem`, not `home`.** The
+> CLASS is called `home`; the label it selects on is `workload-location=on-prem`.
+> This document used `home` for both in most places and `on-prem` in one, and the
+> implementation has always written `on-prem`: `provision-flatcar-worker.sh` at
+> join time, the hybrid composition's default nodeSelector, both CSI addons'
+> node affinity, `hub-bootstrap.sh`'s worker selector and the bootstrap
+> postconditions. No live object anywhere selects `workload-location=home`.
+>
+> Every PRESCRIPTIVE mention is corrected: this table, the definition above, the
+> `workload-location` axis, and the CSI/local-path addon affinities that §Codified
+> specifies. What is left as written is narrative — incident accounts and
+> postmortems that describe what a selector said at the time, where changing it
+> would falsify the record.
+>
+> The cost of the ambiguity, so it is not repeated: `ephemeral-job-operator`
+> implemented the class from this table and selected `workload-location=home`.
+> Every sandbox pod it built was well-formed and admissible and matched no node,
+> so it sat Pending while its EphemeralJob reported `WaitingForCapacity` — a
+> message about capacity for what was a label mismatch, which sends the reader
+> looking for nodes rather than for a typo.
+
 | Class | nodeSelector (BOTH required) | StorageClass | Nodes |
 |---|---|---|---|
-| home | `node-role.kubernetes.io/worker: ""` + `workload-location: home` | `local-path` | Flatcar home workers |
+| home | `node-role.kubernetes.io/worker: ""` + `workload-location: on-prem` | `local-path` | Flatcar home workers |
 | hetzner | `node-role.kubernetes.io/worker: ""` + `workload-location: hetzner` | `hcloud-volumes` | burst pool (`replicas: 0` default in dev) |
 
 - A stateful workload is **bound to exactly one location at creation**; the
@@ -567,9 +591,9 @@ in a new hybrid-cell addon `manifests/providers/hybrid/k8s/csi-addon-hybrid.yaml
 `cilium-addon-hybrid`):
 
 1. `hcloud-csi-node` DaemonSet: add `nodeAffinity required NotIn
-   workload-location: home` (exclude home workers).
+   workload-location: on-prem` (exclude home workers).
 2. `local-path-provisioner` DaemonSet: `nodeAffinity required In
-   workload-location: home`, hostPath `/opt/local-path-provisioner`.
+   workload-location: on-prem`, hostPath `/opt/local-path-provisioner`.
 3. `local-path` StorageClass (`WaitForFirstConsumer`, `reclaimPolicy: Delete`,
    **not** default).
 
@@ -594,7 +618,7 @@ spec:
     topologyKey: kubernetes.io/hostname
     nodeSelector:
       node-role.kubernetes.io/worker: ""
-      workload-location: home
+      workload-location: on-prem
 ```
 
 - Instances, the Pooler, barman WAL-archiver jobs, and Atlas migration jobs all
@@ -1094,7 +1118,7 @@ so the `issuerRef` switch lands there, not in this repo.
 
 **Context & Scope Expansion.**
 The hybrid home-lab pattern established in ADR-046 initially targeted Spoke tenant clusters. To eliminate cloud compute costs on the Hub management plane, the pattern is extended to the Hub cluster:
-1. Home-lab Flatcar VMs (`flatcar-hub-node-1`) join the Hub cluster over Tailscale as primary workload nodes with `hub-role=worker` and `workload-location=home`.
+1. Home-lab Flatcar VMs (`flatcar-hub-node-1`) join the Hub cluster over Tailscale as primary workload nodes with `hub-role=worker` and `workload-location=on-prem`.
 2. Cloud Hetzner worker MachineDeployment (`hub-hybrid-dev-md-0`) scales to `replicas: 0`.
 
 **Durability Invariant: Mandatory S3 Barman Backups for Home-Located Stateful Workloads.**
@@ -1102,7 +1126,7 @@ Because home-lab Flatcar nodes utilize ephemeral local disk (`local-path-provisi
 1. **S3 Backup Destination**: All CNPG PostgreSQL clusters (`platform-db` on Hub, `shared-cnpg` on Spokes) MUST configure `spec.backup.barmanObjectStore` targeting S3-compatible Hetzner Object Storage (`https://hel1.your-objectstorage.com`) with isolated bucket/prefix paths (e.g. `s3://hub-db-backups/<hub-name>/` for Hub, `s3://spoke-pool-backups/<spoke-name>/` for Spokes).
 2. **Continuous WAL Archiving**: CNPG streams write-ahead logs (WAL) continuously to S3 with compression (`gzip`), enabling Point-In-Time Recovery (PITR).
 3. **Scheduled & Immediate Base Backups**: `ScheduledBackup` resources with `immediate: true` ensure a baseline physical backup is taken immediately upon cluster creation and retained for `30d`.
-4. **Worker-Only Placement**: All CNPG database pods MUST declare worker node affinity (`nodeSelector: node-role.kubernetes.io/worker: ""` / `workload-location: home`) to guarantee separation from the control plane.
+4. **Worker-Only Placement**: All CNPG database pods MUST declare worker node affinity (`nodeSelector: node-role.kubernetes.io/worker: ""` / `workload-location: on-prem`) to guarantee separation from the control plane.
 
 ### 20. Per-environment hostname scheme and DNS automation (2026-08-20)
 
@@ -1348,7 +1372,7 @@ Flatcar node, where there is no Hetzner metadata service, and crash-looped
 indefinitely (151 restarts observed). The controller reached it by a second route:
 its Hetzner `nodeAffinity` was only `preferred`, which does not exclude anything.
 
-Both now carry the same `workload-location NotIn home` requirement as the spoke addon.
+Both now carry the same `workload-location NotIn on-prem` requirement as the spoke addon.
 A consequence appears here that cannot arise on a spoke: **the controller must
 tolerate `control-plane:NoSchedule`**, because on a hybrid hub the only Hetzner node
 *is* the control plane, and without the toleration the guard merely converts a crash
@@ -1662,7 +1686,7 @@ becoming Ready.
 **Readiness is measured on Nodes, never on CAPI Machines.** A home worker has no
 Machine — CAPI did not create it — so a Machine count is structurally blind to the
 thing being gated. The predicate requires a Node that is `Ready` **and** carries both
-`node-role.kubernetes.io/worker` and `workload-location=home`, which is the ADR-014 +
+`node-role.kubernetes.io/worker` and `workload-location=on-prem`, which is the ADR-014 +
 §11 contract the workloads are scheduled against.
 
 **Fabricated success removed.** The previous Step 10e counted Machines, warned either
