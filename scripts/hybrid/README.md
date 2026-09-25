@@ -85,8 +85,55 @@ The same node list lives in the SpokePool claim annotation
 | `convert-to-external-switch.sh` | Convert a host from Internal+NetNat to an External switch (see below) |
 | `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |
 | `rejoin-tailnet.sh` | Re-join a node to the tailnet after its device was deleted (see below) |
+| `free-spoke.sh` | Host disk sweep + 24-hour log bound for every box (see below) |
 | `home-lab.env` | Node registry — gitignored, real values only |
 | `home-lab.env.example` | Template for `home-lab.env` |
+
+---
+
+## Keeping the disks from filling
+
+`free-spoke.sh` is the maintenance half of the 2026-09-25 outage (the full
+causal chain is in the script's header): `C:\` on the Dell box reached 0 bytes
+free, Hyper-V paused both spoke VMs with a `Disk Full` notification, and kubelet
+raised no pressure event at all — it measures the guest's 60 GB disk, which was
+two thirds empty, and the host that backs it is not its metric. The host is
+nobody's metric. This script is the watcher.
+
+```bash
+# Every couple of days. ~1 minute. No options.
+./scripts/hybrid/free-spoke.sh
+```
+
+Per host it deletes VHDX files that no VM on that host references — by any
+disk path `Get-VMHardDiskDrive` declares or any matching VM name, whatever
+state the VM is in (never `flatcar-base.vhdx`, the pristine image) — plus
+ignition artefacts of VMs that no longer exist on that box, and the Windows
+temp/update caches. Every deletion prints as a `DEL` line; every refusal as a
+`SKIP` line, so the run is auditable. Per guest that
+answers it writes the 24-hour log bound
+(`/etc/systemd/journald.conf.d/24h.conf` — `MaxRetentionSec=1day`,
+`SystemMaxUse=500M`, the same file new provisions get from Ignition), vacuums
+the journal to a day, removes rotated pod logs older than a day, and runs
+`fstrim`: without TRIM the blocks a guest frees never come back to the VHDX,
+so host free space would not move however much was deleted inside.
+
+The exit status is the point:
+
+| exit | meaning |
+|------|---------|
+| `0` | every reachable host ended above 20 GB free |
+| `1` | a host was unreachable, or one ended below 20 GB — run it again soon, or move data off |
+
+Spoken-node VHDXes grow ~2–3 GB/day per node (metrics PVC, CNPG data and
+container images — logs are the bounded share), so a two-day cadence spends
+about 6 GB against the ~47 GB the first run reclaims.
+
+Log retention is 24 hours wherever the platform stores logs: the VLogs
+`retentionPeriod` in `manifests/spoke/spoke-catalog/infra/victoriametrics/storage.yaml`
+and `manifests/hub-core-services/victoriametrics/storage.yaml` is `1d`, so
+platform pod logs older than a day are gone from Grafana by design. Metrics
+keep their 15 days.
 
 ---
 

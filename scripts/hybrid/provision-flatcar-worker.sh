@@ -774,7 +774,7 @@ EOF
     NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
   fi
 
-  local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64
+  local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64 JOURNAL_B64
   HOSTNAME_B64=$(printf '%s' "${VM_NAME}" | base64 | tr -d '\r\n')
   # route_localnet is DECLARED here, not left to the `sysctl -w` in the bootstrap
   # DNAT block below.
@@ -805,6 +805,17 @@ DNS=1.1.1.1
 "
   NETWORK_B64=$(printf '%s' "$STATIC_NET" | base64 | tr -d '\r\n')
   TS_AUTHKEY_B64=$(printf '%s' "${TS_AUTHKEY}" | base64 | tr -d '\r\n')
+  # 24-hour log bound, declared rather than defaulted — same argument as the
+  # route_localnet sysctl above: a default nobody set is a default nobody can
+  # see failing. journald's own ceiling is a PERCENTAGE of the filesystem
+  # (10%, i.e. ~6 GB on a 60 GB VHDX) with no age bound at all, and on
+  # 2026-09-25 the Windows host behind these disks hit 0 bytes free and
+  # Hyper-V paused both spoke VMs ("Disk Full") while kubelet — which measures
+  # the guest's disk and can never see the host's — raised no pressure event.
+  # Every byte the guest is free to grow therefore carries its own bound: 24
+  # hours old, 500 MB total. free-spoke.sh applies the same file to nodes
+  # provisioned before this line existed.
+  JOURNAL_B64=$(printf '[Journal]\nMaxRetentionSec=1day\nSystemMaxUse=500M\n' | base64 | tr -d '\r\n')
 
   local ISO_ROOT="${TMP_DIR}/iso-root"
   mkdir -p "${ISO_ROOT}/ignition" "${ISO_ROOT}/bin"
@@ -1054,6 +1065,14 @@ SH_EOF
         "contents": {
           "source": "data:text/plain;charset=utf-8;base64,${TS_AUTHKEY_B64}"
         }
+      },
+      {
+        "path": "/etc/systemd/journald.conf.d/24h.conf",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:text/plain;charset=utf-8;base64,${JOURNAL_B64}"
+        }
       }
     ]
   },
@@ -1155,6 +1174,13 @@ write_files:
     permissions: '0600'
     content: |
       ${TS_AUTHKEY}
+
+  - path: /etc/systemd/journald.conf.d/24h.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      MaxRetentionSec=1day
+      SystemMaxUse=500M
 
 coreos:
   units:
