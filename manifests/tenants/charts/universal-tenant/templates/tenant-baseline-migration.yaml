@@ -1,0 +1,237 @@
+{{/*
+The tenant baseline: `users`, `identities`, `sessions`, `buckets`, `objects`,
+created in every app's own database.
+
+WHY THE PLATFORM OWNS THIS
+
+zero-ops-auth's resolveUser() maps an OIDC subject to a tenant-local user id and
+writes the mapping to `identities`. Its own documentation states the contract
+this template satisfies: "The platform's tenant baseline ships `users` and
+`identities` in every tenant database... Left to each tenant, this is the same
+fifty lines written repeatedly and wrongly -- most often by joining on email".
+Email is mutable and reassignable, so a tenant that writes its own version
+merges two people the moment an address is reused, and the failure is a
+data-disclosure one rather than an error.
+
+So it cannot live in an application's chart. waypoint's SDK migration Job
+applies two layers -- the `workflow` schema and its own `public` tables -- and
+neither is this one; a third layer there would make one product's release the
+owner of a contract every product depends on.
+
+WHAT THIS CLOSES
+
+ADR-074 withdrew Atlas and said so plainly: "schema migration has no owner until
+one is chosen". The SQL below survived that removal; the AtlasMigration resource
+and the ConfigMap template that carried it did not. The files sat in this chart
+applying to nothing for a fortnight, and the symptom reached a fleet as
+
+  user context resolution failed: relation "public.identities" does not exist
+
+logged once per authenticated request, swallowed by design in the SDK's
+middleware -- so nothing failed, nothing alerted, and every login silently ran
+without a user context.
+
+WHY A JOB AND NOT AN OPERATOR
+
+hub-operator's imperative migrator is the platform's only other migration path,
+and it connects to `platform-db-rw` with the hub's own superuser. A tenant's
+database is on a SPOKE, in a different cluster, behind a credential the hub does
+not hold. Teaching it to reach across would give the hub a path into every
+tenant database on every box, which is a larger grant than this needs.
+
+A Job runs where the database already is, with the credential that already
+exists there, and holds no Kubernetes API access at all.
+
+IDEMPOTENT, DELIBERATELY
+
+Every statement is guarded -- CREATE ... IF NOT EXISTS, CREATE OR REPLACE, and
+DROP POLICY/TRIGGER IF EXISTS before each CREATE. There is no migration ledger
+and none is needed: re-running the whole set is the same as running it once,
+which is what makes a PreSync hook safe on every sync.
+
+That is a deliberate trade. A ledger buys ordering guarantees and drift
+detection, and ADR-020 is worth re-reading when this outgrows a fixed set of
+guarded statements. It is not worth an operator today.
+*/}}
+{{- if and (not .Values.deployXR) (ne ((.Values.database.enabled) | toString) "false") }}
+{{- $ns := include "universal-tenant.namespace" . -}}
+{{- $app := include "universal-tenant.appId" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tenant-baseline-migrations
+  namespace: {{ $ns }}
+  labels:
+    {{- include "universal-tenant.abiLabels" . | nindent 4 }}
+    cost-center: platform
+  annotations:
+    # Ahead of the Job that mounts it, in the same PreSync phase.
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-11"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+data:
+  {{- range $path, $_ := .Files.Glob "files/migrations/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}
+---
+{{/*
+Default-deny is the spoke's platform-owned anchor, and it selects every endpoint
+carrying `tenant-id` -- which this Job carries, because Kyverno requires it at
+admission. Without an allowance the Job is not merely unrestricted-by-omission,
+it is denied: it cannot open a socket.
+
+waypoint's SDK migration learned this the expensive way. It failed first at DNS,
+which reads as a name problem, then -- once the platform's DNS grant landed --
+as `connect ETIMEDOUT 10.101.98.31:5432`, the same policy gap finally saying
+what it was.
+
+DNS is not declared here. The platform grants it to every tenant workload
+(spoke catalogue, tenant-dns-egress.yaml), because which component answers DNS
+is a property of the cluster, not of this Job.
+*/}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: tenant-baseline-migration-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "universal-tenant.abiLabels" . | nindent 4 }}
+    cost-center: platform
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-11"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: tenant-baseline-migration
+  egress:
+    # The shared cluster's PRIMARY, not the pooler. The server certificate is
+    # issued for the cluster's own names, so a connection through the pooler's
+    # hostname fails certificate verification before any SQL runs.
+    - toEndpoints:
+        - matchLabels:
+            k8s:cnpg.io/cluster: shared-cnpg
+            k8s:io.kubernetes.pod.namespace: platform-data
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tenant-baseline-migration
+  namespace: {{ $ns }}
+  labels:
+    {{- include "universal-tenant.abiLabels" . | nindent 4 }}
+    cost-center: platform
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-10"
+    # A successful run is ephemeral; a FAILED one stays, because a failed
+    # migration you cannot read is a failed migration you cannot fix.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  # BOUNDED, on purpose, and this is not boilerplate.
+  #
+  # A hook that never finishes does not merely stall a sync: its Application
+  # cannot be deleted either, because the resources finalizer waits for the sync
+  # to settle first. tenant-nutgraf-dev-sdk sat undeletable for 26 hours that
+  # way -- its ApplicationSet had requested the delete, and a hook Job targeting
+  # a namespace that did not exist blocked it -- and nothing in 69 Applications
+  # reported it.
+  #
+  # Four minutes is generous for five guarded statements against a database in
+  # the same cluster. Failing is recoverable; hanging is what is not.
+  activeDeadlineSeconds: 240
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "universal-tenant.abiLabels" . | nindent 8 }}
+        cost-center: platform
+        app.kubernetes.io/name: tenant-baseline-migration
+    spec:
+      restartPolicy: Never
+      # No ServiceAccount is named. This speaks only Postgres and has no reason
+      # to hold a Kubernetes API token; the namespace default, with automounting
+      # off, is both sufficient and less privileged.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # The postgres uid in the CloudNativePG image. Named rather than left to
+        # the image, because `runAsNonRoot: true` with no uid fails at admission
+        # if the image's own USER is numeric-unknown to the kubelet.
+        runAsUser: 26
+        runAsGroup: 26
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # The image the spoke's own Postgres runs, pinned by digest.
+          #
+          # Digest because enforce-tenant-abi/require-image-digest refuses a tag
+          # on any Pod in a tenant-* namespace. This one rather than a generic
+          # postgres client because it is already on every node that runs the
+          # database -- no pull, and the psql major version cannot drift from
+          # the server it talks to.
+          image: ghcr.io/cloudnative-pg/postgresql@sha256:ee2e3ce7f0ea935c3f4ab245c0b3959c9f1c49816ae02222ceb6bc347f48e43b
+          env:
+            - name: PGHOST
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: host}}
+            - name: PGPORT
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: port}}
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: password}}
+            - name: PGDATABASE
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: database}}
+            - name: PGSSLMODE
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: sslmode}}
+            # psql writes a history file on exit; the root filesystem is
+            # read-only, so it is pointed at the one writable mount.
+            - name: HOME
+              value: /tmp
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # ON_ERROR_STOP is what makes this a migration rather than a
+              # best-effort script: without it psql reports success after a
+              # failed statement, and the Job goes green over a database that
+              # was never migrated.
+              #
+              # Sorted, because the filenames carry the order and a shell glob's
+              # is locale-dependent.
+              for f in $(ls /migrations/*.sql | sort); do
+                echo "applying $(basename "$f")"
+                psql --set ON_ERROR_STOP=1 --no-psqlrc --quiet -f "$f"
+              done
+              echo "tenant baseline applied to $PGDATABASE"
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+      volumes:
+        - name: migrations
+          configMap:
+            name: tenant-baseline-migrations
+        - name: tmp
+          emptyDir: {}
+{{- end }}
