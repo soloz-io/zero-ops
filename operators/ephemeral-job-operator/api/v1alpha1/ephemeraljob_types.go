@@ -76,6 +76,24 @@ const (
 	ReasonWaitingForCapacity  = "WaitingForCapacity"  // wait — a node is being provisioned
 	ReasonCapacityUnavailable = "CapacityUnavailable" // terminal for now — maxNodes reached
 	ReasonScheduled           = "Scheduled"
+
+	// ReasonPlacementUnsatisfiable: no node in the cluster carries the labels
+	// this pod requires, and none is being provisioned.
+	//
+	// A FOURTH outcome, distinct from the three above because waiting cannot
+	// change it. CapacityUnavailable means a node group exists and has hit its
+	// ceiling; a smaller pod, or a raised ceiling, resolves it. This means the
+	// selector names a node that does not exist and is not coming — a fleet
+	// asking for a placement class the cluster does not offer, or a platform
+	// bug in the class's own definition.
+	//
+	// It is separated because reporting it as WaitingForCapacity sent an
+	// operator looking for nodes for three and a half hours. The pods could not
+	// age out either: readinessDeadlineSeconds starts when a pod RUNS,
+	// idleTimeoutSeconds when the workload first SERVES, and neither had
+	// happened — leaving maxLifetimeSeconds at eight hours as the only bound on
+	// a job that was never going to run.
+	ReasonPlacementUnsatisfiable = "PlacementUnsatisfiable"
 )
 
 // +kubebuilder:object:root=true

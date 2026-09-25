@@ -115,10 +115,65 @@ func AssessCapacityBySelector(
 		}
 	}
 
+	// The autoscaler said nothing at all, and that means two different things.
+	//
+	// For a class it manages, silence is transient: it has not reacted yet, and
+	// waiting is right. For a class it does not manage — home-lab hardware is
+	// fixed, nothing provisions it — silence is permanent, and so is the pod's
+	// Pending.
+	//
+	// The cluster itself distinguishes them. If some node already carries every
+	// label this pod requires, the pod is queued behind resources and will run.
+	// If none does, the selector names a node that does not exist, and no event
+	// is coming to say so.
+	if none, err := noNodeMatchesSelector(ctx, c, &pod); err == nil && none {
+		return CapacityState{
+			Reason:   computev1alpha1.ReasonPlacementUnsatisfiable,
+			Message:  unschedulableMessage(scheduled),
+			Terminal: true,
+		}, nil
+	}
+
 	return CapacityState{
 		Reason:  computev1alpha1.ReasonWaitingForCapacity,
 		Message: unschedulableMessage(scheduled),
 	}, nil
+}
+
+// noNodeMatchesSelector reports whether the cluster holds no node carrying every
+// label in the pod's nodeSelector.
+//
+// Deliberately narrow. It answers only "do these labels exist anywhere", not
+// "would this pod schedule" — taints, resources, affinity and topology are the
+// scheduler's business and are why the pod may still be Pending when this
+// returns false. A false answer therefore means "keep waiting", which is the
+// safe direction: the only thing this promotes to terminal is a selector no node
+// can satisfy no matter what else changes.
+//
+// An error is not a verdict. A node list that fails leaves the caller reporting
+// WaitingForCapacity, exactly as before.
+func noNodeMatchesSelector(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
+	if len(pod.Spec.NodeSelector) == 0 {
+		return false, nil
+	}
+	var nodes corev1.NodeList
+	if err := c.List(ctx, &nodes); err != nil {
+		return false, err
+	}
+	for i := range nodes.Items {
+		labels := nodes.Items[i].Labels
+		match := true
+		for k, v := range pod.Spec.NodeSelector {
+			if labels[k] != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func unschedulableMessage(c *corev1.PodCondition) string {

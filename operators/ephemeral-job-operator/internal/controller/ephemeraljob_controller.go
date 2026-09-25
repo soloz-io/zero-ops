@@ -245,6 +245,35 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		r.setPhase(&ej, computev1alpha1.PhaseRunning, cap)
 
+	case cap.Reason == computev1alpha1.ReasonPlacementUnsatisfiable:
+		// FAILS, where capacity waits.
+		//
+		// ADR-052 §11 rule 3 forbids deleting a job for want of capacity, and
+		// rightly: a burst node is minutes away and deleting would destroy work
+		// about to run while losing the pod's place in the queue. This is not
+		// that. No node carries the labels this pod requires and none is being
+		// provisioned, so every additional second is spent waiting for
+		// something that is not coming.
+		//
+		// Left in Provisioning it is invisible in the only way that matters:
+		// the caller's step does not fail, it hangs, and the three bounds that
+		// exist do not apply -- readinessDeadlineSeconds starts when the pod
+		// RUNS, idleTimeoutSeconds when the workload first SERVES, and
+		// maxLifetimeSeconds is eight hours away.
+		//
+		// The pod is deleted with the job so the selector cannot be mistaken
+		// for a pod that might still schedule; the scheduler's own message is
+		// kept, because it names the mismatch precisely and is what an operator
+		// acts on.
+		l.Info("placement unsatisfiable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
+		if pod, err := r.podForJob(ctx, job); err == nil && pod != nil {
+			if err := r.deletePod(ctx, pod); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		ej.Status.Message = cap.Message
+		return ctrl.Result{}, r.markFinished(ctx, &ej, computev1alpha1.PhaseFailed, nil)
+
 	case cap.Terminal:
 		r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
 		l.Info("burst capacity unavailable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
