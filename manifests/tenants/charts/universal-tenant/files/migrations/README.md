@@ -11,8 +11,10 @@ between people, whose reuse silently merges two accounts.
 
 ## How they are applied
 
-A `Job`, as an ArgoCD `PreSync` hook, running `psql` from the image the spoke's
-own Postgres runs. It connects with the app's own database credential, holds no
+An ordinary `Job` — not a PreSync hook, which would never fire because hooks are
+not part of ArgoCD's desired-state comparison — running `psql` from the image the
+spoke's own Postgres runs. Its name carries a hash of the SQL, so it re-runs when
+and only when these files change. It connects with the app's own database credential, holds no
 Kubernetes API token, and reaches nothing but `shared-cnpg` on 5432.
 
 ## Writing one

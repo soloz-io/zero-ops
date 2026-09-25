@@ -59,7 +59,7 @@ release cadence the owner of a contract every product depends on.
 
 ## Decision
 
-**The tenant baseline is applied by the platform, as a `PreSync` `Job` rendered by the
+**The tenant baseline is applied by the platform, as an ordinary `Job` rendered by the
 universal-tenant chart into each app's namespace.**
 
 `manifests/tenants/charts/universal-tenant/templates/tenant-baseline-migration.yaml`
@@ -69,7 +69,27 @@ renders three objects when an app has a database and the chart is rendering for 
 |---|---|
 | `ConfigMap/tenant-baseline-migrations` | the SQL, from `files/migrations/*.sql` |
 | `CiliumNetworkPolicy/tenant-baseline-migration-egress` | egress to `shared-cnpg:5432`, and nothing else |
-| `Job/tenant-baseline-migration` | `psql`, applying each file in sorted order |
+| `Job/tenant-baseline-migration-<sqlhash>` | `psql`, applying each file in sorted order |
+
+### A resource, not a PreSync hook
+
+A hook was the first shape, and it did not run.
+
+ArgoCD documents a PreSync hook as the pattern for database migration, and for a
+migration that accompanies a deployment that is right. It is wrong for a baseline,
+because **a hook is not part of the desired-state comparison**: adding one leaves
+the Application `Synced`, so no sync is triggered, so the hook never fires.
+`nutgraf-waypoint-dev-spoke` reported `Synced` at rc.91 while its last actual sync
+operation was rc.85 from the previous day, and the tables stayed missing.
+
+A hook runs *alongside* change. A baseline has to *converge*, whether or not
+anything else changed.
+
+As ordinary resources they are compared, found absent, and created. The Job's name
+carries a hash of the SQL: identical content is the same object and a no-op,
+changed content is a new object that runs, and the previous one is pruned — which
+also sidesteps a Job's immutable spec. And a failure surfaces as a Degraded
+Application rather than a hook result nobody reads.
 
 ### Idempotent instead of ledgered
 
@@ -95,12 +115,13 @@ needs.
 The Job runs where the database already is, as the app's own role, with no Kubernetes
 API token (`automountServiceAccountToken: false`) and one egress rule.
 
-### The hook is bounded
+### The Job is bounded
 
 `activeDeadlineSeconds: 240`, `backoffLimit: 2`, and this is not boilerplate.
 
-A hook that never finishes does not merely stall a sync — its Application cannot be
-deleted either, because the resources finalizer waits for the sync to settle first. On
+A Job that never finishes holds its Application in `Progressing` forever, and an
+Application stuck mid-sync cannot be deleted by its ApplicationSet either, because
+the resources finalizer waits for the sync to settle first. On
 2026-09-24 `tenant-nutgraf-dev-sdk` sat undeletable for 26 hours exactly that way: its
 ApplicationSet had requested the deletion five minutes after creating it, and a hook
 Job targeting a namespace that did not exist blocked the finalizer indefinitely.
@@ -134,8 +155,8 @@ not exist twice.
 - **No integrity check.** An edited migration file applies without complaint. Idempotency
   is enforced by review, not by the tool.
 - **No ordering guarantee beyond filename sort**, and no record of what was applied when.
-  A partial failure is diagnosed by reading the Job's logs, and they survive only until
-  the next sync replaces a failed hook.
+  A partial failure is diagnosed by reading the Job's logs, which survive until the SQL
+  changes and a differently-named Job replaces it.
 - **This is the baseline only.** An application's own schema remains that application's
   problem, and the platform still has no general answer for one — ADR-074's question is
   narrowed, not answered.

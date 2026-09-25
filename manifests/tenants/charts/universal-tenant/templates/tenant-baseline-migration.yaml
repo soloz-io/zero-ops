@@ -46,14 +46,43 @@ IDEMPOTENT, DELIBERATELY
 
 Every statement is guarded -- CREATE ... IF NOT EXISTS, CREATE OR REPLACE, and
 DROP POLICY/TRIGGER IF EXISTS before each CREATE. There is no migration ledger
-and none is needed: re-running the whole set is the same as running it once,
-which is what makes a PreSync hook safe on every sync.
+and none is needed: re-running the whole set is the same as running it once.
 
 That is a deliberate trade. A ledger buys ordering guarantees and drift
 detection, and ADR-020 is worth re-reading when this outgrows a fixed set of
 guarded statements. It is not worth an operator today.
+
+A RESOURCE, NOT A PreSync HOOK
+
+A hook was the first shape, and it did not run. ArgoCD's documented pattern for
+database migration is a PreSync hook, but a hook is NOT part of the desired-state
+comparison: adding one leaves the Application `Synced`, so no sync is triggered,
+so the hook never fires. nutgraf-waypoint-dev-spoke sat at `Synced` on rc.91
+whose last actual sync operation was rc.85, a day earlier, and the tables stayed
+missing.
+
+That is the wrong shape for a baseline. A hook runs ALONGSIDE change; this has to
+CONVERGE whether or not anything else changed.
+
+As ordinary resources they are compared, found absent, and created. The Job's
+name carries a hash of the SQL, so identical content is the same object and a
+no-op, changed content is a new object that runs, and the previous one is pruned
+-- which also sidesteps a Job's immutable spec. A failure now shows as a Degraded
+Application instead of a hook result nobody reads.
 */}}
-{{- if and (not .Values.deployXR) (ne ((.Values.database.enabled) | toString) "false") }}
+{{/*
+deployXR compared as a STRING, never as a boolean.
+
+The fleet ApplicationSet supplies it as a helm PARAMETER, so it arrives as
+the string "false" -- and a non-empty string is truthy in a Go template.
+`not .Values.deployXR` is therefore FALSE on the spoke, where this must
+render, and the whole block silently produced nothing. The chart's own
+default is a real boolean, so a local `helm template` with no override
+rendered it correctly and the difference only appeared in the cluster.
+
+ainativesaas.yaml already guards this way. Both do now.
+*/}}
+{{- if and (ne ((.Values.deployXR) | toString) "true") (ne ((.Values.database.enabled) | toString) "false") }}
 {{- $ns := include "universal-tenant.namespace" . -}}
 {{- $app := include "universal-tenant.appId" . -}}
 apiVersion: v1
@@ -65,10 +94,8 @@ metadata:
     {{- include "universal-tenant.abiLabels" . | nindent 4 }}
     cost-center: platform
   annotations:
-    # Ahead of the Job that mounts it, in the same PreSync phase.
-    argocd.argoproj.io/hook: PreSync
+    # Ahead of the Job that mounts it.
     argocd.argoproj.io/sync-wave: "-11"
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 data:
   {{- range $path, $_ := .Files.Glob "files/migrations/*.sql" }}
   {{ base $path }}: |
@@ -99,9 +126,7 @@ metadata:
     {{- include "universal-tenant.abiLabels" . | nindent 4 }}
     cost-center: platform
   annotations:
-    argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/sync-wave: "-11"
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   endpointSelector:
     matchLabels:
@@ -119,32 +144,35 @@ spec:
             - port: "5432"
               protocol: TCP
 ---
+{{- $sqlHash := (.Files.Glob "files/migrations/*.sql").AsConfig | sha256sum | trunc 10 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: tenant-baseline-migration
+  # The SQL's hash is in the NAME, which is what makes this converge.
+  #
+  # A Job's spec is immutable, so a changed migration set cannot update this
+  # object in place -- it has to become a different one. Identical SQL yields
+  # the same name and an object that already exists, so nothing reruns; changed
+  # SQL yields a new name, which is created and runs, and the old Job is pruned
+  # because it is no longer in the desired state.
+  name: tenant-baseline-migration-{{ $sqlHash }}
   namespace: {{ $ns }}
   labels:
     {{- include "universal-tenant.abiLabels" . | nindent 4 }}
     cost-center: platform
   annotations:
-    argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/sync-wave: "-10"
-    # A successful run is ephemeral; a FAILED one stays, because a failed
-    # migration you cannot read is a failed migration you cannot fix.
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
-  # BOUNDED, on purpose, and this is not boilerplate.
-  #
-  # A hook that never finishes does not merely stall a sync: its Application
-  # cannot be deleted either, because the resources finalizer waits for the sync
-  # to settle first. tenant-nutgraf-dev-sdk sat undeletable for 26 hours that
-  # way -- its ApplicationSet had requested the delete, and a hook Job targeting
-  # a namespace that did not exist blocked it -- and nothing in 69 Applications
-  # reported it.
+  # BOUNDED, on purpose.
   #
   # Four minutes is generous for five guarded statements against a database in
-  # the same cluster. Failing is recoverable; hanging is what is not.
+  # the same cluster. A Job that never finishes holds its Application in
+  # Progressing forever, and an Application stuck mid-sync cannot be deleted by
+  # its ApplicationSet either -- the resources finalizer waits for the sync to
+  # settle. tenant-nutgraf-dev-sdk sat undeletable for 26 hours that way, and
+  # nothing among 69 Applications reported it.
+  #
+  # Failing is recoverable; hanging is what is not.
   activeDeadlineSeconds: 240
   backoffLimit: 2
   template:
