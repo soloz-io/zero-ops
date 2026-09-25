@@ -117,51 +117,166 @@ and performs four privileged operations, all of which are node operations:
 | `os.Chown(root, uid, uid)` handing the tree to the workload | `fsGroup` / CSI fsGroup policy |
 | `HostToContainer` mount propagation into the workload | unnecessary — the kubelet mounts the volume |
 
-Restore-on-start becomes `NodePublishVolume`; the final checkpoint becomes
-`NodeUnpublishVolume`, which also restores the ordering guarantee the native
-sidecar was chosen for — the kubelet unpublishes after the workload's containers
-have exited, so the tree is read only once it has stopped being written. The
-120-second periodic checkpoint becomes a timer in the node plugin, which already
-holds the mount.
+CSI volumes are a permitted volume type under the Restricted profile, which is
+what makes this a solution rather than a relocation of the problem.
 
-Workspace identity (`appId`, `workspaceId`, `sharedWorkspaceId`, `checkpointId`,
-`checkpointIntervalSeconds`) travels as volume attributes on an ephemeral inline
-volume, which is what `EphemeralJob.spec.workspacePersistence` already carries.
+### Checkpointing is a platform contract, not a CSI semantic
 
-### What does not map to CSI, and is not pretended to
+This distinction is load-bearing and easy to lose.
 
-The sidecar also serves a **loopback control API** on `:7070` — `/checkpoint`,
+CSI defines `NodeUnpublishVolume` as removal of a volume publication. It defines
+nothing about application checkpoints. Durability here is **the platform's
+contract**, and the ADR must not describe it as something CSI provides.
+
+So: **`NodeUnpublishVolume` is the teardown boundary at which the driver performs
+a final flush and checkpoint before removing the publication.** The checkpoint
+operation is platform-defined.
+
+```
+RUNNING
+  ├── periodic checkpoint          (driver-owned, per publication)
+  └── boundary checkpoint          (requested, see below)
+
+TERMINATING
+  ├── final flush / checkpoint     (platform-defined)
+  ├── NodeUnpublishVolume          (CSI)
+  └── volume unmounted
+```
+
+Using that boundary does preserve the ordering the native sidecar was chosen for
+— the kubelet unpublishes after the workload's containers have exited, so the
+tree is read only once it has stopped being written.
+
+**Every checkpoint operation MUST be idempotent.** CSI RPCs are retried and
+reconciled; a final checkpoint that runs twice must produce one outcome, and a
+retried publish must not duplicate or corrupt a manifest. The store is already
+content-addressed, which makes this cheap to honour rather than merely required.
+
+**Periodic checkpointing is driver-owned.** The node plugin maintains a
+per-volume checkpoint worker for each active publication; while a publication is
+active, that worker may checkpoint the mounted workspace on the configured
+interval. This is the driver's design, not a CSI behaviour, and the ADR does not
+tie itself to any particular process model for it.
+
+### The boundary-checkpoint API is a Kubernetes resource, not a network endpoint
+
+The sidecar today serves a loopback control API on `:7070` — `/checkpoint`,
 `/flush`, `/restore`, `/list-checkpoints` — and harness-runtime proxies
 `/workspace/checkpoint` to it. An agent calls it at a task boundary, which is the
-point of a boundary checkpoint rather than a timer.
+point of a boundary checkpoint rather than a timer. CSI has no data-plane API for
+a workload, so this needs somewhere else to live.
 
-CSI has no data-plane API for a workload. So this becomes a **workspace control
-service**, reached over the network and authenticated per session, rather than a
-container in the Pod. It needs no privilege of its own: a checkpoint requires
-walking the merged tree, which exists only at the node's mount, so the service
-delegates to the node plugin on that node.
+It does **not** become an HTTP endpoint on the privileged node plugin. That would
+create a second privileged API surface whose authorization and node-routing
+semantics the platform would then own, on the one component that must stay
+minimal.
 
-This is the honest shape. A design claiming pure CSI would have to either drop
-boundary checkpoints or smuggle the API back into the Pod.
+Instead it is a Kubernetes resource:
+
+```
+harness-runtime
+      │  (session-authenticated)
+      ▼
+Workspace Control API            unprivileged; the only creator of requests
+      │
+      ▼
+WorkspaceCheckpointRequest       platform namespace, RBAC-restricted
+      │
+      ├──────────────┐
+      ▼              ▼
+node A agent     node B agent    watches only its own node's requests
+      │
+      ▼
+verify workspaceID + nodeName + publicationID against locally published volumes
+      │
+      ▼
+checkpoint  →  status on the request
+```
+
+A request carries an immutable workspace/session identity and an explicit target
+node. The node-local agent watches only the trusted request stream and acts only
+on publications it actually holds.
+
+What this buys, each from Kubernetes rather than from new code: authentication
+and authorization from the API server and RBAC, so only the control service may
+create requests; routing from explicit node identity rather than service
+discovery; reconciliation, because requests survive a process restart; and audit,
+because requests and their statuses are ordinary objects.
+
+### Invariant: tenant-authored resources select no storage configuration
+
+Workspace identity (`appId`, `workspaceId`, `sharedWorkspaceId`, `checkpointId`,
+`checkpointIntervalSeconds`) travels as volume attributes on a CSI ephemeral
+inline volume, which is the shape `EphemeralJob.spec.workspacePersistence`
+already carries.
+
+That mechanism needs an explicit guard, because Kubernetes warns that inline
+ephemeral CSI is inappropriate where attributes expose administrator-controlled
+parameters, and recommends restricting which drivers may be used inline.
+
+> **Tenant-authored resources MUST NOT be able to select CSI volume attributes,
+> object-store locations, host paths, mount options, credentials, or any other
+> driver configuration. Workspace attributes are generated exclusively by the
+> platform operator from an authenticated workspace identity.**
+
+The identifiers above are **opaque**. They name a workspace; they must never
+become an indirect means of selecting an arbitrary storage resource. A fleet that
+could choose the bucket, the prefix or the mount options would have recovered, by
+another route, the privilege this ADR removes. Admission must additionally
+restrict inline use of this driver to the platform operator.
+
+### The shared workspace is a separate volume
+
+Today a second sidecar mounts the shared tree *inside* the session's tree, so a
+session's snapshot can skip it. That nesting is not carried forward.
+
+> **The shared workspace is modelled as a separate CSI volume publication.
+> Nested volume and subPath semantics are not part of the storage driver's
+> persistence contract.**
+
+```
+sandbox Pod
+├── /workspace          CSI volume: private workspace
+└── /workspace/shared   CSI volume: shared workspace
+```
+
+Two publications with independent lifecycles are far easier to reason about than
+a driver that must understand a nested filesystem topology, and it removes the
+skip-list coupling between the two instances.
+
+What this does **not** settle is the shared workspace's **consistency model**:
+concurrent writers, who owns a checkpoint of a shared tree, conflict semantics,
+and whether several sessions may publish the same shared workspace at once.
+Those are real questions and they are not mounting questions. They get their own
+decision; this ADR only fixes that sharing is expressed as a second volume rather
+than as a nested mount.
 
 ### Consequences
 
 **Positive.** Privilege is held by one DaemonSet per node, reviewable in one
 place, running no tenant code — instead of two privileged containers in every
 sandbox Pod. `restricted` holds for every Pod in a tenant namespace with no
-exemption anywhere. A sandbox Pod's spec becomes something a fleet could read and
-verify.
+exemption anywhere. The boundary-checkpoint path gains authentication,
+authorization, routing, reconciliation and audit from the API server rather than
+from a bespoke control plane. A sandbox Pod's spec becomes something a fleet
+could read and verify.
 
 **Negative.** A CSI driver is materially more work than a sidecar, and it is
 platform code on the node's critical path: a crash-looping node plugin takes out
-every sandbox on that node, where a broken sidecar took out one Pod. The control
-service is a new network-reachable component with its own authentication.
-Rollout is per-node, so a cluster mid-upgrade runs two mechanisms.
+every sandbox on that node, where a broken sidecar took out one Pod. A boundary
+checkpoint is now an API round trip and a watch rather than a loopback call, so
+it is slower and its latency depends on the API server. There are two new
+platform components — the control service and the node agent — plus a CRD.
+Rollout is per-node, so a cluster mid-upgrade runs two mechanisms, and the
+driver must be admission-restricted to the platform operator before it is
+installed, not after.
 
-**Unresolved.** Whether the shared workspace — today a second sidecar mounting
-inside the session's tree — is a second volume or a subpath of the first. The
-nesting exists so a session's snapshot can skip the shared tree; expressing that
-across two CSI volumes needs design that is not in this ADR.
+**Deliberately deferred.** The shared workspace's **consistency model**:
+concurrent writers, who owns a checkpoint of a shared tree, conflict semantics,
+and whether several sessions may publish one shared workspace simultaneously.
+This ADR settles only that sharing is a second volume rather than a nested
+mount. The rest is a separate decision, and naming it here is not the same as
+having taken it.
 
 ## Until it exists
 
@@ -178,4 +293,9 @@ path. That is a diagnostic, it is recorded as one, and it is not a fix.
 - ADR-052 §14, §14.2 — the workspace-sync sidecar; amended
 - ADR-089 — the tenant baseline, the other thing a fleet gets without asking
 - Kubernetes Pod Security Standards; Pod Security Admission (exemption dimensions)
+- Kubernetes Pod Security Standards — CSI volumes are permitted under Restricted
 - Kubernetes Volumes / CSI; Mountpoint for Amazon S3 as a CSI driver
+- Kubernetes Ephemeral Volumes — the warning on inline CSI and admin-controlled
+  attributes that the invariant above answers
+- CSI specification (`csi.proto`) — `NodeUnpublishVolume` removes a publication
+  and defines no checkpoint semantics
