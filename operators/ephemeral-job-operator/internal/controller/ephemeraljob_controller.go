@@ -104,6 +104,10 @@ func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callback
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
+// Nodes, list only, and read UNCACHED (see APIReader). Needed to tell a pod
+// waiting for capacity from one whose selector no node can satisfy; without it
+// the read fails and every such job waits out maxLifetimeSeconds instead.
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=list
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
 // Workspace PVCs (ADR-052 §14). No `delete`: this operator creates and reads
 // them, and reclaiming one is the separate reaper's job. Withholding the verb
@@ -211,7 +215,7 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, r.markFinished(ctx, &ej, phase, exit)
 	}
 
-	cap, err := AssessCapacity(ctx, r.Client, ej.Namespace, job.Name)
+	cap, err := AssessCapacity(ctx, r.Client, r.APIReader, ej.Namespace, job.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1139,7 +1143,7 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, podExitCode(pod))
 	}
 
-	cap, err := AssessCapacityBySelector(ctx, r.Client, ej.Namespace,
+	cap, err := AssessCapacityBySelector(ctx, r.Client, r.APIReader, ej.Namespace,
 		client.MatchingLabels{labelJobUID: string(ej.UID)})
 	if err != nil {
 		return ctrl.Result{}, err

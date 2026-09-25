@@ -55,7 +55,7 @@ func assess(t *testing.T, pod *corev1.Pod, nodes ...*corev1.Node) CapacityState 
 		WithIndex(&corev1.Event{}, "involvedObject.name", func(o client.Object) []string {
 			return []string{o.(*corev1.Event).InvolvedObject.Name}
 		}).Build()
-	got, err := AssessCapacityBySelector(context.Background(), c, "ns", map[string]string{"job-name": "j"})
+	got, err := AssessCapacityBySelector(context.Background(), c, c, "ns", map[string]string{"job-name": "j"})
 	if err != nil {
 		t.Fatalf("assess: %v", err)
 	}

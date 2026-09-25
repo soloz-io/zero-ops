@@ -42,9 +42,9 @@ const (
 // in the platform's namespace but the contract it implements is the one a fleet
 // must be able to satisfy, and building it on cluster-scoped reads would make
 // the fleet-facing half unimplementable.
-func AssessCapacity(ctx context.Context, c client.Client, ns, jobName string) (CapacityState, error) {
+func AssessCapacity(ctx context.Context, c client.Client, nodes client.Reader, ns, jobName string) (CapacityState, error) {
 	// batch/v1 stamps job-name onto the pods it creates.
-	return AssessCapacityBySelector(ctx, c, ns, client.MatchingLabels{"job-name": jobName})
+	return AssessCapacityBySelector(ctx, c, nodes, ns, client.MatchingLabels{"job-name": jobName})
 }
 
 // AssessCapacityBySelector is the same assessment for a pod this operator owns
@@ -52,7 +52,7 @@ func AssessCapacity(ctx context.Context, c client.Client, ns, jobName string) (C
 // The capacity question is identical either way — a pod is pending, and the
 // reason is on the pod and its events — so the logic must not be duplicated.
 func AssessCapacityBySelector(
-	ctx context.Context, c client.Client, ns string, sel client.MatchingLabels,
+	ctx context.Context, c client.Client, nodes client.Reader, ns string, sel client.MatchingLabels,
 ) (CapacityState, error) {
 	var pods corev1.PodList
 	if err := c.List(ctx, &pods, client.InNamespace(ns), sel); err != nil {
@@ -126,7 +126,7 @@ func AssessCapacityBySelector(
 	// label this pod requires, the pod is queued behind resources and will run.
 	// If none does, the selector names a node that does not exist, and no event
 	// is coming to say so.
-	if none, err := noNodeMatchesSelector(ctx, c, &pod); err == nil && none {
+	if none, err := noNodeMatchesSelector(ctx, nodes, &pod); err == nil && none {
 		return CapacityState{
 			Reason:   computev1alpha1.ReasonPlacementUnsatisfiable,
 			Message:  unschedulableMessage(scheduled),
@@ -152,16 +152,23 @@ func AssessCapacityBySelector(
 //
 // An error is not a verdict. A node list that fails leaves the caller reporting
 // WaitingForCapacity, exactly as before.
-func noNodeMatchesSelector(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
+func noNodeMatchesSelector(ctx context.Context, r client.Reader, pod *corev1.Pod) (bool, error) {
 	if len(pod.Spec.NodeSelector) == 0 {
 		return false, nil
 	}
-	var nodes corev1.NodeList
-	if err := c.List(ctx, &nodes); err != nil {
+	// UNCACHED, for the same reason the Event read is (see APIReader): a cached
+	// List starts an informer, and this controller would then watch every Node
+	// in the cluster to answer a question it asks only when a pod will not
+	// schedule. The first version used the cache-backed client and the operator
+	// stopped reconciling entirely -- the informer could not start without
+	// cluster-scoped node RBAC, and a cache that cannot sync blocks every
+	// controller behind it, not just the read that caused it.
+	var nodeList corev1.NodeList
+	if err := r.List(ctx, &nodeList); err != nil {
 		return false, err
 	}
-	for i := range nodes.Items {
-		labels := nodes.Items[i].Labels
+	for i := range nodeList.Items {
+		labels := nodeList.Items[i].Labels
 		match := true
 		for k, v := range pod.Spec.NodeSelector {
 			if labels[k] != v {
