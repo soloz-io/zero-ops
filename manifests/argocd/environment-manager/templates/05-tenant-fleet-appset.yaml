@@ -39,26 +39,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                # A FLEET's values, and only a fleet's.
-                #
-                # `*` in this generator crosses `/` -- it is not a single path
-                # segment -- so this pattern alone also matches a WORKLOAD's
-                # values at environments/<env>/<app>/<workload>/values.yaml.
-                # Such a file holds chart overrides and carries no `cellId`, and
-                # one appearing was enough to take every generator below with
-                # it: `failed to execute go template {{ .cellId }}: map has no
-                # entry for key "cellId"`, and all three ApplicationSets stopped
-                # generating within a minute of the file being committed.
-                #
-                # Nothing looked broken. The Applications these had already
-                # created stayed, kept syncing their own sources and went on
-                # reporting Healthy; what stopped was the platform's ability to
-                # create, retarget or remove any of them. The exclusion is what
-                # keeps the two kinds of values file apart, because the glob
-                # cannot.
                 - path: 'environments/*/*/values.yaml'
-                - path: 'environments/*/*/*/values.yaml'
-                  exclude: true
 
           - clusters:
               selector:
@@ -164,26 +145,7 @@ spec:
               repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
               revision: main
               files:
-                # A FLEET's values, and only a fleet's.
-                #
-                # `*` in this generator crosses `/` -- it is not a single path
-                # segment -- so this pattern alone also matches a WORKLOAD's
-                # values at environments/<env>/<app>/<workload>/values.yaml.
-                # Such a file holds chart overrides and carries no `cellId`, and
-                # one appearing was enough to take every generator below with
-                # it: `failed to execute go template {{ .cellId }}: map has no
-                # entry for key "cellId"`, and all three ApplicationSets stopped
-                # generating within a minute of the file being committed.
-                #
-                # Nothing looked broken. The Applications these had already
-                # created stayed, kept syncing their own sources and went on
-                # reporting Healthy; what stopped was the platform's ability to
-                # create, retarget or remove any of them. The exclusion is what
-                # keeps the two kinds of values file apart, because the glob
-                # cannot.
                 - path: 'environments/*/*/values.yaml'
-                - path: 'environments/*/*/*/values.yaml'
-                  exclude: true
 
           - clusters:
               selector:
@@ -334,26 +296,7 @@ spec:
                     repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
                     revision: main
                     files:
-                      # A FLEET's values, and only a fleet's.
-                      #
-                      # `*` in this generator crosses `/` -- it is not a single path
-                      # segment -- so this pattern alone also matches a WORKLOAD's
-                      # values at environments/<env>/<app>/<workload>/values.yaml.
-                      # Such a file holds chart overrides and carries no `cellId`, and
-                      # one appearing was enough to take every generator below with
-                      # it: `failed to execute go template {{ .cellId }}: map has no
-                      # entry for key "cellId"`, and all three ApplicationSets stopped
-                      # generating within a minute of the file being committed.
-                      #
-                      # Nothing looked broken. The Applications these had already
-                      # created stayed, kept syncing their own sources and went on
-                      # reporting Healthy; what stopped was the platform's ability to
-                      # create, retarget or remove any of them. The exclusion is what
-                      # keeps the two kinds of values file apart, because the glob
-                      # cannot.
                       - path: 'environments/*/*/values.yaml'
-                      - path: 'environments/*/*/*/values.yaml'
-                        exclude: true
 
                 # One entry per application directory under that fleet. A
                 # directory generator rather than a files generator over
@@ -431,6 +374,42 @@ spec:
         - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
           path: '{{"{{"}} .app.path.path {{"}}"}}'
+          helm:
+            # `overrides.yaml`, NOT `values.yaml`, and the name is the whole
+            # point.
+            #
+            # The fleet generators above match `environments/*/*/values.yaml`,
+            # and `*` in a git FILE generator crosses `/` -- it is not one path
+            # segment. So a workload's chart overrides, three levels deep, are
+            # matched by a pattern meant for a fleet's declaration two levels
+            # deep. That file carries no `cellId`, and one appearing stopped
+            # every fleet generator on the box:
+            #
+            #   failed to execute go template {{"{{"}} .cellId {{"}}"}}:
+            #   map has no entry for key "cellId"
+            #
+            # Nothing looked broken. The Applications already generated stayed,
+            # kept syncing and went on reporting Healthy; what stopped was the
+            # platform's ability to create, retarget or remove any of them.
+            #
+            # `exclude: true` is the obvious fix and is NOT AVAILABLE: ArgoCD's
+            # GitFileGeneratorItem declares only `path` (v2.14 CRD -- exclude
+            # exists on `directories`, not on `files`). Setting it does not get
+            # ignored, it makes server-side apply refuse the ApplicationSet, and
+            # the parent Application then cannot diff at all:
+            #
+            #   failed to create typed patch object: .spec.generators[0].matrix
+            #   .generators[0].git.files[1].exclude: field not declared in schema
+            #
+            # Since the glob cannot be narrowed by depth, the file is
+            # distinguished by NAME instead. A fleet's declaration is
+            # `values.yaml`; a workload's overrides are `overrides.yaml`, which
+            # that pattern cannot match at any depth.
+            valueFiles:
+              - overrides.yaml
+            # Most workloads have none, and a chart's own values.yaml still
+            # applies underneath either way.
+            ignoreMissingValueFiles: true
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
