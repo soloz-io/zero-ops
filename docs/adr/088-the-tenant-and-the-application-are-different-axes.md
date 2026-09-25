@@ -355,10 +355,79 @@ the database, and a reader is granted a role on it. Two apps owning one database
 would make schema migration a negotiation between two release cycles, which is
 the coupling ADR-074 left the platform least able to absorb.
 
+### Intra-tenant dependencies are declared, not hand-written
+
+*Amendment, 2026-09-25. The decision above states that "an app may declare
+egress to a sibling app of the same tenant, and the platform can render that
+allowance". It did not say in what shape, so nothing rendered anything: the
+first such dependency — waypoint's SDK calling `oranger-serve` — was written by
+hand, twice, in two repositories.*
+
+**A dependency between two apps of one tenant is one declaration, rendered into
+every artefact it implies.**
+
+```yaml
+dependsOn:
+  - workload: builder-serve    # a sibling in this app's own namespace
+    port: 3000
+    urlEnv: [META_AGENT_URL, BUILDERS_AGENT_URL]
+  - app: oranger               # another APP of the same tenant
+    workload: oranger-serve
+    port: 3005
+    urlEnv: [ORANGER_AGENT_URL]
+```
+
+From each entry the platform renders the caller's egress rule and the URL the
+caller dials. `app:` omitted means this app, so a sibling in one's own namespace
+cannot be pointed at another's.
+
+**No namespace is written.** It is `tenant-<tenantId>-<appId>`, derived from the
+axes the chart already holds. This is the correction the amendment exists for:
+the hand-written version hardcoded namespaces eleven times in one chart, and did
+it *asymmetrically* — the callee templated the tenant and fixed the app
+(`tenant-{{ .Values.tenantId }}-waypoint`), the caller fixed both
+(`tenant-nutgraf-oranger`). A tenant rename would have moved one end of the call
+and not the other.
+
+That failure is silent. Cilium drops denied egress without an RST (ADR-046 §30),
+so a half-renamed dependency is a step that hangs, not one that reports a
+refusal — and the surviving literal still reads as correct in review, because
+nothing in it looks stale.
+
+**The route and the address come from the same entry.** They were separate
+copies of one fact: a policy rule naming a namespace and an env var naming it
+again, free to disagree. A workload cannot now be addressed where it may not be
+reached, or permitted somewhere nothing sends it.
+
+**Both sides still declare.** The caller's `dependsOn` opens egress; the callee's
+own chart admits the matching ingress. Neither half permits anything alone, and
+the rule is not relaxed because the two apps are siblings — being siblings is
+what makes the dependency *expressible*, not what grants it. This is the network
+half of the rule `sharedData` states for data: **same tenant is never an
+argument for access; only a declaration is.**
+
+**Cross-tenant traffic gains no mechanism, structurally.** The helper that builds
+the namespace can only build one of *this* tenant, so there is no field to put
+another tenant's name in. An allowance beyond this tenant remains a raw rule,
+written out, reviewed as the exception it is.
+
+#### What this does not do
+
+It does not discover dependencies, and it does not verify that the callee agreed:
+a `dependsOn` naming an app whose chart declares no matching ingress renders a
+valid policy and a call that hangs. Closing that needs the two halves rendered
+from one place — a platform-level dependency record rather than a value in each
+chart — which is a larger change than this amendment, and is the right next step
+once a second cross-app pair exists to prove the shape against.
+
+
 ## Impact
 
 - `manifests/tenants/charts/universal-tenant` — `appId` value, namespace
   template, `app-id` label, intra-tenant egress rendering
+- Every application chart that calls another — `dependsOn`, and the namespace
+  helpers that derive `tenant-<tenantId>-<appId>` rather than carrying it as a
+  literal (first: `waypoint/packages/waypoint-sdk/charts/sdk`)
 - `manifests/spoke/spoke-catalog/infra/kyverno-tenant-abi.yaml` — `app-id`
   required
 - `manifests/spoke/spoke-catalog/infra/tenant-{dns,identity}-egress.yaml` —
@@ -373,6 +442,10 @@ the coupling ADR-074 left the platform least able to absorb.
 ## References
 
 - ADR-033 — fleet as the cluster estate; the other use of the word
+- ADR-021 — default-deny egress with an explicit allowlist; the contract
+  `dependsOn` writes into
+- ADR-046 §30 — a denied egress is dropped without an RST, which is why a
+  half-renamed dependency hangs rather than failing
 - ADR-047 — the deployment contract that collapsed the axes, amended by this
 - ADR-051 — a tenant may hold several cells
 - ADR-062 — defines a tenant as the owner of a box; amended by this
