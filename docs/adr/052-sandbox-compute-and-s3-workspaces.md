@@ -1,4 +1,8 @@
-# ADR-052: Elastic Burst Capacity for Tenant Workloads
+# ADR-052: Sandbox Compute and S3-Backed Workspaces
+
+*Originally "Elastic Burst Capacity for Tenant Workloads". Renamed 2026-09-25:
+burst capacity is one of several things decided here, and the workspace design —
+the largest part — was invisible in the old title.*
 
 **Date:** 2026-08-23
 **Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06, 2026-09-06b,
@@ -729,6 +733,23 @@ hardware, not the quota — measured headroom is roughly 1.6 and 0.8 CPU across 
 two home workers, against a quota ceiling of 8 CPU those nodes cannot supply.
 
 ### 14. Workspace persistence: a platform-owned PVC plus a platform-owned S3 tier (Amendment 2026-09-06)
+
+> **THE PVC IS WITHDRAWN. THE WORKSPACE IS S3 ONLY.** §14.2 replaced it with an
+> `emptyDir` restored from the object store, and §14.7 keeps it withdrawn — a
+> node-published volume over node-local scratch, with the durable record staying
+> in S3. Nothing in the platform provisions, mounts or reaps a PVC for a
+> workspace, and `ensureWorkspacePVC()` no longer exists.
+>
+> This heading is left as written because it is what §14 decided and the
+> reasoning below is still the reasoning the later amendments argue against. Read
+> it as history, not as the contract.
+>
+> **What this costs, stated once rather than left to be discovered:** anything
+> needing block-device semantics — a database file, a tree large enough that an
+> O(n) restore is untenable, a workload depending on `fsync` durability rather
+> than checkpoint durability — has no home in this design. §14.2 accepted that
+> when it removed the PVC; §14.7 inherits it. A workload class that needs it
+> needs a different storage primitive and a different ADR.
 
 Some sandboxes need `/workspace` to survive pod recreation — a coding-agent
 sandbox whose disk holds work in progress, not a stateless request/response

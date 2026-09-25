@@ -312,7 +312,7 @@ already the case, before ADR-078's toggle could have quietly changed it.
 - ADR-013: Hub-Spoke Observability Architecture with Dual Collection Patterns
 - ADR-039: Platform Ownership Model
 - ADR-046: Hybrid Provider Home Worker
-- ADR-052: Elastic Burst Capacity for Tenant Workloads
+- ADR-052: Sandbox Compute and S3-Backed Workspaces
 - ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box
