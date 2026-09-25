@@ -227,41 +227,36 @@ func workspaceSyncContainerFor(
 	// decided it runs unprivileged, and it does drop `privileged` -- it holds uid
 	// 0 only to chown a reserved directory its sibling created as root. See
 	// §14.7's conformance fix.
-	privileged := true
+	// RESTRICTED, both instances, no exceptions (§14.7).
+	//
+	// §14.2 ran this container `privileged` with `runAsUser: 0` so squashfuse
+	// and fuse-overlayfs could mount an archive. Pod Security Admission
+	// evaluates the WHOLE Pod and this Pod runs tenant code, so that made every
+	// workspace-bearing sandbox inadmissible in a tenant namespace -- the
+	// EphemeralJob was created, the operator retried forever, and nothing
+	// reported a policy decision.
+	//
+	// §14.7 takes the exit §14.2 named for itself: "the fallback is the §14
+	// content-addressed path, which needs none of it." Restore is file-by-file
+	// from content-addressed objects, which needs no device, no setuid helper
+	// and no mount propagation -- so none of the four reasons privilege was
+	// unavoidable for the archive path applies here.
+	//
+	// uid 1000 matches the workload and the pod's own RunAsUser. That equality
+	// is load-bearing: the two processes write one volume, and a mismatch
+	// produces files the other cannot modify. It is also what removes the last
+	// reason this container held root -- the restore chowns the tree it just
+	// wrote, and a process chowning its own files to its own uid needs no
+	// privilege. Running ONE instance as root was what made the other's chown
+	// fail; running both as 1000 makes the operation a no-op that succeeds.
 	sidecarSec := &corev1.SecurityContext{
-		Privileged:             &privileged,
-		RunAsUser:              ptr(int64(0)),
-		RunAsNonRoot:           ptr(false),
-		ReadOnlyRootFilesystem: ptr(true),
+		RunAsUser:                &uid,
+		RunAsNonRoot:             ptr(true),
+		AllowPrivilegeEscalation: ptr(false),
+		ReadOnlyRootFilesystem:   ptr(true),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
-	// The shared instance never mounts anything, so it drops PRIVILEGE — but
-	// not root.
-	//
-	// Two different requirements were being met by one flag. Privilege exists
-	// for FUSE: /dev/fuse, the setuid fusermount3 helper, and Bidirectional
-	// propagation, none of which an instance restoring file-by-file
-	// (WORKSPACE_NO_ARCHIVE) ever touches. Root exists for something else — the
-	// restore chowns the tree to the workload's uid so the agent can write it,
-	// and only root may chown a file it does not own.
-	//
-	// Running this as uid 1000 dropped both at once, and the container
-	// crashlooped on the second: "lchown /workspace/.global: operation not
-	// permitted", after a restore that had otherwise succeeded. The pod never
-	// started, so the whole session failed on a security tightening that was
-	// only meant to remove a capability nothing used.
-	//
-	// Root without privilege keeps the actual win: no device access, no setuid
-	// escalation, no mount propagation out to the host.
-	if target.noArchive {
-		sidecarSec = &corev1.SecurityContext{
-			Privileged:               ptr(false),
-			RunAsUser:                ptr(int64(0)),
-			RunAsNonRoot:             ptr(false),
-			ReadOnlyRootFilesystem:   ptr(true),
-			AllowPrivilegeEscalation: ptr(false),
-		}
-	}
-	_ = uid
 	// Mapped key by key, not `envFrom`.
 	//
 	// The key names happen to equal the env names here, so `envFrom` would
@@ -315,36 +310,28 @@ func workspaceSyncContainerFor(
 		// ExternalSecret before a region-checking provider will authenticate.
 		secretEnv("S3_REGION", "S3_REGION"),
 	}
-	// Bidirectional on the workspace mount is what makes the restore visible.
+	// NO MOUNT PROPAGATION, because there is no longer a mount to propagate.
 	//
-	// Containers in a pod share a network namespace but NOT a mount namespace.
-	// A fuse-overlayfs mount this container makes at /workspace is, by default,
-	// invisible to the workload container — which would go on seeing the bare
-	// emptyDir. The restore would log success and the agent would find nothing.
+	// §14.2 needed Bidirectional here: containers in a pod share a network
+	// namespace but NOT a mount namespace, so a fuse-overlayfs mount made in
+	// this container was invisible to the workload, which would go on seeing
+	// the bare emptyDir while the restore logged success. Bidirectional pushed
+	// the mount back to the host and onward into the workload's
+	// HostToContainer mount -- and the kubelet permits Bidirectional only on a
+	// privileged container, which is the single reason this one was privileged.
 	//
-	// Bidirectional propagates the mount back to the host and onward into the
-	// workload's HostToContainer mount (set in buildPodSpec). Kubernetes allows
-	// Bidirectional ONLY on a privileged container, which is why this one is
-	// privileged — see sidecarSec.
-	bidirectional := corev1.MountPropagationBidirectional
-	// The shared instance takes the WORKLOAD's half of the propagation pair,
-	// not the sidecar's. It writes into a subdirectory of the session tree, and
-	// the session instance may have mounted a FUSE overlay over that tree —
-	// with Bidirectional it would push its own view outward and could write
-	// beneath the overlay, where nothing that reads /workspace would see it.
-	// HostToContainer makes it observe the session's mount instead. Native
-	// sidecars start in order and gate on each other's startup probe, so that
-	// mount already exists by the time this container runs.
-	propagation := &bidirectional
-	if target.noArchive {
-		hostToContainer := corev1.MountPropagationHostToContainer
-		propagation = &hostToContainer
-	}
+	// Restoring file-by-file writes into the shared emptyDir instead. A volume
+	// is visible to every container that mounts it without any propagation
+	// setting, so the workload sees the restored tree because it is the same
+	// volume, not because a mount was pushed into its namespace.
+	//
+	// Leaving Bidirectional set would not merely be redundant: it is rejected
+	// outright on a non-privileged container, so this has to go for the
+	// security context above to be admissible at all.
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:             WorkspaceVolumeName,
-			MountPath:        WorkspaceMountPath,
-			MountPropagation: propagation,
+			Name:      WorkspaceVolumeName,
+			MountPath: WorkspaceMountPath,
 		},
 		{Name: "ws-staging", MountPath: workspaceStagingPath},
 	}
@@ -435,9 +422,21 @@ func workspaceSyncContainerFor(
 	if ws.ReadOnly {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
 	}
-	if target.noArchive {
-		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_NO_ARCHIVE", Value: "true"})
-	}
+	// ALWAYS, for every instance (§14.7).
+	//
+	// The squashfs fast path mounts through squashfuse and fuse-overlayfs, and
+	// both are gone with the privilege that made them possible. Setting this
+	// unconditionally is what makes that explicit to the binary rather than
+	// leaving it to discover at runtime that it cannot mount and fall back --
+	// a fallback whose log line ("archive present but could not be mounted")
+	// would read as a fault on every single sandbox.
+	//
+	// `target.noArchive` stays as a field because the shared instance has
+	// always set it for a DIFFERENT reason -- its root sits inside the session
+	// tree, where a FUSE overlay would nest inside another mount -- and that
+	// reason survives the storage layer arriving in §14.7. The two are
+	// collapsed here only while no instance can mount at all.
+	sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_NO_ARCHIVE", Value: "true"})
 	// The periodic backstop, for a fleet that asked for one. Both instances get
 	// it: an unattended workspace and the app-scoped tree beside it are lost the
 	// same way, and a brand brief written once at the start of a run is exactly

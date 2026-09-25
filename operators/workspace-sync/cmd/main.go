@@ -148,8 +148,22 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 		switch {
 		case aErr == nil:
 			if mErr := mountFuse(ctx, root, staging, archivePath); mErr != nil {
-				log.Printf("pinned archive present but could not be mounted, falling back: %v", mErr)
-				return false, restoreFromCheckpoint(ctx, root, s, id)
+				// A failed mount is a failed restore. Unmount, report.
+				//
+				// This used to reconstruct the tree file-by-file instead and
+				// log a line about it. That is the wrong shape twice over: a
+				// pinned checkpoint is an EXACT revision the caller asked for,
+				// and a silent second route to it means a mount that has been
+				// broken for days presents as a session that is merely slow.
+				//
+				// The Cloudflare SDK this restore path was adopted from does
+				// not do it either -- backup-service.ts returns
+				// BACKUP_RESTORE_FAILED on both the squashfuse and the
+				// fuse-overlayfs branch, unmounting first. The fallback was
+				// ours, and it existed only because §14's content-addressed
+				// store happened to predate §14.2's archive.
+				unmountFuse(root, staging)
+				return false, fmt.Errorf("cannot mount pinned checkpoint %s: %w", id, mErr)
 			}
 			log.Printf("restored pinned checkpoint %s via squashfs overlay", id)
 			return true, nil
@@ -175,11 +189,27 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 	switch {
 	case err == nil:
 		if mErr := mountFuse(ctx, root, staging, archivePath); mErr != nil {
-			// A present-but-unmountable archive is NOT a reason to start empty
-			// — the data exists. Fall back to the slow path, which reads the
-			// same content from the content-addressed objects.
-			log.Printf("archive present but could not be mounted, falling back to file-by-file: %v", mErr)
-			return false, restoreFromManifest(ctx, root, s)
+			// A failed mount is a failed restore. Unmount, report.
+			//
+			// The previous comment here argued that a present-but-unmountable
+			// archive is not a reason to start empty, because the data exists
+			// in the content-addressed objects. Both halves are true and the
+			// conclusion still does not follow: the alternative to starting
+			// empty is FAILING, not quietly taking a different route and
+			// reporting success.
+			//
+			// What that cost is not hypothetical. Asked whether a fleet had
+			// been restoring through this branch, the answer was unobtainable
+			// -- the only evidence would have been a log line in a pod whose
+			// logs had been collected. A mount that stops working is supposed
+			// to be loud.
+			//
+			// Parity with the SDK this was adopted from: backup-service.ts
+			// returns BACKUP_RESTORE_FAILED from both mount branches and
+			// unmounts on the way out. It keeps no second representation to
+			// fall back to, and neither does this path now.
+			unmountFuse(root, staging)
+			return false, fmt.Errorf("cannot mount workspace archive: %w", mErr)
 		}
 		log.Printf("restored via squashfs overlay at %s", root)
 		return true, nil

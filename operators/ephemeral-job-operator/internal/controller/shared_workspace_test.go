@@ -90,44 +90,58 @@ func TestSharedWorkspaceIsTheSameMechanismPointedElsewhere(t *testing.T) {
 		t.Errorf("startup probes watch the same marker: %v", sessionProbe)
 	}
 
-	// The squashfs/FUSE fast path belongs to the session instance only.
-	if se["WORKSPACE_NO_ARCHIVE"] != "" {
-		t.Error("session instance must keep the squashfs fast path; it is what makes restore O(1)")
-	}
-	if sh["WORKSPACE_NO_ARCHIVE"] != "true" {
-		t.Error("shared instance must skip squashfs: its root is inside a mount it does not own")
-	}
-
-	// Privilege is bought for FUSE, so only the instance that uses FUSE pays.
-	if session.SecurityContext.Privileged == nil || !*session.SecurityContext.Privileged {
-		t.Error("session instance mounts FUSE and must be privileged")
-	}
-	if shared.SecurityContext.Privileged == nil || *shared.SecurityContext.Privileged {
-		t.Error("shared instance mounts nothing and must not be privileged (§19.6)")
+	// NEITHER instance mounts, so neither takes the squashfs path (§14.7).
+	//
+	// §14.2 gave the fast path to the session instance and privilege with it.
+	// Pod Security Admission judges the whole Pod, and this Pod runs tenant
+	// code, so that made every workspace-bearing sandbox inadmissible. The
+	// archive materialisation moves to platform-owned node storage; what runs
+	// here restores from content-addressed objects and needs nothing special.
+	for name, env := range map[string]map[string]string{"session": se, "shared": sh} {
+		if env["WORKSPACE_NO_ARCHIVE"] != "true" {
+			t.Errorf("%s instance must not attempt a mount: it has no device, no setuid helper and no propagation", name)
+		}
 	}
 
-	// Root, though. Dropping privilege and dropping root are different things,
-	// and conflating them crashlooped the pod: the restore chowns the tree to
-	// the workload's uid, and a non-root process cannot chown a file it does
-	// not own ("lchown /workspace/.global: operation not permitted").
-	if shared.SecurityContext.RunAsUser == nil || *shared.SecurityContext.RunAsUser != 0 {
-		t.Errorf("shared instance RunAsUser = %v, want 0 — it must chown the restored tree to the workload",
-			shared.SecurityContext.RunAsUser)
-	}
-	// The escalation paths privilege would have brought stay closed.
-	if shared.SecurityContext.AllowPrivilegeEscalation == nil || *shared.SecurityContext.AllowPrivilegeEscalation {
-		t.Error("shared instance must not allow privilege escalation")
+	// RESTRICTED, identically, both instances. This is the assertion that would
+	// have caught §14.2 before it shipped: it encodes the namespace's own
+	// pod-security level rather than the operator's intent.
+	for name, c := range map[string]corev1.Container{"session": session, "shared": shared} {
+		sc := c.SecurityContext
+		if sc.Privileged != nil && *sc.Privileged {
+			t.Errorf("%s instance is privileged; a tenant namespace enforces restricted and refuses the Pod", name)
+		}
+		if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot {
+			t.Errorf("%s instance must set runAsNonRoot", name)
+		}
+		if sc.RunAsUser == nil || *sc.RunAsUser != 1000 {
+			t.Errorf("%s instance RunAsUser = %v, want 1000 — it must match the workload that shares the volume",
+				name, sc.RunAsUser)
+		}
+		if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
+			t.Errorf("%s instance must not allow privilege escalation", name)
+		}
+		if sc.Capabilities == nil || len(sc.Capabilities.Drop) != 1 || sc.Capabilities.Drop[0] != "ALL" {
+			t.Errorf("%s instance must drop ALL capabilities", name)
+		}
+		if sc.SeccompProfile == nil || sc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+			t.Errorf("%s instance must set seccompProfile RuntimeDefault", name)
+		}
 	}
 
-	// Propagation: the session pushes its mount out to the host; the shared
-	// instance and the workload both observe it from there.
-	if session.VolumeMounts[0].MountPropagation == nil ||
-		*session.VolumeMounts[0].MountPropagation != corev1.MountPropagationBidirectional {
-		t.Error("session instance needs Bidirectional or its restore is invisible to the workload")
-	}
-	if shared.VolumeMounts[0].MountPropagation == nil ||
-		*shared.VolumeMounts[0].MountPropagation != corev1.MountPropagationHostToContainer {
-		t.Error("shared instance needs HostToContainer, or it writes beneath the session's overlay")
+	// uid 1000 on BOTH is what removes the last reason either held root. The
+	// restore chowns the tree it wrote, and a process chowning its own files to
+	// its own uid needs no privilege. Running one as root was what made the
+	// other's chown fail — "lchown /workspace/.global: operation not permitted"
+	// — and that asymmetry is what this loop forbids returning.
+
+	// No propagation on either: with no mount to propagate, Bidirectional is
+	// both meaningless and rejected outright on a non-privileged container.
+	for name, c := range map[string]corev1.Container{"session": session, "shared": shared} {
+		if c.VolumeMounts[0].MountPropagation != nil {
+			t.Errorf("%s instance sets mount propagation %v; the volume is shared directly and nothing is mounted",
+				name, *c.VolumeMounts[0].MountPropagation)
+		}
 	}
 
 	// Both carry the same credential channel and retention, by construction.

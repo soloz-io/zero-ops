@@ -919,8 +919,14 @@ func (s *Store) UploadCheckpointArchive(ctx context.Context, checkpointID, archi
 
 // DownloadArchive downloads the squashfs archive from S3 to archivePath.
 //
-// Returns an error if the archive does not exist (first-ever checkpoint or
-// S3 misconfiguration). The caller should fall back to file-by-file restore.
+// ErrNoArchive means this checkpoint has none -- a first-ever checkpoint, or
+// one written before archives existed -- and the caller restores from the
+// content-addressed objects, which describe it exactly. That is a second VALID
+// SHAPE of the input, not error recovery.
+//
+// Any other error is a failure and the caller reports it. There is no
+// fall-back-to-file-by-file path: an archive that exists and cannot be used is
+// a fault, and one that resolves itself quietly is a fault nobody sees.
 func (s *Store) DownloadArchive(ctx context.Context, archivePath string) error {
 	return s.downloadTo(ctx, s.archiveKey(), archivePath)
 }
