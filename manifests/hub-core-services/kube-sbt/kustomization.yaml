@@ -3,17 +3,17 @@ kind: Kustomization
 
 namespace: platform-ops
 
+# ADR-060 amendment: the SMTP credential this service applies to the live issuer,
+# without which tenant owners are created with no way to receive their
+# initialisation mail.
 resources:
 - manager.yaml
 - network-policy.yaml
 - identity-credentials-es.yaml
-# ADR-060 amendment: the SMTP credential this service applies to the live issuer,
-# without which tenant owners are created with no way to receive their
-# initialisation mail.
 - zitadel-smtp-password-es.yaml
 
 images:
-- digest: sha256:e7f97b6c81a4c84349c6f7bfa2a038619fe54f0f68d34e592e0db8872f4ba2dd
+- digest: sha256:a908edb4cdafd0e7f5b3ba63bfc3670923ae20b58c11c9a50eb631075ff6542c
   name: controller
   newName: ghcr.io/soloz-io/zero-ops/kube-sbt
 
