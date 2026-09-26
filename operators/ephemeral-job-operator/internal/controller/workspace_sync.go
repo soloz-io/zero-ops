@@ -52,7 +52,35 @@ var (
 	//     (hub-operator's constant: "For CAPI/CCM/CSI"). It carries S3 keys only
 	//     in waypoint's local Kind manifest; no registry binds it for an SDK, so
 	//     it worked locally and in no deployed environment.
-	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{namespace}-app-secrets")
+	//   - `{namespace}-app-secrets` — the THIRD wrong value, and wrong in a new
+	//     way: no Secret of that name exists in any tenant namespace. The
+	//     reasoning above ("the Secret each fleet's registry already declares")
+	//     was simply not true of any fleet. Verified on nutgraf-01: the namespace
+	//     holds no `*-app-secrets` at all.
+	//
+	// THE REAL SHAPE: a fleet splits these across TWO objects, and no single
+	// name can satisfy the sidecar.
+	//
+	//   credentials  Secret     <appId>-sdk-secrets   S3_ACCESS_KEY_ID,
+	//                                                 S3_SECRET_ACCESS_KEY
+	//   location     ConfigMap  <appId>-config        S3_ENDPOINT_URL,
+	//                                                 S3_BUCKET_NAME
+	//
+	// That is how the SDK itself binds them, read off the running rollout rather
+	// than inferred. So the sidecar reads both, from the same two objects, and a
+	// rotation or a bucket change still lands in exactly one place each.
+	//
+	// Keyed on appId, NOT namespace. After ADR-088 the namespace is
+	// `tenant-<tenantId>-<appId>` while the fleet's own objects are named from the
+	// appId alone, so `{namespace}-sdk-secrets` would resolve to
+	// `tenant-nutgraf-waypoint-sdk-secrets` — a fourth name that does not exist.
+	// `{namespace}` is still accepted for a deployment that wants it.
+	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{appId}-sdk-secrets")
+
+	// The fleet's non-secret S3 location. Separate object, separate template:
+	// endpoint and bucket are not credentials and the fleet does not store them
+	// as such, so injecting them from a Secret was always going to miss.
+	workspaceSyncConfigTemplate = envOr("WORKSPACE_SYNC_CONFIG", "{appId}-config")
 )
 
 // resolveWorkspaceSyncSecret expands the template for one job's namespace.
@@ -91,8 +119,28 @@ const (
 	sharedWorkspaceDirName = ".global"
 )
 
-func resolveWorkspaceSyncSecret(namespace string) string {
-	return strings.ReplaceAll(workspaceSyncSecretTemplate, "{namespace}", namespace)
+func resolveWorkspaceSyncSecret(namespace, appID string) string {
+	return expandWorkspaceSyncRef(workspaceSyncSecretTemplate, namespace, appID)
+}
+
+// resolveWorkspaceSyncConfig expands the ConfigMap template for one job.
+func resolveWorkspaceSyncConfig(namespace, appID string) string {
+	return expandWorkspaceSyncRef(workspaceSyncConfigTemplate, namespace, appID)
+}
+
+// expandWorkspaceSyncRef substitutes both placeholders.
+//
+// A literal name with no placeholder passes through unchanged, which is what a
+// spoke with a single fleet and a non-conventional name needs. An appId that is
+// empty leaves `{appId}` unexpanded rather than producing `-sdk-secrets`: a
+// reference to a Secret named `-sdk-secrets` is a silent miss, and a visibly
+// wrong name in `kubectl describe` is the better failure.
+func expandWorkspaceSyncRef(template, namespace, appID string) string {
+	out := strings.ReplaceAll(template, "{namespace}", namespace)
+	if appID != "" {
+		out = strings.ReplaceAll(out, "{appId}", appID)
+	}
+	return out
 }
 
 func envOr(k, def string) string {
@@ -269,7 +317,21 @@ func workspaceSyncContainerFor(
 	// without Infisical (any local Kind cluster) may have no such Secret, and a
 	// sandbox must still start there — checkpoints then no-op, which §14 names
 	// as the one legitimate no-op.
-	secretName := resolveWorkspaceSyncSecret(namespace)
+	secretName := resolveWorkspaceSyncSecret(namespace, ws.AppID)
+	configName := resolveWorkspaceSyncConfig(namespace, ws.AppID)
+	// The location half. A ConfigMap, because that is where the fleet keeps it --
+	// endpoint and bucket are not credentials, and reading them from a Secret is
+	// what left every checkpoint no-opping while the sidecar reported only
+	// "object storage not configured".
+	configEnv := func(name, key string) corev1.EnvVar {
+		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{
+			ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: configName},
+				Key:                  key,
+				Optional:             ptr(true),
+			},
+		}}
+	}
 	secretEnv := func(name, key string) corev1.EnvVar {
 		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{
@@ -297,8 +359,12 @@ func workspaceSyncContainerFor(
 		// Key names as the registry's ExternalSecret renders them
 		// (fleet-registry/tenants/waypoint/dev/values.yaml): SCREAMING_SNAKE,
 		// matching the env names the SDK binds them to.
-		secretEnv("S3_ENDPOINT_URL", "S3_ENDPOINT_URL"),
-		secretEnv("S3_BUCKET_NAME", "S3_BUCKET_NAME"),
+		// Location from the ConfigMap, credentials from the Secret -- exactly as
+		// the SDK's own rollout binds them, read off the running object rather
+		// than inferred. Injecting all four from one Secret is what failed
+		// silently three times.
+		configEnv("S3_ENDPOINT_URL", "S3_ENDPOINT_URL"),
+		configEnv("S3_BUCKET_NAME", "S3_BUCKET_NAME"),
 		secretEnv("S3_ACCESS_KEY_ID", "S3_ACCESS_KEY_ID"),
 		secretEnv("S3_SECRET_ACCESS_KEY", "S3_SECRET_ACCESS_KEY"),
 		// Optional in a stronger sense than the rest: the registry declares no
@@ -308,7 +374,7 @@ func workspaceSyncContainerFor(
 		// signs against it — Hetzner does. Local setup derives it from the
 		// endpoint host; deployed environments need the key added to the
 		// ExternalSecret before a region-checking provider will authenticate.
-		secretEnv("S3_REGION", "S3_REGION"),
+		configEnv("S3_REGION", "S3_REGION"),
 	}
 	// NO MOUNT PROPAGATION, because there is no longer a mount to propagate.
 	//
