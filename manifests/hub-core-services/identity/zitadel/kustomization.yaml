@@ -6,3 +6,7 @@ kind: Kustomization
 resources:
   - zitadel-masterkey-es.yaml
   - platform-admin-rbac.yaml
+  # ADR-060 amendment: the issuer's mail sender, without which it cannot run its
+  # own initialisation or password-reset flows and the platform is forced to
+  # invent a credential it cannot deliver.
+  - zitadel-smtp-es.yaml

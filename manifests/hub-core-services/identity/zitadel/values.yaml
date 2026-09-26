@@ -20,6 +20,26 @@ zitadel:
   # in git and in every ArgoCD diff.
   masterkeySecretName: zitadel-masterkey
 
+  # The SMTP block, supplied as a second --config file rather than inline here.
+  #
+  # ADR-060 (Amendment 2026-09-26): the issuer needs a mail sender to run its own
+  # initialisation and password-reset flows. The password cannot sit in this file,
+  # so the whole fragment arrives through the ExternalSecret beside it
+  # (zitadel-smtp-es.yaml) and this only names it.
+  #
+  # The chart appends one --config per source and ZITADEL merges them in order, so
+  # a fragment holding only DefaultInstance.SMTPConfiguration MERGES with
+  # configmapConfig below instead of replacing it. Nothing has to be duplicated
+  # between the two.
+  #
+  # ⚠ DefaultInstance applies only when the FIRST instance is created. On a
+  # cluster whose instance already exists this configures nothing by itself --
+  # that instance needs AddSMTPConfig/UpdateSMTPConfig against the admin API. This
+  # is what makes a REBUILT box come up with mail already working, which is the
+  # half that survives.
+  configSecretName: zitadel-smtp-config
+  configSecretKey: config-yaml
+
   configmapConfig:
     # Terminated by the gateway, as every other hub service is.
     ExternalSecure: true

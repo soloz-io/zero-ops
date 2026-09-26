@@ -263,6 +263,7 @@ rollout already serves.
 - Self-service registration does not restrict who may sign up. Anyone reaching a
   tenant's hostname can create an account in it, and restricting that requires
   invitations, which require a mail sender the issuer does not have.
+  **Amended 2026-09-26 — the issuer now has one; see the amendment below.**
 - Group-based Kubernetes RBAC does not survive the change, so cluster access is
   bound per identity rather than per group.
 - The provider allocates identifiers the platform previously chose, so values
@@ -295,6 +296,66 @@ rollout already serves.
 - **Depends on ADR-041** for the assignment of tenant identity lifecycle, which
   places provisioning in the Tenant Identity Service rather than in the Hub
   Operator or Crossplane.
+
+## Amendment 2026-09-26: the issuer owns the credential lifecycle
+
+**The Negative above — "invitations, which require a mail sender the issuer does
+not have" — no longer holds, and while it held it cost more than it recorded.**
+
+### What the original entry missed
+
+It named the consequence for self-service REGISTRATION and stopped there. The same
+absent mail sender also means no first-login mail and no password-reset mail for an
+owner the platform PROVISIONED, and that is the consequence that failed in
+practice. Because the ADR recorded the limitation only as a registration
+restriction, the provisioning path was written as though the gap were closed:
+
+- `kube-sbt` generated a random password (`generateInitialPassword`) and created
+  the owner with it, its comment restating this ADR's reasoning almost verbatim;
+- it was sent with `changeRequired: false`, so the issuer never prompted for a
+  replacement and that random string became the account's standing credential;
+- `hub-operator` filed it in the tenant's secret store as
+  `OWNER_INITIAL_PASSWORD`, which **nothing in the repository ever read**.
+
+The owner could therefore authenticate only if a human first read a secret out of
+Infisical on their behalf. Observed on a tenant owner created 2026-09-22: the
+bootstrap hash still in place four days later, exactly one
+`user.human.password.check.succeeded` in the account's entire history, and nothing
+but `user.human.password.check.failed` after it. A browser holding the session
+minted by that single success kept working, so the account presented as
+intermittently broken rather than permanently un-enterable — the session masked it,
+and the first device without a cookie exposed it.
+
+A generated credential that no one can retrieve is not a credential. Writing it to
+a store nothing reads is the same as discarding it.
+
+### The decision
+
+**Outbound transactional mail is delivered through an external provider, and the
+issuer owns the credential lifecycle from account creation onward.** The platform
+does not generate, store, or deliver end-user passwords.
+
+- The issuer is configured with a mail sender, so its initialisation and
+  password-reset flows are available. This is an external sending service, not a
+  mail server the platform operates: ADR-054's rejection is untouched.
+- A provisioned owner is created WITHOUT a password. The issuer emails an
+  initialisation link and the user chooses their own credential. `shouldAddInitCode`
+  requires both that no password was supplied and that the address is not
+  pre-asserted as verified, so BOTH conditions move — a supplied password or a
+  pre-verified address independently suppresses the mail.
+- `OWNER_INITIAL_PASSWORD` is retired, and with it the Infisical write no reader
+  consumed.
+- `changeRequired: true` remains for any caller that still supplies a password. It
+  is a safety net, not the mechanism: it bounds the damage of a bootstrap
+  credential rather than removing the need for one.
+- Invitations, named above as unavailable, are now available — so restricting who
+  may sign up becomes a decision a fleet can make rather than a capability the
+  platform lacks.
+
+### What this does not change
+
+Registration policy is still per tenant, and enabling invitations does not by
+itself close open registration. That remains a per-fleet choice.
 
 ## Open
 

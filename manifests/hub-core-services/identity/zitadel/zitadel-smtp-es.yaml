@@ -1,0 +1,105 @@
+# The issuer's outbound mail sender.
+#
+# ADR-060 (Amendment 2026-09-26): the issuer owns the credential lifecycle, which
+# it can only do if it can send mail. Without a sender there is no initialisation
+# mail and no password reset, so the platform had to invent a password, store it
+# where nothing read it, and leave the owner unable to sign in. This is what
+# closes that.
+#
+# ADR-054 is NOT reopened. Nothing here runs a mail server: the transport is an
+# external sending service reached over SMTP, owning no ports on a home node and
+# issuing no certificate. The rejection was of OPERATING a mail server.
+---
+# A second store, because the first one cannot see this key.
+#
+# infisical-backend is scoped `secretsPath: "/"` with recursive false, so it reads
+# root keys only -- `hub-zitadel-masterkey` and its neighbours. The SMTP
+# credential lives one level down, under the tenant's own management folder, and a
+# non-recursive store at "/" does not descend into it. Turning recursion on there
+# instead would widen EVERY ExternalSecret bound to that store to the whole
+# project and make a key name collide across folders, so the narrower store is the
+# smaller change.
+#
+# The path is templated, not literal: `global.tenantId` is what the
+# environment-manager already emits to every component, so a second box renders
+# its own folder rather than reaching into nutgraf's.
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: infisical-tenant-mgmt
+spec:
+  provider:
+    infisical:
+      # Keep base host only; ESO Infisical client appends API path segments.
+      hostAPI: "http://infisical-standalone-infisical.platform-security.svc:8080"
+      secretsScope:
+        projectSlug: "hub-secrets"
+        environmentSlug: "dev"
+        secretsPath: "/nutgraf-mgmt"
+      auth:
+        universalAuthCredentials:
+          clientId:
+            name: infisical-auth
+            key: client-id
+            namespace: platform-ops
+          clientSecret:
+            name: infisical-auth
+            key: client-secret
+            namespace: platform-ops
+---
+# The SMTP block, delivered as a CONFIG FRAGMENT rather than as loose env vars.
+#
+# The chart passes every --config it is given in order and ZITADEL merges them, so
+# a fragment holding only DefaultInstance.SMTPConfiguration merges with the main
+# ConfigMap instead of replacing it. That is why `zitadel.configSecretName` can
+# carry this alone; see values.yaml, which names this Secret and its key.
+#
+# The password is the only part that must not be in git. Everything else is here
+# in the open because it is not secret and because a reader debugging mail should
+# not have to reconstruct the host and sender from two places.
+#
+# Resend on :465, which is IMPLICIT TLS. ZITADEL's getSMTPClientWithTls dials TLS
+# first and falls back to STARTTLS only on tls.RecordHeaderError, so 465 connects
+# on the first attempt and 587 would work too. `TLS: true` selects that path at
+# all -- false would dial plaintext and Resend would refuse.
+#
+# The sender is on the instance's own domain, so
+# DomainPolicy.SMTPSenderAddressMatchesInstanceDomain does NOT have to be relaxed.
+# A gmail.com sender was evaluated first and would have required disabling that
+# check; a verified dev.nutgraf.in sender removes the need instead of working
+# around it.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: zitadel-smtp-config
+  namespace: platform-identity
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-tenant-mgmt
+    kind: ClusterSecretStore
+  target:
+    name: zitadel-smtp-config
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+      engineVersion: v2
+      mergePolicy: Replace
+      data:
+        # `config-yaml` is the key values.yaml names in configSecretKey. The chart
+        # mounts it and appends `--config /zitadel-secret-config-yaml/config-yaml`.
+        config-yaml: |
+          DefaultInstance:
+            SMTPConfiguration:
+              SMTP:
+                Host: smtp.resend.com:465
+                User: resend
+                Password: "{{ .smtpPassword }}"
+              TLS: true
+              From: no-reply@dev.nutgraf.in
+              FromName: Nutgraf
+  data:
+    - secretKey: smtpPassword
+      remoteRef:
+        key: zitadel_smtp_password

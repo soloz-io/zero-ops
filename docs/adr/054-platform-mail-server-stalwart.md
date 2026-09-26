@@ -6,6 +6,18 @@
 The platform does not run a mail server. This was never accepted, and the
 implementation built against it was removed on 2026-09-09.
 
+> **Scope, clarified 2026-09-26.** What is rejected is the platform OPERATING a
+> mail server. It does not follow that the platform has no mail capability, and
+> reading it that way has cost something: the identity provider's provisioning
+> path was written around "no mail sender exists", which produced a generated
+> owner password nothing could deliver (ADR-060, Amendment 2026-09-26).
+>
+> Outbound transactional mail — the identity provider's initialisation and
+> password-reset messages — is delivered through an EXTERNAL sending service. That
+> runs no mail server here, owns no ports on a home node, and issues no
+> certificate, so none of the three mismatches below apply to it. This rejection
+> stands unchanged; only the inference drawn from it was too broad.
+
 ## Why it was rejected
 
 The available chart did not fit this platform's infrastructure. The specific

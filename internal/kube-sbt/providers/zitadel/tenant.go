@@ -1,11 +1,11 @@
 package zitadel
 
 import (
-	"errors"
-	"strings"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
@@ -193,21 +193,36 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, o
 		// usable: the issuer refuses anyone holding no role, so a tenant with no
 		// owner account is a tenant whose every login fails.
 		//
-		// A password is generated because the issuer has no mail transport
-		// configured here, so an invitation cannot be delivered. It is returned
-		// exactly once, for the caller to persist where an operator can retrieve
-		// it; it is never reset on a later reconcile.
-		pw, perr := generateInitialPassword()
-		if perr != nil {
-			incomplete = append(incomplete, fmt.Sprintf("generate the owner's initial password: %v", perr))
-			out.Incomplete = incomplete
-			return out, nil
-		}
+		// Created WITHOUT a password, so the ISSUER owns the credential from here
+		// (ADR-060, Amendment 2026-09-26).
+		//
+		// This generated one until 2026-09-26, because the issuer had no mail
+		// sender and an invitation could not be delivered. That reasoning was
+		// sound and its consequence was not: the generated value was filed in the
+		// tenant's secret store as OWNER_INITIAL_PASSWORD, which nothing in the
+		// repository ever read, and it was sent with changeRequired false — so a
+		// random string nobody could retrieve became the account's standing
+		// credential. Observed on an owner created 2026-09-22: the bootstrap hash
+		// still in place four days later, exactly one successful password check in
+		// the account's entire history, and only failures after it. A browser
+		// holding the session from that one success kept working, so it presented
+		// as intermittent rather than as permanently un-enterable.
+		//
+		// Omitting the password is precisely what makes the issuer send its
+		// initialisation mail: shouldAddInitCode requires no password supplied OR
+		// an unverified address (internal/command/user_human.go:437), so the empty
+		// password satisfies it on its own and the address can stay verified. The
+		// user follows the mail and chooses their own credential; the platform
+		// never holds one.
+		//
+		// This depends on the instance having a mail sender. EnsureSMTP reconciles
+		// that (smtp.go) and the chart carries the same intent for a rebuilt box.
+		// With no sender the account is created and no mail arrives, which is why
+		// that reconcile is not optional.
 		created, cerr := a.CreateUser(ctx, models.User{
 			Email:    ownerEmail,
 			Name:     ownerEmail,
 			TenantID: orgID,
-			Password: pw,
 			Roles:    []string{"admin"},
 		})
 		if cerr != nil {
@@ -232,7 +247,6 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, o
 			return out, nil
 		}
 		owner = created
-		out.OwnerPassword = pw
 	}
 
 	// Idempotent, and repeated on every reconcile so a grant removed by hand
@@ -254,13 +268,13 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, o
 
 // resolveOrg turns a tenant into its organisation id WITHOUT trusting the name.
 //
-//   knownOrgID set   -> verify it still exists and use it. The name may have
-//                       changed; that is expected and is not this function's
-//                       business.
-//   knownOrgID empty -> a name search decides only between "create" and
-//                       "stop". A hit is NOT adoption: it is an organisation
-//                       whose ownership the platform cannot establish, so it
-//                       returns ErrOrgUnadopted and the operator reports it.
+//	knownOrgID set   -> verify it still exists and use it. The name may have
+//	                    changed; that is expected and is not this function's
+//	                    business.
+//	knownOrgID empty -> a name search decides only between "create" and
+//	                    "stop". A hit is NOT adoption: it is an organisation
+//	                    whose ownership the platform cannot establish, so it
+//	                    returns ErrOrgUnadopted and the operator reports it.
 //
 // The asymmetry is the point. Creating on a miss is safe -- nothing exists to
 // conflict with. Adopting on a hit is not, because a name is not an identity.

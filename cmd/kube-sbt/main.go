@@ -164,6 +164,47 @@ func main() {
 		}
 	}
 
+	// The issuer's outbound mail sender.
+	//
+	// ADR-060 (Amendment 2026-09-26): the issuer owns the credential lifecycle,
+	// which it can only do if it can send mail. Tenant owners are now created
+	// passwordless so an initialisation link is mailed to them; with no sender the
+	// account is created, no mail arrives, and the owner cannot get in at all.
+	// This is therefore a prerequisite for provisioning, not a notification
+	// nicety.
+	//
+	// Reconciled here rather than left to the chart because the chart configures
+	// SMTP through DefaultInstance, which the issuer reads exactly once — when the
+	// FIRST instance is created. On a cluster whose instance already exists that
+	// block configures nothing, silently. The chart covers a rebuilt box; this
+	// covers the one already running, and asserting it on every start means the
+	// two cannot disagree for long.
+	//
+	// Absent configuration is a no-op, not a failure: a box that has not been
+	// given a sender yet should start and serve everything that does not depend on
+	// mail. Failure to APPLY a sender that WAS configured is a warning for the
+	// same reason every other assertion here is.
+	if smtpHost := getEnv("ZITADEL_SMTP_HOST", ""); smtpHost != "" {
+		if mailer, ok := authProvider.(interface {
+			EnsureSMTP(context.Context, zitadel.SMTPConfig) error
+		}); ok {
+			cfg := zitadel.SMTPConfig{
+				Host:          smtpHost,
+				User:          getEnv("ZITADEL_SMTP_USER", ""),
+				Password:      getEnv("ZITADEL_SMTP_PASSWORD", ""),
+				TLS:           getEnv("ZITADEL_SMTP_TLS", "true") != "false",
+				SenderAddress: getEnv("ZITADEL_SMTP_FROM", ""),
+				SenderName:    getEnv("ZITADEL_SMTP_FROM_NAME", ""),
+				ReplyTo:       getEnv("ZITADEL_SMTP_REPLY_TO", ""),
+			}
+			if err := mailer.EnsureSMTP(context.Background(), cfg); err != nil {
+				fmt.Printf("warning: could not configure the issuer's mail sender; "+
+					"tenant owners will be created with no way to receive their "+
+					"initialisation mail: %v\n", err)
+			}
+		}
+	}
+
 	// The Kubernetes API server's OIDC client.
 	//
 	// Reconciled here rather than created once, because it is the ONE client the
