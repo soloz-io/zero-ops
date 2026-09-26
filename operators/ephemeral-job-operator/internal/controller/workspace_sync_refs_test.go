@@ -56,6 +56,18 @@ func TestWorkspaceSyncRefsResolveToWhatFleetsDeclare(t *testing.T) {
 			// producing "-sdk-secrets". A reference to a Secret literally named
 			// "-sdk-secrets" is another silent miss; an unexpanded {appId} shows
 			// up in `kubectl describe` and is the better failure.
+			// A real appId: a ULID, uppercase by specification. A reference
+			// carrying it verbatim is rejected by the API server as not an
+			// RFC 1123 subdomain, and the rejection lands on the pod, so the
+			// EphemeralJob sits with an empty status looking like it is still
+			// provisioning. The objects can only carry the lowercase form.
+			name:       "uppercase ULID appId is lowercased to a valid reference",
+			namespace:  "tenant-nutgraf-01M3CZS9NH6J4VV6JN67E3YH6J",
+			appID:      "01M3CZS9NH6J4VV6JN67E3YH6J",
+			wantSecret: "01m3czs9nh6j4vv6jn67e3yh6j-sdk-secrets",
+			wantConfig: "01m3czs9nh6j4vv6jn67e3yh6j-config",
+		},
+		{
 			name:       "missing appId does not collapse to a bare suffix",
 			namespace:  "tenant-nutgraf-waypoint",
 			appID:      "",

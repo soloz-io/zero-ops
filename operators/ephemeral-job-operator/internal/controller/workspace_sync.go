@@ -135,10 +135,18 @@ func resolveWorkspaceSyncConfig(namespace, appID string) string {
 // empty leaves `{appId}` unexpanded rather than producing `-sdk-secrets`: a
 // reference to a Secret named `-sdk-secrets` is a silent miss, and a visibly
 // wrong name in `kubectl describe` is the better failure.
+// An appId is lowercased on the way in. They are ULIDs, which are uppercase by
+// specification, and a Secret or ConfigMap reference is an RFC 1123 subdomain —
+// lower case only. An uppercase appId therefore produced a name the API server
+// rejects, and the rejection lands on the POD, not on the EphemeralJob: the CR
+// keeps an empty status with no events while the controller retries with
+// backoff, so a sandbox that can never be admitted looks like one still being
+// provisioned. The objects themselves can only ever carry the lowercase form,
+// for the same reason, so lowercasing here is what makes the reference resolve.
 func expandWorkspaceSyncRef(template, namespace, appID string) string {
 	out := strings.ReplaceAll(template, "{namespace}", namespace)
 	if appID != "" {
-		out = strings.ReplaceAll(out, "{appId}", appID)
+		out = strings.ReplaceAll(out, "{appId}", strings.ToLower(appID))
 	}
 	return out
 }
