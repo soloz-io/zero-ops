@@ -27,9 +27,7 @@
         from: /nutgraf-mgmt
         with: '/{{ .Values.global.tenantId }}-mgmt'
 
-- kind: ExternalSecret
-  name: zitadel-smtp-config
-  fields:
-    - replaceAll:
-        from: dev.nutgraf.in
-        with: '{{ .Values.global.hubDomain }}'
+# zitadel-smtp-config is deliberately ABSENT here. It interpolates the password
+# with ESO's `{{ .smtpPassword }}`, so it must be packaged verbatim; naming it
+# here makes the packager escape those braces inside a quoted scalar and the chart
+# then fails to parse. Its non-secret fields live in values.yaml instead.

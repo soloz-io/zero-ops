@@ -20,23 +20,25 @@ zitadel:
   # in git and in every ArgoCD diff.
   masterkeySecretName: zitadel-masterkey
 
-  # The SMTP block, supplied as a second --config file rather than inline here.
+  # The SMTP PASSWORD, and nothing else, arrives as a second --config file.
   #
   # ADR-060 (Amendment 2026-09-26): the issuer needs a mail sender to run its own
-  # initialisation and password-reset flows. The password cannot sit in this file,
-  # so the whole fragment arrives through the ExternalSecret beside it
-  # (zitadel-smtp-es.yaml) and this only names it.
+  # initialisation and password-reset flows. Everything about that sender except
+  # the credential is declared below beside ExternalDomain, because it is not
+  # secret and belongs with the rest of the instance's configuration.
+  #
+  # The split is not stylistic. The ExternalSecret carrying the password
+  # interpolates it with ESO's own `{{ .smtpPassword }}`, which Helm must not
+  # consume -- so that file is packaged VERBATIM. A file packaged verbatim cannot
+  # also carry a Helm substitution, and one that carried both produced
+  #
+  #   parse error at (templated.yaml): unexpected "\" in command
+  #
+  # when the packager escaped the ESO braces inside an already-quoted scalar. Two
+  # files, one concern each, and neither has to be escaped.
   #
   # The chart appends one --config per source and ZITADEL merges them in order, so
-  # a fragment holding only DefaultInstance.SMTPConfiguration MERGES with
-  # configmapConfig below instead of replacing it. Nothing has to be duplicated
-  # between the two.
-  #
-  # ⚠ DefaultInstance applies only when the FIRST instance is created. On a
-  # cluster whose instance already exists this configures nothing by itself --
-  # that instance needs AddSMTPConfig/UpdateSMTPConfig against the admin API. This
-  # is what makes a REBUILT box come up with mail already working, which is the
-  # half that survives.
+  # a fragment holding only the password MERGES with configmapConfig below.
   configSecretName: zitadel-smtp-config
   configSecretKey: config-yaml
 
@@ -44,6 +46,34 @@ zitadel:
     # Terminated by the gateway, as every other hub service is.
     ExternalSecure: true
     ExternalDomain: id.dev.nutgraf.in
+
+    # The mail sender, minus its credential (ADR-060, Amendment 2026-09-26).
+    #
+    # Literal, exactly as ExternalDomain above is: this file is already this box's
+    # configuration rather than a template, so a second box edits both together.
+    #
+    # ⚠ DefaultInstance is read ONCE, when the first instance is created. On a
+    # cluster whose instance already exists this configures nothing at all,
+    # silently -- helm reports success and the instance still has no sender. It is
+    # what makes a REBUILT box come up with mail working; the running one is
+    # reconciled through the admin API by kube-sbt (EnsureSMTP).
+    #
+    # Host MUST carry the port. :465 is implicit TLS, which is what ZITADEL dials
+    # first -- it falls back to STARTTLS only when the server answers in the clear,
+    # so TLS true is correct here and false would dial plaintext and be refused.
+    #
+    # The sender is on the instance's OWN domain, so
+    # DomainPolicy.SMTPSenderAddressMatchesInstanceDomain does not have to be
+    # relaxed. An off-domain sender -- a gmail.com address was evaluated first --
+    # would have required disabling that check instead of satisfying it.
+    DefaultInstance:
+      SMTPConfiguration:
+        SMTP:
+          Host: smtp.resend.com:465
+          User: resend
+        TLS: true
+        From: no-reply@dev.nutgraf.in
+        FromName: Nutgraf
     # 443, not the 8080 the container actually listens on. ExternalPort is the
     # port Zitadel BUILDS ITS PUBLIC URLS FROM, not the one it binds; the chart
     # defaults it to the listen port, which is right only when nothing sits in

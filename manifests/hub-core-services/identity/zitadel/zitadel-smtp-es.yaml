@@ -47,27 +47,29 @@ spec:
             key: client-secret
             namespace: platform-ops
 ---
-# The SMTP block, delivered as a CONFIG FRAGMENT rather than as loose env vars.
+# The SMTP PASSWORD, and nothing else.
 #
-# The chart passes every --config it is given in order and ZITADEL merges them, so
-# a fragment holding only DefaultInstance.SMTPConfiguration merges with the main
-# ConfigMap instead of replacing it. That is why `zitadel.configSecretName` can
-# carry this alone; see values.yaml, which names this Secret and its key.
+# Everything else about the sender -- host, user, TLS, from, from-name -- is
+# declared in values.yaml beside ExternalDomain, because none of it is secret and
+# all of it is this box's configuration. This file carries the one field that
+# cannot sit in git.
 #
-# The password is the only part that must not be in git. Everything else is here
-# in the open because it is not secret and because a reader debugging mail should
-# not have to reconstruct the host and sender from two places.
+# THE SPLIT IS LOAD-BEARING, not tidiness. `{{ .smtpPassword }}` below is ESO's
+# templating, not Helm's, so this file must be packaged VERBATIM -- the packager
+# emits files/ content through .Files.Get precisely so that ExternalSecret bodies
+# survive. A file packaged verbatim cannot also carry a Helm substitution, and one
+# that carried both (a templated From address alongside this placeholder) failed to
+# package at all:
 #
-# Resend on :465, which is IMPLICIT TLS. ZITADEL's getSMTPClientWithTls dials TLS
-# first and falls back to STARTTLS only on tls.RecordHeaderError, so 465 connects
-# on the first attempt and 587 would work too. `TLS: true` selects that path at
-# all -- false would dial plaintext and Resend would refuse.
+#   parse error at (templated.yaml:64): unexpected "\" in command
 #
-# The sender is on the instance's own domain, so
-# DomainPolicy.SMTPSenderAddressMatchesInstanceDomain does NOT have to be relaxed.
-# A gmail.com sender was evaluated first and would have required disabling that
-# check; a verified dev.nutgraf.in sender removes the need instead of working
-# around it.
+# because escaping the ESO braces inside an already-quoted YAML scalar produces
+# \" sequences that Helm's parser rejects inside a template action. So this file
+# is named in no templated-fields declaration, and must not be.
+#
+# The chart appends one --config per source and ZITADEL merges them in order, so a
+# fragment holding only the password merges with configmapConfig rather than
+# replacing it.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -93,12 +95,7 @@ spec:
           DefaultInstance:
             SMTPConfiguration:
               SMTP:
-                Host: smtp.resend.com:465
-                User: resend
                 Password: "{{ .smtpPassword }}"
-              TLS: true
-              From: no-reply@dev.nutgraf.in
-              FromName: Nutgraf
   data:
     - secretKey: smtpPassword
       remoteRef:
