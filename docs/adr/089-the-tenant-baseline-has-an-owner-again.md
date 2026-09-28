@@ -115,6 +115,15 @@ needs.
 The Job runs where the database already is, as the app's own role, with no Kubernetes
 API token (`automountServiceAccountToken: false`) and one egress rule.
 
+> **Amendment 2026-09-28 (ADR-093).** "As the app's own role" is the half of this
+> decision that was wrong, and it is what made the baseline's row-level security
+> inert: the Job creates the tables, so the application owns them, and PostgreSQL
+> exempts a table's owner from its policies. The Job now connects as
+> `tenant_<tenantId>_<appId>_owner`; the application's role owns nothing and holds
+> DML through DefaultPrivileges, so policies apply to it. Everything else here --
+> an ordinary Job rather than a hook, named by a hash of the SQL, no Kubernetes API
+> token, one egress rule -- stands unchanged.
+
 ### The Job is bounded
 
 `activeDeadlineSeconds: 240`, `backoffLimit: 2`, and this is not boilerplate.

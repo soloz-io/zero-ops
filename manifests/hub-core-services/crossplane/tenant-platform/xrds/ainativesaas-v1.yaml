@@ -37,12 +37,13 @@ spec:
               # ASCII, so characters are bytes and this is exact. postgres
               # truncates a longer identifier to 63 bytes with a NOTICE and
               # succeeds, which would silently map two apps onto one role.
-              - rule: "self.tenantId.size() + self.appId.size() <= 50"
+              - rule: "self.tenantId.size() + self.appId.size() <= 49"
                 message: >-
-                  tenantId and appId together must not exceed 50 characters: the
-                  derived role tenant_<tenantId>_<appId>_user must fit postgres's
-                  63-byte identifier limit, which truncates silently rather than
-                  failing.
+                  tenantId and appId together must not exceed 49 characters: the
+                  derived roles must fit postgres's 63-byte identifier limit, which
+                  truncates silently rather than failing. The bound follows the
+                  LONGEST generated role -- tenant_<tenantId>_<appId>_owner, whose
+                  fixed parts cost 14 bytes -- not the shortest (ADR-093).
               - rule: "self.dbRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_user'"
                 message: >-
                   dbRoleName is derived, not declared: it must equal

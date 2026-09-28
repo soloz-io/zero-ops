@@ -14,8 +14,9 @@ between people, whose reuse silently merges two accounts.
 An ordinary `Job` — not a PreSync hook, which would never fire because hooks are
 not part of ArgoCD's desired-state comparison — running `psql` from the image the
 spoke's own Postgres runs. Its name carries a hash of the SQL, so it re-runs when
-and only when these files change. It connects with the app's own database credential, holds no
-Kubernetes API token, and reaches nothing but `shared-cnpg` on 5432.
+and only when these files change. It connects with the app's OWNER credential
+(ADR-093) -- not the application's -- holds no Kubernetes API token, and reaches
+nothing but `shared-cnpg` on 5432.
 
 ## Writing one
 
@@ -27,9 +28,15 @@ on every sync:
 - `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` immediately before each
   `CREATE POLICY` / `CREATE TRIGGER`
 
-Nothing that needs superuser. The Job runs as the app's role, which owns the
-database — so `gen_random_uuid()` (built in since PG 13) is fine and
+Nothing that needs superuser. The Job runs as `tenant_<tenantId>_<appId>_owner`,
+which owns the database — so `gen_random_uuid()` (built in since PG 13) is fine and
 `CREATE EXTENSION` is not.
+
+It deliberately does NOT run as the application's role. It used to, and that is
+what made every policy below inert: the Job creates the tables, so the application
+owned them, and PostgreSQL exempts a table's owner from its own policies. A
+migration that adds a policy while running as the role the policy is meant to
+constrain protects nothing (ADR-093).
 
 Name files `NNNNNNNNNNNNNN_description.sql`. They are applied in sorted order.
 

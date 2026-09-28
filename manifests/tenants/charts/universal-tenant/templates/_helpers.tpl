@@ -108,7 +108,9 @@ with it has exactly one parse.
 LENGTH IS A CORRECTNESS PROPERTY. postgres truncates an identifier longer than 63
 BYTES to 63 with a NOTICE and then succeeds, so two apps sharing a 51-byte prefix
 would collide by truncation -- reintroducing exactly what the delimiter prevents.
-The fixed parts cost 13 bytes, leaving 50 for the two components together; the
+The fixed parts cost 14 bytes -- the bound follows the LONGEST generated role,
+tenant_<tenantId>_<appId>_owner (ADR-093), not the shorter _user -- leaving 49 for
+the two components together; the
 grammar admits only single-byte ASCII, so characters are bytes and the bound is
 exact. Both XRDs carry it as a CEL rule, and this fails first with a message that
 names the two lengths.
@@ -116,8 +118,8 @@ names the two lengths.
 {{- define "universal-tenant.dbRoleName" -}}
 {{- $t := include "universal-tenant.tenantId" . -}}
 {{- $a := include "universal-tenant.appId" . -}}
-{{- if gt (add (len $t) (len $a)) 50 -}}
-{{- fail (printf "tenantId (%q, %d chars) and appId (%q, %d chars) total %d, over the 50 available: the postgres role tenant_%s_%s_user would exceed postgres's 63-byte identifier limit, and postgres truncates rather than failing -- which would silently give two apps one role" $t (len $t) $a (len $a) (add (len $t) (len $a)) $t $a) -}}
+{{- if gt (add (len $t) (len $a)) 49 -}}
+{{- fail (printf "tenantId (%q, %d chars) and appId (%q, %d chars) total %d, over the 49 available: the postgres role tenant_%s_%s_owner would exceed postgres's 63-byte identifier limit, and postgres truncates rather than failing -- which would silently give two apps one role" $t (len $t) $a (len $a) (add (len $t) (len $a)) $t $a) -}}
 {{- end -}}
 tenant_{{ $t }}_{{ $a }}_user
 {{- end -}}

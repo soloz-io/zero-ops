@@ -97,6 +97,13 @@ are bytes here and the bound is exact. Both XRDs carry it as a CEL rule, verifie
 against a live cluster before being committed: 30+20=50 accepted, 30+21=51
 rejected, and at exactly 50 the rendered role is exactly 63 bytes.
 
+> **Amendment 2026-09-28 (ADR-093).** The budget is now **49**, not 50. ADR-093
+> adds a second generated role, `tenant_<tenantId>_<appId>_owner`, and `_owner` is
+> one byte longer than `_user`, so the fixed parts cost 14. The rule this ADR
+> establishes is unchanged and is the reason the number moved cleanly: the bound
+> follows the LONGEST generated role rather than being reasoned about per
+> consumer. Both XRD CEL rules carry 49.
+
 **The byte-safety argument depends on the grammar**, which is why there is now
 exactly one XRD defining `tenantdatabases.nutgraf.in`. Two were deployed by
 different ArgoCD owners and disagreed on `maxLength`; a contract two schemas claim

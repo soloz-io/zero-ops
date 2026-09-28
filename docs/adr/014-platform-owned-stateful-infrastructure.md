@@ -126,14 +126,14 @@ This rule is platform-wide and topology-independent. It carries forward the node
 ```
 platform-data Namespace
 ├── shared-cnpg (Cluster)
-│   ├── crossplane_admin (owner - migrations)
-│   ├── tenant_<tenantId>_<appId>_user (application - via provider-sql)
+│   ├── tenant_<tenantId>_<appId>_owner (owns objects - runs migrations)
+│   ├── tenant_<tenantId>_<appId>_user (application - RLS applies - via provider-sql)
 │   ├── <tenantId>-<appId>-db (logical database)
 │   └── shared-cnpg-rw (Pooler service)
 ├── Database Lifecycle
 │   ├── Creation: Crossplane provider-sql (declarative)
 │   ├── Credentials: Infisical → ESO → Secrets
-│   ├── Migrations: crossplane_admin (platform-owned)
+│   ├── Migrations: tenant_<tenantId>_<appId>_owner (per app - ADR-093)
 │   └── Access: Least-privilege via DefaultPrivileges
 └── Backup Strategy
     ├── Continuous WAL archiving (CNPG)

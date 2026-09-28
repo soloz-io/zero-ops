@@ -108,12 +108,13 @@ spec:
               # accepted, 30+21=51 is rejected, and at exactly 50 the rendered
               # role is exactly 63 bytes -- so the bound saturates the postgres
               # limit without ever reaching its silent truncation.
-              - rule: "self.tenantId.size() + self.appId.size() <= 50"
+              - rule: "self.tenantId.size() + self.appId.size() <= 49"
                 message: >-
-                  tenantId and appId together must not exceed 50 characters: the
-                  derived role tenant_<tenantId>_<appId>_user must fit postgres's
-                  63-byte identifier limit, which truncates silently rather than
-                  failing.
+                  tenantId and appId together must not exceed 49 characters: the
+                  derived roles must fit postgres's 63-byte identifier limit, which
+                  truncates silently rather than failing. The bound follows the
+                  LONGEST generated role -- tenant_<tenantId>_<appId>_owner, whose
+                  fixed parts cost 14 bytes -- not the shortest (ADR-093).
               # Rejects a declared dbRoleName that disagrees with its components,
               # so the field cannot drift from what it is derived from even if a
               # future composition forgets to patch it.

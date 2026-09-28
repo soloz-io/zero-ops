@@ -45,6 +45,22 @@ Two requests from the same person arriving together will both observe no user an
 
 ### Row-level security context is transaction-scoped
 
+> **Amendment 2026-09-28 (ADR-093).** Everything this section decides is correct and
+> implemented, and NONE of it had any effect until ADR-093. Setting the context is
+> necessary and not sufficient: PostgreSQL exempts a table's owner from its policies,
+> and the application connected as the owner of every baseline table, so the policies
+> were never evaluated. Measured on a live spoke as the application's own role with no
+> claims set, a query returned every row where the policy would have matched none.
+> ADR-093 separates the owner from the runtime role, which is the precondition that
+> makes this section load-bearing. Read them together; this one alone describes a
+> mechanism that runs and protects nothing.
+>
+> ADR-093 also changes HOW `resolveUser` reaches `identities`. The lookup happens
+> before any acting user exists, so under enforced RLS it matches nothing; it becomes
+> a hardened `SECURITY DEFINER` function. That is still a library on the application's
+> own connection, as decided below -- no network hop, no second component on the
+> request path -- only the privilege the statement runs with changes.
+
 The setting the baseline policies read is established for the duration of a transaction and no longer.
 
 This is not a stylistic preference. Tenants reach the database through a connection pool operating in transaction mode, where a server connection is handed to a different client the instant a transaction completes. A setting established for the session would outlive the request that set it and be inherited by whichever request borrows that connection next, and every policy would then evaluate against another person's identity. Transaction scoping is what makes pooled access safe, and a session-scoped equivalent is a cross-tenant disclosure rather than a lesser form of the same thing.
@@ -299,6 +315,9 @@ Per ADR-039.
 ## Impact
 
 - **Extends the tenant baseline's role.** The baseline's user and identity tables become part of the platform's contract with tenants rather than unused scaffolding.
+- **Supersedes ADR-010** (marked 2026-09-28). That decision predates ZITADEL,
+  assumed PostgREST and Atlas, and provisioned users through an administrative API
+  rather than on first authenticated request. It is retained for history only.
 - **Amends ADR-050.** That decision establishes how a tenant authenticates and where identity is validated; this one establishes what the validated identity resolves to inside the tenant's own data.
 - **Requires the platform auth library to be versioned and published** before a tenant can adopt the behaviour, so tenant adoption follows a release rather than a commit.
 - **Extends the platform auth library with a client surface** carrying no dependencies, so browser and native applications consume it directly rather than each restating the identity contract.

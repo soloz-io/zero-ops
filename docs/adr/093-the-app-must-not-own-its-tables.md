@@ -49,7 +49,7 @@ crossplane_admin -> tenant_nutgraf_oranger_user = arwdDxt   (tables)
 crossplane_admin -> tenant_nutgraf_oranger_user = rwU       (sequences)
 ```
 
-ADR-014's own diagram says `crossplane_admin (owner - migrations)`.
+ADR-014's diagram said `crossplane_admin (owner - migrations)`; this ADR amends it to name the per-app owner, since the platform's admin role is not the owner this decision settles on.
 
 Those grants never fire for the baseline tables, because
 `tenant-baseline-migration.yaml` connects with `tenant-<app>-db-credentials` --
