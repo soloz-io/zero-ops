@@ -58,6 +58,11 @@
 -- The function already fails safe if a name changes -- an unrecognised constraint
 -- re-raises rather than looping -- but failing at migration time names the cause,
 -- while failing at request time only says a user could not be resolved.
+-- array_append, not `||`. `text[] || 'literal'` is ambiguous -- PostgreSQL tries to
+-- parse the string as an array literal and fails with "malformed array literal",
+-- which only happens on the branch that runs when a constraint IS missing. The
+-- happy path never executes it, so the assertion looked correct while its failure
+-- path was broken; found by deliberately renaming a constraint to make it fire.
 DO $contract$
 DECLARE
   missing text[] := ARRAY[]::text[];
@@ -67,7 +72,7 @@ BEGIN
      WHERE conname = 'identities_provider_provider_user_id_key'
        AND conrelid = 'public.identities'::regclass
   ) THEN
-    missing := missing || 'identities_provider_provider_user_id_key';
+    missing := array_append(missing, 'identities_provider_provider_user_id_key');
   END IF;
 
   IF NOT EXISTS (
@@ -75,7 +80,7 @@ BEGIN
      WHERE conname = 'users_email_key'
        AND conrelid = 'public.users'::regclass
   ) THEN
-    missing := missing || 'users_email_key';
+    missing := array_append(missing, 'users_email_key');
   END IF;
 
   IF array_length(missing, 1) > 0 THEN
