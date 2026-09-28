@@ -49,6 +49,52 @@ spec:
         - redis-server
         - --appendonly
         - "yes"
+        # A corrupt AOF TAIL must not take the platform down (incident 2026-09-28).
+        #
+        # WHAT HAPPENED. platform-redis-0 sat in CrashLoopBackOff for ~10 hours:
+        #
+        #   Bad file format reading the append only file
+        #   appendonlydir/appendonly.aof.204.incr.aof at offset 27527150
+        #
+        # The RDB base was fine (2308 keys); the last 423 bytes of the incremental
+        # AOF were not -- the signature of an unclean shutdown, which this box had
+        # under disk pressure. Redis refuses to start on a corrupt tail, so a
+        # crashed pod could never come back on its own.
+        #
+        # WHY IT MATTERED FAR MORE THAN A CACHE OUTAGE. Nothing degraded a little;
+        # the platform's whole credential path stopped:
+        #
+        #   redis-0 crashlooping -> platform-redis Service has no endpoint
+        #     -> Infisical: connect EPERM 10.103.84.45:6379, CrashLoopBackOff, 503
+        #       -> ESO stores infisical-backend and tenant-secret-store:
+        #          "unable to create client"
+        #         -> every Infisical-backed ExternalSecret failing, hub AND spoke,
+        #            including every tenant database credential
+        #
+        # (EPERM rather than a hang is Cilium's socket LB reporting no backend for
+        # the Service, not a network policy denial.)
+        #
+        # WHAT THIS DOES. Redis loads an AOF whose corrupt tail is at most this
+        # many bytes, discards the tail, logs it, and starts. Anything larger still
+        # refuses to start and needs a human -- which is the point: this recovers
+        # from the small unclean-shutdown case automatically without silently
+        # accepting large-scale corruption.
+        #
+        # 4096, not 423. 423 was this incident's exact size and matching it would
+        # fix precisely the corruption we already fixed by hand. A bounded 4 KiB
+        # covers a partial write of a final command while staying far below
+        # anything that could hide real damage.
+        #
+        # NOT aof-load-truncated. Redis distinguishes the two: `truncated` is for
+        # an AOF cut short at a command boundary, this was a CORRUPT tail, and the
+        # binary carries both options and both messages separately. Verified in the
+        # pinned image (redis:8.6-alpine, v8.6.6), not assumed from upstream docs.
+        #
+        # This is the durable half. The incident's own repair was
+        # `redis-check-aof --fix` against a verified byte-identical snapshot; see
+        # docs/runbooks/redis-aof-corruption.md.
+        - --aof-load-corrupt-tail-max-size
+        - "4096"
         resources:
           limits:
             cpu: 100m
