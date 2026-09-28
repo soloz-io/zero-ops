@@ -1,9 +1,12 @@
 # ADR-095: Moving the API credential from the ID token to an access token
 
 **Date:** 2026-09-28
-**Revised:** 2026-09-29 -- the gateway's policy surface was read rather than
-inferred, and the reading changed the decision. What is corrected is marked in
-place; the first draft's reasoning is not silently replaced.
+**Revised:** 2026-09-29 -- twice. The gateway's policy surface was read rather
+than inferred, and then Zitadel's audience construction was, which DISPROVED the
+mechanism the first draft chose: an ID token and an access token carry the same
+audience, so no audience check can tell them apart. The invariant is now carried by
+`at_hash`. What is corrected is marked in place; the first draft's reasoning is not
+silently replaced.
 **Status:** Proposed
 **Implements:** ADR-094 invariant 1
 **Relates to:** ADR-050 (identity is validated at the boundary that uses it)
@@ -21,11 +24,16 @@ Authorization: '"Bearer " + jwt.rawToken.unredacted()'
 and every workload validates `aud == OIDC_CLIENT_ID`, which is exactly an ID
 token's audience.
 
-**Why it is not merely incorrect.** An ID token's `aud` is the client id. The
-cross-application mechanism ADR-094 adopts puts *project* ids into an ACCESS
-token's `aud`. So while workloads are handed ID tokens there is no audience for a
-sibling application to be granted, and ADR-094's cross-application call cannot be
-built at all. This is a precondition, not hygiene.
+**Why it is not merely incorrect.** An ID token is a statement *about* an
+authentication event, issued to the client that started it. An access token is a
+credential *for* a resource. Handing a resource the first and asking it to behave
+like the second is the confusion ADR-050 exists to prevent, and it is what the
+gateway does today.
+
+The first draft gave a second reason — that an ID token's `aud` is the client id,
+so no project audience exists for a sibling application to be granted. **That
+reason is false for Zitadel**, and the correction is the substance of this ADR.
+See "What Zitadel puts in an audience" below.
 
 ### What is already true, and removes most of the difficulty
 
@@ -40,6 +48,87 @@ So access tokens are **JWTs**, validated locally against the same JWKS by the sa
 validator, and they already carry `urn:zitadel:iam:org:project:roles`. No
 introspection endpoint, no second network dependency on the request path, and the
 platform's role-based authorisation keeps working unchanged.
+
+### What Zitadel puts in an audience, and why it cannot carry this decision
+
+Read in `reference-projects/zitadel`, after the gateway reading below made the
+receiver contract the remaining question.
+
+**The ID token and the access token carry the SAME audience.** One slice is built
+per session and both tokens are signed with it:
+
+```
+auth_request.go  audienceFromProjectID -> append(appIDs, projectID)
+                 i.e. EVERY client id in the project, PLUS the project id
+                 then AddAudScopeToAudience adds any urn:...:<project>:aud scopes
+
+token.go:54      createIDToken(..., session.Audience, ...)
+token.go:135     createJWT     (..., session.Audience, ...)   <- the access token
+```
+
+Three consequences, and they run in opposite directions:
+
+1. **`aud == OIDC_CLIENT_ID` already accepts an access token.** The client id is in
+   the access token's audience too. So the receivers do not have to change for the
+   gateway to switch — the dual-accept window the first draft called mandatory is
+   a no-op, and removing it removes a migration step rather than a safety net.
+
+2. **`aud contains <project id>` does not reject an ID token.** The ID token has the
+   project id as well. The first draft's endpoint — receivers require the project
+   audience — **does not achieve this ADR's own invariant.** It was the mechanism,
+   and it does not work.
+
+3. **It does not reject a sibling's ID token either.** ADR-094's cross-application
+   call requires oranger's login to request waypoint's project audience, and
+   `validateTokenExchangeAudience` requires the subject token to already hold the
+   audience being requested. So oranger's *ID token* carries waypoint's project id
+   by construction. A waypoint that checks only the audience accepts oranger's raw
+   browser token, and the exchange bought nothing at the receiver.
+
+Together with what was already established — `isScopeAllowed` returns true
+unconditionally for the project-audience scope prefix, so any client may request
+any project's audience — the conclusion is blunt:
+
+> **In Zitadel an audience is a routing hint, not an authorization boundary.**
+
+Anything this platform builds on "the audience names the resource, so the resource
+may trust it" is building on that. This ADR stops doing it.
+
+### What does discriminate, and it is provable
+
+`at_hash` is set in exactly one place in the whole Zitadel codebase:
+
+```
+token.go:106   claims.AccessTokenHash, err = oidc.ClaimHash(accessToken, signAlg)
+               ... inside createIDToken, and nowhere else
+```
+
+No access-token path sets it, by construction and by grep. It is also the standard
+answer rather than a Zitadel quirk: OIDC Core defines `at_hash` as an ID-token
+claim binding the ID token to its access token, and an access token has nothing to
+bind. **A receiver that refuses any token carrying `at_hash` refuses ID tokens.**
+
+This is worth more than the audience check it replaces: it is one claim, it needs
+no per-application configuration, it cannot drift as projects are created, and it
+fails closed against exactly the confusion this ADR names.
+
+### Two constraints on the exchange, before anything is configured
+
+Both would have been found by a failed deploy rather than by reading, so they are
+recorded here.
+
+**The exchange must ask for a JWT explicitly.** `createExchangeAccessToken` returns
+`op.CreateBearerToken(...)` — an **opaque** token — and it does so regardless of the
+application's `accessTokenType=JWT`. Only `createExchangeJWT` signs a JWT, and it is
+reached only by `requested_token_type = urn:ietf:params:oauth:token-type:jwt`.
+Zitadel maps an absent value to the access-token branch, and agentgateway *omits*
+`requestedTokenType` when unset. So the default configuration silently yields an
+opaque token, the receiver cannot validate locally, and the platform has bought an
+introspection call on every request — the network hop ADR-057 refused.
+
+**`resource` must not be sent.** `tokenExchange` rejects it outright:
+`"resource parameter not supported"`. Both agentgateway exchange policies offer a
+`resources` field; neither may be populated against Zitadel.
 
 ### What the gateway actually does with the tokens, read rather than assumed
 
@@ -93,20 +182,35 @@ not solve this; option B below is the shape in which it does.
 
 ## Decision
 
-### The receiver contract changes, and it changes once
+### The receiver contract changes, and the change is one claim
 
 ```
                         today                    after
-credential              id_token                 access token (JWT)
-aud                     == OIDC_CLIENT_ID        contains <project id>
+credential              id_token                 access token (JWT, from the exchange)
+aud                     == OIDC_CLIENT_ID        unchanged -- see below
+at_hash                 present, unchecked       MUST BE ABSENT  <- the new rule
 roles                   from the id_token        from the access token (already asserted)
 tenant                  claims.ts priority list  unchanged
-azp                     present                  present, and now required (ADR-094)
+azp                     present                  present, and required (ADR-094)
 ```
 
-`packages/auth` gains the project id as a required audience and stops accepting the
-client id. The tenant resolution in `claims.ts` is untouched: it never read the
-audience, which is why ADR-094's third invariant was already satisfied.
+**The audience check does not change, and must not be tightened.** The first draft
+would have replaced the client id with the project id. That buys nothing — both
+tokens carry both — and it costs a per-application configuration value that has to
+be right on every receiver on every box. The audience stays what it is: a check
+that the token belongs to this project's world at all.
+
+**`at_hash` absent is the invariant.** `packages/auth` refuses a token carrying it.
+That is the whole receiver-side change: one claim, no new configuration, and it
+fails closed.
+
+**What this deliberately does not claim.** Refusing `at_hash` stops an ID token
+being *mistaken* for an access token. It does not make the audience a boundary, so
+it does not on its own stop a sibling application's access token being replayed at
+this one. That isolation comes from the exchange being performed by the gateway
+with client credentials no browser holds, and from role assertions being
+project-scoped — not from `aud`. ADR-094's third invariant is restated on that
+basis rather than on the audience, and ADR-094 needs the amendment.
 
 ### Getting an access token to the workload
 
@@ -166,70 +270,87 @@ Reachable without any gateway change, and that is its only merit.
 that includes forwarding claims in `x-auth-*` headers: ADR-050 already refuses
 derived headers as an identity source, and the gateway comment says so.
 
-### The migration has a dual-accept window, and it is not optional
+### The migration is two independent steps, and neither needs a window
 
-Every tenant workload validates the audience. Changing what the gateway sends and
-what receivers require at the same instant is a flag day across every application
-on every box, and today's ADR-093 cutover demonstrated what the gap between two
-halves of a migration costs when they are assumed simultaneous.
+The first draft required a dual-accept window and called it not optional. The
+audience finding removes it. Because an access token's `aud` already contains the
+client id every receiver checks today, **the gateway can switch with no receiver
+change at all** — same issuer, same JWKS, same audience, roles already asserted.
 
 ```
-1. receivers accept EITHER  aud == client_id  OR  aud contains project id
-   deployed everywhere, verified, no behaviour change yet
-2. the gateway switches to the access token
-   receivers already accept it; nothing to coordinate
-3. receivers drop the client_id branch
-   the audience is now the project, and only the project
+1. the gateway exchanges and forwards an access token
+   receivers unchanged. They accept it because they already would.
+   verifiable on its own: nothing downstream knows it happened
+
+2. receivers refuse at_hash
+   ID tokens are now rejected. Nothing sends one any more, because step 1 landed.
 ```
 
-Step 1 is the safety. A receiver that reaches step 3 before step 2 rejects every
-live request; a gateway that reaches step 2 before step 1 is deployed everywhere
-does the same. The order is the design.
+The order still matters, in the same direction and for a sharper reason: step 2
+before step 1 rejects **every** live request, because every live request carries an
+ID token today. What has gone is the coordination *between* them — each step is
+safe alone, neither needs the other deployed simultaneously, and step 1 is
+observable before step 2 commits to anything.
 
-**Step 3 is not optional bookkeeping**, for the same reason the CNPG settle was
-not (ADR-092): a dual-accept receiver left in place indefinitely accepts an ID
-token forever, which is the state this ADR exists to end. It needs a check that
-fails while any receiver still accepts a client-id audience.
+**Step 2 is not optional bookkeeping**, for the same reason the CNPG settle was not
+(ADR-092): stopping after step 1 means nothing prevents an ID token being accepted
+again, and the defect this ADR exists to end is a configuration slip away. It needs
+a check that fails while any receiver still accepts a token carrying `at_hash`.
 
 ### Sequencing with ADR-094
 
-This ships **with** the per-application projects, not before. Until an application
-has its own project there is no project id for a receiver to require, and the only
-available audience is the shared `platform` project -- which would make every
-receiver accept every application's token, the exact collapse ADR-094 removes.
+**This no longer waits for the per-application projects.** The first draft coupled
+them, because a receiver was going to require a project id that does not exist
+until ADR-094 creates one. With the audience check unchanged and `at_hash` carrying
+the invariant, both steps above ship against today's shared `platform` project and
+improve the position immediately.
+
+ADR-094 is still needed, and this ADR now says something sharper about why. The
+per-application projects were justified partly as an isolation boundary — one
+project per application so an audience names one receiver. That justification is
+weaker than it looked: the audience is not a boundary in Zitadel, so splitting the
+projects does not by itself stop a sibling's token being presented. ADR-094 earns
+its place on **role scoping** and on having a distinct grant surface per
+application, not on the audience. It needs amending to say so, and to stop implying
+that the audience enforces anything.
 
 ## Consequences
 
-- One credential type on the request path, with an audience that names a resource
-  rather than a client.
-- ADR-094's cross-application call becomes constructible. It is not, today.
-- The platform gains RFC 8693 as a **gateway** capability, configured per backend,
-  and the cross-application case needs no second mechanism and no application code.
+- The credential on the request path is a credential for a resource, not a
+  statement about a login, and a receiver can prove which it is holding.
 - The `Authorization:` CEL expression is deleted. No policy holds a raw browser
   token in an expression any more, which was the reviewer's condition.
+- The platform gains RFC 8693 as a **gateway** capability, configured per backend,
+  and the cross-application call needs no second mechanism and no application code.
+- **The migration lost a step and gained safety.** Two independent deploys, no
+  dual-accept window, no flag day, and step 1 is observable before step 2 commits.
+- **A belief the platform held is now known to be false**: that an audience names
+  the receiver and may therefore be trusted by it. Every place that reasoned from
+  it needs re-reading — ADR-094 first.
 - A cache miss on the exchange adds a round trip to the identity provider on the
-  first request per audience per TTL. This is the price of A over B, stated so it
-  is not discovered later.
+  first request per audience per TTL.
 - The gateway becomes a party to token issuance, not merely validation. Its client
-  credentials for the exchange are a new secret on the request path, and they reach
-  it the way every other one does (Infisical, ExternalSecrets) — but the blast
-  radius of that credential is larger than the public client's, which holds none.
-- Every tenant workload changes what it validates. The dual-accept window makes
-  that safe; skipping it makes it a flag day.
+  credentials for the exchange are a new secret on the request path, reaching it
+  the way every other one does (Infisical, ExternalSecrets) — but the blast radius
+  of that credential is larger than the public client's, which holds none. It is
+  also what makes the exchange an isolation boundary at all, since a browser cannot
+  perform one.
 - Role-based authorisation is unaffected: roles are already asserted into access
-  tokens on every app in every org.
+  tokens on every app in every org, and `createExchangeJWT` asserts them too.
 
 ## Open
 
-**Whether Zitadel's token-exchange implementation accepts the ID-JAG shape
-`CrossAppAccessAuth` sends, or only the plainer `OAuthTokenExchangeAuth` profile.**
-Both are `BackendAuth` kinds and the choice between them does not change this
-decision — it changes which of two configurations is written. It is settled by one
-exchange against the deployed instance, not by reading, because the failure mode is
-a provider rejecting a parameter combination rather than anything visible in a
-schema. That probe is a prerequisite of implementation, not of this ADR.
+**Which exchange profile to configure, `OAuthTokenExchangeAuth` or
+`CrossAppAccessAuth`.** Both are `BackendAuth` kinds and both can be made to send
+the required `requested_token_type`; `CrossAppAccessAuth` performs the two-legged
+ID-JAG flow, which is more than the same-box case needs. Settled by configuring the
+simpler one first and only reaching for the other if the cross-application case
+needs the second leg.
 
-**Whether the exchange is attached per backend or once.** Per backend is what the
-surface offers and what the cross-application case wants. If several backends share
-one audience the configuration repeats, and whether that repetition is worth a
-helper is a chart question, deferred until there is more than one.
+**Whether Zitadel's instance requires token exchange to be enabled.** No feature
+gate appears in `token_exchange.go`, but absence in that file is not proof of
+absence in the instance's feature set. One exchange against the deployed instance
+answers it, and that probe is a prerequisite of step 1, not of this ADR.
+
+**Whether anything else in the platform trusts an audience.** This ADR found one
+place. The finding is general, and the sweep has not been done.
