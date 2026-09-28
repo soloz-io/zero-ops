@@ -10,6 +10,7 @@ export {
   TenantMismatchError,
   RoleDeniedError,
   TokenMissingError,
+  IdTokenPresentedError,
   JwksFetchError,
   KeyNotFoundError,
 } from "./types.js";

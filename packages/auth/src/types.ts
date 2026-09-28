@@ -79,3 +79,23 @@ export class KeyNotFoundError extends AuthError {
     this.name = "KeyNotFoundError";
   }
 }
+
+/**
+ * A token that identifies a login was presented where a credential for this API
+ * was required.
+ *
+ * Separate from TOKEN_INVALID deliberately: the token is well-formed, correctly
+ * signed by the right issuer, and carries the right audience. It is the wrong
+ * KIND of token, and an operator reading TOKEN_INVALID would look for a signing
+ * or clock problem that does not exist (ADR-095).
+ */
+export class IdTokenPresentedError extends AuthError {
+  constructor() {
+    super({
+      code: "ID_TOKEN_PRESENTED",
+      message:
+        "An ID token was presented where an access token is required: the token carries at_hash, which only an ID token does. APIs accept access tokens (ADR-095).",
+    });
+    this.name = "IdTokenPresentedError";
+  }
+}

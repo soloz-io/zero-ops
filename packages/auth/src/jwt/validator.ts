@@ -6,6 +6,7 @@ import {
   InvalidIssuerError,
   InvalidAudienceError,
   TokenMissingError,
+  IdTokenPresentedError,
   AuthError,
 } from "../types.js";
 
@@ -29,6 +30,29 @@ export interface JwtValidatorOptions {
    * tenant isolation is the boundary.
    */
   requireTenantId?: boolean;
+  /**
+   * Refuse a token that carries `at_hash`. Default true.
+   *
+   * `at_hash` binds an ID token to the access token issued beside it, so only an
+   * ID token has one -- an access token has nothing to bind. Refusing it is how
+   * this validator enforces ADR-095's invariant that APIs accept access tokens
+   * and never ID tokens.
+   *
+   * It is a claim check rather than an audience check because in Zitadel the two
+   * tokens share an audience: `createIDToken` and `createJWT` are both handed
+   * `session.Audience`, so no audience distinguishes them. `at_hash` is set in
+   * exactly one place in that codebase, inside `createIDToken`.
+   *
+   * ORDERING. A deployment whose gateway still forwards the ID token will have
+   * EVERY request refused by this. The gateway must be forwarding an exchanged
+   * access token first (ADR-095 step 1); adopting the SDK version that carries
+   * this default is step 2, and the two are separate deploys on purpose.
+   *
+   * Set false only to stage that ordering on a box that cannot do both at once.
+   * It is not a setting to leave off: off, the confusion this exists to catch is
+   * a configuration slip away.
+   */
+  rejectIdTokens?: boolean;
 }
 
 export class JwtValidator {
@@ -37,12 +61,14 @@ export class JwtValidator {
   private readonly audience?: string;
   private readonly algorithms: string[];
   private readonly requireTenantId: boolean;
+  private readonly rejectIdTokens: boolean;
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
     this.audience = opts.audience;
     this.algorithms = opts.algorithms ?? ["RS256", "ES256"];
     this.requireTenantId = opts.requireTenantId ?? true;
+    this.rejectIdTokens = opts.rejectIdTokens ?? true;
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
@@ -73,6 +99,22 @@ export class JwtValidator {
       }
 
       const { payload } = await jose.jwtVerify(token, key, verifyOptions);
+
+      // Checked on the VERIFIED payload, and before anything is derived from it.
+      //
+      // On the verified payload because an unverified one would let a forged
+      // claim decide, and the point is to reject a genuine token of the wrong
+      // kind -- not to guess at an untrusted one. Before deriving claims because
+      // a refused token must not reach tenant or role resolution at all: those
+      // read an identity out of it, and an ID token has a perfectly good one.
+      //
+      // Presence is the whole test. The value is a hash of an access token this
+      // service was never given and cannot check, so nothing is gained by
+      // reading it -- an ID token is disqualified by HAVING one.
+      if (this.rejectIdTokens && "at_hash" in (payload as Record<string, unknown>)) {
+        throw new IdTokenPresentedError();
+      }
+
       const claims = claimsFromPayload(payload as Record<string, unknown>);
 
       // No platform-scoped exemption, deliberately.
