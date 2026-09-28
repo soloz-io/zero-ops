@@ -52,13 +52,18 @@ spec:
       - "vector"
 
   bootstrap:
-    recovery:
-      source: shared-cnpg-v3
+    initdb:
+      database: app
+      owner: app
+      postInitSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        - ALTER ROLE app WITH CREATEROLE;
   externalClusters:
-    - name: shared-cnpg-v3
+    - name: shared-cnpg-v4
       barmanObjectStore:
         destinationPath: s3://spoke-pool-backups/
-        serverName: shared-cnpg-v3
+        serverName: shared-cnpg-v4
         endpointURL: https://hel1.your-objectstorage.com
         s3Credentials:
           accessKeyId:
