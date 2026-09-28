@@ -120,7 +120,14 @@ resources:
   - coredns-nodelocal.yaml
   # TenantDatabase XRD + composition (ADR-047): spoke-side Crossplane reconciles
   # TenantDatabase XRs pushed from the hub via provider-kubernetes remote pattern.
-  # Vendored copies of manifests/spoke/xrds + manifests/spoke/compositions.
+  #
+  # THESE ARE THE ONLY COPIES. They used to be described as vendored from
+  # manifests/spoke/compositions, and that stopped being true: this copy grew the
+  # cnpg-ca chain and db-user-admin-option, and moved the db-user role name from
+  # scopeId to appId, while the other copy stayed where it was and was deployed by
+  # nothing. Reading it to answer "what does the composition do" gave the wrong
+  # answer about which PostgreSQL role exists -- so it is deleted rather than
+  # resynced, and there is no second copy to drift.
   - tenant-db/xrd.yaml
   - tenant-db/composition.yaml
   # ADR-052 §7: the EphemeralJob controller. Deployed here, on the spoke,

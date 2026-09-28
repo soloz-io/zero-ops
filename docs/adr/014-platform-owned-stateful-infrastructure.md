@@ -127,8 +127,8 @@ This rule is platform-wide and topology-independent. It carries forward the node
 platform-data Namespace
 ├── shared-cnpg (Cluster)
 │   ├── crossplane_admin (owner - migrations)
-│   ├── tenant-{id}-user (application - via provider-sql)
-│   ├── tenant-{id}-db (logical database)
+│   ├── tenant_<tenantId>_<appId>_user (application - via provider-sql)
+│   ├── <tenantId>-<appId>-db (logical database)
 │   └── shared-cnpg-rw (Pooler service)
 ├── Database Lifecycle
 │   ├── Creation: Crossplane provider-sql (declarative)
@@ -140,6 +140,17 @@ platform-data Namespace
     ├── Scheduled snapshots (Barman)
     └── Point-in-time recovery capability
 ```
+
+> **Amendment 2026-09-28 (ADR-090).** The role and database names above were
+> written when the platform had ONE identifier for the customer and the product.
+> After ADR-088 split them, `tenant-{id}-user` was ambiguous and read as an
+> endorsement of a per-app role name — which is not safe, because a PostgreSQL
+> role is cluster-wide (`pg_authid` is a shared catalog) and a single spoke serves
+> multiple tenants (ADR-051), so two tenants with an app of the same name would
+> have shared one role owning both their databases. The role is now
+> `tenant_<tenantId>_<appId>_user`, delimited with `_` because the identifier
+> grammar forbids it and therefore makes the encoding injective. ADR-090 is
+> canonical for the name; this diagram is descriptive only.
 
 #### Redis (StatefulSet + Service)
 ```

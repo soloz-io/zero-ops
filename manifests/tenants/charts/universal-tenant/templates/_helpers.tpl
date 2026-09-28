@@ -77,3 +77,47 @@ two namespaces is a hole in both. Sharing is possible only through an explicit
 {{- define "universal-tenant.databaseName" -}}
 {{ include "universal-tenant.tenantId" . }}-{{ include "universal-tenant.appId" . }}-db
 {{- end -}}
+
+{{/*
+The postgres role an app's database credential authenticates as.
+
+THE ONLY PLACE THIS NAME IS BUILT. Every consumer -- the Role that creates it,
+the database it owns, the DefaultPrivileges granted on it, the role it is a
+member of, and the username templated into both ExternalSecrets -- reads
+spec.dbRoleName from the XR. Before this it was rebuilt at six patch sites in the
+composition and once more in the hub operator, and the operator built it on a
+different axis (tenantId, not appId), so the credential named a role that did not
+exist. Nothing compared the two: the only symptom was
+
+  psql: FATAL: password authentication failed for user "tenant-<tenant>-user"
+
+logged by the baseline migration Job, whose visible effect was a fleet with no
+users table.
+
+'_' IS A STRUCTURAL DELIMITER, NOT A STYLE CHOICE. A postgres role is
+CLUSTER-WIDE -- pg_authid and pg_auth_members are shared catalogs, so two
+databases in one cluster cannot hold distinct roles of the same name -- and one
+spoke serves several tenants (ADR-051). The name must therefore be injective over
+(tenantId, appId). Delimiting with '-' is NOT: '-' is legal inside both
+components, so ("foo", "bar-baz") and ("foo-bar", "baz") both render
+"foo-bar-baz", and the two tenants would have been handed a single role that owns
+both their databases. '_' is forbidden by the identifier grammar
+(^[a-z0-9]([-a-z0-9]*[a-z0-9])?$, enforced by the API server), so a name built
+with it has exactly one parse.
+
+LENGTH IS A CORRECTNESS PROPERTY. postgres truncates an identifier longer than 63
+BYTES to 63 with a NOTICE and then succeeds, so two apps sharing a 51-byte prefix
+would collide by truncation -- reintroducing exactly what the delimiter prevents.
+The fixed parts cost 13 bytes, leaving 50 for the two components together; the
+grammar admits only single-byte ASCII, so characters are bytes and the bound is
+exact. Both XRDs carry it as a CEL rule, and this fails first with a message that
+names the two lengths.
+*/}}
+{{- define "universal-tenant.dbRoleName" -}}
+{{- $t := include "universal-tenant.tenantId" . -}}
+{{- $a := include "universal-tenant.appId" . -}}
+{{- if gt (add (len $t) (len $a)) 50 -}}
+{{- fail (printf "tenantId (%q, %d chars) and appId (%q, %d chars) total %d, over the 50 available: the postgres role tenant_%s_%s_user would exceed postgres's 63-byte identifier limit, and postgres truncates rather than failing -- which would silently give two apps one role" $t (len $t) $a (len $a) (add (len $t) (len $a)) $t $a) -}}
+{{- end -}}
+tenant_{{ $t }}_{{ $a }}_user
+{{- end -}}

@@ -33,6 +33,7 @@ spec:
               scopeId: ""        # Patched: <tenant>-<app>, what names are built from
               databaseName: ""   # Patched: database.name
               cellId: ""         # Patched: cellId
+              dbRoleName: ""     # Patched: the postgres role, composed by the chart
         providerConfigRef:
           name: ""  # Patched: cellId (provider-kubernetes ProviderConfig for Spoke)
     readinessChecks:
@@ -66,6 +67,12 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.database.name
       toFieldPath: spec.forProvider.manifest.spec.databaseName
+    # Carried, not rebuilt. A combine here from tenantId and appId would be an
+    # eighth derivation of a name that already has one source, and the spoke XRD's
+    # CEL rule would reject any value that disagreed with its components anyway.
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.dbRoleName
+      toFieldPath: spec.forProvider.manifest.spec.dbRoleName
     - type: FromCompositeFieldPath
       fromFieldPath: spec.cellId
       toFieldPath: spec.forProvider.manifest.spec.cellId

@@ -26,6 +26,7 @@ spec:
               - appId
               - scopeId
               - databaseName
+              - dbRoleName
             properties:
               tenantId:
                 type: string
@@ -42,12 +43,23 @@ spec:
                   object names are built from this: the namespace already
                   carries both axes, so the objects inside it need only the app.
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                maxLength: 63
               scopeId:
                 type: string
                 description: >-
-                  "<tenantId>-<appId>". Namespaces, cluster-scoped Crossplane
-                  resources and the postgres role are built from this -- the
-                  things that would collide between two apps of one tenant.
+                  "<tenantId>-<appId>". Namespaces and cluster-scoped Crossplane
+                  resources are built from this -- the things that would collide
+                  between two apps of one tenant.
+
+
+                  NOT the postgres role, which it used to name. scopeId is NOT
+                  INJECTIVE: '-' is legal inside both components, so ("foo",
+                  "bar-baz") and ("foo-bar", "baz") both render "foo-bar-baz".
+                  A postgres role is a CLUSTER-WIDE identity -- pg_authid is a
+                  shared catalog -- and one spoke serves several tenants
+                  (ADR-051), so two tenants could have been handed the same
+                  role. The role is dbRoleName below, which delimits with '_'
+                  precisely because the grammar above forbids it.
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 maxLength: 127
               databaseName:
@@ -60,7 +72,55 @@ spec:
                 description: "Spoke Pool cluster name for Infisical path (e.g., 'spoke-pool-eu-prod-01')"
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 maxLength: 63
+              dbRoleName:
+                type: string
+                description: >-
+                  The postgres role this app authenticates as:
+                  "tenant_<tenantId>_<appId>_user".
+
+
+                  DERIVED, NOT DECLARED. It is composed once where scopeId is
+                  composed, and the rule below rejects any other value -- so a
+                  hand-written name cannot become a second source of truth. Every
+                  consumer reads this field; nothing rebuilds the name. It used
+                  to be rebuilt at six patch sites plus once in the hub operator,
+                  on a DIFFERENT axis, and the disagreement surfaced only as
+                  "password authentication failed" inside a migration Job.
+
+
+                  '_' IS THE STRUCTURAL DELIMITER and that is what makes the
+                  encoding injective: the grammar above permits only [a-z0-9-],
+                  so neither component can contain '_' and the name has exactly
+                  one parse. Delimiting with '-' does not -- see scopeId.
+
+
+                  63 BYTES, NOT CHARACTERS. postgres truncates a longer
+                  identifier to 63 bytes with a NOTICE and succeeds, which would
+                  map two distinct apps onto one role. The grammar admits only
+                  single-byte ASCII, so characters are bytes here and the budget
+                  rule below is exact: 'tenant_'(7) + '_'(1) + '_user'(5) = 13,
+                  leaving 50 for the two components together.
+                pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_user$'
+                maxLength: 63
               # NOTE: Removed compositionRef, resourceRefs, etc. Crossplane injects these automatically.
+            x-kubernetes-validations:
+              # Verified against this cluster before being committed: 30+20=50 is
+              # accepted, 30+21=51 is rejected, and at exactly 50 the rendered
+              # role is exactly 63 bytes -- so the bound saturates the postgres
+              # limit without ever reaching its silent truncation.
+              - rule: "self.tenantId.size() + self.appId.size() <= 50"
+                message: >-
+                  tenantId and appId together must not exceed 50 characters: the
+                  derived role tenant_<tenantId>_<appId>_user must fit postgres's
+                  63-byte identifier limit, which truncates silently rather than
+                  failing.
+              # Rejects a declared dbRoleName that disagrees with its components,
+              # so the field cannot drift from what it is derived from even if a
+              # future composition forgets to patch it.
+              - rule: "self.dbRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_user'"
+                message: >-
+                  dbRoleName is derived, not declared: it must equal
+                  tenant_<tenantId>_<appId>_user.
           status:
             type: object
             properties:

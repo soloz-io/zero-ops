@@ -34,6 +34,11 @@ spec:
   database:
     name: {{ $databaseName }}
 
+  # Composed once, here, for the same reason scopeId is (above): every consumer
+  # reads this field instead of rebuilding the name. See the helper for why '_'
+  # delimits and why the length is a correctness property rather than a limit.
+  dbRoleName: {{ include "universal-tenant.dbRoleName" . }}
+
   pooler:
     maxConnections: {{ $poolerMaxConn }}
     poolMode: {{ $poolerMode }}

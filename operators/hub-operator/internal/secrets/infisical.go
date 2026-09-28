@@ -1171,13 +1171,34 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 			logger.Error(err, "Failed to generate password for tenant")
 			return nil, fmt.Errorf("failed to generate password for tenant %s: %w", tenantId, err)
 		}
-		username := fmt.Sprintf("tenant-%s-user", tenantId)
 
-		logger.Info("Generated credentials for tenant", "usernameLength", len(username), "passwordLength", len(password))
+		logger.Info("Generated database password for tenant", "passwordLength", len(password))
 
+		// THE PASSWORD, AND NOTHING ELSE.
+		//
+		// This used to write a username too, built as "tenant-<tenantId>-user".
+		// The role it named is created by the spoke composition from a DIFFERENT
+		// axis, and nothing compared the two, so the credential named a role that
+		// did not exist. The failure surfaced only as
+		//
+		//	psql: FATAL: password authentication failed for user "tenant-<tenant>-user"
+		//
+		// inside the tenant baseline migration Job, three systems away from either
+		// half of the name, and its visible effect was a fleet with no users table.
+		// It had passed for a year because the first tenant's tenantId WAS its
+		// appId; two apps of one tenant would additionally have COLLIDED on one
+		// role, since a postgres role is cluster-wide.
+		//
+		// The name now has exactly one definition -- spec.dbRoleName on the XR,
+		// composed by the chart -- and the composition patches it into the
+		// ExternalSecret's template. A username is a derived NAME, not a secret,
+		// and it only lived here because it was generated beside a password.
+		//
+		// A key left over from before is simply unread: nothing fetches
+		// `property: username` any more.
+		//
 		// COMPOSITE SECRET: Marshal to JSON for ESO 'property' parsing
 		dbJsonBytes, err := json.Marshal(map[string]string{
-			"username": username,
 			"password": password,
 		})
 		if err != nil {

@@ -57,17 +57,30 @@ spec:
                         template:
                           type: Opaque
                           data:
-                            username: "{{ .username }}"
+                            # PATCHED from spec.dbRoleName, not fetched.
+                            #
+                            # A username is not a secret. It is a derived NAME, and
+                            # it sat in the secret store only because it was
+                            # generated next to a password -- which made the secret
+                            # store a second source of truth for an identity the
+                            # composition already owns. database/host/port/sslmode
+                            # beside it are patched or literal for exactly this
+                            # reason; username was the one exception.
+                            #
+                            # That exception was the defect: the hub operator wrote
+                            # it from tenantId while this composition created the
+                            # role from appId, and nothing compared them. The only
+                            # symptom was a psql FATAL inside a migration Job.
+                            username: ""  # Patched from spec.dbRoleName
                             password: "{{ .password }}"
                             database: ""  # Patched dynamically from spec.databaseName
                             host: "shared-cnpg-rw.platform-data.svc.cluster.local"
                             port: "5432"
                             sslmode: "require"  # HARDENING (ADR-030): Explicit TLS enforcement
                       data:
-                        - secretKey: username
-                          remoteRef:
-                            key: ""  # Patched
-                            property: username
+                        # ONE ENTRY. Infisical holds the password and nothing else
+                        # about this identity; username is patched into the
+                        # template above from spec.dbRoleName.
                         - secretKey: password
                           remoteRef:
                             key: ""  # Patched
@@ -114,6 +127,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbRoleName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.username
               # EXACT KEY PATH MATCHING FOR JSON COMPOSITE OBJECT
               - type: CombineFromComposite
                 combine:
@@ -124,15 +140,6 @@ spec:
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.appId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
 
           # Resource 2: CNPG Database CR
           - name: database
@@ -178,13 +185,8 @@ spec:
               # are the things that would actually collide between two apps of one
               # tenant. The db-user Role below must use appId for the same reason.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.appId
+                fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.manifest.spec.owner
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
 
           # Resource 3b: Pooler App Secret (for Workloads)
           # Follows ADR-003: Infisical as single source of truth (Pattern B: Application Secrets)
@@ -216,7 +218,21 @@ spec:
                           engineVersion: v2
                           data:
                             # HARDENING (ADR-030): Discrete keys for poolers, sidecars, and audit tooling
-                            username: "{{ .username }}"
+                            # PATCHED from spec.dbRoleName, not fetched.
+                            #
+                            # A username is not a secret. It is a derived NAME, and
+                            # it sat in the secret store only because it was
+                            # generated next to a password -- which made the secret
+                            # store a second source of truth for an identity the
+                            # composition already owns. database/host/port/sslmode
+                            # beside it are patched or literal for exactly this
+                            # reason; username was the one exception.
+                            #
+                            # That exception was the defect: the hub operator wrote
+                            # it from tenantId while this composition created the
+                            # role from appId, and nothing compared them. The only
+                            # symptom was a psql FATAL inside a migration Job.
+                            username: ""  # Patched from spec.dbRoleName
                             password: "{{ .password }}"
                             database: ""   # Patched dynamically
                             host: ""       # Patched dynamically (pooler host)
@@ -224,10 +240,9 @@ spec:
                             sslmode: "require"
                             url: ""        # Patched dynamically with urlquery-encoded DSN
                       data:
-                        - secretKey: username
-                          remoteRef:
-                            key: ""  # Patched
-                            property: username
+                        # ONE ENTRY. Infisical holds the password and nothing else
+                        # about this identity; username is patched into the
+                        # template above from spec.dbRoleName.
                         - secretKey: password
                           remoteRef:
                             key: ""  # Patched
@@ -280,19 +295,13 @@ spec:
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.appId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
               # Dynamic configuration values (not secrets)
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbRoleName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.username
               # HARDENING (ADR-030): Pooler host as discrete key for sidecars and audit tooling
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.appId
@@ -310,11 +319,14 @@ spec:
                     # split too, when the field feeding it was called tenantId
                     # and held a product. Renaming it would break every chart
                     # that references waypoint-pooler-app.
+                    # dbRoleName first: the DSN used to interpolate ESO's
+                    # {{ .username }}, which no longer exists as a fetched key.
+                    - fromFieldPath: spec.dbRoleName
                     - fromFieldPath: spec.appId
                     - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://{{ .username }}:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
+                    fmt: "postgresql://%s:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
 
           # Resource 4: provider-sql Role (tenant user)
@@ -323,7 +335,28 @@ spec:
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
               kind: Role
-              metadata: {}
+              metadata:
+                annotations:
+                  # THE POSTGRES ROLE NAME LIVES HERE, not in metadata.name.
+                  #
+                  # provider-sql reads the role name from this annotation and
+                  # nowhere else: `meta.GetExternalName(mg)` is the only source at
+                  # every site -- the pg_roles lookup in Observe, CREATE ROLE,
+                  # ALTER ROLE and DROP ROLE -- and Role.spec.forProvider carries
+                  # no name field at all. It is always wrapped in
+                  # pq.QuoteIdentifier, so '_' is safe and nothing is case-folded.
+                  # Verified against both the pinned v0.14.0 and the vendored
+                  # v0.16.1 in reference-projects/provider-sql; neither calls
+                  # SetExternalName, so the annotation is never rewritten.
+                  #
+                  # It has to be separate from metadata.name because a Kubernetes
+                  # object name is an RFC 1123 name, which forbids '_' -- and '_'
+                  # is exactly what makes the role name injective over
+                  # (tenantId, appId). Three namespaces, one job each:
+                  #   metadata.name  Kubernetes identity
+                  #   external-name  postgres identity
+                  #   spec.dbRoleName  the canonical platform value both derive from
+                  crossplane.io/external-name: ""  # Patched from spec.dbRoleName
               spec:
                 forProvider:
                   privileges:
@@ -363,6 +396,13 @@ spec:
                     string:
                       type: Format
                       fmt: "tenant-%s-user"
+              # The postgres identity. metadata.name above is deliberately left on
+              # its legacy shape: repatching it deletes this composed resource and
+              # DROP ROLE fails on a role that owns a database. Renaming it belongs
+              # to the role migration, after ownership has moved.
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbRoleName
+                toFieldPath: metadata.annotations[crossplane.io/external-name]
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.passwordSecretRef.namespace
@@ -422,13 +462,8 @@ spec:
                       type: Format
                       fmt: "tenant-%s-user-admin-option"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.appId
+                fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.memberOf
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
 
           # Resource 5: provider-sql DefaultPrivileges (ALL privileges on tables in public schema)
           - name: default-privileges-tables
@@ -464,13 +499,8 @@ spec:
                       type: Format
                       fmt: "tenant-%s-default-privileges-tables"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.appId
+                fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.role
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
@@ -505,13 +535,8 @@ spec:
                       type: Format
                       fmt: "tenant-%s-default-privileges-sequences"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.appId
+                fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.role
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database

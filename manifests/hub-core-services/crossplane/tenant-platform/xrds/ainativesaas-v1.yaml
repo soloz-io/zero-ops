@@ -30,6 +30,23 @@ spec:
             - tier
             - cellId
             - database
+            - dbRoleName
+            x-kubernetes-validations:
+              # 'tenant_'(7) + '_'(1) + '_user'(5) = 13 fixed bytes, leaving 50
+              # for the two components. The grammar admits only single-byte
+              # ASCII, so characters are bytes and this is exact. postgres
+              # truncates a longer identifier to 63 bytes with a NOTICE and
+              # succeeds, which would silently map two apps onto one role.
+              - rule: "self.tenantId.size() + self.appId.size() <= 50"
+                message: >-
+                  tenantId and appId together must not exceed 50 characters: the
+                  derived role tenant_<tenantId>_<appId>_user must fit postgres's
+                  63-byte identifier limit, which truncates silently rather than
+                  failing.
+              - rule: "self.dbRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_user'"
+                message: >-
+                  dbRoleName is derived, not declared: it must equal
+                  tenant_<tenantId>_<appId>_user.
             properties:
               tenantId:
                 type: string
@@ -60,6 +77,25 @@ spec:
                   that default is the collapse ADR-088 removes.
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 minLength: 3
+                maxLength: 63
+              dbRoleName:
+                type: string
+                description: >-
+                  The postgres role this app's database credential authenticates
+                  as: "tenant_<tenantId>_<appId>_user". Composed once by the chart
+                  beside scopeId and carried unchanged to the spoke's
+                  TenantDatabase, which enforces the same two rules.
+
+
+                  It is NOT built from scopeId. A postgres role is cluster-wide
+                  (pg_authid is a shared catalog) and one spoke serves several
+                  tenants (ADR-051), while scopeId is not injective -- '-' is
+                  legal inside both components, so ("foo", "bar-baz") and
+                  ("foo-bar", "baz") both render "foo-bar-baz" and two tenants
+                  would have shared one role. '_' cannot occur in either
+                  component under the grammar above, which is what makes this
+                  encoding injective.
+                pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_user$'
                 maxLength: 63
               tier:
                 type: string
