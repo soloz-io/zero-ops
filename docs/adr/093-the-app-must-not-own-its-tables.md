@@ -263,6 +263,67 @@ the runtime role with no claims set, `SELECT count(*) FROM public.users` returns
 **0**; inside `withUserContext` it returns that user's rows and no others. Today
 it returns every row.
 
+## Executed for oranger, 2026-09-28 (and the order was wrong)
+
+The ADR said: apply the composition, let the migration Job establish the grants,
+then `REASSIGN OWNED`. **That order does not work, and the live run proved it in
+the first thirty seconds.**
+
+Once the Job runs as the owner, it cannot touch tables it does not yet own:
+
+```
+applying 20240101000001_create_users_table.sql
+NOTICE:  relation "users" already exists, skipping
+ERROR:   must be owner of table users
+```
+
+`CREATE TABLE IF NOT EXISTS` is a no-op on an existing table, but the
+`ALTER TABLE ... ENABLE ROW LEVEL SECURITY` that follows is not, and the owner role
+is not yet the owner. The Job cannot apply its own grants until ownership has
+already moved.
+
+**So `REASSIGN OWNED` comes FIRST, then the Job.** The corrected order:
+
+```
+1. composition syncs      owner role created, database owner moves,
+                          Job FAILS -- expected, it owns nothing yet
+2. REASSIGN OWNED BY <runtime> TO <owner>
+3. delete the failed Job so ArgoCD recreates it
+4. Job succeeds, applying the grants in 20240101000006
+```
+
+Between 2 and 4 the application can reach nothing: it no longer owns the tables
+and has not yet been granted access. For oranger that window was harmless -- it has
+no database consumer at all. **For any application with live connections this is an
+outage**, and it is the reason waypoint's cutover must be planned around its own
+traffic rather than run the same way.
+
+### Result
+
+```
+runtime owns:        0 schemas, 0 relations, 0 functions
+runtime holds:       SELECT, INSERT, UPDATE, DELETE on public.users
+                     (no TRUNCATE, no REFERENCES, no ownership)
+CREATE TABLE:        refused
+no claims set:       users 0 rows, identities 0 rows
+claims = my user:    1 row
+claims = another:    0 rows
+INSERT, no claims:   ERROR: new row violates row-level security policy
+```
+
+An hour earlier the same probe on the same database returned every row and the
+INSERT succeeded.
+
+### What is NOT done
+
+Criterion 4 -- the hardened `SECURITY DEFINER` resolution function -- is
+application-side and has not been written. It did not block this cutover because
+nothing calls `resolveUser` yet. It now BLOCKS the first code that does: with RLS
+enforced, reading `identities` before a user context exists returns nothing, so
+resolution would create a duplicate user and collide on the uniqueness constraint.
+That function is the first thing oranger's user-management work needs, not a
+follow-up to it.
+
 ## Consequences
 
 - **RLS becomes real.** The same probe that returns 2 rows today returns 0 without
