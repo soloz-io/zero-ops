@@ -3,7 +3,16 @@ name: Publish zero-ops-auth
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # feat/** too, matching every component workflow in this repo.
+    #
+    # The branch filter was never what kept a feature branch from publishing --
+    # the `publish` job below is gated on
+    # `github.ref == 'refs/heads/main'` and cannot run from anywhere else. All the
+    # filter did was skip VALIDATION, so a change to packages/auth pushed to a
+    # feature branch got no typecheck, no tests and no build until it reached a PR.
+    #
+    # That is how zero-ops-auth 0.12.0 was pushed on 2026-09-28 and nothing ran.
+    branches: [main, "feat/**"]
     paths:
       - "packages/auth/**"
       - ".github/workflows/publish-auth.yml"
