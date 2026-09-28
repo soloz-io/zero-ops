@@ -15,6 +15,18 @@
        set it could point its login flow at an issuer the platform does not
        trust. */ -}}
 {{- $issuer := required "oidcIssuer must be supplied by the environment" .Values.oidcIssuer }}
+{{- /* The issuer's HOST, for the token endpoint the exchange posts to
+       (ADR-095). A backend reference takes host:port, not a URL, so the scheme
+       is stripped here rather than a second value being declared that could
+       disagree with the issuer. */ -}}
+{{- $issuerHost := $issuer | trimPrefix "https://" | trimPrefix "http://" | trimSuffix "/" }}
+{{- /* The token endpoint path. Zitadel's is /oauth/v2/token.
+
+       A value with a default, not a literal, because ADR-059 keeps
+       issuer-specific spellings out of the tenant chart -- and this is one. It
+       is defaulted rather than required because every box today runs the same
+       issuer, and a required value would make each of them restate a constant. */ -}}
+{{- $tokenPath := .Values.oidcTokenEndpointPath | default "/oauth/v2/token" }}
 {{- /* Derived, not declared. A fleet that could name its own backends could
        route to another fleet's services; one that could name its own client id
        could claim another fleet's OAuth client. Both follow from the tenant
@@ -157,6 +169,104 @@ data:
         - name: {{ $t }}-api
           backends:
           - host: {{ $bff }}
+            policies:
+              # ADR-095 step 1. The credential the BFF receives is an ACCESS
+              # token minted for it, not the browser's ID token.
+              #
+              # This replaces a transformation that read
+              # `jwt.rawToken.unredacted()` into the Authorization header. That
+              # forwarded the session's ID TOKEN -- a statement about a login,
+              # issued to the gateway's client -- and asked an API to treat it
+              # as a credential for itself.
+              #
+              # WHY NOT `passthrough`. agentgateway has a native
+              # backendAuth.passthrough that forwards the validated incoming
+              # JWT, and it would be simpler. It forwards whatever filled the
+              # Claims slot, and under a gateway-mediated browser session that
+              # is the ID token -- the exact credential this removes. The OIDC
+              # policy DISCARDS the access token from the code exchange
+              # (BrowserSession holds only raw_id_token), so there is nothing
+              # for it to forward.
+              backendAuth:
+                oauthTokenExchange:
+                  # RFC 8693, at the issuer.
+                  host: {{ $issuerHost }}:443
+                  path: {{ $tokenPath }}
+                  policies:
+                    # The issuer is reached over TLS. Without this the gateway
+                    # speaks cleartext to :443 and every exchange fails in a way
+                    # that reads as the issuer being down.
+                    backendTLS: {}
+                  subjectToken:
+                    # The session's ID token, read through CEL.
+                    #
+                    # The default source is the Authorization Bearer header, and
+                    # there ISN'T one: a browser request carries the session
+                    # cookie, and the OIDC policy puts the validated token in
+                    # request extensions rather than in a header. The expression
+                    # source exists for exactly this and is extraction-only.
+                    #
+                    # The raw token still passes through an expression, but as
+                    # the INPUT to an exchange rather than as the credential
+                    # handed to the backend. It is spent here and never leaves
+                    # the gateway.
+                    source:
+                      expression: jwt.rawToken.unredacted()
+                    # Named, not defaulted. The default is access_token, and
+                    # what is being sent is an ID token; Zitadel verifies the
+                    # subject according to this URN (verifyExchangeToken), so a
+                    # wrong value fails as "token invalid" rather than as a
+                    # configuration error.
+                    #
+                    # id_token and NOT jwt, deliberately: the JWT subject type
+                    # routes into Zitadel's impersonation path, which requires
+                    # permissions this exchange neither has nor wants.
+                    tokenType: urn:ietf:params:oauth:token-type:id_token
+                  # REQUIRED, and the least obvious line here.
+                  #
+                  # Zitadel's createExchangeAccessToken returns an OPAQUE
+                  # bearer token -- and does so regardless of the application's
+                  # accessTokenType=JWT. Only createExchangeJWT signs a JWT, and
+                  # it is reached ONLY by this value. Zitadel maps an absent
+                  # requested_token_type to the opaque branch, and agentgateway
+                  # OMITS the field when unset, so leaving this out yields a
+                  # token no receiver can validate locally -- buying an
+                  # introspection call on every request, the network hop ADR-057
+                  # refused.
+                  requestedTokenType: urn:ietf:params:oauth:token-type:jwt
+                  # The audience the issued token is minted for.
+                  #
+                  # Allowed because validateTokenExchangeAudience requires the
+                  # REQUESTED audience to be present in the subject token
+                  # already, and it is: Zitadel builds one audience per session
+                  # (every client id in the project, plus the project id) and
+                  # signs it into both tokens.
+                  #
+                  # That is also why this is not an isolation boundary, and
+                  # ADR-095 says so. The boundary is that performing this
+                  # exchange needs client credentials no browser holds.
+                  audiences:
+                  - "${OIDC_PROJECT_ID}"
+                  # NO `resources`. Zitadel rejects the RFC 8693 `resource`
+                  # parameter outright ("resource parameter not supported"), so
+                  # populating the field agentgateway offers fails every
+                  # exchange.
+                  clientAuth:
+                    method: clientSecretBasic
+                    clientId: "${OIDC_EXCHANGE_CLIENT_ID}"
+                    # From a file, not from the environment. agentgateway
+                    # watches file-sourced secrets, so a rotation reloads
+                    # without a restart -- and the value never enters the
+                    # process environment, where anything reading /proc or a
+                    # crash dump would find it. The client id above is not
+                    # secret and follows the established env pattern.
+                    clientSecret:
+                      file: /etc/agentgateway-secrets/exchange-client-secret
+                  cache:
+                    # Per audience, so the exchange is off the request path
+                    # except on a miss. Zitadel returns expires_in, so this TTL
+                    # applies only if it ever stops.
+                    defaultTtl: 300s
           hostnames:
           {{- range $hosts }}
           - {{ . }}
@@ -168,14 +278,12 @@ data:
             transformations:
               request:
                 set:
-                  # Forward the ID token itself, not merely claims derived from
-                  # it. The BFF validates identity independently (ADR-050) and
-                  # refuses to derive it from the x-auth-* headers below, so
-                  # without this the gateway authenticates the user and the BFF
-                  # still sees nobody. .unredacted() is required: the value
-                  # renders as "<redacted>" otherwise, forwarding a well-formed
-                  # header carrying nothing.
-                  Authorization: '"Bearer " + jwt.rawToken.unredacted()'
+                  # Authorization is NOT set here any more. The backendAuth
+                  # policy above writes it, after the exchange, and a
+                  # transformation setting it would be overwritten or would
+                  # overwrite -- depending on phase, which is not a thing to
+                  # depend on.
+                  #
                   # sub and email are registered OIDC claims: every issuer emits
                   # them under these names, so the expressions resolve.
                   X-Auth-Subject: jwt.sub
@@ -562,6 +670,26 @@ spec:
     - secretKey: oidc-org-id
       remoteRef:
         key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_ORG_ID
+    # ADR-095. The gateway exchanges the session's ID token for an access token
+    # minted for the API, and does so as a CONFIDENTIAL client -- a different
+    # client from the public one above, which holds no secret.
+    #
+    # That difference is the point. agentgateway will send client_id alone
+    # (clientSecretPost with no secret), and Zitadel would accept it from the
+    # public client -- at which point a browser could perform the same exchange
+    # and the exchange would stop being a boundary. It is a boundary only
+    # because it needs a credential the browser does not have.
+    - secretKey: oidc-exchange-client-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_EXCHANGE_CLIENT_ID
+    - secretKey: oidc-exchange-client-secret
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_EXCHANGE_CLIENT_SECRET
+    # The audience the exchanged token is minted for. Allocated by the issuer
+    # when the project is created, so it cannot be rendered.
+    - secretKey: oidc-project-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_PROJECT_ID
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -674,9 +802,34 @@ spec:
             secretKeyRef:
               name: {{ $name }}-oidc-client
               key: oidc-org-id
+        # ADR-095. Neither of these is secret: the client id identifies the
+        # gateway at the issuer and the project id is an audience. The exchange
+        # SECRET is deliberately absent from this list -- it reaches the process
+        # as a mounted file (see volumes below), so it is not in the
+        # environment of a process that shells out or dumps core.
+        - name: OIDC_EXCHANGE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-exchange-client-id
+        - name: OIDC_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-project-id
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway
+        # The exchange client secret, as a file agentgateway watches (ADR-095).
+        #
+        # A SIBLING of the config mount, not a path inside it. Nesting one
+        # volume inside another works, but it makes the secret's visibility
+        # depend on the order two mounts are established -- and the failure that
+        # would produce is a gateway that starts, serves the SPA, and fails only
+        # the exchange, with an empty file rather than a missing one.
+        - name: exchange-client-secret
+          mountPath: /etc/agentgateway-secrets
+          readOnly: true
         resources:
           requests: {cpu: 100m, memory: 128Mi}
           limits: {cpu: 500m, memory: 512Mi}
@@ -739,6 +892,19 @@ spec:
       - name: config
         configMap:
           name: {{ $name }}-config
+      # ADR-095. One key, projected to the exact path the config names.
+      #
+      # `items` rather than the whole Secret: the same Secret also holds the
+      # public client id, the org id and the project id, and mounting it whole
+      # would put three more values on disk for no reason. defaultMode 0400 --
+      # the file is read once at startup and on rotation, by this process only.
+      - name: exchange-client-secret
+        secret:
+          secretName: {{ $name }}-oidc-client
+          defaultMode: 0400
+          items:
+          - key: oidc-exchange-client-secret
+            path: exchange-client-secret
 ---
 # Permits the tenant's public HTTPRoute — which lives in platform-ops, because
 # the Gateway does — to name this tenant's gateway Service as a backend.
