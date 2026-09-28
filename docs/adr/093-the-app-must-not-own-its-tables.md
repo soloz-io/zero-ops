@@ -1,7 +1,7 @@
 # ADR-093: The application must not own the tables it queries
 
 **Date:** 2026-09-28
-**Status:** Proposed
+**Status:** Accepted
 **Amends:** ADR-057 (which specifies the RLS context and is silent on the precondition for it to have any effect)
 **Relates to:** ADR-090 (one name for the database role), ADR-089 (the tenant baseline has an owner again), ADR-014
 
@@ -75,13 +75,41 @@ tenant_<t>_<a>_user     the application's connection; owns nothing; holds DML
                         through DefaultPrivileges; RLS APPLIES
 ```
 
-**`FORCE ROW LEVEL SECURITY` is deliberately not used.** It was the other
-candidate and it is worse: `FORCE` subjects the *owner* to the policies too, so
-every future baseline migration performing DML would silently see nothing, and the
-exemption a migration legitimately needs would have to be re-granted through a
+**The migration credential is an owner credential, and must never be mounted by an
+application workload.** This is stated because the two-role model makes it
+load-bearing: `tenant_<t>_<a>_owner` is LOGIN-capable and can perform any DDL and
+ownership operation in that tenant's database. Only the baseline migration Job
+carries it. A workload that mounts it is back to the state this ADR exists to
+remove, and worse -- it would own objects without anyone noticing, because
+everything would appear to work.
+
+A three-role model is the stronger production boundary and is deliberately NOT
+adopted here:
+
+```
+owner       owns objects, NOLOGIN
+migrator    LOGIN, may SET ROLE to owner
+runtime     LOGIN, DML only, RLS applies
+```
+
+It removes the login-capable owner entirely. It is deferred because the separation
+that actually fixes the defect is owner-from-runtime, and adding a third role now
+enlarges a migration that already has an outage in its ordering. When the owner
+credential's blast radius becomes the binding constraint, this is the shape to move
+to; ADR-093 should be amended rather than replaced.
+
+**`FORCE ROW LEVEL SECURITY` is deliberately not used.** It makes the migration
+identity subject to the application's row-security policies, coupling schema and
+data migration behaviour to runtime row-security semantics. What a migration then
+sees depends on whether some policy happens to permit its rows -- PostgreSQL
+default-denies when none does -- so the behaviour of every future migration becomes
+a function of policies written for request handling. Separating ownership from
+runtime access removes the coupling entirely, rather than making migrations
+correct by careful policy authorship.
+
+The exemption also ends up in the right place: identity, rather than a
 `SECURITY DEFINER` function that each future caller must remember to route
-through. Separating the roles puts the exemption where it belongs -- in identity,
-not in a function call convention.
+through.
 
 **A per-app owner rather than `crossplane_admin`.** Reusing the platform's admin
 role is cheaper: zero new objects, and the DefaultPrivileges already name it. It is
@@ -90,6 +118,30 @@ spoke, which is the same shape ADR-090 removed from the runtime role three days
 earlier -- a cluster-wide role shared across tenants. Ownership is the last thing
 that should be shared, and the argument that `crossplane_admin` "already has
 reach" is the argument that was wrong about `tenant-<appId>-user`.
+
+### DefaultPrivileges cover future objects only
+
+`ALTER DEFAULT PRIVILEGES` applies to objects created **after** it is set. It
+grants nothing on tables, sequences, schemas or functions that already exist. This
+migration moves an already-created baseline, not an empty database, so the grants
+the runtime role needs on today's objects must be established explicitly:
+
+```
+existing tables      -> runtime: SELECT, INSERT, UPDATE, DELETE
+existing sequences   -> runtime: SELECT, UPDATE, USAGE
+existing schemas     -> runtime: USAGE
+existing functions   -> runtime: EXECUTE, where the application calls them
+future objects       -> DefaultPrivileges, as already configured
+```
+
+`REASSIGN OWNED` transfers ownership and does **not** carry privileges or default
+privileges with it, so the two halves are genuinely separate work: ownership moves
+in one statement, and the runtime role's access to what moved has to be granted.
+Verifying only that ownership changed would leave an application that owns nothing
+and can read nothing, which fails in exactly the same silent way as the defect
+being fixed.
+
+Both halves are acceptance criteria, not implementation detail.
 
 ### `resolveUser` needs a path that predates the user context
 
@@ -105,19 +157,60 @@ issuing the SELECT and INSERT itself.
 This is consistent with ADR-057's decision that resolution is a **library on the
 application's own connection, not a service**: there is still no network hop, and
 no second component on the request path. What changes is that the statement runs
-with the owner's privileges rather than the caller's. It also makes the
-first-request race that ADR-057 describes atomic in one place rather than in every
-caller.
+with the owner's privileges rather than the caller's.
 
-### The byte budget tightens by one
+A `SECURITY DEFINER` function is a privilege escalation by design, so it is
+constrained rather than merely declared:
 
-ADR-090 fixed the budget at 50 characters for `tenantId` + `appId`, from
-`tenant_`(7) + `_`(1) + `_user`(5) = 13 fixed bytes. `_owner` is one byte longer,
-so the owner name costs 14 and the budget becomes **49**. Both XRD CEL rules move
-with it. Current usage is 15 (`nutgraf` + `waypoint`), so no existing object is
-affected -- but the rule must tighten before the owner role exists, not after, or
-the first over-budget app produces a truncated owner and a silent collision of the
-kind ADR-090 exists to prevent.
+```
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp     -- fixed and trusted
+every object reference schema-qualified   -- not resolved through search_path
+REVOKE EXECUTE ON FUNCTION ... FROM PUBLIC
+GRANT  EXECUTE ON FUNCTION ... TO <runtime role>
+no dynamic SQL
+returns the tenant-local user id and nothing more
+```
+
+The `search_path` and `PUBLIC` rules are the two that matter: without them a
+caller can shadow an unqualified object reference, and every role on the cluster
+can execute a function running as the owner.
+
+**`SECURITY DEFINER` does not make the first-request race atomic.** It changes the
+privilege a statement runs with, nothing else. The race ADR-057 describes -- two
+requests from the same person observing no user and both creating one -- is
+defeated by the uniqueness constraint on `(provider, provider_user_id)` and an
+`INSERT ... ON CONFLICT` that returns the winner's row, so the loser adopts it
+rather than returning a user id no identity refers to. What the function buys is
+that this pattern exists in ONE place instead of being reimplemented by every
+caller; correctness under the race is the constraint's, not the function's. The
+earlier draft of this ADR claimed otherwise and was wrong.
+
+### Both names are composed once, and the budget follows the longest
+
+ADR-090's rule was that the role name has ONE definition. There are now two names,
+so the rule extends rather than repeats: `dbRoleName` and `dbOwnerRoleName` are
+both composed at the chart/XR boundary and propagated. No composition rebuilds
+`tenant_<...>_user` or `tenant_<...>_owner` from its components, and the XRD's
+equality rule covers both fields, so neither can drift from what it is derived
+from.
+
+The budget is derived from the **longest** generated role, not reasoned about per
+consumer:
+
+```
+len("tenant_") + len(tenantId) + 1 + len(appId) + len("_owner")  <=  63
+        7                        1                        6
+```
+
+which is `len(tenantId) + len(appId) <= 49`, one tighter than ADR-090's 50 because
+`_owner` is one byte longer than `_user`. The grammar admits only single-byte
+ASCII, so characters are bytes and the bound is exact.
+
+Current usage is 15 (`nutgraf` + `waypoint`), so no existing object is affected --
+but the rule must tighten BEFORE the owner role exists, not after. An over-budget
+app would otherwise produce a truncated owner name, which is the silent collision
+ADR-090 exists to prevent, arriving through the one name ADR-090 did not cover.
 
 ## Migration, and why the order is not negotiable
 
@@ -144,6 +237,31 @@ The baseline tables are the only ones carrying policies today; waypoint's own
 `workflow*` schemas have none, so its exposure is narrower than the connection
 count suggests -- but "narrower" is not "none", and the audit belongs to that
 cutover rather than to this ADR.
+
+## Acceptance criteria
+
+Implementation is not complete until all four hold, each verified against the
+database rather than inferred from the manifests:
+
+1. **The runtime role owns zero protected objects.** The ADR-090 cutover's own
+   query shape -- schemas, relations and functions, counted separately -- must
+   return zero for `tenant_<t>_<a>_user` in every tenant database.
+2. **The runtime role holds only the privileges it needs**: DML on the baseline
+   tables, USAGE on their schemas and sequences, EXECUTE on the resolution
+   function. No ownership, no DDL, no CREATE.
+3. **Existing objects AND future objects are both covered** -- explicit grants for
+   what exists today, DefaultPrivileges for what migrations create next. Passing
+   one and not the other produces an application that owns nothing and can read
+   nothing.
+4. **The resolution function is hardened and genuinely atomic**: fixed
+   `search_path`, schema-qualified references, `EXECUTE` revoked from `PUBLIC` and
+   granted only to the runtime role, and a real `INSERT ... ON CONFLICT` against
+   the uniqueness constraint rather than a read-then-write.
+
+The behavioural test is the probe that exposed the defect, inverted. Connected as
+the runtime role with no claims set, `SELECT count(*) FROM public.users` returns
+**0**; inside `withUserContext` it returns that user's rows and no others. Today
+it returns every row.
 
 ## Consequences
 
