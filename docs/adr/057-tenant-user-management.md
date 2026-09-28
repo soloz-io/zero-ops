@@ -63,6 +63,34 @@ Two requests from the same person arriving together will both observe no user an
 
 The setting the baseline policies read is established for the duration of a transaction and no longer.
 
+### The database does not authenticate anyone
+
+**The policies trust `request.jwt.claims` completely.** Whatever value is in that
+setting IS the acting user, as far as every policy in the baseline is concerned.
+PostgreSQL does not check it, cannot check it, and has no idea where it came from.
+
+So the security boundary is not the policy. It is the application being the only
+thing that can set that value, and setting it only from a subject it has just
+validated. Row-level security enforces the consequence of an authentication
+decision; it does not make the decision, and a caller that can set the claims to
+an arbitrary user id has already bypassed everything.
+
+Three properties follow, and they are invariants rather than implementation notes:
+
+- The value is derived from a **validated** token (ADR-050), never from a request
+  header, a query parameter, or anything a client can choose.
+- It is set **inside the transaction** that uses it and never left on a pooled
+  connection, which is what the section above is about.
+- Nothing else may set it. A second component with the ability to write that
+  setting is a second authentication authority, whether or not it is treated as
+  one.
+
+This is recorded because the baseline's policies look self-sufficient in `\d` --
+they are visible, enabled, and correct -- and it would be easy to read the schema
+as though the database were enforcing identity. It is enforcing isolation given an
+identity. ADR-093 makes that isolation real; it does not change who establishes the
+identity.
+
 This is not a stylistic preference. Tenants reach the database through a connection pool operating in transaction mode, where a server connection is handed to a different client the instant a transaction completes. A setting established for the session would outlive the request that set it and be inherited by whichever request borrows that connection next, and every policy would then evaluate against another person's identity. Transaction scoping is what makes pooled access safe, and a session-scoped equivalent is a cross-tenant disclosure rather than a lesser form of the same thing.
 
 The setting is applied as a bound value rather than composed into a statement, because the mechanism that establishes a session variable directly does not accept bound values and composing one would place externally-derived text into a statement.

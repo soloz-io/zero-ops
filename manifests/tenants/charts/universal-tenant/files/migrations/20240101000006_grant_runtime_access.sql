@@ -27,6 +27,27 @@
 -- :runtime_role is passed by the Job with --set and interpolated as a quoted
 -- IDENTIFIER (:"runtime_role"), never as text.
 
+-- WHAT THIS DOES NOT COVER: SCHEMAS THAT DO NOT EXIST YET
+--
+-- Everything below applies to the schemas present WHEN THIS FILE RUNS. A later
+-- migration that creates a new application schema does not inherit any of it --
+-- not the USAGE grant, not the grants on its tables, not the default privileges
+-- for objects created in it afterwards.
+--
+-- THE RULE: a migration that creates an application schema must establish that
+-- schema's runtime USAGE and default privileges in the same file. Creating the
+-- schema and granting access to it are one change, not two.
+--
+-- Deliberately NOT solved by making this file watch for new schemas at runtime.
+-- A grant that appears because a schema appeared is a privilege nobody decided
+-- to give: it would mean any future schema silently becomes readable by the
+-- runtime role, including one created for a purpose that should not be. Schema
+-- creation stays declarative and its access stays explicit.
+--
+-- This file iterating over existing schemas is not the same thing: it is
+-- repairing what ALREADY exists on a database that predates the owner/runtime
+-- split, which is a migration concern, not a standing policy.
+
 -- EVERY SCHEMA, NOT JUST public.
 --
 -- This grants over all non-system schemas, because a tenant's tables are not all

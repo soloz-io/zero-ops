@@ -265,7 +265,20 @@ spec:
                 # and cannot know it statically. Passed as a psql variable and
                 # interpolated with :"runtime_role", which quotes it as an
                 # identifier rather than splicing it as text.
-                psql --set ON_ERROR_STOP=1 --no-psqlrc --quiet \
+                # --single-transaction: each FILE is applied atomically.
+                #
+                # The whole set is reapplied on every sync, and several files
+                # DROP a policy or a trigger immediately before recreating it --
+                # which is how they stay idempotent. Without a transaction, a
+                # failure in that window leaves the table with RLS enabled and
+                # the policy gone, and PostgreSQL then default-denies: the
+                # application reads nothing, from a database that looks migrated.
+                #
+                # Per file rather than across the set, deliberately. A file is the
+                # unit that is written to be idempotent, so it is the unit that
+                # should be atomic; wrapping all seven would make a failure in the
+                # last one silently discard the six that had already succeeded.
+                psql --set ON_ERROR_STOP=1 --no-psqlrc --quiet --single-transaction \
                      --set runtime_role="$RUNTIME_ROLE" -f "$f"
               done
               echo "tenant baseline applied to $PGDATABASE"
