@@ -100,3 +100,5 @@ manifests/argocd/environment-manager/descriptors/
 .local-e2e/
 support-agent
 .state
+# macOS directory metadata; swept in by a directory pathspec on 2026-09-28
+.DS_Store
