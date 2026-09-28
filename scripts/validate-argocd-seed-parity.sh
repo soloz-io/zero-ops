@@ -38,9 +38,10 @@ fail_count=0
 pass() { echo "  ✅ $1"; }
 fail() { echo "  ❌ $1"; fail_count=$((fail_count + 1)); }
 
-for bin in helm yq; do
-  command -v "$bin" >/dev/null 2>&1 || { echo "❌ required tool not found: $bin"; exit 1; }
-done
+# A commit started from an editor or GUI gets a minimal PATH and would not find
+# helm even though it is installed. See scripts/lib/tool-path.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/tool-path.sh"
+require_tools helm yq || exit 1
 
 echo "Validating Day-0 ArgoCD seed parity..."
 

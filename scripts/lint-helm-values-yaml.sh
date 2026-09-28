@@ -13,6 +13,15 @@
 
 set -euo pipefail
 
+# This hook runs under pre-commit's own python environment, whose PATH does not
+# include where helm is installed. Without this the hook reports
+# "helm template failed ... template-level YAML error" -- which reads as a
+# broken chart rather than a missing binary, and sends the reader debugging
+# the wrong thing entirely. See scripts/lib/tool-path.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/tool-path.sh"
+require_tools helm || exit 1
+
+
 chart_dir="manifests/argocd/environment-manager"
 appset_dir="$chart_dir/templates"
 components_dir="manifests/argocd/components"

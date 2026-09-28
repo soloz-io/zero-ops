@@ -28,6 +28,11 @@
 
 set -euo pipefail
 
+# A commit started from an editor or GUI gets a minimal PATH and would not
+# find these tools even when installed. See scripts/lib/tool-path.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/tool-path.sh"
+
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The one label key the whole chain agrees on. Everything below is checked

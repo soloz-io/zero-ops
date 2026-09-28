@@ -17,6 +17,11 @@
 # DNS zone and the platform-admin OIDC binding. The first two were fixed where
 # they were found. This refuses the class.
 set -uo pipefail
+
+# A commit started from an editor or GUI gets a minimal PATH and would not
+# find these tools even when installed. See scripts/lib/tool-path.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/tool-path.sh"
+
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 fail=0

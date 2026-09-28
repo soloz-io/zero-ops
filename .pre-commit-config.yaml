@@ -3,13 +3,13 @@ repos:
     hooks:
       - id: helm-lint-environment-manager
         name: Helm Lint Environment Manager
-        entry: helm lint manifests/argocd/environment-manager/
+        entry: bash -c '. scripts/lib/tool-path.sh && helm lint manifests/argocd/environment-manager/'
         language: system
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
       - id: schema-validate-environment-manager
         name: Kubernetes Schema Validation
-        entry: bash -c "set -o pipefail; helm template environment-manager manifests/argocd/environment-manager/ --set environmentRevision=dry-run --set environmentSlug=prod --set provider=hetzner --set topology=single --set publicTlsIssuer=letsencrypt-prod --set hubDomain=dev.example.test --set instanceRepoURL=https://github.com/example-org/example-gitops | kubeconform -summary -ignore-missing-schemas"
+        entry: bash -c ". scripts/lib/tool-path.sh && set -o pipefail; helm template environment-manager manifests/argocd/environment-manager/ --set environmentRevision=dry-run --set environmentSlug=prod --set provider=hetzner --set topology=single --set publicTlsIssuer=letsencrypt-prod --set hubDomain=dev.example.test --set instanceRepoURL=https://github.com/example-org/example-gitops | kubeconform -summary -ignore-missing-schemas"
         language: system
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
@@ -45,8 +45,21 @@ repos:
         files: '(manifests/argocd/environment-manager/.*|manifests/providers/.*/k8s/spokepool-.*-composition\.yaml)'
       - id: yamllint-all
         name: YAML Lint
-        entry: bash -c 'echo "$@" | xargs -r yamllint -c .yamllint.yaml' --
-        language: system
+        # language: python + additional_dependencies, NOT system.
+        #
+        # As a system hook this ran whatever `yamllint` PATH happened to offer, so a
+        # commit from an editor or GUI -- which inherits a minimal PATH and never
+        # sourced a login shell -- died with
+        #
+        #   xargs: yamllint: No such file or directory
+        #
+        # while the same commit from a terminal passed. pre-commit now creates the
+        # environment itself, so the hook behaves identically for everyone and needs
+        # nothing installed. The xargs wrapper went with it: pre-commit already
+        # passes filenames as arguments.
+        entry: yamllint -c .yamllint.yaml
+        language: python
+        additional_dependencies: [yamllint==1.35.1]
         pass_filenames: true
         types: [yaml]
         files: '\.yaml$'
@@ -57,8 +70,20 @@ repos:
         # pattern below selects when it is given none, so running unconditionally
         # checks all 23 of them rather than checking nothing and reporting success.
         always_run: true
-        entry: python3 scripts/validate-embedded-yaml.py
-        language: system
+        # language: python + additional_dependencies, NOT system.
+        #
+        # `python3` as a system hook is whichever interpreter PATH resolves, and
+        # from a GUI commit that is /usr/bin/python3, which has no PyYAML:
+        #
+        #   ModuleNotFoundError: No module named 'yaml'
+        #
+        # The developer's own python3 (a pyenv shim here) had it, so this passed in
+        # a terminal and failed in the editor. pre-commit now owns the interpreter
+        # and the dependency, which is the only way this validator runs the same way
+        # for everyone.
+        entry: python scripts/validate-embedded-yaml.py
+        language: python
+        additional_dependencies: [pyyaml==6.0.2]
         pass_filenames: true
         types: [yaml]
         files: 'manifests/.*/k8s/.*\.yaml$|manifests/.*/spoke-bootstrap/.*\.yaml$|internal/assets/manifests/addons/.*\.yaml$'
@@ -72,13 +97,13 @@ repos:
         # fails ArgoCD sync on every spoke -- yet no hook built it, so an edit to
         # its kustomization or a re-vendor of one of its charts was checked by
         # nothing until a cluster tried to sync.
-        entry: bash -c 'for d in manifests/providers/hybrid manifests/providers/hetzner manifests/spoke/spoke-catalog/infra; do kubectl kustomize --enable-helm "$d" >/dev/null || { echo "kustomize build failed for $d - broken YAML will fail ArgoCD sync"; exit 1; }; done'
+        entry: bash -c '. scripts/lib/tool-path.sh && for d in manifests/providers/hybrid manifests/providers/hetzner manifests/spoke/spoke-catalog/infra; do kubectl kustomize --enable-helm "$d" >/dev/null || { echo "kustomize build failed for $d - broken YAML will fail ArgoCD sync"; exit 1; }; done'
         language: system
         pass_filenames: false
         files: 'manifests/providers/(hybrid|hetzner)/.*|manifests/spoke/spoke-catalog/.*'
       - id: hub-operator-build
         name: Build Hub Operator
-        entry: bash -c "cd operators/hub-operator && make build"
+        entry: bash -c ". scripts/lib/tool-path.sh && cd operators/hub-operator && make build"
         language: system
         pass_filenames: false
         files: 'operators/hub-operator/.*\.go$'
@@ -90,7 +115,7 @@ repos:
         # Syncs to a temporary tree and compares. An earlier version synced over
         # the checked-in copy and then diffed it, so it repaired the drift it was
         # checking for and could never fail.
-        entry: bash -c 't=$(mktemp -d); trap "rm -rf $t" EXIT; ./scripts/package/embed-platform-assets.sh "$t/embedded" >/dev/null && diff -r -x embed.go internal/platform/embedded "$t/embedded" >/dev/null || { echo "internal/platform/embedded is stale; run scripts/package/embed-platform-assets.sh and commit the result"; exit 1; }'
+        entry: bash -c '. scripts/lib/tool-path.sh && t=$(mktemp -d); trap "rm -rf $t" EXIT; ./scripts/package/embed-platform-assets.sh "$t/embedded" >/dev/null && diff -r -x embed.go internal/platform/embedded "$t/embedded" >/dev/null || { echo "internal/platform/embedded is stale; run scripts/package/embed-platform-assets.sh and commit the result"; exit 1; }'
         language: system
         pass_filenames: false
         # Any manifest, not the embed set restated. The set lives in

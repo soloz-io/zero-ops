@@ -23,6 +23,11 @@
 
 set -euo pipefail
 
+# A commit started from an editor or GUI gets a minimal PATH and would not
+# find these tools even when installed. See scripts/lib/tool-path.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/tool-path.sh"
+
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 components_root="$repo_root/manifests/argocd/components"
 env_mgr="$repo_root/manifests/argocd/environment-manager"
