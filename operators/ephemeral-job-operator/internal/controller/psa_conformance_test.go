@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestPSAConformanceDump(t *testing.T) {
 	// The workload container as the reconciler actually builds it
 	// (ephemeraljob_controller.go), not a bare stub -- otherwise the dump
 	// fails PSA on the harness's own omissions rather than on the sidecars.
-	pod.Spec = r.buildPodSpec(ej, placement, corev1.Container{
+	pod.Spec = r.buildPodSpec(context.Background(), ej, placement, corev1.Container{
 		Name:  "workload",
 		Image: ej.Spec.Image,
 		SecurityContext: &corev1.SecurityContext{

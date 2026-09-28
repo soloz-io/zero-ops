@@ -16,9 +16,9 @@ import "testing"
 //
 // So this asserts the resolved names against what a fleet actually declares,
 // rather than against the template's own reasoning. The expectations below were
-// read off a running spoke (nutgraf-01): the SDK binds S3_ACCESS_KEY_ID and
-// S3_SECRET_ACCESS_KEY from Secret `waypoint-sdk-secrets`, and S3_ENDPOINT_URL
-// and S3_BUCKET_NAME from ConfigMap `waypoint-config`.
+// read off a running spoke (a live spoke): the SDK binds S3_ACCESS_KEY_ID and
+// S3_SECRET_ACCESS_KEY from Secret a fleet Secret, and S3_ENDPOINT_URL
+// and S3_BUCKET_NAME from ConfigMap a fleet ConfigMap.
 //
 // A fourth wrong value should fail here, not in production six weeks later when
 // someone notices a restored workspace is empty.
@@ -26,7 +26,7 @@ func TestWorkspaceSyncRefsResolveToWhatFleetsDeclare(t *testing.T) {
 	cases := []struct {
 		name       string
 		namespace  string
-		appID      string
+		fleetID    string
 		wantSecret string
 		wantConfig string
 	}{
@@ -34,22 +34,22 @@ func TestWorkspaceSyncRefsResolveToWhatFleetsDeclare(t *testing.T) {
 			// The live case. Note the namespace is NOT the fleet id after
 			// ADR-088 -- it is tenant-<tenantId>-<appId> -- while the fleet's own
 			// objects are named from the appId alone. Keying on {namespace} would
-			// give tenant-nutgraf-waypoint-sdk-secrets, a fourth name that does
+			// give tenant-org-fleet-a-sdk-secrets, a fourth name that does
 			// not exist.
-			name:       "waypoint on nutgraf",
-			namespace:  "tenant-nutgraf-waypoint",
-			appID:      "waypoint",
-			wantSecret: "waypoint-sdk-secrets",
-			wantConfig: "waypoint-config",
+			name:       "a fleet on one tenant",
+			namespace:  "tenant-org-fleet-a",
+			fleetID:    "fleet-a",
+			wantSecret: "fleet-a-sdk-secrets",
+			wantConfig: "fleet-a-config",
 		},
 		{
 			// A second tenant running a different app. The point of keying on
 			// appId is that this needs no per-tenant configuration.
-			name:       "oranger on another tenant",
-			namespace:  "tenant-acme-oranger",
-			appID:      "oranger",
-			wantSecret: "oranger-sdk-secrets",
-			wantConfig: "oranger-config",
+			name:       "a different fleet on another tenant",
+			namespace:  "tenant-otherorg-fleet-b",
+			fleetID:    "fleet-b",
+			wantSecret: "fleet-b-sdk-secrets",
+			wantConfig: "fleet-b-config",
 		},
 		{
 			// An absent appId leaves the placeholder visible rather than
@@ -62,26 +62,33 @@ func TestWorkspaceSyncRefsResolveToWhatFleetsDeclare(t *testing.T) {
 			// EphemeralJob sits with an empty status looking like it is still
 			// provisioning. The objects can only carry the lowercase form.
 			name:       "uppercase ULID appId is lowercased to a valid reference",
-			namespace:  "tenant-nutgraf-01M3CZS9NH6J4VV6JN67E3YH6J",
-			appID:      "01M3CZS9NH6J4VV6JN67E3YH6J",
-			wantSecret: "01m3czs9nh6j4vv6jn67e3yh6j-sdk-secrets",
-			wantConfig: "01m3czs9nh6j4vv6jn67e3yh6j-config",
+			namespace:  "tenant-org-FLEET-A",
+			fleetID:    "FLEET-A",
+			wantSecret: "fleet-a-sdk-secrets",
+			wantConfig: "fleet-a-config",
 		},
 		{
-			name:       "missing appId does not collapse to a bare suffix",
-			namespace:  "tenant-nutgraf-waypoint",
-			appID:      "",
-			wantSecret: "{appId}-sdk-secrets",
-			wantConfig: "{appId}-config",
+			// NO FALLBACK. An empty appId renders a bare suffix rather than
+			// leaving `{appId}` in place, and that is deliberate: the guard that
+			// produced the unexpanded form was a fallback wearing the costume of
+			// safety, and either way the reference resolves to nothing. appId is
+			// required by the CRD (MinLength=1), so this is not a state to degrade
+			// into -- it is asserted only so the guard is not reintroduced as an
+			// apparent oversight.
+			name:       "an unresolvable fleet id renders bare, with no fallback",
+			namespace:  "tenant-org-fleet-a",
+			fleetID:    "",
+			wantSecret: "-sdk-secrets",
+			wantConfig: "-config",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveWorkspaceSyncSecret(tc.namespace, tc.appID); got != tc.wantSecret {
+			if got := resolveWorkspaceSyncSecret(tc.namespace, tc.fleetID); got != tc.wantSecret {
 				t.Errorf("secret name = %q, want %q", got, tc.wantSecret)
 			}
-			if got := resolveWorkspaceSyncConfig(tc.namespace, tc.appID); got != tc.wantConfig {
+			if got := resolveWorkspaceSyncConfig(tc.namespace, tc.fleetID); got != tc.wantConfig {
 				t.Errorf("configmap name = %q, want %q", got, tc.wantConfig)
 			}
 		})

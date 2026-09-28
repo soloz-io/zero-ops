@@ -108,6 +108,10 @@ func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callback
 // waiting for capacity from one whose selector no node can satisfy; without it
 // the read fails and every such job waits out maxLifetimeSeconds instead.
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=list
+// Namespaces, GET only, and read UNCACHED (see APIReader). A fleet's S3 Secret
+// and ConfigMap are named from its namespace's `app-id` label, so that label has
+// to be read; without this the read fails and the reference renders incomplete.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
 // Workspace PVCs (ADR-052 §14). No `delete`: this operator creates and reads
 // them, and reclaiming one is the separate reaper's job. Withholding the verb
@@ -398,7 +402,7 @@ func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alp
 		return nil, fmt.Errorf("unknown placement class %q", ej.Spec.PlacementClass)
 	}
 
-	job := r.buildJob(ej, name, placement)
+	job := r.buildJob(ctx, ej, name, placement)
 	if err := ctrl.SetControllerReference(ej, job, r.Scheme); err != nil {
 		return nil, err
 	}
@@ -414,7 +418,7 @@ func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alp
 }
 
 func (r *EphemeralJobReconciler) buildJob(
-	ej *computev1alpha1.EphemeralJob, name string, p Placement,
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) *batchv1.Job {
 	backoff := int32(0) // no retry: a burst node join per attempt is too costly to spend blindly
 	ttl := ej.Spec.TTLSecondsAfterFinished
@@ -487,7 +491,7 @@ func (r *EphemeralJobReconciler) buildJob(
 						labelJobUID: string(ej.UID),
 					}),
 				},
-				Spec: r.buildPodSpec(ej, p, container),
+				Spec: r.buildPodSpec(ctx, ej, p, container),
 			},
 		},
 	}
@@ -792,9 +796,13 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 // reaches a node without it. Previously the sandbox path had exactly such a
 // path, because its pod was authored upstream and placement was bolted on by a
 // mutating policy that could simply not match.
+// ctx is threaded in for resolveFleetID: the Secret and ConfigMap holding a
+// fleet's S3 configuration are named from its namespace's `app-id` label, and
+// that label has to be read.
 func (r *EphemeralJobReconciler) buildPodSpec(
-	ej *computev1alpha1.EphemeralJob, p Placement, container corev1.Container,
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, p Placement, container corev1.Container,
 ) corev1.PodSpec {
+	fleetID := r.resolveFleetID(ctx, ej.Namespace)
 	volumes := ej.Spec.Volumes
 	if len(volumes) == 0 {
 		volumes = []corev1.Volume{
@@ -876,7 +884,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		// workload back until that restore is finished.
 		keep := resolveKeepCheckpoints(ej.Spec.WorkspacePersistence)
 		spec_initContainers = append(spec_initContainers,
-			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep, ej.Namespace))
+			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep, ej.Namespace, fleetID))
 
 		// A second instance for the app-shared workspace, when the fleet asked
 		// for one. Same image, same code, same key layout — only the workspace
@@ -889,7 +897,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		// before this container mounts a directory inside it.
 		if shared := ej.Spec.WorkspacePersistence.SharedWorkspaceID; shared != "" {
 			spec_initContainers = append(spec_initContainers,
-				workspaceSyncContainerFor(ej.Spec.WorkspacePersistence, keep, ej.Namespace, workspaceSyncTarget{
+				workspaceSyncContainerFor(ej.Spec.WorkspacePersistence, keep, ej.Namespace, fleetID, workspaceSyncTarget{
 					name:        "workspace-sync-shared",
 					workspaceID: shared,
 					root:        WorkspaceMountPath + "/" + sharedWorkspaceDirName,
@@ -1042,7 +1050,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 // or a success that never arrives. The Pod is owned by the EphemeralJob, so it
 // is still garbage-collected structurally.
 func (r *EphemeralJobReconciler) buildPod(
-	ej *computev1alpha1.EphemeralJob, name string, p Placement,
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) *corev1.Pod {
 	container := r.buildWorkloadContainer(ej)
 	return &corev1.Pod{
@@ -1062,7 +1070,7 @@ func (r *EphemeralJobReconciler) buildPod(
 				"cost-center": "platform",
 			}),
 		},
-		Spec: r.buildPodSpec(ej, p, container),
+		Spec: r.buildPodSpec(ctx, ej, p, container),
 	}
 }
 
@@ -1290,7 +1298,7 @@ func (r *EphemeralJobReconciler) ensurePod(
 		}
 	}
 
-	pod := r.buildPod(ej, name, p)
+	pod := r.buildPod(ctx, ej, name, p)
 	if err := ctrl.SetControllerReference(ej, pod, r.Scheme); err != nil {
 		return nil, err
 	}

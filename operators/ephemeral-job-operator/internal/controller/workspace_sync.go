@@ -1,11 +1,14 @@
 package controller
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
 )
@@ -75,12 +78,12 @@ var (
 	// appId alone, so `{namespace}-sdk-secrets` would resolve to
 	// `tenant-nutgraf-waypoint-sdk-secrets` — a fourth name that does not exist.
 	// `{namespace}` is still accepted for a deployment that wants it.
-	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{appId}-sdk-secrets")
+	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{fleetId}-sdk-secrets")
 
 	// The fleet's non-secret S3 location. Separate object, separate template:
 	// endpoint and bucket are not credentials and the fleet does not store them
 	// as such, so injecting them from a Secret was always going to miss.
-	workspaceSyncConfigTemplate = envOr("WORKSPACE_SYNC_CONFIG", "{appId}-config")
+	workspaceSyncConfigTemplate = envOr("WORKSPACE_SYNC_CONFIG", "{fleetId}-config")
 )
 
 // resolveWorkspaceSyncSecret expands the template for one job's namespace.
@@ -119,13 +122,13 @@ const (
 	sharedWorkspaceDirName = ".global"
 )
 
-func resolveWorkspaceSyncSecret(namespace, appID string) string {
-	return expandWorkspaceSyncRef(workspaceSyncSecretTemplate, namespace, appID)
+func resolveWorkspaceSyncSecret(namespace, fleetID string) string {
+	return expandWorkspaceSyncRef(workspaceSyncSecretTemplate, namespace, fleetID)
 }
 
 // resolveWorkspaceSyncConfig expands the ConfigMap template for one job.
-func resolveWorkspaceSyncConfig(namespace, appID string) string {
-	return expandWorkspaceSyncRef(workspaceSyncConfigTemplate, namespace, appID)
+func resolveWorkspaceSyncConfig(namespace, fleetID string) string {
+	return expandWorkspaceSyncRef(workspaceSyncConfigTemplate, namespace, fleetID)
 }
 
 // expandWorkspaceSyncRef substitutes both placeholders.
@@ -143,12 +146,23 @@ func resolveWorkspaceSyncConfig(namespace, appID string) string {
 // backoff, so a sandbox that can never be admitted looks like one still being
 // provisioned. The objects themselves can only ever carry the lowercase form,
 // for the same reason, so lowercasing here is what makes the reference resolve.
-func expandWorkspaceSyncRef(template, namespace, appID string) string {
+func expandWorkspaceSyncRef(template, namespace, fleetID string) string {
 	out := strings.ReplaceAll(template, "{namespace}", namespace)
-	if appID != "" {
-		out = strings.ReplaceAll(out, "{appId}", strings.ToLower(appID))
-	}
-	return out
+	// Unconditional. The guard that used to stand here left `{appId}` in the
+	// rendered name whenever appID was empty, which is a fallback masquerading as
+	// safety: a reference to a Secret literally named `{appId}-sdk-secrets`
+	// resolves to nothing, and because every reference the operator injects is
+	// optional that produces empty env and a sidecar reporting "object storage not
+	// configured" -- the exact silent failure this whole path has produced four
+	// times. appId is required by the CRD (MinLength=1), so an empty value is not
+	// a state to degrade into; if one ever arrives, a visibly wrong name in
+	// `kubectl describe` is the failure worth having.
+	//
+	// Lowercased because these become Kubernetes object names and must be RFC 1123
+	// subdomains. An uppercase identifier builds a reference the API server
+	// refuses, and the refusal lands on the POD -- so the EphemeralJob sits with an
+	// empty status, reading as "still provisioning" rather than as a bad name.
+	return strings.ReplaceAll(out, "{fleetId}", strings.ToLower(fleetID))
 }
 
 func envOr(k, def string) string {
@@ -188,8 +202,8 @@ func envOr(k, def string) string {
 // §14.2 changes: both containers mount a staging emptyDir (`ws-staging`) for
 // squashfs archive and FUSE working directories. The sidecar additionally
 // requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
-func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32, namespace string) corev1.Container {
-	return workspaceSyncContainerFor(ws, keepCheckpoints, namespace, workspaceSyncTarget{
+func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32, namespace, fleetID string) corev1.Container {
+	return workspaceSyncContainerFor(ws, keepCheckpoints, namespace, fleetID, workspaceSyncTarget{
 		name:        "workspace-sync",
 		workspaceID: ws.WorkspaceID,
 		root:        WorkspaceMountPath,
@@ -223,7 +237,7 @@ type workspaceSyncTarget struct {
 func workspaceSyncContainerFor(
 	ws *computev1alpha1.WorkspacePersistenceSpec,
 	keepCheckpoints int32,
-	namespace string,
+	namespace, fleetID string,
 	target workspaceSyncTarget,
 ) corev1.Container {
 	var sideC corev1.Container
@@ -325,8 +339,8 @@ func workspaceSyncContainerFor(
 	// without Infisical (any local Kind cluster) may have no such Secret, and a
 	// sandbox must still start there — checkpoints then no-op, which §14 names
 	// as the one legitimate no-op.
-	secretName := resolveWorkspaceSyncSecret(namespace, ws.AppID)
-	configName := resolveWorkspaceSyncConfig(namespace, ws.AppID)
+	secretName := resolveWorkspaceSyncSecret(namespace, fleetID)
+	configName := resolveWorkspaceSyncConfig(namespace, fleetID)
 	// The location half. A ConfigMap, because that is where the fleet keeps it --
 	// endpoint and bucket are not credentials, and reading them from a Secret is
 	// what left every checkpoint no-opping while the sidecar reported only
@@ -557,4 +571,52 @@ func resolveKeepCheckpoints(ws *computev1alpha1.WorkspacePersistenceSpec) int32 
 	default:
 		return n
 	}
+}
+
+// fleetIDLabel is the namespace label the tenant registry writes beside
+// `tenant-id`. It holds the fleet's ADR-088 appId -- `waypoint`, `oranger` --
+// which is what the fleet's own Kubernetes objects are named from.
+const fleetIDLabel = "app-id"
+
+// resolveFleetID returns the fleet whose Secret and ConfigMap hold this
+// namespace's S3 configuration.
+//
+// NOT spec.workspacePersistence.appId. That field is the tenant APPLICATION id, a
+// ULID, and it is load-bearing elsewhere: it is the S3 object-key root
+// (<appId>/<workspaceId>/) and, for an app-scoped session, the workspace id
+// itself. It cannot also name a Secret, and using it to do so produced
+// `01m37pyr33yjdcc6zh338a2gzd-sdk-secrets` -- the fourth wrong value for this
+// reference. Two identifiers wear the word "app" in this system; this function
+// exists so they are not mixed.
+//
+// Read from the namespace label rather than parsed out of the namespace name:
+// splitting `tenant-<tenantId>-<appId>` is unsafe as soon as a tenantId contains a
+// hyphen, and inference is what produced every earlier wrong value.
+//
+// UNCACHED, and that is not incidental. A cached Get on a Namespace makes the
+// manager start a cluster-wide Namespace informer, which needs list and watch on
+// every namespace and BLOCKS MANAGER STARTUP until that cache syncs. The same
+// mistake on Nodes stopped this operator reconciling entirely in September 2026:
+// it came up, failed to sync a cache it had no RBAC for, and picked up no
+// EphemeralJob at all, with nothing in its status to say so. One GET per pod
+// build is the cheaper side of that trade (see APIReader).
+//
+// NO FALLBACK. An unreadable namespace or a missing label yields the empty
+// string, and the reference then renders bare -- visibly wrong in
+// `kubectl describe` rather than quietly pointing at something that does not
+// exist. A deployment whose namespaces carry no such label sets
+// WORKSPACE_SYNC_SECRET and WORKSPACE_SYNC_CONFIG explicitly, which is
+// configuration, not a guess.
+func (r *EphemeralJobReconciler) resolveFleetID(ctx context.Context, namespace string) string {
+	if r == nil || r.APIReader == nil {
+		return ""
+	}
+	var ns corev1.Namespace
+	if err := r.APIReader.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
+		log.FromContext(ctx).Error(err, "could not read the namespace for its fleet id; "+
+			"the workspace-sync S3 reference will render incomplete and checkpoints will no-op",
+			"namespace", namespace, "label", fleetIDLabel)
+		return ""
+	}
+	return ns.Labels[fleetIDLabel]
 }

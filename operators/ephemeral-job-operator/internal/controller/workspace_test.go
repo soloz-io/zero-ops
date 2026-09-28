@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 		},
 	}
 
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	// 1. Workspace volume must be emptyDir, not PVC.
 	var ws *corev1.Volume
@@ -221,7 +222,7 @@ func TestWithoutPersistenceWorkspaceStaysEphemeral(t *testing.T) {
 		},
 	}
 
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	for _, v := range spec.Volumes {
 		if v.Name == WorkspaceVolumeName {
@@ -256,7 +257,7 @@ func TestNoServiceAccountTokenInTenantPods(t *testing.T) {
 		},
 	}
 
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	if spec.AutomountServiceAccountToken == nil {
 		t.Fatal("AutomountServiceAccountToken is unset, which defaults to TRUE — tenant code can read an API credential (ADR-052 §19.6)")
@@ -319,7 +320,7 @@ func TestJobIgnoresDisruptionFailures(t *testing.T) {
 		},
 	}
 
-	job := r.buildJob(ej, "j", p)
+	job := r.buildJob(context.Background(), ej, "j", p)
 	if job.Spec.PodFailurePolicy == nil {
 		t.Fatal("no podFailurePolicy: disruption would consume the retry budget (ADR-052 §16.3)")
 	}
@@ -354,7 +355,7 @@ func TestWorkspaceSyncIsANativeSidecar(t *testing.T) {
 			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
 		},
 	}
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	// 1. It must NOT be an ordinary container. A never-exiting process in
 	//    .spec.containers means a mode: Job pod can never reach Succeeded,
@@ -432,7 +433,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
 
 	// Unset: the floor applies.
-	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                img,
 			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
@@ -445,7 +446,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 
 	// A fleet asking for MORE keeps it: this is a floor, not an override.
 	longer := int64(minWorkspaceGraceSeconds + 300)
-	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec = r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                         img,
 			WorkspacePersistence:          &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
@@ -458,7 +459,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 
 	// And a job without persistence is untouched by any of this.
 	shorter := int64(5)
-	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec = r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                         img,
 			TerminationGracePeriodSeconds: &shorter,
@@ -524,7 +525,7 @@ func TestKeepCheckpointsReachesTheSidecar(t *testing.T) {
 	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
 
 	env := func(ws *computev1alpha1.WorkspacePersistenceSpec) string {
-		spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 			Spec: computev1alpha1.EphemeralJobSpec{Image: img, WorkspacePersistence: ws},
 		}, p, corev1.Container{Name: "workload"})
 		for _, c := range spec.InitContainers {
@@ -584,7 +585,7 @@ func TestPinnedReadOnlyWorkspaceReachesTheSidecar(t *testing.T) {
 	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
 
 	envOf := func(ws *computev1alpha1.WorkspacePersistenceSpec) map[string]string {
-		spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 			Spec: computev1alpha1.EphemeralJobSpec{Image: img, WorkspacePersistence: ws},
 		}, p, corev1.Container{Name: "workload"})
 		for _, c := range spec.InitContainers {
@@ -645,7 +646,7 @@ func TestAppIDReachesTheSidecar(t *testing.T) {
 	r := &EphemeralJobReconciler{}
 	p, _ := ResolvePlacement("home")
 
-	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image: "example.com/img@sha256:" + strings.Repeat("a", 64),
 			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{

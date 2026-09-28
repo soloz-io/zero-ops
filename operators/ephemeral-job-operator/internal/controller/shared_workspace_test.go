@@ -30,8 +30,8 @@ func TestSharedWorkspaceIsTheSameMechanismPointedElsewhere(t *testing.T) {
 		SharedWorkspaceID: "globals",
 	}
 
-	session := workspaceSyncContainer(ws, 5, "default")
-	shared := workspaceSyncContainerFor(ws, 5, "default", workspaceSyncTarget{
+	session := workspaceSyncContainer(ws, 5, "default", "fleet-a")
+	shared := workspaceSyncContainerFor(ws, 5, "default", "fleet-a", workspaceSyncTarget{
 		name:        "workspace-sync-shared",
 		workspaceID: ws.SharedWorkspaceID,
 		root:        WorkspaceMountPath + "/" + sharedWorkspaceDirName,
@@ -159,7 +159,7 @@ func TestSharedWorkspaceIsOptional(t *testing.T) {
 	if ws.SharedWorkspaceID != "" {
 		t.Fatal("unset SharedWorkspaceID must be empty")
 	}
-	c := workspaceSyncContainer(ws, 5, "default")
+	c := workspaceSyncContainer(ws, 5, "default", "fleet-a")
 	if got := envMap(c)["WORKSPACE_ROOT"]; got != WorkspaceMountPath {
 		t.Errorf("WORKSPACE_ROOT = %q, want %q", got, WorkspaceMountPath)
 	}
@@ -180,7 +180,7 @@ func TestCheckpointIntervalIsOptInAndReachesBothInstances(t *testing.T) {
 	// Unset: no periodic upload. This is what an interactive fleet wants — a
 	// timer checkpointing a tree mid-edit mostly records half-finished states.
 	off := &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "ws1", AppID: "app1"}
-	if v := envMap(workspaceSyncContainer(off, 5, "default"))["WORKSPACE_SYNC_INTERVAL_SECONDS"]; v != "" {
+	if v := envMap(workspaceSyncContainer(off, 5, "default", "fleet-a"))["WORKSPACE_SYNC_INTERVAL_SECONDS"]; v != "" {
 		t.Errorf("interval = %q with none requested; the periodic backstop must be opt-in", v)
 	}
 
@@ -189,8 +189,8 @@ func TestCheckpointIntervalIsOptInAndReachesBothInstances(t *testing.T) {
 		WorkspaceID: "ws1", AppID: "app1", SharedWorkspaceID: "globals",
 		CheckpointIntervalSeconds: &every,
 	}
-	session := envMap(workspaceSyncContainer(on, 5, "default"))
-	shared := envMap(workspaceSyncContainerFor(on, 5, "default", workspaceSyncTarget{
+	session := envMap(workspaceSyncContainer(on, 5, "default", "fleet-a"))
+	shared := envMap(workspaceSyncContainerFor(on, 5, "default", "fleet-a", workspaceSyncTarget{
 		name: "workspace-sync-shared", workspaceID: "globals",
 		root:    WorkspaceMountPath + "/" + sharedWorkspaceDirName,
 		staging: workspaceStagingPath + "/" + sharedWorkspaceDirName,
