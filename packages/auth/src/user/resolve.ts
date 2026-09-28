@@ -67,71 +67,54 @@ export async function resolveUser(
   const email = claims.email || null;
 
   return db.transaction(async (tx) => {
-    const existing = await tx.query<{ user_id: string; email: string }>(
-      `SELECT i.user_id, u.email
-         FROM ${schema}.identities i
-         JOIN ${schema}.users u ON u.id = i.user_id
-        WHERE i.provider = $1 AND i.provider_user_id = $2`,
-      [provider, claims.sub],
-    );
+    // ONE CALL, INTO A SECURITY DEFINER FUNCTION (ADR-093).
+    //
+    // This used to issue the SELECT and the two INSERTs itself. It cannot any
+    // more: the application no longer owns its tables, so row-level security
+    // applies to it, and resolution runs BEFORE any user context exists. The
+    // identities policy is `user_id = claims->>'user_id'`, so with no claims the
+    // lookup matches nothing -- the caller would conclude the user is absent,
+    // create a second one, and collide on (provider, provider_user_id).
+    //
+    // The function runs as the table owner, so it can see identities; the
+    // application may only execute it. Where resolution happens is unchanged
+    // (ADR-057: a library on the application's own connection, not a service) --
+    // only the privilege the statement runs with.
+    //
+    // The race is the function's too, and is NOT solved by SECURITY DEFINER,
+    // which only grants privilege. It is solved inside by a subtransaction: when
+    // the identity insert hits the unique constraint, the user row inserted a
+    // line earlier rolls back with it, so the loser adopts the winner rather than
+    // leaving a user record no identity points at.
+    //
+    // The address comes back rather than being read here, because under RLS this
+    // connection cannot read `users` until it has a context, and it has no
+    // context until this returns.
+    const rows = await tx.query<{
+      user_id: string;
+      email: string | null;
+      is_new: boolean;
+    }>(`SELECT user_id, email, is_new FROM ${schema}.resolve_user($1, $2, $3)`, [
+      provider,
+      claims.sub,
+      email,
+    ]);
 
-    if (existing.length > 0) {
-      const row = existing[0]!;
-      // Refresh a changed address so the tenant does not display a stale one.
-      // Guarded on inequality: an unconditional UPDATE would write on every
-      // request and produce needless WAL and row versions.
-      if (email && email !== row.email) {
-        await tx.query(`UPDATE ${schema}.users SET email = $1 WHERE id = $2`, [
-          email,
-          row.user_id,
-        ]);
-      }
-      return { userId: row.user_id, email: email ?? row.email, isNew: false };
-    }
-
-    if (!email) {
-      // users.email is NOT NULL in the baseline, so a first sighting without one
-      // cannot be provisioned. Fail loudly rather than inventing a placeholder
-      // that would later collide on the unique index.
+    const row = rows[0];
+    if (!row) {
+      // A set-returning function that returns no row means the call did not
+      // happen as expected -- surface it rather than returning a user id of
+      // undefined that fails somewhere later.
       throw new Error(
-        `cannot provision a user for subject ${claims.sub}: no email claim present`,
+        `resolve_user returned no row for subject ${claims.sub}`,
       );
     }
 
-    const created = await tx.query<{ id: string }>(
-      `INSERT INTO ${schema}.users (email, email_verified)
-            VALUES ($1, $2)
-       ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-         RETURNING id`,
-      [email, claims.email_verified === true],
-    );
-    const userId = created[0]!.id;
-
-    const linked = await tx.query<{ user_id: string }>(
-      `INSERT INTO ${schema}.identities (user_id, provider, provider_user_id)
-            VALUES ($1, $2, $3)
-       ON CONFLICT (provider, provider_user_id) DO NOTHING
-         RETURNING user_id`,
-      [userId, provider, claims.sub],
-    );
-
-    if (linked.length === 0) {
-      // Another request won the race. Its row is authoritative — returning ours
-      // would hand out a user id that no identity points at.
-      const raced = await tx.query<{ user_id: string }>(
-        `SELECT user_id FROM ${schema}.identities
-          WHERE provider = $1 AND provider_user_id = $2`,
-        [provider, claims.sub],
-      );
-      if (raced.length === 0) {
-        throw new Error(
-          `identity for subject ${claims.sub} could neither be created nor found`,
-        );
-      }
-      return { userId: raced[0]!.user_id, email, isNew: false };
-    }
-
-    return { userId, email, isNew: true };
+    return {
+      userId: row.user_id,
+      email: row.email ?? email ?? "",
+      isNew: row.is_new,
+    };
   });
 }
 

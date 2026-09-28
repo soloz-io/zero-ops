@@ -27,8 +27,28 @@
 -- :runtime_role is passed by the Job with --set and interpolated as a quoted
 -- IDENTIFIER (:"runtime_role"), never as text.
 
--- Schema access. Without USAGE the table grants below are unreachable.
-GRANT USAGE ON SCHEMA public TO :"runtime_role";
+-- EVERY SCHEMA, NOT JUST public.
+--
+-- This grants over all non-system schemas, because a tenant's tables are not all
+-- in public and the ones outside it are the ones that break loudest. waypoint
+-- holds 118 relations in public and 50 more across workflow, graphile_worker,
+-- drizzle and workflow_drizzle; a public-only grant would have left its SDK unable
+-- to read its own workflow tables the moment ownership moved -- and unlike the
+-- baseline tables those carry no policies, so the failure is plain permission
+-- denial on every query rather than an empty result.
+--
+-- \gexec rather than a DO block: psql interpolates :'runtime_role' in ordinary SQL
+-- but NOT inside a dollar-quoted body, so a DO block cannot see it. Each SELECT
+-- below builds one statement per schema and \gexec runs them. %I quotes each
+-- identifier, so a schema named oddly cannot become injected SQL.
+
+-- Schema access. Without USAGE the object grants below are unreachable.
+SELECT format('GRANT USAGE ON SCHEMA %I TO %I', nspname, :'runtime_role')
+  FROM pg_catalog.pg_namespace
+ WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+   AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp%'
+ ORDER BY nspname
+\gexec
 
 -- Existing objects.
 --
@@ -37,18 +57,43 @@ GRANT USAGE ON SCHEMA public TO :"runtime_role";
 -- composition's DefaultPrivileges are broader for historical reasons; this is the
 -- set a request path actually needs, and the narrower of the two is the one to
 -- converge on.
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"runtime_role";
-GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA public TO :"runtime_role";
+SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', nspname, :'runtime_role')
+  FROM pg_catalog.pg_namespace
+ WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+   AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp%'
+ ORDER BY nspname
+\gexec
+
+SELECT format('GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA %I TO %I', nspname, :'runtime_role')
+  FROM pg_catalog.pg_namespace
+ WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+   AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp%'
+ ORDER BY nspname
+\gexec
 
 -- Future objects created by THIS role (the owner), for anything a later migration
 -- adds between now and the next time this file runs.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"runtime_role";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT, USAGE ON SEQUENCES TO :"runtime_role";
+SELECT format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', nspname, :'runtime_role')
+  FROM pg_catalog.pg_namespace
+ WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+   AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp%'
+ ORDER BY nspname
+\gexec
+
+SELECT format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, USAGE ON SEQUENCES TO %I', nspname, :'runtime_role')
+  FROM pg_catalog.pg_namespace
+ WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+   AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp%'
+ ORDER BY nspname
+\gexec
 
 -- The runtime role must NOT be able to create objects: an object it created would
 -- be one it owns, and one it owns is one whose policies do not apply to it. This
 -- is the defect ADR-093 removes, and revoking CREATE is what stops it reappearing
 -- one migration at a time.
-REVOKE CREATE ON SCHEMA public FROM :"runtime_role";
+SELECT format('REVOKE CREATE ON SCHEMA %I FROM %I', nspname, :'runtime_role')
+  FROM pg_catalog.pg_namespace
+ WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+   AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp%'
+ ORDER BY nspname
+\gexec

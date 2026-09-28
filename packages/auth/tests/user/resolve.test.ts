@@ -37,8 +37,22 @@ function fakeDb(
 }
 
 describe("resolveUser", () => {
-  it("finds an existing user by subject, not by email", async () => {
-    const db = fakeDb([[{ user_id: "local-uuid", email: "person@example.com" }]]);
+  // The library no longer issues the SELECT and INSERTs itself (ADR-093). It
+  // cannot: the application does not own its tables any more, so row-level
+  // security applies to it, and resolution runs before any user context exists --
+  // the identities policy would hide the row it is looking for. One call into a
+  // SECURITY DEFINER function replaces all of it.
+  //
+  // So these assert the CONTRACT with that function: which arguments go in, what
+  // comes back, and that nothing else is issued. The behaviours that moved into
+  // the database -- the race, the email refresh, provisioning on first sight --
+  // are asserted against a real PostgreSQL in the migration, because asserting
+  // them against a fake here would only restate this file's own mock.
+
+  it("resolves through the function, keyed on the subject and not the email", async () => {
+    const db = fakeDb([
+      [{ user_id: "local-uuid", email: "person@example.com", is_new: false }],
+    ]);
     const user = await resolveUser(db, claims());
 
     expect(user).toEqual({
@@ -46,54 +60,59 @@ describe("resolveUser", () => {
       email: "person@example.com",
       isNew: false,
     });
-    // Keyed on the subject. Joining on email silently merges two people the
+    // Subject, never address. Joining on email silently merges two people the
     // moment an address is reassigned.
-    expect(db.params[0]).toEqual(["ory", "kratos-subject-1"]);
-    expect(db.sql[0]).toContain("i.provider_user_id = $2");
+    expect(db.params[0]).toEqual([
+      "ory",
+      "kratos-subject-1",
+      "person@example.com",
+    ]);
+    expect(db.sql[0]).toContain("resolve_user($1, $2, $3)");
     expect(db.sql[0]).not.toContain("u.email = ");
   });
 
-  it("provisions a user and links the identity on first sight", async () => {
-    const db = fakeDb([[], [{ id: "new-uuid" }], [{ user_id: "new-uuid" }]]);
-    const user = await resolveUser(db, claims());
+  it("issues exactly one statement", async () => {
+    // The point of the function is that resolution is one round trip whose
+    // privilege is the owner's. A second statement here would mean something was
+    // left behind that RLS will block at runtime rather than in this test.
+    const db = fakeDb([
+      [{ user_id: "u", email: "person@example.com", is_new: false }],
+    ]);
+    await resolveUser(db, claims());
+    expect(db.sql).toHaveLength(1);
+  });
 
+  it("reports a first sighting as new", async () => {
+    const db = fakeDb([
+      [{ user_id: "new-uuid", email: "person@example.com", is_new: true }],
+    ]);
+    const user = await resolveUser(db, claims());
     expect(user).toEqual({
       userId: "new-uuid",
       email: "person@example.com",
       isNew: true,
     });
-    expect(db.sql[1]).toContain("INSERT INTO public.users");
-    expect(db.sql[2]).toContain(
-      "ON CONFLICT (provider, provider_user_id) DO NOTHING",
-    );
   });
 
-  it("yields to the winner when two requests race the same subject", async () => {
-    const db = fakeDb([[], [{ id: "loser-uuid" }], [], [{ user_id: "winner-uuid" }]]);
-    const user = await resolveUser(db, claims());
-
-    // Returning our own id would hand out a user no identity points at.
-    expect(user.userId).toBe("winner-uuid");
-    expect(user.isNew).toBe(false);
+  it("takes the address the function returns, not the one in the claims", async () => {
+    // The caller cannot read public.users to check: under RLS it has no user
+    // context until this call returns. The stored address is therefore whatever
+    // the function says it is.
+    const db = fakeDb([
+      [{ user_id: "u", email: "stored@example.com", is_new: false }],
+    ]);
+    const user = await resolveUser(db, claims({ email: "claimed@example.com" }));
+    expect(user.email).toBe("stored@example.com");
   });
 
-  it("fails rather than inventing an address when none is present", async () => {
+  it("fails loudly when the function returns no row", async () => {
+    // A set-returning function yielding nothing means the call did not happen as
+    // expected. Returning an undefined user id here would fail somewhere later,
+    // with nothing pointing back at resolution.
     const db = fakeDb([[]]);
-    await expect(resolveUser(db, claims({ email: "" }))).rejects.toThrow(
-      /no email claim/,
+    await expect(resolveUser(db, claims())).rejects.toThrow(
+      /returned no row/,
     );
-  });
-
-  it("refreshes a changed email but leaves an unchanged one alone", async () => {
-    const changed = fakeDb([[{ user_id: "u", email: "old@example.com" }]]);
-    await resolveUser(changed, claims({ email: "new@example.com" }));
-    expect(
-      changed.sql.some((s) => s.startsWith("UPDATE public.users SET email")),
-    ).toBe(true);
-
-    const same = fakeDb([[{ user_id: "u", email: "person@example.com" }]]);
-    await resolveUser(same, claims());
-    expect(same.sql.some((s) => s.startsWith("UPDATE"))).toBe(false);
   });
 
   it("rejects a schema name that is not a bare identifier", async () => {
@@ -104,7 +123,9 @@ describe("resolveUser", () => {
   });
 
   it("keeps providers distinct so one subject cannot span two of them", async () => {
-    const db = fakeDb([[{ user_id: "u", email: "person@example.com" }]]);
+    const db = fakeDb([
+      [{ user_id: "u", email: "person@example.com", is_new: false }],
+    ]);
     await resolveUser(db, claims(), { provider: "github" });
     expect(db.params[0]?.[0]).toBe("github");
   });
