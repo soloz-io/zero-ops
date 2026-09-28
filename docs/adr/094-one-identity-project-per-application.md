@@ -1,0 +1,361 @@
+# ADR-094: One identity project per application, and audience is not authorisation
+
+**Date:** 2026-09-28
+**Status:** Accepted
+**Builds on:** ADR-088 (which decided this shape and left it unbuilt)
+**Relates to:** ADR-047 (a fleet declares, the platform renders), ADR-050 (where identity is validated), ADR-053 (OAuth clients are fleet-declared), ADR-059 (no provider vocabulary in platform templates)
+
+## Context
+
+ADR-088 decided the axis and named identity as one of the places it applies:
+
+| | `tenantId` | `appId` |
+|---|---|---|
+| Identity | Zitadel organisation | **Zitadel project within it** |
+
+and said plainly what the platform was doing instead:
+
+> *"the organisation is the tenantId and the project is a single name from
+> configuration, so every box has one project per organisation. An org of
+> `nutgraf` with projects `waypoint` and `oranger` is the shape Zitadel expects
+> and the shape the platform declines to use."*
+
+It was never built. `ensureProject(ctx, orgID, a.cfg.ProjectName)` still takes one
+configured name, so every application of every tenant lands in one project.
+
+The second application of a real tenant is where that stops being theoretical.
+Provisioning oranger produces two failures:
+
+- **No organisation binding.** The binding is read from the app's own XR
+  (`status.identity.zitadelOrgId`); oranger's has none, so the provider falls back
+  to a name search, finds waypoint's `nutgraf` org, and returns `ErrOrgUnadopted`
+  forever. `OIDC_CLIENT_ID` is never published and oranger's gateway cannot start.
+- **A shared client.** The client is named `tenantID + "-" + publicName`, and an
+  existing one is returned unchanged. Two applications that declare the same
+  client name get the same client id — registered for the other's hostname, so
+  login fails with `redirect_uri_mismatch`, and carrying the same audience, so
+  each backend accepts the other's tokens.
+
+The second is the security one. `OIDC_CLIENT_ID` **is** the audience every
+workload validates against -- the chart says so: *"It is the audience a fleet must
+require on the id_token."*
+
+## Decision
+
+### The topology
+
+```
+one Zitadel instance, on the hub
+└── organisation: <tenantId>          one per tenant -- the identity domain
+    ├── project: <appId>              one per application -- the security context
+    │   └── client(s)                 fleet-declared (ADR-053)
+    └── project: <appId>
+```
+
+One instance. One organisation per tenant. **Single sign-on is unchanged**: it is
+a property of the organisation and the session, so a person who signs in at one
+application opens the other without a second prompt. What differs per application
+is the `client_id` and therefore the token audience.
+
+A shared client does not *enable* cross-application calls. It makes every
+application permanently able to call every other, including ones that do not exist
+yet, with no way to refuse and nothing to revoke.
+
+### Cross-application access is a target-project AUDIENCE, not a project grant
+
+A Zitadel **Project Grant** grants a project from one organisation to *another
+organisation*. That is not this case: both applications are in one organisation,
+one tenant, one box. Using that term would send an implementer to the wrong API.
+
+The mechanism for same-organisation, application-to-application access is
+requesting the target project's audience on the authentication request:
+
+```
+urn:zitadel:iam:org:project:id:<target-project-id>:aud
+```
+
+The token then carries both audiences, and the target validates that its own
+project is present. Standard audience validation is membership, not equality, so
+the receiving side needs no change.
+
+### AUDIENCE IS NOT AUTHORISATION
+
+This is the section to read if only one is read.
+
+Adding waypoint's project to oranger's token audience says exactly one thing:
+
+> this token is intended to be accepted by waypoint
+
+It does **not** say the person may do anything in particular there. It is
+addressing, not permission. A receiver that treats a correct audience as
+authorisation has built an application where any authenticated user of a
+*sibling* application can perform any operation it exposes.
+
+So a receiver validates, in order, and none of these is optional:
+
+```
+issuer            the expected one, and only that one
+signature         against the issuer's published keys
+expiry            and any not-before
+audience          contains THIS project
+tenant / org      the expected organisation
+AUTHORISATION     the receiver's own decision about this user and this operation
+```
+
+The platform delivers the first five. The sixth belongs to the application and
+cannot be delegated to the identity provider by adding an audience.
+
+### Who may request an audience: the fleet declares, the platform renders
+
+The chart already states the rule that governs this, about scopes:
+
+> *"Fixed by the platform. Scopes bound what a token may do, so a fleet able to
+> widen its own would be granting itself authority the platform did not issue."*
+
+`oidcScopes` is supplied by the environment-manager, never by a fleet, and that
+must not change. But it is environment-wide, so adding an audience scope there
+would give EVERY application EVERY audience -- the shared-client problem returning
+by another route.
+
+So the scope becomes per application, rendered by the platform from a declaration
+the fleet makes in its own repository:
+
+```yaml
+# environments/dev/oranger/values.yaml
+identity:
+  backendDependencies:
+    - waypoint      # an appId of THIS tenant
+```
+
+The declaration means **"oranger is permitted to make authenticated user calls to
+waypoint"** -- not merely "put waypoint in my audience". That distinction decides
+where it is used: the platform renders it into BOTH the scope oranger's client
+requests AND the allowed-caller list waypoint validates against. Rendering only the
+first would make the declaration advisory, which is exactly what it must not be --
+see the settled section below, where Zitadel is shown not to restrict the request
+at all.
+
+The fleet never writes the scope string itself, so it cannot widen its own scopes
+in the sense the chart's existing rule prohibits. What it cannot do is bind a
+compromised client, which is why the receiver enforces.
+
+**Same tenant only.** A dependency naming an app of another tenant is refused.
+Cross-tenant access is a different decision with a different blast radius, and
+ADR-088 gives it no mechanism.
+
+### Browser-direct is supported, and the BFF is not made mandatory
+
+A browser holding a token audienced for waypoint may call waypoint directly. This
+is the ordinary OIDC multi-tier shape and it is what the tenant asked for.
+
+Routing through the calling application's BFF remains available and is sometimes
+better -- it needs no second audience at all -- but it must not become an
+accidental requirement produced by identity plumbing that cannot express the
+direct case. Note that the existing intra-tenant path is neither: waypoint's
+service-to-service calls use a shared secret (`x-waypoint-internal-token`,
+waypoint ADR-024) and carry no user token. Those are three different trust
+relationships and should not be collapsed into one.
+
+### waypoint stays where it is
+
+New applications get their own project. waypoint remains on the current project
+until it is moved deliberately, because moving it reissues its client id, and its
+own fleet values say what that costs:
+
+> *"renaming it re-registers the client under a new identifier and breaks login
+> until every consumer is updated"*
+
+That is a live-application migration with its own verification window, like the
+ADR-093 cutover. Coupling it to a capability new applications need means neither
+ships until both are safe.
+
+## SETTLED: Zitadel does NOT restrict which project audiences a client may request
+
+This was left open in the first draft. It is now answered, from the vendored
+source and from the deployed instance, and the answer is the dangerous one.
+
+**Source** (`reference-projects/zitadel`, v5.0.0-base). `isScopeAllowed` in
+`internal/api/oidc/client_converter.go`:
+
+```go
+if strings.HasPrefix(scope, domain.ProjectIDScope) {
+    return true          // unconditional
+}
+```
+
+and `AddAudScopeToAudience` in `internal/domain/token.go` is string manipulation
+with no lookup at all:
+
+```go
+projectID := strings.TrimSuffix(strings.TrimPrefix(scope, ProjectIDScope), AudSuffix)
+audience = addProjectID(audience, projectID)
+```
+
+No check that the project exists, none that the client relates to it.
+
+**Deployed instance** (v4.15.3, `id.dev.nutgraf.in`, 2026-09-28). A throwaway
+machine client with no relationship to either project requested both audiences:
+
+```
+scope: urn:zitadel:iam:org:project:id:<probe-project>:aud
+       urn:zitadel:iam:org:project:id:<platform-project>:aud
+
+aud:   ["392792754981175698", "391788656387424626"]   <- both issued
+```
+
+The second is the project every workload on this box validates against today. The
+probe project and machine user were deleted afterwards.
+
+### What follows, and it is the central control
+
+**The fleet declaration is the ONLY thing deciding which audiences are requested,
+and it is a deployment control, not a security boundary.** It governs what the
+platform asks the client to request. It does not and cannot prevent a client from
+asking for something else: a compromised or modified application can obtain a token
+carrying any project's audience, including one it was never declared against.
+
+So the earlier sentence "a reviewer sees the dependency in the tenant's own
+repository" is true and insufficient, and this ADR does not rely on it.
+
+**The receiving application enforces the boundary, and it checks three things, not
+one:**
+
+```
+aud contains THIS project        is this token intended for me?
+caller identity is permitted     which application obtained it?
+user authorisation               may this person do this operation?
+```
+
+The middle check is what the audience cannot provide. For a browser token from an
+authorization-code flow that is `azp`; the receiver compares it against the callers
+declared for it, rendered by the platform from the same declaration that produces
+the requester's scope -- one declaration, two enforcement points:
+
+```
+fleet declares:  oranger -> waypoint
+       |
+       +--> the scope oranger's client requests
+       +--> the allowed-caller list waypoint validates against
+```
+
+Rendering only the first half would leave the platform asking politely.
+
+**`azp` is absent on client_credentials tokens.** Observed in the probe above: the
+machine token carried no `azp`, only `sub`. So a receiver that keys solely on `azp`
+admits every machine token silently. Service-to-service on this platform does not
+use user tokens at all (waypoint ADR-024, `x-waypoint-internal-token`), so the
+correct rule is narrow: reject a token with no `azp` on the browser-call path
+rather than treating absence as a pass.
+
+## The three receiver invariants
+
+Stated separately because each is a thing a receiver must do, and each has been
+checked against what this platform does today rather than asserted.
+
+### 1. APIs accept ACCESS tokens, never ID tokens
+
+An ID token is issued to the client, about the user. It is not a credential for a
+resource server, and its `aud` is the client id -- not a project -- so it cannot
+carry the cross-application audience this ADR depends on.
+
+**The platform does not do this today.** `agentgateway.yaml` forwards the ID token
+as the API credential:
+
+```
+# Forward the ID token itself, not merely claims derived from it.
+Authorization: '"Bearer " + jwt.rawToken.unredacted()'
+```
+
+The reason given is sound and is not in dispute -- the BFF validates identity
+itself (ADR-050) and refuses to derive it from `x-auth-*` headers, so *something*
+must be forwarded. What is wrong is *which* token, and it matters beyond
+tidiness: the project-audience scope puts project ids in an ACCESS token's `aud`,
+so cross-application calls cannot work while workloads are handed an ID token
+whose `aud` is a client id.
+
+So this invariant is a MIGRATION, not a clarification:
+
+```
+today     Authorization: Bearer <id_token>      aud = OIDC_CLIENT_ID
+required  Authorization: Bearer <access_token>  aud contains <project id>
+```
+
+Every workload validating `aud == OIDC_CLIENT_ID` changes to validating that its
+project id is present. Different value, different semantics, and it lands on every
+tenant workload at once. It is sequenced with the per-application projects rather
+than before them, because until an application HAS its own project there is no
+project id to validate against.
+
+### 2. `azp` is checked against a rendered caller allowlist, and absence is refusal
+
+```
+aud contains THIS project        the token is addressed to me
+azp ∈ allowed caller clients     which client obtained it
+user authorisation               may this person do this operation
+```
+
+`azp` is the client id that requested the token. It is present on ID tokens and on
+JWT access tokens; it was **absent** on the `client_credentials` token in the probe
+above. So a receiver keying on `azp` without requiring it admits every machine
+token silently, and the rule is: **on the browser-call path a missing `azp` is
+rejected**, never treated as a trusted service. Service-to-service on this platform
+authenticates separately and carries no user token (waypoint ADR-024).
+
+**The declaration stays at application level; the platform expands it to clients.**
+A fleet writes `backendDependencies: [waypoint]`, and the renderer resolves that to
+the set of client ids belonging to waypoint's project, which is what the receiver
+compares `azp` against. The alternative -- tenants declaring client ids -- pushes
+an issuer-allocated, rotating identifier into a tenant's repository, and a client
+rotation would then silently break a dependency the tenant thought it had declared.
+So: **an appId -> appId dependency authorises every browser client of the calling
+application.** An application that needs finer granularity than that needs a second
+project, which is the unit this ADR makes cheap.
+
+### 3. Tenant identity comes from a claim, never from the audience
+
+A correct audience says the token was addressed to this application. It says
+nothing about which tenant the user belongs to, and the two are independently
+forgeable in different ways.
+
+The claim is already defined and implemented -- `packages/auth/src/jwt/claims.ts`
+resolves the tenant in priority order:
+
+```
+tenant_id
+urn:zitadel:iam:user:resourceowner:id     the user's owning organisation
+urn:zitadel:iam:org:id
+```
+
+The receiver compares that to its own configured tenant. The acceptance test is
+the one that proves the two checks are independent:
+
+```
+tenant A token, aud = tenant A project, -> tenant A backend    ACCEPT
+tenant B token, aud = tenant A project, -> tenant A backend    REJECT
+```
+
+The second case is constructible precisely because Zitadel issues any project's
+audience to any client, as verified above. A receiver that treats audience as the
+tenant check accepts it.
+
+## Consequences
+
+- Provisioning gains a project per application, and the organisation binding is
+  inherited from a sibling XR of the same tenant rather than found by name -- the
+  name search is what produced `ErrOrgUnadopted`.
+- `oidcScopes` becomes per application. It stays platform-rendered.
+- Each application's backend validates its own audience AND the calling
+  application's identity. Audience alone is insufficient: Zitadel issues any
+  project's audience to any client that asks (verified, below), so a receiver that
+  checks only `aud` accepts a token any application on the box could mint for it.
+- A token with no `azp` is refused on the browser-call path rather than admitted.
+  Machine tokens carry none, and service-to-service here does not use user tokens.
+- Applications must not treat a valid audience as permission. Where one does
+  today, that is a defect this ADR makes visible rather than creates.
+- waypoint keeps one project and one client until its own migration.
+- **The API credential changes from the ID token to the access token**, across
+  every tenant workload. This is the largest item in the ADR and the one most
+  likely to be underestimated: it is not a header rename, it changes what `aud`
+  contains and therefore what every receiver validates. It ships with the
+  per-application projects, because until an application has a project there is no
+  project id for a receiver to require.
