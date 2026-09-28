@@ -31,6 +31,7 @@ spec:
             - cellId
             - database
             - dbRoleName
+            - dbOwnerRoleName
             x-kubernetes-validations:
               # 'tenant_'(7) + '_'(1) + '_user'(5) = 13 fixed bytes, leaving 50
               # for the two components. The grammar admits only single-byte
@@ -48,6 +49,16 @@ spec:
                 message: >-
                   dbRoleName is derived, not declared: it must equal
                   tenant_<tenantId>_<appId>_user.
+              - rule: "self.dbOwnerRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_owner'"
+                message: >-
+                  dbOwnerRoleName is derived, not declared: it must equal
+                  tenant_<tenantId>_<appId>_owner.
+              # The two roles must never be the same identity: that IS the defect
+              # ADR-093 removes, and it would otherwise be reachable by a value.
+              - rule: "self.dbOwnerRoleName != self.dbRoleName"
+                message: >-
+                  the owner and runtime roles must differ: an application that owns
+                  its tables is exempt from their row-level security policies.
             properties:
               tenantId:
                 type: string
@@ -97,6 +108,25 @@ spec:
                   component under the grammar above, which is what makes this
                   encoding injective.
                 pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_user$'
+                maxLength: 63
+              dbOwnerRoleName:
+                type: string
+                description: >-
+                  The postgres role that owns this app's objects and runs its
+                  migrations: "tenant_<tenantId>_<appId>_owner" (ADR-093).
+
+
+                  Separate from dbRoleName because PostgreSQL exempts a table's
+                  OWNER from its own row-level security policies. While the
+                  application connected as the owner, every policy the tenant
+                  baseline ships was inert, and setting the RLS context correctly
+                  changed nothing because the policies were never evaluated.
+
+
+                  DERIVED, NOT DECLARED, on the same terms as dbRoleName, and
+                  bound by the same budget -- which this name, not dbRoleName, is
+                  what makes 49 rather than 50.
+                pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_owner$'
                 maxLength: 63
               tier:
                 type: string

@@ -184,8 +184,11 @@ spec:
               # scopeId is left building namespaces and cluster-scoped names, which
               # are the things that would actually collide between two apps of one
               # tenant. The db-user Role below must use appId for the same reason.
+              # ADR-093: the OWNER role, not the application's. A database whose
+              # owner is the role the application connects as is a database whose
+              # row-level security policies do not apply to it.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.dbRoleName
+                fromFieldPath: spec.dbOwnerRoleName
                 toFieldPath: spec.forProvider.manifest.spec.owner
 
           # Resource 3b: Pooler App Secret (for Workloads)
@@ -420,6 +423,118 @@ spec:
                       type: Format
                       fmt: "tenant-%s-db-credentials"
 
+          # Resource 4a: the OWNER role (ADR-093).
+          #
+          # WHY THERE ARE TWO ROLES
+          #
+          #   PostgreSQL exempts a table's OWNER from its own row-level security
+          #   policies. While the application connected as the owner of every
+          #   baseline table, every policy the tenant baseline ships was inert --
+          #   measured on a live spoke, a query as the app's own role with no
+          #   claims set returned every row where the policy would have matched
+          #   none. Setting the RLS context correctly (ADR-057) changed nothing,
+          #   because the policies were never evaluated.
+          #
+          #   This role owns the objects and runs the migrations. db-user above
+          #   owns nothing and holds DML through the DefaultPrivileges below, so
+          #   the policies apply to it.
+          #
+          # NO passwordSecretRef, DELIBERATELY
+          #
+          #   provider-sql generates a password when none is supplied and publishes
+          #   it through connection details. The owner credential therefore never
+          #   leaves the cluster and is never written to Infisical -- which is the
+          #   right exposure for a credential that can perform any DDL and
+          #   ownership operation in the tenant's database. A rebuild recreates the
+          #   role and the secret together.
+          #
+          #   ONLY the baseline migration Job mounts it. A workload that does is
+          #   back to the state ADR-093 removes, and silently so.
+          - name: db-owner
+            base:
+              apiVersion: postgresql.sql.crossplane.io/v1alpha1
+              kind: Role
+              metadata:
+                annotations:
+                  # The postgres role name. See db-user for why this is the
+                  # external name and not metadata.name: a Kubernetes object name
+                  # is an RFC 1123 name and forbids the '_' that makes this
+                  # encoding injective.
+                  crossplane.io/external-name: ""  # Patched from spec.dbOwnerRoleName
+              spec:
+                forProvider:
+                  privileges:
+                    login: true
+                    createDb: false
+                    superUser: false
+                writeConnectionSecretToRef:
+                  namespace: ""  # Patched to tenant-<scopeId>
+                  name: ""       # Patched to tenant-<appId>-db-owner
+                providerConfigRef:
+                  name: default
+                deletionPolicy: Delete
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.scopeId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-owner"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbOwnerRoleName
+                toFieldPath: metadata.annotations[crossplane.io/external-name]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.scopeId
+                toFieldPath: spec.writeConnectionSecretToRef.namespace
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.appId
+                toFieldPath: spec.writeConnectionSecretToRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-db-owner"
+
+          # Resource 4c: the same ADMIN OPTION for the owner role.
+          #
+          # Same PostgreSQL 16 CREATEROLE narrowing as 4b below. Without it,
+          # provider-sql can observe the owner role after a rebuild and be unable
+          # to alter it, so the migration Job's password can never be reconciled --
+          # and the failure surfaces as a migration that cannot authenticate, with
+          # nothing in the tenant's resources saying why.
+          - name: db-owner-admin-option
+            base:
+              apiVersion: postgresql.sql.crossplane.io/v1alpha1
+              kind: Grant
+              metadata: {}
+              spec:
+                forProvider:
+                  role: crossplane_admin
+                  memberOf: ""  # Patched to the owner role
+                  withOption: ADMIN
+                providerConfigRef:
+                  name: default
+                deletionPolicy: Orphan
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.scopeId
+                toFieldPath: metadata.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: "tenant-%s-owner-admin-option"
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbOwnerRoleName
+                toFieldPath: spec.forProvider.memberOf
+
           # Resource 4b: give crossplane_admin ADMIN OPTION on the tenant role.
           #
           # PostgreSQL 16 narrowed CREATEROLE. Previously a CREATEROLE user could
@@ -485,7 +600,12 @@ spec:
                   database: ""  # Patched to tenant-<id>-db
                   schema: "public"
                   objectType: "table"
-                  targetRole: "crossplane_admin"  # When crossplane_admin creates tables, grant to tenant user
+                  # Patched to the OWNER role (ADR-093). It was crossplane_admin,
+                  # which does not create these objects -- the migration Job does --
+                  # so these grants were configured and never fired. Objects that
+                  # ALREADY exist are granted explicitly by the baseline migration,
+                  # because ALTER DEFAULT PRIVILEGES applies only to future ones.
+                  targetRole: ""  # Patched to spec.dbOwnerRoleName
                 providerConfigRef:
                   name: default
                 deletionPolicy: Delete
@@ -501,6 +621,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.role
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbOwnerRoleName
+                toFieldPath: spec.forProvider.targetRole
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database
@@ -521,7 +644,12 @@ spec:
                   database: ""  # Patched to tenant-<id>-db
                   schema: "public"
                   objectType: "sequence"
-                  targetRole: "crossplane_admin"  # When crossplane_admin creates sequences, grant to tenant user
+                  # Patched to the OWNER role (ADR-093). It was crossplane_admin,
+                  # which does not create these objects -- the migration Job does --
+                  # so these grants were configured and never fired. Objects that
+                  # ALREADY exist are granted explicitly by the baseline migration,
+                  # because ALTER DEFAULT PRIVILEGES applies only to future ones.
+                  targetRole: ""  # Patched to spec.dbOwnerRoleName
                 providerConfigRef:
                   name: default
                 deletionPolicy: Delete
@@ -537,6 +665,9 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.role
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbOwnerRoleName
+                toFieldPath: spec.forProvider.targetRole
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.database

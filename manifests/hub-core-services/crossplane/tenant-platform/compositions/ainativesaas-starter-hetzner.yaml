@@ -34,6 +34,7 @@ spec:
               databaseName: ""   # Patched: database.name
               cellId: ""         # Patched: cellId
               dbRoleName: ""     # Patched: the postgres role, composed by the chart
+              dbOwnerRoleName: "" # Patched: the OWNER role (ADR-093)
         providerConfigRef:
           name: ""  # Patched: cellId (provider-kubernetes ProviderConfig for Spoke)
     readinessChecks:
@@ -73,6 +74,9 @@ spec:
     - type: FromCompositeFieldPath
       fromFieldPath: spec.dbRoleName
       toFieldPath: spec.forProvider.manifest.spec.dbRoleName
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.dbOwnerRoleName
+      toFieldPath: spec.forProvider.manifest.spec.dbOwnerRoleName
     - type: FromCompositeFieldPath
       fromFieldPath: spec.cellId
       toFieldPath: spec.forProvider.manifest.spec.cellId

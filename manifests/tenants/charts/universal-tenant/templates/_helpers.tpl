@@ -115,11 +115,56 @@ grammar admits only single-byte ASCII, so characters are bytes and the bound is
 exact. Both XRDs carry it as a CEL rule, and this fails first with a message that
 names the two lengths.
 */}}
-{{- define "universal-tenant.dbRoleName" -}}
+{{/*
+The postgres role that OWNS an app's database objects and runs its migrations.
+
+SEPARATE FROM THE RUNTIME ROLE, AND THAT IS THE WHOLE POINT (ADR-093).
+
+PostgreSQL exempts a table's OWNER from its own row-level security policies. While
+the application connected as the owner, every policy the tenant baseline ships was
+inert -- measured on a live spoke, a query as the app's own role with no claims set
+returned every row where the policy would have matched none. Setting the RLS
+context correctly (ADR-057) changed nothing, because the policies were never
+evaluated.
+
+So the migration Job connects as THIS role, which owns what it creates, and the
+application connects as universal-tenant.dbRoleName, which owns nothing and holds
+DML through DefaultPrivileges -- and is therefore subject to the policies.
+
+THIS IS AN OWNER CREDENTIAL. It can perform any DDL and ownership operation in the
+tenant's database. Only the baseline migration Job carries it; a workload that
+mounts it is back to the state ADR-093 exists to remove, and silently so.
+
+Composed here, once, for the same reason dbRoleName is: two names that must agree
+with what the composition creates, rebuilt at neither of their consumers.
+*/}}
+{{- define "universal-tenant.dbOwnerRoleName" -}}
+{{- $t := include "universal-tenant.tenantId" . -}}
+{{- $a := include "universal-tenant.appId" . -}}
+{{- include "universal-tenant.assertRoleBudget" . -}}
+tenant_{{ $t }}_{{ $a }}_owner
+{{- end -}}
+
+{{/*
+The shared budget both role names are bound by.
+
+ONE ASSERTION, NOT ONE PER NAME. The bound follows the LONGEST generated role --
+tenant_<t>_<a>_owner, whose fixed parts cost 14 bytes -- so checking it in
+dbRoleName alone would pass a pair that only dbOwnerRoleName overflows, which is
+the truncation collision ADR-090 exists to prevent arriving through the name
+ADR-090 did not cover.
+*/}}
+{{- define "universal-tenant.assertRoleBudget" -}}
 {{- $t := include "universal-tenant.tenantId" . -}}
 {{- $a := include "universal-tenant.appId" . -}}
 {{- if gt (add (len $t) (len $a)) 49 -}}
 {{- fail (printf "tenantId (%q, %d chars) and appId (%q, %d chars) total %d, over the 49 available: the postgres role tenant_%s_%s_owner would exceed postgres's 63-byte identifier limit, and postgres truncates rather than failing -- which would silently give two apps one role" $t (len $t) $a (len $a) (add (len $t) (len $a)) $t $a) -}}
 {{- end -}}
+{{- end -}}
+
+{{- define "universal-tenant.dbRoleName" -}}
+{{- $t := include "universal-tenant.tenantId" . -}}
+{{- $a := include "universal-tenant.appId" . -}}
+{{- include "universal-tenant.assertRoleBudget" . -}}
 tenant_{{ $t }}_{{ $a }}_user
 {{- end -}}

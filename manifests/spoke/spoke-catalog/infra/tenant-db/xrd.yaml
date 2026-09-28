@@ -27,6 +27,7 @@ spec:
               - scopeId
               - databaseName
               - dbRoleName
+              - dbOwnerRoleName
             properties:
               tenantId:
                 type: string
@@ -102,6 +103,25 @@ spec:
                   leaving 50 for the two components together.
                 pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_user$'
                 maxLength: 63
+              dbOwnerRoleName:
+                type: string
+                description: >-
+                  The postgres role that owns this app's objects and runs its
+                  migrations: "tenant_<tenantId>_<appId>_owner" (ADR-093).
+
+
+                  PostgreSQL exempts a table's OWNER from its own row-level
+                  security policies. The migration Job connects as THIS role, so
+                  what it creates is owned by it; the application connects as
+                  dbRoleName, owns nothing, and holds DML through
+                  DefaultPrivileges -- which is what makes the policies apply.
+
+
+                  It is an OWNER CREDENTIAL: it can perform any DDL and ownership
+                  operation in this database. Only the baseline migration Job
+                  carries it.
+                pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_owner$'
+                maxLength: 63
               # NOTE: Removed compositionRef, resourceRefs, etc. Crossplane injects these automatically.
             x-kubernetes-validations:
               # Verified against this cluster before being committed: 30+20=50 is
@@ -122,6 +142,14 @@ spec:
                 message: >-
                   dbRoleName is derived, not declared: it must equal
                   tenant_<tenantId>_<appId>_user.
+              - rule: "self.dbOwnerRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_owner'"
+                message: >-
+                  dbOwnerRoleName is derived, not declared: it must equal
+                  tenant_<tenantId>_<appId>_owner.
+              - rule: "self.dbOwnerRoleName != self.dbRoleName"
+                message: >-
+                  the owner and runtime roles must differ: an application that owns
+                  its tables is exempt from their row-level security policies.
           status:
             type: object
             properties:

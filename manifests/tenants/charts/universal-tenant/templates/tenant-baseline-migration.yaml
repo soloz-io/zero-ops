@@ -212,10 +212,26 @@ spec:
               valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: host}}
             - name: PGPORT
               valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: port}}
+            # THE OWNER CREDENTIAL, NOT THE APPLICATION'S (ADR-093).
+            #
+            # This Job creates the tables, so whoever it connects as OWNS them --
+            # and PostgreSQL exempts a table's owner from its own row-level
+            # security policies. While this read the application's credential,
+            # every policy the migrations below create was inert: measured on a
+            # live spoke, a query as the app's own role with no claims set returned
+            # every row where the policy would have matched none.
+            #
+            # The secret is published by provider-sql itself from the db-owner Role
+            # (writeConnectionSecretToRef), so the owner password is generated in
+            # the cluster and never written to Infisical.
+            #
+            # Note which keys come from where: only username and password move. The
+            # host, port, database and sslmode below are configuration, not
+            # secrets, and this Job never references the application's password.
             - name: PGUSER
-              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: username}}
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-owner, key: username}}
             - name: PGPASSWORD
-              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: password}}
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-owner, key: password}}
             - name: PGDATABASE
               valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: database}}
             - name: PGSSLMODE
@@ -224,6 +240,12 @@ spec:
             # read-only, so it is pointed at the one writable mount.
             - name: HOME
               value: /tmp
+            # The application's role, so the grant migration can name it. Read
+            # from the application's own credential Secret rather than recomposed
+            # here: one definition (ADR-090), and this Job must not be able to
+            # grant to a role the composition did not create.
+            - name: RUNTIME_ROLE
+              valueFrom: {secretKeyRef: {name: tenant-{{ $app }}-db-credentials, key: username}}
           command:
             - /bin/sh
             - -c
@@ -238,7 +260,13 @@ spec:
               # is locale-dependent.
               for f in $(ls /migrations/*.sql | sort); do
                 echo "applying $(basename "$f")"
-                psql --set ON_ERROR_STOP=1 --no-psqlrc --quiet -f "$f"
+                # runtime_role is the role the APPLICATION connects as, which is
+                # not the role running this. The grant migration needs to name it
+                # and cannot know it statically. Passed as a psql variable and
+                # interpolated with :"runtime_role", which quotes it as an
+                # identifier rather than splicing it as text.
+                psql --set ON_ERROR_STOP=1 --no-psqlrc --quiet \
+                     --set runtime_role="$RUNTIME_ROLE" -f "$f"
               done
               echo "tenant baseline applied to $PGDATABASE"
           volumeMounts:

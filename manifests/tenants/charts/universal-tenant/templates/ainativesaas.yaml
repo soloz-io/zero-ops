@@ -39,6 +39,12 @@ spec:
   # delimits and why the length is a correctness property rather than a limit.
   dbRoleName: {{ include "universal-tenant.dbRoleName" . }}
 
+  # The role that OWNS this app's objects and runs its migrations (ADR-093).
+  # Separate from dbRoleName above because a table's owner is exempt from its own
+  # row-level security policies: while the application owned its tables, every
+  # policy the baseline ships was inert.
+  dbOwnerRoleName: {{ include "universal-tenant.dbOwnerRoleName" . }}
+
   pooler:
     maxConnections: {{ $poolerMaxConn }}
     poolMode: {{ $poolerMode }}
