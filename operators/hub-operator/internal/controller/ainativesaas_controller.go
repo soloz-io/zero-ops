@@ -106,7 +106,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Read here and passed to the identity service, never invented: a client's
 	// name, type and callback belong to the fleet (ADR-047 forbids a tenant
 	// identifier in platform code, and "every tenant has a bff" is one).
-	oauthClients := declaredOAuthClients(ainativesaas)
+	oauthClients := append(declaredOAuthClients(ainativesaas), gatewayExchangeClient(appId))
 
 	// OAuth client credentials are NOT generated here (ADR-060).
 	//
@@ -279,6 +279,30 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				} else {
 					logger.Info("Tenant identity provisioned", "tenant", tenantId, "clientId", identity.ClientID)
 				}
+
+				// The audience the gateway's token exchange asks for (ADR-095).
+				//
+				// Allocated by the issuer with the project, so it cannot be
+				// rendered into a chart; it travels the credential path for the
+				// same reason the client id does. Not secret — it is an
+				// audience — but it arrives with the values that are, and
+				// splitting it into a second delivery would add a way for the
+				// two to disagree.
+				if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_PROJECT_ID", identity.ProjectRef); err != nil {
+					logger.Error(err, "Provisioned tenant identity but could not publish its project id; the gateway cannot exchange",
+						"tenant", tenantId)
+				}
+
+				// The gateway's own confidential client, for ADR-095's exchange.
+				//
+				// Logged and not fatal, like the publishes above: a tenant whose
+				// identity exists but whose exchange client does not is one that
+				// cannot serve its API, and returning here would also lose the
+				// values already published.
+				if err := r.publishGatewayExchangeClient(ctx, cellId, tenantId, appId, identity.Clients); err != nil {
+					logger.Error(err, "Provisioned tenant identity but could not publish its gateway exchange client; will retry",
+						"tenant", tenantId)
+				}
 			}
 		}
 	}
@@ -367,6 +391,76 @@ func declaredOAuthClients(obj *unstructured.Unstructured) []client2.OAuthClient 
 		})
 	}
 	return clients
+}
+
+// gatewayExchangeClient is the confidential client a tenant's gateway
+// authenticates as when it exchanges a browser session for an access token
+// (ADR-095).
+//
+// APPENDED by the platform to whatever the fleet declared, never read from the
+// XR. ADR-053 keeps client naming platform-owned — a fleet able to name this
+// client could name another fleet's, and this one holds a credential that mints
+// tokens for an API. It is also not a fleet CONCERN: the exchange is how the
+// platform delivers a credential to the backend, not a feature a tenant asked
+// for, and ADR-047 forbids the reverse dependency of the platform requiring a
+// tenant to declare it.
+//
+// No redirect paths. It never runs a browser flow; it presents client
+// credentials at the token endpoint and nothing else.
+func gatewayExchangeClient(appId string) client2.OAuthClient {
+	return client2.OAuthClient{
+		Name:         gatewayExchangeClientName(appId),
+		Confidential: true,
+	}
+}
+
+// gatewayExchangeClientName is the name the platform registers that client
+// under. The issuer registers it as "<tenantId>-<Name>", so this is the suffix,
+// not the whole identifier.
+//
+// PER-APP, like every other derived name (ADR-088): a gateway and its OAuth
+// client belong to one product, and two products of one customer share neither.
+// A constant here would give a tenant's second app the first app's exchange
+// credential — one client minting tokens for two APIs, with the audience of
+// whichever project it happens to sit in.
+func gatewayExchangeClientName(appId string) string {
+	return appId + "-gateway-exchange"
+}
+
+// publishGatewayExchangeClient writes the exchange client's credentials to the
+// tenant's Infisical folder, where ExternalSecret delivers them to the gateway.
+//
+// The identity service provisions at the issuer and this operator owns where
+// secrets live — the same division OwnerPassword and OIDC_CLIENT_ID follow.
+//
+// Absent from the response is NOT an error here. The service returns a
+// confidential client's credentials only on the reconcile that minted them; a
+// later one re-asserts nothing, because the issuer discloses a generated secret
+// exactly once and regenerating it would invalidate the credential the running
+// gateway holds. So nothing to publish means already published.
+func (r *AINativeSaaSReconciler) publishGatewayExchangeClient(ctx context.Context, cellId, tenantId, appId string, clients []client2.DeclaredClient) error {
+	var minted *client2.DeclaredClient
+	for i := range clients {
+		if clients[i].Name == gatewayExchangeClientName(appId) {
+			minted = &clients[i]
+			break
+		}
+	}
+	if minted == nil || minted.ClientSecret == "" {
+		return nil
+	}
+
+	// The SECRET first. A published id with no secret is a gateway that starts,
+	// reads a client id, and fails every exchange with an authentication error
+	// naming a client that looks correctly configured. The reverse — a secret
+	// with no id — fails at startup, which says so once.
+	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_EXCHANGE_CLIENT_SECRET", minted.ClientSecret); err != nil {
+		return fmt.Errorf("publish gateway exchange client secret: %w", err)
+	}
+	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_EXCHANGE_CLIENT_ID", minted.ClientID); err != nil {
+		return fmt.Errorf("publish gateway exchange client id: %w", err)
+	}
+	return nil
 }
 
 // conditionState enumerates the three terminal states for TenantDBCredentialsSeeded.
