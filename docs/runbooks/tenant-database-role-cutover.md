@@ -141,15 +141,45 @@ the Kubernetes resource existing is not proof:
 SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname='<target>';
 ```
 
-## Phase 3 — Transfer database ownership
+## Phase 3 — Database ownership transfers ITSELF
+
+**This is not an operator step.** The composition patches `database.spec.owner`
+from `spec.dbRoleName`, and CNPG performs the ownership change during
+reconciliation. `ALTER DATABASE ... OWNER` is the *effect*, and the query below is
+a verification, not an instruction:
 
 ```sql
-ALTER DATABASE "<db>" OWNER TO "<target-role>";
+SELECT datname, pg_get_userbyid(datdba) FROM pg_database WHERE datname='<db>';
+-- expect the TARGET role
 ```
 
-The composition's `database.spec.owner` now patches from `spec.dbRoleName`, so the
-declarative state converges to the same identity. For oranger this is the whole of
-the ownership work.
+Run it by hand only if reconciliation has not done it.
+
+### What this means for the whole runbook
+
+**Applying the composition starts the cutover.** Phase 2 (the role), Phase 3 (the
+database owner) and Phase 5 (the credential) all happen on sync, unattended. That
+was not obvious when this runbook was first written -- it assumed Phase 3 was
+manual -- and the difference matters:
+
+  the moment the composition syncs, a populated database is owned by a role that
+  owns NONE OF THE OBJECTS IN IT, and the application's credential already names
+  that role
+
+The only thing keeping the application alive in that window is its EXISTING
+pooled connections, which authenticated as the legacy role before the change and
+are not re-authenticated. They are not evidence of correctness. When they cycle --
+a pod restart, a pooler restart, an idle timeout -- the application reconnects as
+the new role and is refused.
+
+Observed on 2026-09-28: rc.104 synced, and waypoint was left owning its database
+with 168 relations, 4 schemas and 8 functions still on the legacy role, surviving
+on 39 stale sessions.
+
+**So Phase 4 is not a later step. It is the other half of Phase 3, and the gap
+between them is an outage waiting for a reconnect.** Do not sync the composition
+into a spoke holding a populated tenant database unless you can run Phase 4
+immediately afterwards.
 
 ## Phase 4 — Reassign existing objects (waypoint)
 
@@ -168,9 +198,13 @@ remains.
 transferring them. It belongs only in Phase 9, and only once you have positively
 established that nothing required remains associated with the legacy role.
 
-## Phase 5 — Credential convergence
+## Phase 5 — Credential convergence (also automatic)
 
-Let the ExternalSecret reconcile, then confirm the Secret actually changed:
+The composition patches `username` into both ExternalSecret templates from
+`spec.dbRoleName`, so this converges on sync like Phase 3. Confirm rather than
+perform, then do the part that is NOT automatic: recycling the consumers.
+
+Confirm the Secret actually changed:
 
 ```
 username = <target-role>
@@ -292,3 +326,39 @@ Do **oranger first**. It has no objects, no sessions and no consumers, so it
 exercises Phases 2, 3, 5, 6 and 7 end to end with nothing to lose, and its
 baseline migration is currently failing anyway. Only then do waypoint, which is
 live, populated, and the only case where Phase 4 does real work.
+
+## What actually happened, 2026-09-28
+
+The first real execution, against nutgraf-01 at 0.1.16-rc.104. Recorded because it
+differed from the plan in one important way.
+
+| Phase | Plan | Reality |
+|---|---|---|
+| 2 role created | on sync | on sync |
+| 3 database owner | manual `ALTER DATABASE` | **automatic** on sync |
+| 5 credential username | manual check | **automatic** on sync |
+| 4 object ownership | a later step | **the only manual step, and urgent** |
+
+**waypoint.** rc.104 synced and left the database owned by the new role while 168
+relations, 4 schemas and 8 functions stayed on the legacy one; 39 stale sessions
+were the only thing still working. A single
+
+```sql
+REASSIGN OWNED BY "tenant-waypoint-user" TO "tenant_nutgraf_waypoint_user";
+```
+
+moved all three classes exactly (verified 4/168/8 to zero on the legacy role and
+4/168/8 on the target). Then `spec.restartAt` on the `Rollout` -- not a Deployment
+restart -- plus deleting the pooler pod to drop its server connections. Sessions
+went 18 legacy / 0 new, to 9 / 18 mid-rollout, to **0 / 37**. The new pod reached
+`Ready=True` and its logs show it querying `workflow_runs` normally.
+
+**oranger.** No `REASSIGN OWNED` was run, deliberately: the Phase 1 audit found
+zero objects on its legacy role, so there was nothing to move and the baseline
+migration creates the tables owned by the new role directly. Deleting the failed
+Job (its name is a hash of the SQL, so it does not re-run on its own) produced a
+run that completed in 8s, and all five baseline tables are owned by
+`tenant_nutgraf_oranger_user`.
+
+Both legacy roles were left with `rolcanlogin=true`. Retirement is Phase 8 and
+has not been done.
