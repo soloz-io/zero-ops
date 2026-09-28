@@ -1,0 +1,33 @@
+# The DeploymentRuntimeConfig every package gets when it asks for none.
+#
+# Crossplane's webhook defaults spec.runtimeConfigRef on every Provider and
+# Function that does not set one to a DeploymentRuntimeConfig named "default", and
+# a package whose runtime config is missing fails to install with:
+#
+#   cannot prepare runtime manifest builder options: cannot get referenced
+#   deployment runtime config: DeploymentRuntimeConfig.pkg.crossplane.io
+#   "default" not found
+#
+# THIS OBJECT ALREADY EXISTED ON THE HUB AND WAS TRACKED BY NOTHING.
+#
+# It was created out-of-band, so `argocd.argoproj.io/instance` was absent from it
+# and no Application owned it. The hub therefore worked, and a REBUILT hub would
+# not have -- the failure would arrive at bootstrap, in a package that installs
+# but never reports healthy. Declaring it here is what makes the working state
+# reproducible rather than inherited.
+#
+# The spoke had no such object at all, which is how this was found: provider-sql
+# and function-patch-and-transform were permanently Healthy=False there while
+# provider-kubernetes was fine, because that one declares its own runtime config
+# and references it by name. See
+# manifests/spoke/spoke-catalog/infra/crossplane-runtime-default.yaml.
+#
+# Empty spec means "Crossplane's own defaults", which is exactly what a package
+# that declares no runtime config is asking for. A package needing something
+# specific declares its own config and points at it, as provider-kubernetes does;
+# this object must not become the place to configure individual packages.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: default
+spec: {}

@@ -29,6 +29,10 @@ resources:
   - argo-rollouts/crd.yaml
   - argo-rollouts/controller.yaml
   - crossplane-admin-eso.yaml
+  # Ahead of every Provider and Function below: Crossplane defaults their
+  # runtimeConfigRef to a DeploymentRuntimeConfig named "default", and a
+  # package whose runtime config is missing fails to install.
+  - crossplane-runtime-default.yaml
   - crossplane-function-patch-and-transform.yaml
   - crossplane-providerconfig-sql.yaml
   - crossplane-provider-sql.yaml
