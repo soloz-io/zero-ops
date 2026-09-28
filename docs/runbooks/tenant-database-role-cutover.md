@@ -360,5 +360,23 @@ Job (its name is a hash of the SQL, so it does not re-run on its own) produced a
 run that completed in 8s, and all five baseline tables are owned by
 `tenant_nutgraf_oranger_user`.
 
-Both legacy roles were left with `rolcanlogin=true`. Retirement is Phase 8 and
-has not been done.
+**Phase 8, same day.** All three legacy roles quarantined after confirming zero
+active sessions on each:
+
+```sql
+ALTER ROLE "tenant-waypoint-user" NOLOGIN;
+ALTER ROLE "tenant-oranger-user" NOLOGIN;
+ALTER ROLE "tenant-nutgraf-waypoint-user" NOLOGIN;   -- the orphan
+```
+
+Afterwards: the three legacy roles `canlogin=false`, both target roles
+`canlogin=true`, sessions unaffected, no authentication or permission errors, and
+oranger's five baseline tables intact.
+
+The zero-session pre-check is the part that matters. `NOLOGIN` does not terminate
+an already-authenticated session, so a role with live sessions would appear to
+survive quarantine and then fail at its next reconnect -- the same delayed failure
+the Phase 3/4 gap produces, arriving later and looking unrelated.
+
+`DROP ROLE` was deliberately NOT run. `NOLOGIN` is the reversible boundary and the
+last clean verification point; dropping is a separate final cleanup.
