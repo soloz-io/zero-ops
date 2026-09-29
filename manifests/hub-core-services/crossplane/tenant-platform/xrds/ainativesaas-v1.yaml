@@ -373,6 +373,17 @@ spec:
                       absent with an organisation already existing under this
                       name means reconciliation must STOP and report, never
                       create a second one.
+                  zitadelProjectId:
+                    type: string
+                    description: >-
+                      The APPLICATION's project within the organisation
+                      (ADR-094). Immutable, like the organisation id. Its
+                      clients, redirect URIs, roles and grants live there, so
+                      re-resolving it by name after a rename would hand the
+                      application a new client id and sign everyone out.
+                      Absent on an application bound before per-application
+                      projects existed, which is how the hub-operator knows to
+                      leave that application on the legacy project.
               provisionedOAuthClients:
                 type: array
                 description: |

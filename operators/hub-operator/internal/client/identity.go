@@ -103,7 +103,11 @@ type TenantIdentity struct {
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
+// projectName and knownProjectID select the APPLICATION's project (ADR-094):
+// knownProjectID is the immutable binding and wins; otherwise projectName is
+// found or created inside the bound organisation; both empty keeps the
+// application on the legacy shared project.
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
 	// Sent as declared. The service provisions exactly this set and no more, so a
 	// fleet that declares nothing gets no clients rather than a default one.
 	clients := make([]map[string]any, 0, len(oauthClients))
@@ -120,6 +124,8 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 		"redirectUris":     redirectURIs,
 		"postLogoutUris":   postLogoutURIs,
 		"knownOrgId":       knownOrgID,
+		"projectName":      projectName,
+		"knownProjectId":   knownProjectID,
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
 		"oauthClients":     clients,

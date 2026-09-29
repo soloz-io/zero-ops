@@ -63,7 +63,12 @@ var ErrOrgUnadopted = errors.New("zitadel: organisation exists but is not adopte
 // create an organisation because none exists, or return ErrOrgUnadopted because
 // one does. The name is never used to decide that an existing organisation is
 // this tenant's -- a name is a presentation attribute and changes.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+//
+// project selects the APPLICATION's project inside that organisation (ADR-094):
+// its clients, redirect URIs, roles and grants live there, so a second
+// application of one tenant gets its own client rather than being handed the
+// first one's.
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -80,9 +85,9 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, o
 		return nil, fmt.Errorf("resolve organisation for %q: %w", tenantID, err)
 	}
 
-	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
+	projectID, err := a.resolveProject(ctx, orgID, project)
 	if err != nil {
-		return nil, fmt.Errorf("ensure project for %q: %w", tenantID, err)
+		return nil, fmt.Errorf("resolve project for %q: %w", tenantID, err)
 	}
 
 	// Roles must exist before any grant can reference them, and the project must
@@ -365,6 +370,49 @@ func (a *Auth) createOrg(ctx context.Context, name string) (string, error) {
 // reconciliation.
 func (a *Auth) RenameOrg(ctx context.Context, orgID, name string) error {
 	return a.api.do(ctx, http.MethodPut, "/management/v1/orgs/me", orgID, map[string]any{"name": name}, nil)
+}
+
+// resolveProject turns an application's project binding into a project id.
+//
+//	KnownID set  -> verify it still exists and use it. Deleted upstream is an
+//	                error, not a recreate: a new project has none of the
+//	                application's clients, roles or grants, and recreating it
+//	                would sign everyone out under a new client id.
+//	KnownID empty -> find or create by Name within the bound organisation, or
+//	                the configured legacy project when Name is empty.
+func (a *Auth) resolveProject(ctx context.Context, orgID string, b models.ProjectBinding) (string, error) {
+	if b.KnownID != "" {
+		ok, err := a.projectExists(ctx, orgID, b.KnownID)
+		if err != nil {
+			return "", fmt.Errorf("verify bound project %s: %w", b.KnownID, err)
+		}
+		if !ok {
+			return "", fmt.Errorf("bound project %s no longer exists and will not be recreated automatically", b.KnownID)
+		}
+		return b.KnownID, nil
+	}
+	name := b.Name
+	if name == "" {
+		name = a.cfg.ProjectName
+	}
+	return a.ensureProject(ctx, orgID, name)
+}
+
+// projectExists answers whether a project id is live in this organisation.
+func (a *Auth) projectExists(ctx context.Context, orgID, projectID string) (bool, error) {
+	var got struct {
+		Project struct {
+			ID string `json:"id"`
+		} `json:"project"`
+	}
+	err := a.api.do(ctx, http.MethodGet, "/management/v1/projects/"+projectID, orgID, nil, &got)
+	if isNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return got.Project.ID == projectID, nil
 }
 
 func (a *Auth) ensureProject(ctx context.Context, orgID, name string) (string, error) {
@@ -882,27 +930,19 @@ func (a *Auth) grantUngrantedMembers(ctx context.Context, orgID, projectID strin
 // reconcile would invalidate the credential the running workload is holding, and
 // the failure lands on the next token exchange rather than on the reconcile that
 // caused it.
-func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error) {
-	if tenantID == "" {
-		return "", "", fmt.Errorf("zitadel: tenantID is required")
+//
+// orgID and projectID are the ones EnsureTenantIdentity just resolved, never
+// looked up again here. This used to find the organisation BY NAME and use the
+// configured project, so an application in its own project (ADR-094) had its
+// confidential clients -- the gateway's exchange client among them -- created in
+// a different project from its browser client, and a renamed tenant had them
+// created in no organisation at all.
+func (a *Auth) EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error) {
+	if orgID == "" || projectID == "" {
+		return "", "", fmt.Errorf("zitadel: a confidential client needs the application's resolved organisation and project; provision its identity first")
 	}
 	if appName == "" {
 		return "", "", fmt.Errorf("zitadel: appName is required")
-	}
-
-	// A confidential client is provisioned INTO an existing tenant, so its
-	// organisation is already bound. Passing "" here would let this path create
-	// the second organisation the identity path refuses to.
-	orgID, err := a.findOrgByName(ctx, tenantID)
-	if err != nil {
-		return "", "", fmt.Errorf("find organisation for %q: %w", tenantID, err)
-	}
-	if orgID == "" {
-		return "", "", fmt.Errorf("no organisation for tenant %q: provision the tenant's identity before its confidential clients", tenantID)
-	}
-	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
-	if err != nil {
-		return "", "", fmt.Errorf("ensure project for %q: %w", tenantID, err)
 	}
 
 	// A confidential client has no redirect of its own in the browser sense; the
@@ -912,7 +952,7 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName s
 	// clients serve the same tenant at the same host.
 	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic, tokenExchange)
 	if err != nil {
-		return "", "", fmt.Errorf("ensure confidential application for %q: %w", tenantID, err)
+		return "", "", fmt.Errorf("ensure confidential application %q: %w", appName, err)
 	}
 	if secret != "" {
 		return clientID, secret, nil
@@ -924,7 +964,7 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName s
 	}
 	secret, err = a.regenerateClientSecret(ctx, orgID, projectID, appID)
 	if err != nil {
-		return "", "", fmt.Errorf("regenerate client secret for %q: %w", tenantID, err)
+		return "", "", fmt.Errorf("regenerate client secret for %q: %w", appName, err)
 	}
 	return clientID, secret, nil
 }

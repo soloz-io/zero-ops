@@ -21,7 +21,7 @@ import (
 // allocated by the issuer, so it cannot be derived and cannot be written into a
 // values file ahead of time; publishing it here is what lets a tenant be
 // onboarded without anyone copying an identifier between systems.
-func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("controlplane: tenantID is required")
 	}
@@ -36,7 +36,7 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, know
 		return nil, fmt.Errorf("controlplane: the configured identity provider does not provision tenant identities")
 	}
 
-	identity, err := provisioner.EnsureTenantIdentity(ctx, tenantID, knownOrgID, ownerEmail, selfRegistration, redirectURIs, postLogoutURIs, oauthClients)
+	identity, err := provisioner.EnsureTenantIdentity(ctx, tenantID, knownOrgID, project, ownerEmail, selfRegistration, redirectURIs, postLogoutURIs, oauthClients)
 	if err != nil {
 		return nil, fmt.Errorf("controlplane: provision identity for tenant %q: %w", tenantID, err)
 	}
@@ -53,7 +53,7 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, know
 		return nil, fmt.Errorf("controlplane: publish client id for tenant %q: %w", tenantID, err)
 	}
 
-	if err := cp.ensureDeclaredClients(ctx, provisioner, tenantID, oauthClients); err != nil {
+	if err := cp.ensureDeclaredClients(ctx, provisioner, tenantID, identity.TenantRef, identity.ProjectRef, oauthClients); err != nil {
 		return nil, err
 	}
 
@@ -78,7 +78,7 @@ func (cp *ControlPlane) EnsureTenantIdentity(ctx context.Context, tenantID, know
 //
 // Public clients are skipped: PKCE carries the proof and there is no secret to
 // store. Their identifier is already published as OIDC_CLIENT_ID by the caller.
-func (cp *ControlPlane) ensureDeclaredClients(ctx context.Context, provisioner interfaces.ITenantIdentityProvisioner, tenantID string, clients []models.OAuthClient) error {
+func (cp *ControlPlane) ensureDeclaredClients(ctx context.Context, provisioner interfaces.ITenantIdentityProvisioner, tenantID, orgID, projectID string, clients []models.OAuthClient) error {
 	for _, decl := range clients {
 		if !decl.Confidential || decl.Name == "" {
 			continue
@@ -93,14 +93,14 @@ func (cp *ControlPlane) ensureDeclaredClients(ctx context.Context, provisioner i
 				// Already provisioned. Confirm the client still exists without
 				// disturbing its secret, so a client deleted at the issuer is
 				// recreated rather than silently missing.
-				if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, false, decl.TokenExchange); cerr != nil {
+				if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, orgID, projectID, appName, false, decl.TokenExchange); cerr != nil {
 					return fmt.Errorf("controlplane: verify client %q for tenant %q: %w", decl.Name, tenantID, cerr)
 				}
 				continue
 			}
 		}
 
-		clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, true, decl.TokenExchange)
+		clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, orgID, projectID, appName, true, decl.TokenExchange)
 		if err != nil {
 			return fmt.Errorf("controlplane: provision client %q for tenant %q: %w", decl.Name, tenantID, err)
 		}

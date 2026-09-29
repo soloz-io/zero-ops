@@ -39,6 +39,13 @@ type ensureTenantIdentityRequest struct {
 	// Empty means unbound: the service may then create an organisation if none
 	// exists, and must REFUSE if one does, rather than adopting it by name.
 	KnownOrgID string `json:"knownOrgId"`
+	// ProjectName and KnownProjectID select the APPLICATION's project (ADR-094).
+	// KnownProjectID is the immutable binding and wins when set; otherwise the
+	// project is found or created by name inside the bound organisation. Both
+	// empty means the configured legacy project, which is how an application
+	// provisioned before per-application projects stays where it is.
+	ProjectName    string `json:"projectName"`
+	KnownProjectID string `json:"knownProjectId"`
 	// OwnerEmail is granted administrative access, so the tenant has someone who
 	// can sign in to it at all.
 	OwnerEmail string `json:"ownerEmail"`
@@ -94,7 +101,8 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		})
 	}
 
-	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.KnownOrgID, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
+	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.KnownOrgID,
+		models.ProjectBinding{Name: req.ProjectName, KnownID: req.KnownProjectID}, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
@@ -119,7 +127,7 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		}
 		appName := tenantID + "-" + decl.Name
 		clientID, clientSecret, cerr := h.provisioner.EnsureConfidentialClient(
-			c.Request.Context(), tenantID, appName, false, decl.TokenExchange)
+			c.Request.Context(), identity.TenantRef, identity.ProjectRef, appName, false, decl.TokenExchange)
 		if cerr != nil {
 			// Reported, not fatal. The tenant identity itself succeeded and is
 			// worth returning; a client that failed is named in Incomplete so

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
 )
 
 // ownerRecorder is an issuer that already holds the owner's email address in
@@ -82,7 +84,7 @@ func TestEnsureTenantIdentity_DoesNotAdoptAnOwnerFromAnotherOrganisation(t *test
 	a, srv := newOwnerAuth(t, rec)
 	defer srv.Close()
 
-	if _, err := a.EnsureTenantIdentity(context.Background(), "acme", "org-acme",
+	if _, err := a.EnsureTenantIdentity(context.Background(), "acme", "org-acme", models.ProjectBinding{},
 		"operator@example.test", false, nil, nil, nil); err != nil {
 		t.Fatalf("EnsureTenantIdentity: %v", err)
 	}
@@ -111,7 +113,7 @@ func TestEnsureTenantIdentity_ReusesAnOwnerAlreadyInThisOrganisation(t *testing.
 	a, srv := newOwnerAuth(t, rec)
 	defer srv.Close()
 
-	if _, err := a.EnsureTenantIdentity(context.Background(), "acme", "org-acme",
+	if _, err := a.EnsureTenantIdentity(context.Background(), "acme", "org-acme", models.ProjectBinding{},
 		"operator@example.test", false, nil, nil, nil); err != nil {
 		t.Fatalf("EnsureTenantIdentity: %v", err)
 	}

@@ -177,8 +177,29 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// before this field existed, which is exactly the state that needs
 			// adopting rather than guessing: the identity service will refuse
 			// to create a second organisation and say so.
-			knownOrgID, _, _ := unstructured.NestedString(ainativesaas.Object, "status", "identity", "zitadelOrgId")
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, ownerEmail, selfReg, redirects, postLogout, oauthClients)
+			ownOrgID, _, _ := unstructured.NestedString(ainativesaas.Object, "status", "identity", "zitadelOrgId")
+			ownProjectID, _, _ := unstructured.NestedString(ainativesaas.Object, "status", "identity", "zitadelProjectId")
+
+			// The organisation is the TENANT's, not this application's (ADR-088),
+			// so a second application of a tenant inherits the binding a sibling
+			// already recorded. Without this it fell through to the name search,
+			// found the sibling's organisation, and stopped with ErrOrgUnadopted
+			// forever (ADR-094). Inheriting from a record is not adopting by name:
+			// the binding was established once, by id, by a sibling of the same
+			// tenantId.
+			knownOrgID := ownOrgID
+			if knownOrgID == "" {
+				inherited, err := r.siblingOrgBinding(ctx, tenantId, ainativesaas.GetName())
+				if err != nil {
+					logger.Error(err, "Cannot inherit the tenant's organisation binding; will retry", "tenant", tenantId, "app", appId)
+					return ctrl.Result{}, err
+				}
+				knownOrgID = inherited
+			}
+
+			projectName, knownProjectID := applicationProject(appId, ownOrgID, ownProjectID)
+
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, redirects, postLogout, oauthClients)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
@@ -199,14 +220,33 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// Written before the client id below on purpose: if this
 				// reconcile dies between the two, the next one still resolves
 				// the SAME organisation rather than creating another.
-				if knownOrgID == "" && identity.TenantRef != "" {
+				//
+				// The project binding is written in the SAME status update as the
+				// organisation's, and that is load-bearing: applicationProject
+				// reads "organisation bound, project not" as a legacy application.
+				// A new application whose org binding landed without its project
+				// would be moved onto the legacy project on the next reconcile.
+				// An application bound before this field existed records the
+				// legacy project's id here on its next reconcile, which pins it.
+				changed := false
+				if ownOrgID == "" && identity.TenantRef != "" {
 					if err := unstructured.SetNestedField(ainativesaas.Object, identity.TenantRef, "status", "identity", "zitadelOrgId"); err == nil {
 						_ = unstructured.SetNestedField(ainativesaas.Object, time.Now().UTC().Format(time.RFC3339), "status", "identity", "adoptedAt")
-						if err := r.Status().Update(ctx, ainativesaas); err != nil {
-							logger.Error(err, "Could not record the identity binding; it will be retried", "tenant", tenantId, "orgId", identity.TenantRef)
-						} else {
-							logger.Info("Bound tenant to its ZITADEL organisation", "tenant", tenantId, "orgId", identity.TenantRef)
-						}
+						changed = true
+					}
+				}
+				if ownProjectID == "" && identity.ProjectRef != "" {
+					if err := unstructured.SetNestedField(ainativesaas.Object, identity.ProjectRef, "status", "identity", "zitadelProjectId"); err == nil {
+						changed = true
+					}
+				}
+				if changed {
+					if err := r.Status().Update(ctx, ainativesaas); err != nil {
+						logger.Error(err, "Could not record the identity binding; it will be retried",
+							"tenant", tenantId, "app", appId, "orgId", identity.TenantRef, "projectId", identity.ProjectRef)
+					} else {
+						logger.Info("Bound application to its ZITADEL organisation and project",
+							"tenant", tenantId, "app", appId, "orgId", identity.TenantRef, "projectId", identity.ProjectRef)
 					}
 				}
 				// Persist the allocated client id where the tenant's gateway
@@ -391,6 +431,74 @@ func declaredOAuthClients(obj *unstructured.Unstructured) []client2.OAuthClient 
 		})
 	}
 	return clients
+}
+
+// applicationProject decides which identity project an application's clients
+// live in (ADR-094), from what its own record already holds:
+//
+//	project bound                 -> that project, by id. Never re-resolved.
+//	org bound, project not        -> the legacy shared project. This application
+//	                                 was provisioned before per-application
+//	                                 projects; moving it would reissue its client
+//	                                 id and sign everyone out, which is a
+//	                                 deliberate migration, not a reconcile.
+//	neither bound                 -> a project of its own, named for the app.
+//
+// Reads only this application's OWN bindings. An organisation inherited from a
+// sibling does not make an application legacy -- that is exactly the new
+// second application this exists for.
+func applicationProject(appId, ownOrgID, ownProjectID string) (name, knownID string) {
+	switch {
+	case ownProjectID != "":
+		return "", ownProjectID
+	case ownOrgID != "":
+		return "", ""
+	default:
+		return appId, ""
+	}
+}
+
+// siblingOrgBinding returns the organisation another application of the same
+// tenant has already bound, or "" when none has.
+//
+// Refuses rather than choosing when siblings disagree. Two organisation ids for
+// one tenant means the ADR-088 failure has already happened once -- users split
+// from their clients -- and picking either would extend it to this application.
+func (r *AINativeSaaSReconciler) siblingOrgBinding(ctx context.Context, tenantId, self string) (string, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "nutgraf.in",
+		Version: "v1alpha1",
+		Kind:    "AINativeSaaSList",
+	})
+	if err := r.List(ctx, list); err != nil {
+		return "", fmt.Errorf("list applications of tenant %q: %w", tenantId, err)
+	}
+	return orgBindingAmong(list.Items, tenantId, self)
+}
+
+// orgBindingAmong is siblingOrgBinding's decision, separated so it can be tested
+// without a cluster.
+func orgBindingAmong(items []unstructured.Unstructured, tenantId, self string) (string, error) {
+	found := ""
+	for _, it := range items {
+		if it.GetName() == self {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(it.Object, "spec", "tenantId")
+		if t != tenantId {
+			continue
+		}
+		org, _, _ := unstructured.NestedString(it.Object, "status", "identity", "zitadelOrgId")
+		if org == "" {
+			continue
+		}
+		if found != "" && found != org {
+			return "", fmt.Errorf("applications of tenant %q are bound to different organisations (%s, %s); refusing to choose -- reconcile the split first", tenantId, found, org)
+		}
+		found = org
+	}
+	return found, nil
 }
 
 // gatewayExchangeClient is the confidential client a tenant's gateway

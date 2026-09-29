@@ -36,6 +36,26 @@ type OAuthClient struct {
 	TokenExchange bool
 }
 
+// ProjectBinding says which identity project an APPLICATION's clients live in
+// (ADR-094: one project per application).
+//
+// The same shape as the organisation binding, for the same reason. KnownID is
+// the immutable binding from the application's record: set, it is used and
+// verified, and the name is irrelevant. Empty, Name is looked up or created
+// WITHIN the tenant's already-bound organisation -- a name search that is safe
+// here, where the org one is not, because a project cannot belong to another
+// tenant: the organisation it is searched in already establishes whose it is.
+//
+// An empty Name means the provider's configured legacy project. That is how an
+// application provisioned before per-application projects stays where it is
+// (ADR-094 "waypoint stays where it is"): moving it reissues its client id and
+// signs everyone out, so it is a deliberate migration, not a side effect of a
+// reconcile.
+type ProjectBinding struct {
+	Name    string
+	KnownID string
+}
+
 // TenantIdentity is what a tenant needs in order to authenticate, and the only
 // output of identity provisioning that anything downstream consumes.
 type TenantIdentity struct {

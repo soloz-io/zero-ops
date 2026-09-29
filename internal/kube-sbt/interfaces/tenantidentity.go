@@ -39,7 +39,9 @@ type ITenantIdentityProvisioner interface {
 	// selfRegistration is reconciled, not applied once: it is a security
 	// boundary, and one that lives only in a provider console can be re-opened
 	// by an upgrade or a support session with nothing to notice.
-	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
+	// project selects the APPLICATION's project within the organisation
+	// (ADR-094), bound by id once known, exactly as the organisation is.
+	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
 
 	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
 	//
@@ -54,5 +56,9 @@ type ITenantIdentityProvisioner interface {
 	// no secret" — and the caller that cannot find a stored one is the only party
 	// able to decide that invalidating the live credential is acceptable, which
 	// is what regenerateIfExists expresses.
-	EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
+	//
+	// orgID and projectID are the TenantRef and ProjectRef EnsureTenantIdentity
+	// returned, so the client lands beside the application's browser client and
+	// never in a project or organisation resolved some other way.
+	EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
 }
