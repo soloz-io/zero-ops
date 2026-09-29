@@ -93,6 +93,17 @@ identity:
   # create an account IN THIS TENANT — the gateway scopes every authorization
   # request to this fleet's organisation, so it cannot land anywhere else.
   selfRegistration: false
+  # Other applications OF THIS TENANT this one may call with a user's credential
+  # (ADR-094 Part 2). appIds, never hostnames, never another tenant's app.
+  #
+  # Empty by default, and that default is the safe one: an application that
+  # declares nothing can call nothing, rather than inheriting a reachability it
+  # never asked for. Declaring `waypoint` here means the platform renders
+  # waypoint's project into the audience scope THIS app's client requests, AND
+  # renders this app's client into the allowed-caller list waypoint checks azp
+  # against. The fleet declares a relationship; the platform decides what it
+  # renders into.
+  backendDependencies: []
 
 gateway:
   enabled: false

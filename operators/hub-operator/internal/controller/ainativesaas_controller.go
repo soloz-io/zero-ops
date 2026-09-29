@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -320,6 +322,46 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					logger.Info("Tenant identity provisioned", "tenant", tenantId, "clientId", identity.ClientID)
 				}
 
+				// ADR-094 Part 2: the applications this one may call, rendered
+				// into BOTH halves.
+				//
+				// Both, because either alone is unsound. The scope without the
+				// allowlist is advisory -- Zitadel does not restrict which
+				// project audiences a client may request, so any application
+				// could mint a token carrying any audience. The allowlist
+				// without the scope admits a caller whose tokens the receiver
+				// will never see. The declaration is one fact and it renders
+				// into two places.
+				deps, pendingDeps, derr := r.resolveBackendDependencies(ctx, tenantId, ainativesaas.GetName(), backendDependenciesOf(ainativesaas))
+				if derr != nil {
+					// A dependency naming a stranger is a declaration error, not
+					// a transient one, so it is reported rather than retried into
+					// a loop. Everything published above stands.
+					logger.Error(derr, "Refusing this application's backend dependencies", "tenant", tenantId, "app", appId)
+				} else {
+					if len(pendingDeps) > 0 {
+						// Not an error: provisioning order across applications is
+						// not something either controls, and the next reconcile
+						// resolves it. Logged so the wait is visible.
+						logger.Info("Backend dependencies waiting on the target's project",
+							"tenant", tenantId, "app", appId, "pending", pendingDeps)
+					}
+					if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
+						"OIDC_BACKEND_AUDIENCE_SCOPES", audienceScopesFor(deps)); err != nil {
+						logger.Error(err, "Could not publish this application's backend audience scopes",
+							"tenant", tenantId, "app", appId)
+					}
+					// The other half: each TARGET learns it must admit this
+					// caller. Published onto the target's own path, because it is
+					// the target that enforces it.
+					for _, d := range deps {
+						if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, identity.ClientID); err != nil {
+							logger.Error(err, "Could not publish the allowed caller onto the target",
+								"tenant", tenantId, "caller", appId, "target", d.AppID)
+						}
+					}
+				}
+
 				// The audience the gateway's token exchange asks for (ADR-095).
 				//
 				// Allocated by the issuer with the project, so it cannot be
@@ -499,6 +541,145 @@ func orgBindingAmong(items []unstructured.Unstructured, tenantId, self string) (
 		found = org
 	}
 	return found, nil
+}
+
+// publishAllowedCaller adds one caller's client id to a TARGET application's
+// allowed-caller list (ADR-094 invariant 2).
+//
+// Published onto the TARGET's path, not the caller's, because the target is what
+// enforces it -- and a list a caller could write is not a control. The receiver
+// reads it as OIDC_ALLOWED_AZP and refuses any token whose azp is absent from it.
+//
+// Read-modify-write, and the read matters: several applications may depend on one
+// target, each reconciled separately, so writing only this caller would remove
+// the others. Sorted and de-duplicated so a reconcile that changes nothing writes
+// nothing and the value does not churn.
+func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellId, tenantId string, target resolvedDependency, callerClientID string) error {
+	if callerClientID == "" {
+		return fmt.Errorf("caller has no client id yet")
+	}
+	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, target.AppID)
+
+	existing := ""
+	if got, err := r.InfisicalClient.GetSecret(ctx, path, allowedAzpKey); err == nil {
+		existing = got
+	}
+
+	set := map[string]bool{}
+	for _, v := range strings.Fields(strings.ReplaceAll(existing, ",", " ")) {
+		set[v] = true
+	}
+	if set[callerClientID] {
+		return nil // already admitted; do not rewrite
+	}
+	set[callerClientID] = true
+
+	out := make([]string, 0, len(set))
+	for v := range set {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return r.publishTenantSecret(ctx, cellId, tenantId, target.AppID, allowedAzpKey, strings.Join(out, " "))
+}
+
+// allowedAzpKey is where a receiver reads the callers it admits.
+const allowedAzpKey = "OIDC_ALLOWED_AZP"
+
+// backendDependenciesOf reads the applications this one may call (ADR-094 Part 2).
+func backendDependenciesOf(obj *unstructured.Unstructured) []string {
+	raw, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "identity", "backendDependencies")
+	if err != nil || !found {
+		return nil
+	}
+	return raw
+}
+
+// resolvedDependency is one declared backend dependency, resolved to the facts
+// the platform renders from it.
+type resolvedDependency struct {
+	AppID     string
+	ProjectID string // the TARGET's Zitadel project
+	XRName    string // the target's AINativeSaaS, for publishing its allowlist
+}
+
+// resolveBackendDependencies turns declared appIds into the target projects this
+// application's client must request an audience for (ADR-094 Part 2).
+//
+// SAME TENANT ONLY, and refused rather than skipped otherwise. A dependency
+// naming another tenant's application is not a typo to tolerate: cross-tenant
+// access is a different decision with a different blast radius and ADR-088 gives
+// it no mechanism, so rendering something that half-works would be worse than
+// failing.
+//
+// A dependency whose target has no project yet is NOT an error. Provisioning
+// order across applications is not something either one controls, and the next
+// reconcile resolves it -- whereas failing here would wedge the caller behind
+// the callee forever. It is reported so the wait is visible rather than silent.
+func (r *AINativeSaaSReconciler) resolveBackendDependencies(
+	ctx context.Context, tenantId, self string, deps []string,
+) (resolved []resolvedDependency, pending []string, err error) {
+	if len(deps) == 0 {
+		return nil, nil, nil
+	}
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "nutgraf.in", Version: "v1alpha1", Kind: "AINativeSaaSList",
+	})
+	if err := r.List(ctx, list); err != nil {
+		return nil, nil, fmt.Errorf("list applications of tenant %q: %w", tenantId, err)
+	}
+
+	byApp := map[string]unstructured.Unstructured{}
+	for _, it := range list.Items {
+		t, _, _ := unstructured.NestedString(it.Object, "spec", "tenantId")
+		a, _, _ := unstructured.NestedString(it.Object, "spec", "appId")
+		if t == tenantId && a != "" {
+			byApp[a] = it
+		}
+	}
+
+	for _, dep := range deps {
+		if dep == "" {
+			continue
+		}
+		target, ok := byApp[dep]
+		if !ok {
+			return nil, nil, fmt.Errorf(
+				"application %q declares a backend dependency on %q, which is not an application of tenant %q; "+
+					"a dependency names an appId of the SAME tenant, and cross-tenant access has no mechanism (ADR-088)",
+				self, dep, tenantId)
+		}
+		if target.GetName() == self {
+			return nil, nil, fmt.Errorf("application %q declares a backend dependency on itself", self)
+		}
+		pid, _, _ := unstructured.NestedString(target.Object, "status", "identity", "zitadelProjectId")
+		if pid == "" {
+			pending = append(pending, dep)
+			continue
+		}
+		resolved = append(resolved, resolvedDependency{AppID: dep, ProjectID: pid, XRName: target.GetName()})
+	}
+	sort.Slice(resolved, func(i, j int) bool { return resolved[i].AppID < resolved[j].AppID })
+	sort.Strings(pending)
+	return resolved, pending, nil
+}
+
+// audienceScopesFor renders the scopes this application's client must request so
+// its tokens are accepted by the applications it depends on.
+//
+// The fleet never writes this string -- it declares a relationship and the
+// platform decides what that renders into, which is the rule the gateway chart
+// already states about scopes. Deterministic order so a reconcile that changes
+// nothing publishes nothing.
+func audienceScopesFor(deps []resolvedDependency) string {
+	if len(deps) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(deps))
+	for _, d := range deps {
+		out = append(out, "urn:zitadel:iam:org:project:id:"+d.ProjectID+":aud")
+	}
+	return strings.Join(out, " ")
 }
 
 // gatewayExchangeClient is the confidential client a tenant's gateway

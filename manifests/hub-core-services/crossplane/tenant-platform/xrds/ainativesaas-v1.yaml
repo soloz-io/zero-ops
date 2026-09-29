@@ -254,6 +254,42 @@ spec:
                       It does not restrict WHO may sign up. Anyone who can reach
                       the hostname can join. Restricting that is an invitation
                       and needs a mail sender the issuer does not yet have.
+                  backendDependencies:
+                    type: array
+                    items:
+                      type: string
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                    description: |
+                      Other applications OF THIS TENANT that this one may call
+                      with a user's credential (ADR-094 Part 2).
+
+                      An appId, never a hostname and never another tenant's app.
+                      Cross-tenant access is a different decision with a
+                      different blast radius, and ADR-088 gives it no mechanism —
+                      so the platform refuses a dependency it cannot resolve to a
+                      sibling of this tenant rather than rendering something that
+                      half-works.
+
+                      The declaration means "this application is permitted to
+                      make authenticated user calls to that one". It is NOT
+                      merely "put that project in my audience", and the
+                      difference decides where the platform uses it: it is
+                      rendered into BOTH the audience scope this application's
+                      client requests AND the allowed-caller list the TARGET
+                      validates `azp` against.
+
+                      Rendering only the first would make this advisory, which is
+                      exactly what it must not be: Zitadel does not restrict
+                      which project audiences a client may request
+                      (isScopeAllowed returns true unconditionally for that
+                      prefix), so an audience proves nothing about who is
+                      calling. The receiver's check is what makes the
+                      declaration mean something.
+
+                      The fleet never writes a scope string itself, so it cannot
+                      widen its own scopes — the rule the gateway chart already
+                      states. What it declares is a relationship; the platform
+                      decides what that renders into.
               cache:
                 type: object
                 description: |

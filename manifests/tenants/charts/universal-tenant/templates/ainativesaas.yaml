@@ -87,6 +87,17 @@ spec:
   # is the only place an override is written.
   identity:
     selfRegistration: {{ .Values.identity.selfRegistration }}
+    {{- with .Values.identity.backendDependencies }}
+    # Other applications OF THIS TENANT this one may call with a user's
+    # credential (ADR-094 Part 2). Passed through verbatim: the platform
+    # resolves each appId to that application's project at RUNTIME, because the
+    # project id is allocated by the issuer and is not knowable when this chart
+    # renders. The same reason OIDC_CLIENT_ID travels the credential path.
+    backendDependencies:
+      {{- range . }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
 
   {{- with .Values.cache }}
   cache:
