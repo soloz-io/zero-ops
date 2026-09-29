@@ -1,12 +1,42 @@
 # ADR-094: One identity project per application, and audience is not authorisation
 
 **Date:** 2026-09-28
-**Status:** Accepted
+**Status:** Accepted in part — see Disposition. Parts 1 and 2 are ACCEPTED;
+Part 3 (cross-application authorisation) is NOT YET DECIDED.
 **Amended:** 2026-09-29 by ADR-095 — the audience is not an isolation boundary in
 Zitadel. Invariant 1's mechanism and the Context's security argument are corrected
-in place; the decision stands on a narrower claim.
+in place; the decision stands on a narrower claim. Restructured the same day into
+the three bands above, because "ADR-094 is accepted" was becoming a sentence that
+covered a question it had not answered.
 **Builds on:** ADR-088 (which decided this shape and left it unbuilt)
 **Relates to:** ADR-047 (a fleet declares, the platform renders), ADR-050 (where identity is validated), ADR-053 (OAuth clients are fleet-declared), ADR-059 (no provider vocabulary in platform templates)
+
+## Disposition
+
+Three separable questions, answered separately. Read this table first; the body
+is organised in the same order and nothing below crosses a band.
+
+| | question it answers | status |
+|---|---|---|
+| **Part 1 — Same-application authorisation** | may this user do this, in the application that authenticated them | **ACCEPTED** |
+| **Part 2 — Cross-application authentication** | is this token for this receiver, and which application is calling | **ACCEPTED** |
+| **Part 3 — Cross-application authorisation** | what may this user do in an application that did NOT authenticate them | **NOT YET DECIDED** |
+
+Parts 1 and 2 are implemented and are what this ADR decides. **Part 3 is open**,
+and an implementation must not be read as settling it: cross-application
+authentication working is not cross-application authorisation working, and the
+gap between them is a real one with a named experiment to resolve it.
+
+The three receiver invariants are stated inside the band each belongs to, and keep
+their numbers so earlier references resolve. Each is a thing a receiver must DO,
+and each has been checked against what this platform actually does rather than
+asserted:
+
+```
+Invariant 1  APIs accept access tokens, never ID tokens     Part 1
+Invariant 2  azp is checked against a caller allowlist      Part 2
+Invariant 3  tenant identity comes from a claim             Part 1
+```
 
 ## Context
 
@@ -117,6 +147,92 @@ A shared client does not *enable* cross-application calls. It makes every
 application permanently able to call every other, including ones that do not exist
 yet, with no way to refuse and nothing to revoke.
 
+
+## Part 1 — Same-application authorisation: ACCEPTED
+
+A user signs in to an application and calls that application's own API. This is
+the common path, it is decided, and ADR-095 implements the credential half of it.
+
+What a receiver does here is invariants 1 and 3. Invariant 2 also applies -- the
+caller is the application's own gateway -- but it earns its keep in Part 2, and is
+stated there.
+
+### Invariant 1 — APIs accept ACCESS tokens, never ID tokens
+
+> **AMENDED 2026-09-29 by ADR-095.** The invariant stands. The *mechanism* below
+> was wrong, and the paragraphs it rested on are corrected in place rather than
+> deleted, because the error is instructive.
+
+An ID token is issued to the client, about the user. It is not a credential for a
+resource server. That much is unchanged, and it is the whole reason for this
+invariant.
+
+**What was wrong: the audience cannot express it.** This section said an ID
+token's `aud` is the client id and an access token's carries project ids, so the
+two could be told apart and a migration could turn the check from one to the
+other. ADR-095 read Zitadel and found otherwise: `audienceFromProjectID` returns
+every client id in the project *plus* the project id, and `token.go` signs that
+same `session.Audience` into **both** tokens. The two are indistinguishable by
+audience, under any value.
+
+So the migration this section described — every workload changing from
+`aud == OIDC_CLIENT_ID` to requiring its project id — is not merely unnecessary,
+it would not have enforced this invariant. A receiver requiring the project id
+still accepts an ID token.
+
+**What actually enforces it** (ADR-095, implemented):
+
+```
+gateway    exchanges the session's ID token, RFC 8693, for a JWT access token
+           minted for the receiver -- as a CONFIDENTIAL client
+receiver   refuses any token carrying at_hash, a version-scoped Zitadel
+           invariant rather than an OIDC rule
+audience   UNCHANGED. It was never the thing doing the work.
+```
+
+And the sequencing claim at the end of this section is withdrawn: because an
+access token's `aud` already contains the client id receivers check today, the
+gateway can switch with no receiver change, so this does **not** have to wait for
+the per-application projects.
+
+### Invariant 3 — tenant identity comes from a claim, never from the audience
+
+A correct audience says the token was addressed to this application. It says
+nothing about which tenant the user belongs to, and the two are independently
+forgeable in different ways.
+
+The claim is already defined and implemented -- `packages/auth/src/jwt/claims.ts`
+resolves the tenant in priority order:
+
+```
+tenant_id
+urn:zitadel:iam:user:resourceowner:id     the user's owning organisation
+urn:zitadel:iam:org:id
+```
+
+The receiver compares that to its own configured tenant. The acceptance test is
+the one that proves the two checks are independent:
+
+```
+tenant A token, aud = tenant A project, -> tenant A backend    ACCEPT
+tenant B token, aud = tenant A project, -> tenant A backend    REJECT
+```
+
+The second case is constructible precisely because Zitadel issues any project's
+audience to any client, as verified above. A receiver that treats audience as the
+tenant check accepts it.
+
+
+## Part 2 — Cross-application authentication: ACCEPTED
+
+oranger calls waypoint's API with a user's credential. **Who may call, and whether
+a token is meant for this receiver, is decided.** What the user may DO there is
+Part 3 and is not.
+
+This is the part where an audience is most likely to be mistaken for a permission,
+so the sections below say repeatedly that it is not one. That repetition is
+deliberate.
+
 ### Cross-application access is a target-project AUDIENCE, not a project grant
 
 A Zitadel **Project Grant** grants a project from one organisation to *another
@@ -199,33 +315,7 @@ compromised client, which is why the receiver enforces.
 Cross-tenant access is a different decision with a different blast radius, and
 ADR-088 gives it no mechanism.
 
-### Browser-direct is supported, and the BFF is not made mandatory
-
-A browser holding a token audienced for waypoint may call waypoint directly. This
-is the ordinary OIDC multi-tier shape and it is what the tenant asked for.
-
-Routing through the calling application's BFF remains available and is sometimes
-better -- it needs no second audience at all -- but it must not become an
-accidental requirement produced by identity plumbing that cannot express the
-direct case. Note that the existing intra-tenant path is neither: waypoint's
-service-to-service calls use a shared secret (`x-waypoint-internal-token`,
-waypoint ADR-024) and carry no user token. Those are three different trust
-relationships and should not be collapsed into one.
-
-### waypoint stays where it is
-
-New applications get their own project. waypoint remains on the current project
-until it is moved deliberately, because moving it reissues its client id, and its
-own fleet values say what that costs:
-
-> *"renaming it re-registers the client under a new identifier and breaks login
-> until every consumer is updated"*
-
-That is a live-application migration with its own verification window, like the
-ADR-093 cutover. Coupling it to a capability new applications need means neither
-ships until both are safe.
-
-## SETTLED: Zitadel does NOT restrict which project audiences a client may request
+### SETTLED: Zitadel does NOT restrict which project audiences a client may request
 
 This was left open in the first draft. It is now answered, from the vendored
 source and from the deployed instance, and the answer is the dangerous one.
@@ -262,7 +352,7 @@ aud:   ["392792754981175698", "391788656387424626"]   <- both issued
 The second is the project every workload on this box validates against today. The
 probe project and machine user were deleted afterwards.
 
-### What follows, and it is the central control
+#### What follows, and it is the central control
 
 **The fleet declaration is the ONLY thing deciding which audiences are requested,
 and it is a deployment control, not a security boundary.** It governs what the
@@ -303,50 +393,7 @@ use user tokens at all (waypoint ADR-024, `x-waypoint-internal-token`), so the
 correct rule is narrow: reject a token with no `azp` on the browser-call path
 rather than treating absence as a pass.
 
-## The three receiver invariants
-
-Stated separately because each is a thing a receiver must do, and each has been
-checked against what this platform does today rather than asserted.
-
-### 1. APIs accept ACCESS tokens, never ID tokens
-
-> **AMENDED 2026-09-29 by ADR-095.** The invariant stands. The *mechanism* below
-> was wrong, and the paragraphs it rested on are corrected in place rather than
-> deleted, because the error is instructive.
-
-An ID token is issued to the client, about the user. It is not a credential for a
-resource server. That much is unchanged, and it is the whole reason for this
-invariant.
-
-**What was wrong: the audience cannot express it.** This section said an ID
-token's `aud` is the client id and an access token's carries project ids, so the
-two could be told apart and a migration could turn the check from one to the
-other. ADR-095 read Zitadel and found otherwise: `audienceFromProjectID` returns
-every client id in the project *plus* the project id, and `token.go` signs that
-same `session.Audience` into **both** tokens. The two are indistinguishable by
-audience, under any value.
-
-So the migration this section described — every workload changing from
-`aud == OIDC_CLIENT_ID` to requiring its project id — is not merely unnecessary,
-it would not have enforced this invariant. A receiver requiring the project id
-still accepts an ID token.
-
-**What actually enforces it** (ADR-095, implemented):
-
-```
-gateway    exchanges the session's ID token, RFC 8693, for a JWT access token
-           minted for the receiver -- as a CONFIDENTIAL client
-receiver   refuses any token carrying at_hash, a version-scoped Zitadel
-           invariant rather than an OIDC rule
-audience   UNCHANGED. It was never the thing doing the work.
-```
-
-And the sequencing claim at the end of this section is withdrawn: because an
-access token's `aud` already contains the client id receivers check today, the
-gateway can switch with no receiver change, so this does **not** have to wait for
-the per-application projects.
-
-### 2. `azp` is checked against a rendered caller allowlist, and absence is refusal
+### Invariant 2 — `azp` is checked against a rendered caller allowlist, and absence is refusal
 
 ```
 aud contains THIS project        the token is addressed to me
@@ -371,34 +418,40 @@ So: **an appId -> appId dependency authorises every browser client of the callin
 application.** An application that needs finer granularity than that needs a second
 project, which is the unit this ADR makes cheap.
 
-### 3. Tenant identity comes from a claim, never from the audience
+### Browser-direct is supported, and the BFF is not made mandatory
 
-A correct audience says the token was addressed to this application. It says
-nothing about which tenant the user belongs to, and the two are independently
-forgeable in different ways.
+A browser holding a token audienced for waypoint may call waypoint directly. This
+is the ordinary OIDC multi-tier shape and it is what the tenant asked for.
 
-The claim is already defined and implemented -- `packages/auth/src/jwt/claims.ts`
-resolves the tenant in priority order:
+Routing through the calling application's BFF remains available and is sometimes
+better -- it needs no second audience at all -- but it must not become an
+accidental requirement produced by identity plumbing that cannot express the
+direct case. Note that the existing intra-tenant path is neither: waypoint's
+service-to-service calls use a shared secret (`x-waypoint-internal-token`,
+waypoint ADR-024) and carry no user token. Those are three different trust
+relationships and should not be collapsed into one.
 
-```
-tenant_id
-urn:zitadel:iam:user:resourceowner:id     the user's owning organisation
-urn:zitadel:iam:org:id
-```
+### waypoint stays where it is
 
-The receiver compares that to its own configured tenant. The acceptance test is
-the one that proves the two checks are independent:
+New applications get their own project. waypoint remains on the current project
+until it is moved deliberately, because moving it reissues its client id, and its
+own fleet values say what that costs:
 
-```
-tenant A token, aud = tenant A project, -> tenant A backend    ACCEPT
-tenant B token, aud = tenant A project, -> tenant A backend    REJECT
-```
+> *"renaming it re-registers the client under a new identifier and breaks login
+> until every consumer is updated"*
 
-The second case is constructible precisely because Zitadel issues any project's
-audience to any client, as verified above. A receiver that treats audience as the
-tenant check accepts it.
+That is a live-application migration with its own verification window, like the
+ADR-093 cutover. Coupling it to a capability new applications need means neither
+ships until both are safe.
 
-## OPEN: cross-application AUTHORISATION is not decided
+
+## Part 3 — Cross-application authorisation: NOT YET DECIDED
+
+Everything above is about *whether a call is admitted*. This part is about *what
+the caller's user may do once it is*, and it is the one question this ADR does not
+answer.
+
+### The gap, and the experiment that closes it
 
 Cross-application *authentication* is settled (ADR-095). What a user may DO in
 the target application is not, and this ADR must not be read as deciding it.
@@ -470,22 +523,49 @@ relevant behaviour is version-sensitive.
 
 ## Consequences
 
+Grouped by band, so it stays visible which of them are consequences of something
+decided and which are consequences of something still open.
+
+**Part 1 — same-application authorisation (ACCEPTED)**
+
+- The API credential changes from the ID token to the access token across every
+  tenant workload (ADR-095). Not a header rename: it changes what the receiver is
+  handed and what proves its kind.
+- It does **not** ship with the per-application projects. That coupling was
+  withdrawn when the audience turned out not to distinguish the two token types —
+  an access token's `aud` already contains what receivers check today, so the
+  gateway switches with no receiver change.
+- Applications must not treat a valid audience as permission. Where one does
+  today, that is a defect this ADR makes visible rather than creates.
+
+**Part 2 — cross-application authentication (ACCEPTED)**
+
 - Provisioning gains a project per application, and the organisation binding is
-  inherited from a sibling XR of the same tenant rather than found by name -- the
+  inherited from a sibling XR of the same tenant rather than found by name — the
   name search is what produced `ErrOrgUnadopted`.
 - `oidcScopes` becomes per application. It stays platform-rendered.
 - Each application's backend validates its own audience AND the calling
   application's identity. Audience alone is insufficient: Zitadel issues any
-  project's audience to any client that asks (verified, below), so a receiver that
-  checks only `aud` accepts a token any application on the box could mint for it.
+  project's audience to any client that asks, so a receiver checking only `aud`
+  accepts a token any application on the box could mint for it.
 - A token with no `azp` is refused on the browser-call path rather than admitted.
   Machine tokens carry none, and service-to-service here does not use user tokens.
-- Applications must not treat a valid audience as permission. Where one does
-  today, that is a defect this ADR makes visible rather than creates.
+- The gateway holds a confidential exchange client per application. That credential
+  is what makes the exchange a boundary — a browser cannot perform one — and it is
+  also a new secret on the request path with a larger blast radius than the public
+  client, which holds none.
 - waypoint keeps one project and one client until its own migration.
-- **The API credential changes from the ID token to the access token**, across
-  every tenant workload. This is the largest item in the ADR and the one most
-  likely to be underestimated: it is not a header rename, it changes what `aud`
-  contains and therefore what every receiver validates. It ships with the
-  per-application projects, because until an application has a project there is no
-  project id for a receiver to require.
+
+**Part 3 — cross-application authorisation (NOT YET DECIDED)**
+
+- **No application may ship a cross-application authorisation decision yet.** A
+  receiver presented with a sibling's token today can establish who is calling and
+  that the token is meant for it, and cannot establish what the user may do. An
+  endpoint that authorises on the roles in such a token is authorising on the
+  CALLER's project roles.
+- The decision is gated on one experiment, not on further argument, and the
+  experiment is a live check rather than a paragraph — because the behaviour it
+  probes is version-sensitive and an ADR sentence would not notice an upgrade.
+- Until it resolves, `azp` plus a receiver's own tenant-local data is the only
+  sound basis for a cross-application decision, and building that permanently is
+  explicitly NOT the decision — it is what Part 3 is trying to avoid having to do.

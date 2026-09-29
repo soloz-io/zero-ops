@@ -7,8 +7,13 @@ mechanism the first draft chose: an ID token and an access token carry the same
 audience, so no audience check can tell them apart. The invariant is now carried by
 `at_hash`. What is corrected is marked in place; the first draft's reasoning is not
 silently replaced.
-**Status:** Proposed
-**Implements:** ADR-094 invariant 1
+**Status:** Accepted
+**Implements:** ADR-094 invariant 1, which sits in that ADR's **Part 1
+(same-application authorisation)**. This ADR decides the CREDENTIAL — what a
+receiver is handed and how it proves which kind of token it is. It does not
+decide ADR-094 Part 3 (cross-application authorisation), and the exchange working
+across applications must not be read as deciding it: a token minted by one
+application's gateway for another carries the CALLER's project roles.
 **Relates to:** ADR-050 (identity is validated at the boundary that uses it)
 
 ## Context
