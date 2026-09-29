@@ -29,6 +29,21 @@ spec:
         login: true
         createdb: true
         createrole: true
+        # CNPG's own defaults, declared rather than left implicit.
+        #
+        # The operator writes these onto every managed role, and `roles` is a
+        # LIST -- so a manifest that omits them does not merely under-specify,
+        # it produces a list that never equals the live one. ArgoCD compares the
+        # whole list, finds it different on every pass, and the Application sits
+        # OutOfSync forever while the database is perfectly healthy. That is what
+        # held platform-spoke-catalog OutOfSync after the CNPG recovery fields
+        # were resolved, and it timed out every sync.
+        #
+        # Both values are what CNPG fills in (unlimited connections, inherited
+        # privileges), so declaring them changes nothing about the role and makes
+        # the desired state actually reachable.
+        connectionLimit: -1
+        inherit: true
         passwordSecret:
           name: crossplane-admin-credentials
 
