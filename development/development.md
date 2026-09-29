@@ -54,6 +54,10 @@ Update targetRevision and bundleVersion value in below,
 KUBECONFIG=.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig/nutgraf-hub.kubeconfig \
   scripts/argocd-hard-sync.sh --promote 0.1.16-rc.112
 
+#### MAC DNS cache clearance
+
+- ! sudo networksetup -setdnsservers Wi-Fi 1.1.1.1 8.8.8.8   
+
 ## Tenant repo testing
 ### Once, on a branch you've pushed (ArgoCD reads git, not your working tree)
 ./soloz tenant scaffold --tenant local --org soloz-io --domain local.nutgraf.in \
