@@ -94,7 +94,7 @@ any project's audience — the conclusion is blunt:
 Anything this platform builds on "the audience names the resource, so the resource
 may trust it" is building on that. This ADR stops doing it.
 
-### What does discriminate, and it is provable
+### What does discriminate: a Zitadel compatibility invariant
 
 `at_hash` is set in exactly one place in the whole Zitadel codebase:
 
@@ -103,14 +103,39 @@ token.go:106   claims.AccessTokenHash, err = oidc.ClaimHash(accessToken, signAlg
                ... inside createIDToken, and nowhere else
 ```
 
-No access-token path sets it, by construction and by grep. It is also the standard
-answer rather than a Zitadel quirk: OIDC Core defines `at_hash` as an ID-token
-claim binding the ID token to its access token, and an access token has nothing to
-bind. **A receiver that refuses any token carrying `at_hash` refuses ID tokens.**
+and `createIDToken` is called with a non-empty access token on every token-endpoint
+path, so every ID token Zitadel issues carries it. No access-token path sets it, by
+construction and by grep.
 
-This is worth more than the audience check it replaces: it is one claim, it needs
-no per-application configuration, it cannot drift as projects are created, and it
-fails closed against exactly the confusion this ADR names.
+**This is a compatibility invariant, not an OIDC rule, and the distinction is
+load-bearing.** An earlier draft of this section called it "the standard answer
+rather than a Zitadel quirk". That is wrong. OIDC Core requires `at_hash` only in
+responses that return an access token from the authorization endpoint — the
+implicit and hybrid flows. In the authorization-code flow this platform uses, the
+specification makes it **OPTIONAL**, so a conforming issuer may omit it and a
+receiver relying on the spec alone would accept ID tokens from one.
+
+What is actually relied upon, stated so it can be tested rather than assumed:
+
+> **INVARIANT (Zitadel).** For the Zitadel version this platform pins, every ID
+> token reaching a receiver carries `at_hash`, and no JWT access token — from the
+> token endpoint or from `createExchangeJWT` — carries one.
+
+Three things follow, and they are the reason to write it this way:
+
+1. **It is version-scoped.** A Zitadel upgrade can break it, and nothing about the
+   receiver would say so — requests would simply start succeeding that should not.
+   So it is asserted against a real exchange, not only against fixtures, and that
+   assertion is a release gate rather than a one-off check.
+2. **It does not generalise to another issuer.** If this platform ever supports a
+   second one, this rule is re-established for it or replaced, not inherited.
+3. **It is not forgeable.** `at_hash` is a signed claim, so removing it from a
+   genuine ID token invalidates the signature. The check is sound against a
+   hostile caller even though it is narrow against a different issuer.
+
+**A receiver that refuses any token carrying `at_hash` refuses Zitadel ID tokens.**
+It is one claim, needs no per-application configuration, cannot drift as projects
+are created, and fails closed against exactly the confusion this ADR names.
 
 ### Two constraints on the exchange, before anything is configured
 

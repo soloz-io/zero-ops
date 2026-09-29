@@ -33,15 +33,25 @@ export interface JwtValidatorOptions {
   /**
    * Refuse a token that carries `at_hash`. Default true.
    *
-   * `at_hash` binds an ID token to the access token issued beside it, so only an
-   * ID token has one -- an access token has nothing to bind. Refusing it is how
-   * this validator enforces ADR-095's invariant that APIs accept access tokens
-   * and never ID tokens.
+   * A ZITADEL COMPATIBILITY INVARIANT, not a general OIDC rule. OIDC Core
+   * requires `at_hash` only where an access token is returned from the
+   * authorization endpoint (implicit and hybrid); in the authorization-code flow
+   * this platform uses it is OPTIONAL, so a conforming issuer may omit it. What
+   * holds is narrower and version-scoped:
+   *
+   *   for the pinned Zitadel, every ID token carries `at_hash` and no JWT
+   *   access token does -- `createIDToken` is the only place that sets it, and
+   *   it is called with a non-empty access token on every token-endpoint path.
+   *
+   * Re-establish it before trusting a different issuer or a Zitadel upgrade; an
+   * issuer that stops emitting it does not fail this check, it silently passes.
    *
    * It is a claim check rather than an audience check because in Zitadel the two
    * tokens share an audience: `createIDToken` and `createJWT` are both handed
-   * `session.Audience`, so no audience distinguishes them. `at_hash` is set in
-   * exactly one place in that codebase, inside `createIDToken`.
+   * `session.Audience`, so no audience distinguishes them.
+   *
+   * Sound against a hostile caller regardless: `at_hash` is signed, so it cannot
+   * be stripped from a genuine ID token without invalidating the signature.
    *
    * ORDERING. A deployment whose gateway still forwards the ID token will have
    * EVERY request refused by this. The gateway must be forwarding an exchanged

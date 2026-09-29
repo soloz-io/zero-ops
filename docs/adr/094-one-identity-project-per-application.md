@@ -2,6 +2,9 @@
 
 **Date:** 2026-09-28
 **Status:** Accepted
+**Amended:** 2026-09-29 by ADR-095 — the audience is not an isolation boundary in
+Zitadel. Invariant 1's mechanism and the Context's security argument are corrected
+in place; the decision stands on a narrower claim.
 **Builds on:** ADR-088 (which decided this shape and left it unbuilt)
 **Relates to:** ADR-047 (a fleet declares, the platform renders), ADR-050 (where identity is validated), ADR-053 (OAuth clients are fleet-declared), ADR-059 (no provider vocabulary in platform templates)
 
@@ -36,9 +39,62 @@ Provisioning oranger produces two failures:
   login fails with `redirect_uri_mismatch`, and carrying the same audience, so
   each backend accepts the other's tokens.
 
-The second is the security one. `OIDC_CLIENT_ID` **is** the audience every
-workload validates against -- the chart says so: *"It is the audience a fleet must
-require on the id_token."*
+The second is the security one -- but **not for the reason first given here**, and
+the correction matters enough to state before the decision rather than in a
+footnote.
+
+This ADR originally argued that two applications sharing a client share an
+audience, "so each backend accepts the other's tokens", and that separating the
+projects fixes it. ADR-095 disproved the second half. A Zitadel project id is not
+an isolation boundary:
+
+```
+what a project IS          an identity namespace -- the scope for an
+                           application's clients, redirect URIs, roles, and
+                           the audience context its tokens are built from
+
+what a project IS NOT      an automatic authorization boundary. Splitting
+                           two applications into two projects does not stop
+                           one's token being presented to the other.
+```
+
+Three findings, each established by reading rather than assumed:
+
+- One audience slice is signed into **both** the ID token and the access token
+  (`session.Audience`), so no audience value distinguishes them.
+- Any client may request any project's audience: `isScopeAllowed` returns true
+  unconditionally for the project-audience scope prefix, which this ADR settles
+  in its own words below and which is *why* the allowlist exists.
+- A cross-application call requires the caller's token to already hold the
+  target's audience (`validateTokenExchangeAudience`), so the moment oranger may
+  call waypoint, oranger's tokens carry waypoint's project id by construction.
+
+**Separate projects therefore change a default, not a boundary.** Two applications
+that never call each other no longer share an audience by accident, which is worth
+having; two that do are back to sharing one, and nothing at the issuer prevents a
+third from asking for it.
+
+The real cross-application boundary is the receiver's own validation, in full:
+
+```
+issuer          the expected one
+signature       against the issuer's published keys
+expiry          and any not-before
+aud             names the target service
+azp             names a PERMITTED caller -- the allowlist, not the audience
+tenant          from a claim, never from the audience
+AUTHORISATION   the receiver's decision about this user and this operation
+```
+
+plus, per ADR-095, that the credential is an exchanged access token at all --
+which a browser cannot mint, because the exchange needs confidential client
+credentials it does not hold.
+
+So this ADR still stands, on a narrower and more honest claim: per-application
+projects give each application its own client set, redirect URIs, role namespace
+and grant surface, and remove the shared-client failure below. They do not, by
+themselves, keep one application's users out of another's API. Invariant 2 does
+that.
 
 ## Decision
 
@@ -254,37 +310,41 @@ checked against what this platform does today rather than asserted.
 
 ### 1. APIs accept ACCESS tokens, never ID tokens
 
+> **AMENDED 2026-09-29 by ADR-095.** The invariant stands. The *mechanism* below
+> was wrong, and the paragraphs it rested on are corrected in place rather than
+> deleted, because the error is instructive.
+
 An ID token is issued to the client, about the user. It is not a credential for a
-resource server, and its `aud` is the client id -- not a project -- so it cannot
-carry the cross-application audience this ADR depends on.
+resource server. That much is unchanged, and it is the whole reason for this
+invariant.
 
-**The platform does not do this today.** `agentgateway.yaml` forwards the ID token
-as the API credential:
+**What was wrong: the audience cannot express it.** This section said an ID
+token's `aud` is the client id and an access token's carries project ids, so the
+two could be told apart and a migration could turn the check from one to the
+other. ADR-095 read Zitadel and found otherwise: `audienceFromProjectID` returns
+every client id in the project *plus* the project id, and `token.go` signs that
+same `session.Audience` into **both** tokens. The two are indistinguishable by
+audience, under any value.
 
-```
-# Forward the ID token itself, not merely claims derived from it.
-Authorization: '"Bearer " + jwt.rawToken.unredacted()'
-```
+So the migration this section described — every workload changing from
+`aud == OIDC_CLIENT_ID` to requiring its project id — is not merely unnecessary,
+it would not have enforced this invariant. A receiver requiring the project id
+still accepts an ID token.
 
-The reason given is sound and is not in dispute -- the BFF validates identity
-itself (ADR-050) and refuses to derive it from `x-auth-*` headers, so *something*
-must be forwarded. What is wrong is *which* token, and it matters beyond
-tidiness: the project-audience scope puts project ids in an ACCESS token's `aud`,
-so cross-application calls cannot work while workloads are handed an ID token
-whose `aud` is a client id.
-
-So this invariant is a MIGRATION, not a clarification:
+**What actually enforces it** (ADR-095, implemented):
 
 ```
-today     Authorization: Bearer <id_token>      aud = OIDC_CLIENT_ID
-required  Authorization: Bearer <access_token>  aud contains <project id>
+gateway    exchanges the session's ID token, RFC 8693, for a JWT access token
+           minted for the receiver -- as a CONFIDENTIAL client
+receiver   refuses any token carrying at_hash, a version-scoped Zitadel
+           invariant rather than an OIDC rule
+audience   UNCHANGED. It was never the thing doing the work.
 ```
 
-Every workload validating `aud == OIDC_CLIENT_ID` changes to validating that its
-project id is present. Different value, different semantics, and it lands on every
-tenant workload at once. It is sequenced with the per-application projects rather
-than before them, because until an application HAS its own project there is no
-project id to validate against.
+And the sequencing claim at the end of this section is withdrawn: because an
+access token's `aud` already contains the client id receivers check today, the
+gateway can switch with no receiver change, so this does **not** have to wait for
+the per-application projects.
 
 ### 2. `azp` is checked against a rendered caller allowlist, and absence is refusal
 

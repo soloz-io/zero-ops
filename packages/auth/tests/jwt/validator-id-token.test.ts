@@ -58,7 +58,8 @@ function validator(opts: Partial<ConstructorParameters<typeof JwtValidator>[0]> 
 const accessToken = () =>
   sign({ client_id: CLIENT_ID, jti: "tok-1", "urn:zitadel:iam:org:project:roles": {} });
 
-// at_hash is what createIDToken adds and nothing else does.
+// at_hash is what createIDToken adds and nothing else does -- a ZITADEL
+// invariant, not an OIDC guarantee (it is OPTIONAL in the code flow).
 const idToken = () => sign({ azp: CLIENT_ID, auth_time: 1, at_hash: "s9Sm2PkgYFbLQDRcXKAZ3g" });
 
 describe("ADR-095: an API refuses an ID token", () => {
