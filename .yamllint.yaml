@@ -40,9 +40,11 @@ rules:
 
 ignore: |
   # Helm chart templates (Go text/template) are validated by helm lint/kubeconform, not yamllint.
-  manifests/tenants/charts/universal-tenant/templates/
-  manifests/tenants/charts/tenant-public-tls/templates/
-  manifests/tenants/charts/platform-spoke-gateway/templates/
+  # A GLOB, not a list of the charts that happen to exist today. Enumerating them
+  # meant a new chart's templates were linted as plain YAML until someone
+  # remembered to add a line -- which is how platform-spoke-gateway failed on its
+  # first commit. The rule above is about a CLASS of file, so the pattern says so.
+  manifests/tenants/charts/*/templates/
   manifests/argocd/environment-manager/templates/
   manifests/hub-core-services/security/templates/
   manifests/hub-core-services/gateway/templates/
