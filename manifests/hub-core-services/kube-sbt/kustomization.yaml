@@ -13,7 +13,7 @@ resources:
 - zitadel-smtp-password-es.yaml
 
 images:
-- digest: sha256:a908edb4cdafd0e7f5b3ba63bfc3670923ae20b58c11c9a50eb631075ff6542c
+- digest: sha256:b7bddca160ddab100e64a624e83a04614f04397d85591bbecdbda648e711b593
   name: controller
   newName: ghcr.io/soloz-io/zero-ops/kube-sbt
 
