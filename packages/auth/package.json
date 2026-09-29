@@ -30,6 +30,11 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soloz-io/zero-ops.git",
+    "directory": "packages/auth"
+  },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
