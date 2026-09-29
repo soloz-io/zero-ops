@@ -69,6 +69,11 @@ type OAuthClient struct {
 	// redirect URIs EXACTLY, so a client provisioned without its callback fails
 	// at the authorization endpoint before any credential is entered.
 	RedirectPaths []string
+
+	// TokenExchange enables the RFC 8693 grant on this client (ADR-095). Set by
+	// the PLATFORM for the gateway's exchange client and for nothing else; a
+	// fleet cannot ask for it, because declaredOAuthClients never reads it.
+	TokenExchange bool
 }
 
 type TenantIdentity struct {
@@ -107,6 +112,7 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 			"name":          oc.Name,
 			"confidential":  oc.Confidential,
 			"redirectPaths": oc.RedirectPaths,
+			"tokenExchange": oc.TokenExchange,
 		})
 	}
 

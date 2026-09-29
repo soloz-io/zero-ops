@@ -52,6 +52,7 @@ type ensureTenantIdentityRequest struct {
 	OAuthClients []struct {
 		Name          string   `json:"name"`
 		Confidential  bool     `json:"confidential"`
+		TokenExchange bool     `json:"tokenExchange"`
 		RedirectPaths []string `json:"redirectPaths"`
 	} `json:"oauthClients"`
 }
@@ -89,6 +90,7 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 			Name:          oc.Name,
 			Confidential:  oc.Confidential,
 			RedirectPaths: oc.RedirectPaths,
+			TokenExchange: oc.TokenExchange,
 		})
 	}
 
@@ -117,7 +119,7 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		}
 		appName := tenantID + "-" + decl.Name
 		clientID, clientSecret, cerr := h.provisioner.EnsureConfidentialClient(
-			c.Request.Context(), tenantID, appName, false)
+			c.Request.Context(), tenantID, appName, false, decl.TokenExchange)
 		if cerr != nil {
 			// Reported, not fatal. The tenant identity itself succeeded and is
 			// worth returning; a client that failed is named in Incomplete so

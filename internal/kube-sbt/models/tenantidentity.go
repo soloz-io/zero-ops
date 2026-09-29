@@ -20,6 +20,20 @@ type OAuthClient struct {
 	// redirect URIs EXACTLY, so a client provisioned without its callback fails
 	// at the authorization endpoint before any credential is entered.
 	RedirectPaths []string
+
+	// TokenExchange enables the RFC 8693 grant on this client (ADR-095).
+	//
+	// OFF unless asked for, and asked for by the PLATFORM rather than a fleet:
+	// it is set on the gateway's own exchange client and on nothing else. A
+	// client holding this grant can turn a token it was given into one for a
+	// different audience, so it is a capability to grant deliberately, not a
+	// property of being confidential.
+	//
+	// Zitadel gates the grant on the client and says so: "we need to enable the
+	// urn:ietf:params:oauth:grant-type:token-exchange grant type", and
+	// recommends it on confidential clients only. Without it the token endpoint
+	// refuses the exchange.
+	TokenExchange bool
 }
 
 // TenantIdentity is what a tenant needs in order to authenticate, and the only

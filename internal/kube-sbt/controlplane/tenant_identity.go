@@ -93,14 +93,14 @@ func (cp *ControlPlane) ensureDeclaredClients(ctx context.Context, provisioner i
 				// Already provisioned. Confirm the client still exists without
 				// disturbing its secret, so a client deleted at the issuer is
 				// recreated rather than silently missing.
-				if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, false); cerr != nil {
+				if _, _, cerr := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, false, decl.TokenExchange); cerr != nil {
 					return fmt.Errorf("controlplane: verify client %q for tenant %q: %w", decl.Name, tenantID, cerr)
 				}
 				continue
 			}
 		}
 
-		clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, true)
+		clientID, clientSecret, err := provisioner.EnsureConfidentialClient(ctx, tenantID, appName, true, decl.TokenExchange)
 		if err != nil {
 			return fmt.Errorf("controlplane: provision client %q for tenant %q: %w", decl.Name, tenantID, err)
 		}

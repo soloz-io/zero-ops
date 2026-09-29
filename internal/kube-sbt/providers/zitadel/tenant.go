@@ -571,7 +571,7 @@ func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName stri
 	// created, the operator really did publish what it was given, the
 	// ExternalSecret resolves, and the tenant's gateway starts. Only a login
 	// fails, and it fails identically to a tenant that was never provisioned.
-	_, clientID, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone)
+	_, clientID, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone, false)
 	return clientID, err
 }
 
@@ -591,7 +591,7 @@ const (
 // already existed, because the issuer returns it once at creation and will not
 // disclose it again; recovering it means regenerating, which is a separate and
 // deliberately explicit act (see RegenerateClientSecret).
-func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string, authMethod string) (appID, clientID, clientSecret string, err error) {
+func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string, authMethod string, tokenExchange bool) (appID, clientID, clientSecret string, err error) {
 
 	var existing struct {
 		Result []struct {
@@ -648,12 +648,28 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 	//
 	// Role assertion is set on the app as well as the project because both gate
 	// the claim, and only the pair produces a token carrying roles.
+	//
+	// The token-exchange grant is added ONLY when asked for. Zitadel gates the
+	// grant on the client -- without it the token endpoint refuses the exchange
+	// -- and its own guidance is to put it on confidential clients only,
+	// because a client holding it can turn a token it was handed into one for a
+	// different audience. Granting it to every confidential client would hand
+	// that to fleet-declared back-ends that never asked for it; granting it to
+	// a PUBLIC client would hand it to anything that can read a browser bundle.
+	grantTypes := []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"}
+	if tokenExchange {
+		if authMethod != authMethodBasic {
+			return "", "", "", fmt.Errorf("zitadel: refusing token exchange on non-confidential application %q", appName)
+		}
+		grantTypes = append(grantTypes, "OIDC_GRANT_TYPE_TOKEN_EXCHANGE")
+	}
+
 	body := map[string]any{
 		"name":                     appName,
 		"redirectUris":             redirectURIs,
 		"postLogoutRedirectUris":   postLogoutURIs,
 		"responseTypes":            []string{"OIDC_RESPONSE_TYPE_CODE"},
-		"grantTypes":               []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"},
+		"grantTypes":               grantTypes,
 		"appType":                  "OIDC_APP_TYPE_WEB",
 		"authMethodType":           authMethod,
 		"accessTokenType":          "OIDC_TOKEN_TYPE_JWT",
@@ -866,7 +882,7 @@ func (a *Auth) grantUngrantedMembers(ctx context.Context, orgID, projectID strin
 // reconcile would invalidate the credential the running workload is holding, and
 // the failure lands on the next token exchange rather than on the reconcile that
 // caused it.
-func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists bool) (clientID, clientSecret string, err error) {
+func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error) {
 	if tenantID == "" {
 		return "", "", fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -894,7 +910,7 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName s
 	// supplies through the tenant's public host. Passing none here would make the
 	// app unusable for the code flow, so the caller's redirects are reused: both
 	// clients serve the same tenant at the same host.
-	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic)
+	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic, tokenExchange)
 	if err != nil {
 		return "", "", fmt.Errorf("ensure confidential application for %q: %w", tenantID, err)
 	}

@@ -103,7 +103,7 @@ func TestEnsureConfidentialClient_CreatesWithBasicAuthAndReturnsGeneratedSecret(
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true)
+	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestEnsureConfidentialClient_ExistingAppIsNotRegeneratedUnlessAsked(t *test
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", false)
+	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestEnsureConfidentialClient_RegeneratesExistingAppOnRequest(t *testing.T) 
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true)
+	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestEnsureConfidentialClient_RejectsCreationWithoutASecret(t *testing.T) {
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	_, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true)
+	_, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true, false)
 	if err == nil {
 		t.Fatal("expected an error when the issuer returns no client secret")
 	}
@@ -204,7 +204,7 @@ func TestEnsureConfidentialClient_ScopesEveryProjectCallToTheTenantOrg(t *testin
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	if _, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true); err != nil {
+	if _, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-bff", true, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for i, call := range rec.calls {
@@ -222,10 +222,10 @@ func TestEnsureConfidentialClient_RequiresTenantAndAppName(t *testing.T) {
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	if _, _, err := a.EnsureConfidentialClient(context.Background(), "", "acme-bff", true); err == nil {
+	if _, _, err := a.EnsureConfidentialClient(context.Background(), "", "acme-bff", true, false); err == nil {
 		t.Error("expected an error for an empty tenantID")
 	}
-	if _, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "", true); err == nil {
+	if _, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "", true, false); err == nil {
 		t.Error("expected an error for an empty appName")
 	}
 	if len(rec.calls) != 0 {
@@ -251,5 +251,82 @@ func TestEnsureOIDCApp_CreatesPublicClientWithNoSecret(t *testing.T) {
 	}
 	if got := rec.createBody["authMethodType"]; got != authMethodNone {
 		t.Errorf("authMethodType = %v, want %s", got, authMethodNone)
+	}
+}
+
+// ADR-095: the RFC 8693 grant is a capability, granted deliberately.
+//
+// Zitadel gates token exchange on the client's grant types — its own guide says
+// "we need to enable the urn:ietf:params:oauth:grant-type:token-exchange grant
+// type". Without it the token endpoint refuses the exchange, and the failure
+// arrives AFTER the gateway has started cleanly: every API request fails and
+// nothing in the gateway's own configuration looks wrong.
+
+func grantTypes(t *testing.T, rec *recorder) []string {
+	t.Helper()
+	// The recorder captures the body after JSON round-tripping, so this is
+	// []interface{} rather than the []string that was sent.
+	raw, ok := rec.createBody["grantTypes"].([]interface{})
+	if !ok {
+		t.Fatalf("grantTypes missing or not a slice: %#v", rec.createBody["grantTypes"])
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			t.Fatalf("grant type is not a string: %#v", v)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func hasTokenExchange(gts []string) bool {
+	for _, g := range gts {
+		if g == "OIDC_GRANT_TYPE_TOKEN_EXCHANGE" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEnsureConfidentialClient_GrantsTokenExchangeOnlyWhenAsked(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{"not asked for", false},
+		{"asked for", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recorder{createResponse: map[string]any{
+				"appId": "app-1", "clientId": "client-1", "clientSecret": "s",
+			}}
+			a, srv := newTestAuth(t, rec)
+			defer srv.Close()
+
+			if _, _, err := a.EnsureConfidentialClient(context.Background(), "acme", "acme-x", true, tc.want); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := hasTokenExchange(grantTypes(t, rec)); got != tc.want {
+				t.Errorf("token exchange grant = %v, want %v (grantTypes=%v)", got, tc.want, grantTypes(t, rec))
+			}
+		})
+	}
+}
+
+func TestPublicClientsNeverGetTokenExchange(t *testing.T) {
+	// The grant on a public client would let anything that can read a browser
+	// bundle turn a token it was handed into one for another audience — which
+	// is precisely what makes the gateway's exchange a boundary at all.
+	// Zitadel warns about this in its own guide; here it is unrepresentable.
+	rec := &recorder{createResponse: map[string]any{"appId": "a", "clientId": "c"}}
+	a, srv := newTestAuth(t, rec)
+	defer srv.Close()
+
+	_, _, _, err := a.ensureApp(context.Background(), "org-1", "proj-1",
+		"acme-public-client", nil, nil, authMethodNone, true)
+	if err == nil {
+		t.Fatal("expected a refusal: token exchange was granted to a public client")
 	}
 }

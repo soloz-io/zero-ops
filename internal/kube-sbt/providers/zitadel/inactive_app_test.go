@@ -37,7 +37,7 @@ func TestEnsureApp_ReactivatesAnInactiveApplicationRatherThanReturningIt(t *test
 	defer srv.Close()
 
 	appID, clientID, _, err := a.ensureApp(context.Background(), "org-1", "proj-1",
-		"acme-public-client", nil, nil, authMethodNone)
+		"acme-public-client", nil, nil, authMethodNone, false)
 	if err != nil {
 		t.Fatalf("ensureApp: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestEnsureApp_LeavesAnActiveApplicationAlone(t *testing.T) {
 	defer srv.Close()
 
 	if _, _, _, err := a.ensureApp(context.Background(), "org-1", "proj-1",
-		"acme-public-client", nil, nil, authMethodNone); err != nil {
+		"acme-public-client", nil, nil, authMethodNone, false); err != nil {
 		t.Fatalf("ensureApp: %v", err)
 	}
 	for _, c := range rec.calls {

@@ -54,5 +54,5 @@ type ITenantIdentityProvisioner interface {
 	// no secret" — and the caller that cannot find a stored one is the only party
 	// able to decide that invalidating the live credential is acceptable, which
 	// is what regenerateIfExists expresses.
-	EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists bool) (clientID, clientSecret string, err error)
+	EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
 }

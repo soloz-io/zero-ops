@@ -411,6 +411,10 @@ func gatewayExchangeClient(appId string) client2.OAuthClient {
 	return client2.OAuthClient{
 		Name:         gatewayExchangeClientName(appId),
 		Confidential: true,
+		// The capability the whole design turns on. Zitadel gates the RFC 8693
+		// grant on the client, so without this the token endpoint refuses the
+		// exchange and every API request fails after the gateway starts cleanly.
+		TokenExchange: true,
 	}
 }
 
