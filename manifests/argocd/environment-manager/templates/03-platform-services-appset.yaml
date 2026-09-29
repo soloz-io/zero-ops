@@ -760,12 +760,34 @@ spec:
       # CNPG evaluates bootstrap only at creation time and never re-reconciles
       # it, so the recovery-state manifest (Wave B) returning to initdb (Wave C)
       # stays permanently Synced.
+      #
+      # externalClusters is ignored for the SAME reason, and leaving it out
+      # blocked every sync on 2026-09-29. The two fields are one decision: what
+      # this cluster was created from. Ignoring bootstrap alone freezes the live
+      # object at `recovery.source: shared-cnpg-v<N>` while the settled manifest
+      # applies `externalClusters: [shared-cnpg-v<N+1>]` -- so the reference the
+      # frozen bootstrap depends on is pruned out from under it, and CNPG's
+      # admission webhook refuses the whole object:
+      #
+      #   Cluster "shared-cnpg" is invalid: spec.bootstrap.recovery.source:
+      #   Invalid value: "shared-cnpg-v3": External cluster shared-cnpg-v3 not found
+      #
+      # The database is healthy throughout; what fails is the Application, which
+      # then carries every other object in the catalogue down with it.
+      #
+      # The manifest is not wrong and must not be "fixed" by adding the older
+      # entry back: cnpg-bump-incarnation.sh declares exactly one
+      # externalClusters entry and asserts it (steady == archive, recovering ==
+      # archive - 1), and make cnpg-incarnation-check enforces that in CI. The
+      # manifest describes what a NEW cluster is created from; an existing one
+      # owns its own answer, which is precisely what ignoring means here.
       ignoreDifferences:
         - group: postgresql.cnpg.io
           kind: Cluster
           name: shared-cnpg
           jsonPointers:
             - /spec/bootstrap
+            - /spec/externalClusters
 
       syncPolicy:
         automated:

@@ -45,7 +45,7 @@ cd ../..
 ./scripts/dev/local-e2e.sh 0.1.16-rc.60 bootstrap
 It skips provisioning (the cluster reports Provisioned) and picks up where it stopped.
 
-#### Promote chart
+#### Promote new chart at tenant box
 
 Update targetRevision and bundleVersion value in below,
 - registry/clusters/nutgraf-01/bundle.yaml 
