@@ -53,7 +53,32 @@ PY
     ); then
         pass "tenant-gateway serves plaintext :80 only (no TLS termination)"
     else
-        hard_fail "tenant-gateway must not terminate TLS — :443 ownership belongs to tenant-tls-gateway (tenant-public-tls chart); same-port claims are first-wins on the shared Envoy"
+        hard_fail "tenant-gateway must not terminate TLS — :443 ownership belongs to tenant-tls-gateway (platform-spoke-gateway chart, ADR-096); same-port claims are first-wins on the shared Envoy"
+    fi
+
+    # ── R2b: no tenant chart owns the shared Gateway (ADR-096) ──────────────
+    #
+    # THE invariant, checked rather than only written down. tenant-public-tls
+    # used to render this object once per application, each copy declaring only
+    # its own listener -- and because every ArgoCD Application applies as one
+    # field manager, the copies overwrote each other and flapped the public DNS
+    # of an app that was already working.
+    #
+    # ADR-051 had refused that arrangement eight days earlier and the code did it
+    # anyway, because nothing compared the two. This is that comparison.
+    if grep -rlq "kind: Gateway" "$VALIDATE_ROOT/manifests/tenants/charts/tenant-public-tls/templates/" 2>/dev/null; then
+        hard_fail "tenant-public-tls renders a Gateway again (ADR-096): the shared TLS Gateway has exactly one owner, platform-spoke-gateway. A per-application copy of it silently removes the other applications' listeners"
+    else
+        pass "no tenant chart renders the shared TLS Gateway (ADR-096)"
+    fi
+
+    # ── R2c: the shared Gateway has exactly one renderer ─────────────────────
+    local owners
+    owners=$(grep -rl "kind: Gateway" "$VALIDATE_ROOT/manifests/tenants/charts/" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$owners" == "1" ]]; then
+        pass "exactly one chart under manifests/tenants/charts renders a Gateway"
+    else
+        hard_fail "$owners charts under manifests/tenants/charts render a Gateway; ADR-096 requires exactly one owner for the shared TLS Gateway"
     fi
 
     # ── R3: chart render-time guards exist ───────────────────────────────────

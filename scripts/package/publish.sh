@@ -143,7 +143,19 @@ echo "packaged=$published refused=$refused broken=$broken"
 # pushed.
 python3 scripts/package/distribution.py "$VERSION" dist/charts dist/dist
 python3 scripts/package/verify-distribution.py dist/dist/platform dist/charts
-cp -R dist/charts/universal-tenant dist/charts/tenant-public-tls dist/dist/
+# Carry the tenant charts across the swap below, DERIVED from the same glob that
+# packaged them rather than named here.
+#
+# This was `cp -R dist/charts/universal-tenant dist/charts/tenant-public-tls`.
+# tenant-and-catalog-charts.sh packages every directory under
+# manifests/tenants/charts/, so a third chart was built at line 138 and then
+# deleted by the `rm -rf dist/charts` below -- silently, because the copy named
+# the two it knew about and cannot notice a third. The release gate caught it
+# ("names chart 'platform-spoke-gateway', which this release does not publish"),
+# which is the gate working; the packaging step should not have needed it.
+for src in manifests/tenants/charts/*/; do
+    cp -R "dist/charts/$(basename "$src")" dist/dist/
+done
 rm -rf dist/charts && mv dist/dist dist/charts
 ./scripts/package/bundle-chart.sh               "$VERSION" dist/charts
 
