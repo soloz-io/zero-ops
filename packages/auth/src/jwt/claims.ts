@@ -24,6 +24,22 @@ export interface TenantClaims {
   /** User roles */
   roles: string[];
   /**
+   * `azp` — the client the token was issued to (ADR-094 invariant 2).
+   *
+   * The AUTHORIZED PARTY, not the subject and not the audience. It answers
+   * "which application asked for this token", which is the only claim that can:
+   * `aud` names who may accept it, and Zitadel issues any project's audience to
+   * any client that asks, so `aud` cannot say who is calling.
+   *
+   * Optional because it genuinely is: a `client_credentials` token carries no
+   * `azp`. Absence must therefore be a REFUSAL where a caller identity is
+   * required, never a pass — which is what `allowedAzp` on the validator does.
+   *
+   * Zitadel spells it `azp` on ID tokens and `client_id` on access tokens, and
+   * both are read here so a receiver does not have to know which it holds.
+   */
+  azp?: string;
+  /**
    * Platform-assigned groups (ADR-058).
    *
    * The auth-proxy injects this claim, and the API server matches it for
@@ -142,6 +158,14 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
     // only for the scope that asks for them. Without that scope the claim is
     // absent and the token is correctly rejected as tenant-less, so the
     // requirement in the validator must stay a check and never a default.
+    // `client_id` as well as `azp`: Zitadel's NewIDTokenClaims sets azp and its
+    // NewAccessTokenClaims sets client_id, for the same fact. Reading only one
+    // would make the caller identity appear absent on half the tokens this
+    // platform issues, and absent means refused.
+    azp:
+      (typeof payload.azp === "string" && payload.azp) ||
+      (typeof payload.client_id === "string" && payload.client_id) ||
+      undefined,
     tenant_id: tenantId,
     tenant_name: firstString(payload, TENANT_NAME_CLAIMS) || undefined,
     tenant_tier: payload.tenant_tier ? String(payload.tenant_tier) : undefined,

@@ -11,6 +11,7 @@ export {
   RoleDeniedError,
   TokenMissingError,
   IdTokenPresentedError,
+  CallerNotAllowedError,
   JwksFetchError,
   KeyNotFoundError,
 } from "./types.js";
@@ -28,6 +29,16 @@ export { JwtValidator } from "./jwt/validator.js";
 // ─── Hono Middleware ───────────────────────────────────────────────
 export { authMiddleware, getPrincipal, PRINCIPAL_KEY } from "./middleware/hono.js";
 export type { AuthMiddlewareOptions } from "./middleware/hono.js";
+
+// The acting user and the identity endpoint, for an app's own server (ADR-057).
+export {
+  actingUserMiddleware,
+  getActingUser,
+  requireActingUser,
+  identityHandler,
+  ACTING_USER_KEY,
+} from "./middleware/acting-user.js";
+export type { ActingUser, ActingUserOptions } from "./middleware/acting-user.js";
 
 // ─── OAuth ─────────────────────────────────────────────────────────
 export type { OidcClientOptions } from "./oauth/client.js";

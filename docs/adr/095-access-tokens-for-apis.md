@@ -7,7 +7,11 @@ mechanism the first draft chose: an ID token and an access token carry the same
 audience, so no audience check can tell them apart. The invariant is now carried by
 `at_hash`. What is corrected is marked in place; the first draft's reasoning is not
 silently replaced.
-**Status:** Accepted
+**Status:** Accepted, with its SCOPE corrected 2026-09-29 — the invariant holds
+where a token crosses an application boundary; on the same-application path the
+gateway forwards its validated session token and ADR-094 invariant 2 (the `azp`
+allowlist) is what refuses a sibling's token. See "The exchange cannot serve a
+browser session".
 **Implements:** ADR-094 invariant 1, which sits in that ADR's **Part 1
 (same-application authorisation)**. This ADR decides the CREDENTIAL — what a
 receiver is handed and how it proves which kind of token it is. It does not
@@ -141,6 +145,17 @@ Three things follow, and they are the reason to write it this way:
 **A receiver that refuses any token carrying `at_hash` refuses Zitadel ID tokens.**
 It is one claim, needs no per-application configuration, cannot drift as projects
 are created, and fails closed against exactly the confusion this ADR names.
+
+**Where it is switched OFF, and why that is not a loophole.** A BFF sitting
+directly behind its own application's gateway receives that gateway's validated
+SESSION token, because the exchange cannot produce a usable one for a browser
+session (below). Such a receiver sets `rejectIdTokens: false` and MUST set
+`allowedAzp`. The protection does not disappear, it changes hands: what this rule
+prevents is an ID token being accepted as a credential for a DIFFERENT
+application, and naming the one permitted caller refuses that by name on every
+request, rather than by inference from the token's kind. A receiver that turns
+this off without an allowlist has no caller control at all, and that combination
+is the thing to review for.
 
 ### Two constraints on the exchange, before anything is configured
 
@@ -299,6 +314,62 @@ Reachable without any gateway change, and that is its only merit.
 **No option involving "trust the ID token but more carefully" is acceptable**, and
 that includes forwarding claims in `x-auth-*` headers: ADR-050 already refuses
 derived headers as an identity source, and the gateway comment says so.
+
+### The exchange cannot serve a browser session — read this before re-adding it
+
+**Established from source on 2026-09-29, after the decision below was accepted
+and implemented.** The gateway no longer exchanges on the same-application path,
+and this section exists so nobody restores it from the reasoning above.
+
+Zitadel derives an exchanged token's claims **entirely from the scopes of the
+exchange request**. `createJWT` ends with `claims.Claims = userInfo.Claims`, and
+every claim in `userInfoToOIDC` sits behind a `case` on a scope —
+`ClaimResourceOwnerID` (the tenant) under `ScopeResourceOwner`, the address under
+`oidc.ScopeEmail`.
+
+An ID token used as the subject carries **no scopes**:
+
+```
+token_exchange_converter.go   accessToExchangeToken       scopes: token.scope
+                              idTokenClaimsToExchangeToken   (no scopes field)
+```
+
+So for a gateway-mediated browser session, which holds only the ID token:
+
+```
+send no scopes    validateUnionTokenExchangeScopes falls back to
+                  subjectScopes, then actorScopes -- both nil -> scopes = []
+                  -> the exchanged token has NO tenant claim and NO email
+                  -> every request refused as tenant-less, and resolve_user
+                     cannot provision a user without an address
+
+send any scope    each requested scope must appear in subject ∪ actor
+                  (scopeInUnion), and both are empty
+                  -> invalid_scope: "not found in subject or actor token"
+```
+
+Both doors are shut. This is not a configuration error and there is no value of
+`scopes` that fixes it.
+
+**What the three escapes cost, so they are not rediscovered as cheap:**
+
+- *Browser-direct* — the SPA runs the flow and holds an access token, which does
+  carry scopes. It is a client rewrite (the platform's `AuthProvider` is
+  cookie-session by construction: "the client neither knows nor duplicates the
+  login flow") and it moves tokens out of an httpOnly cookie into browser
+  storage. A security downgrade to fix a claims problem.
+- *Actor-token path* — Zitadel does support subject-data scopes for a scopeless
+  subject, in `validateImpersonationTokenExchangeScopes`. It requires
+  `EnableImpersonation()` **instance-wide** and classes every API call as
+  impersonation. Enabling impersonation for the whole box to make a
+  same-application call work is not a trade this platform should make.
+- *Patching agentgateway to keep the access token* — the upstream TODO in
+  `callback.rs`. Not available while the platform runs the released image.
+
+**Where the exchange still belongs: the cross-application call.** There the
+caller holds an ACCESS token, which carries scopes, so both doors are open. The
+exchange client, its confidential grant and its RFC 8693 grant type stay
+provisioned for exactly that.
 
 ### The migration is two independent steps, and neither needs a window
 

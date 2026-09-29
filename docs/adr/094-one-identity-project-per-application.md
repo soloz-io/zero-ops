@@ -27,6 +27,14 @@ and an implementation must not be read as settling it: cross-application
 authentication working is not cross-application authorisation working, and the
 gap between them is a real one with a named experiment to resolve it.
 
+An earlier revision of this table said Part 2 was ACCEPTED while invariant 2 —
+the caller allowlist, which is the *only* control in Part 2 that actually
+separates applications — had no implementation anywhere. Provisioning existing is
+not the band being done. It is implemented now (`allowedAzp` in
+`zero-ops-auth`), and the rule this table is written under is that a band is
+ACCEPTED only when its controls exist in code, not when the objects they act on
+have been provisioned.
+
 The three receiver invariants are stated inside the band each belongs to, and keep
 their numbers so earlier references resolve. Each is a thing a receiver must DO,
 and each has been checked against what this platform actually does rather than
@@ -417,6 +425,26 @@ rotation would then silently break a dependency the tenant thought it had declar
 So: **an appId -> appId dependency authorises every browser client of the calling
 application.** An application that needs finer granularity than that needs a second
 project, which is the unit this ADR makes cheap.
+
+**Implemented** in `zero-ops-auth` as `JwtValidator({ allowedAzp: [...] })`.
+Three properties are deliberate and are covered by tests:
+
+- **Absence is refusal.** A token with no `azp` cannot be matched against an
+  allowlist, and treating "cannot tell who is calling" as "allowed" is the exact
+  failure this invariant exists to prevent. A `client_credentials` token carries
+  no `azp`, which is why this is stated rather than assumed.
+- **`client_id` is read too.** Zitadel sets `azp` on ID tokens and `client_id`
+  on access tokens for the same fact; a receiver must not have to know which
+  kind it is holding.
+- **It is checked before the tenant requirement.** A disallowed caller is
+  reported as a disallowed caller, not as a tenant-less token — otherwise an
+  operator investigates scopes when the answer is that the application should
+  not be calling at all.
+
+Omitting the allowlist skips the check, which is correct only for a receiver no
+other application can reach. It is not the default because turning it on by
+default would refuse every existing deployment on upgrade, so it is a thing to
+review for rather than a thing that happens.
 
 ### Browser-direct is supported, and the BFF is not made mandatory
 

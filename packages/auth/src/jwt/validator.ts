@@ -7,6 +7,7 @@ import {
   InvalidAudienceError,
   TokenMissingError,
   IdTokenPresentedError,
+  CallerNotAllowedError,
   AuthError,
 } from "../types.js";
 
@@ -63,6 +64,24 @@ export interface JwtValidatorOptions {
    * a configuration slip away.
    */
   rejectIdTokens?: boolean;
+  /**
+   * The applications permitted to present a token here, by `azp`/`client_id`
+   * (ADR-094 invariant 2).
+   *
+   * THE cross-application control. An audience says a token may be accepted
+   * here; it does not say who asked for it, and Zitadel issues any project's
+   * audience to any client that requests it -- so a receiver checking only
+   * `aud` accepts a token any application on the box could mint for it. This is
+   * the check that distinguishes them.
+   *
+   * Absence of `azp` is a REFUSAL, not a pass. A token with no caller identity
+   * cannot be matched against an allowlist, and treating "cannot tell" as
+   * "allowed" is the failure this exists to prevent.
+   *
+   * Omitted (or empty) means no caller check, which is correct only where a
+   * receiver is unreachable by any other application. Say so where you omit it.
+   */
+  allowedAzp?: string[];
 }
 
 export class JwtValidator {
@@ -72,6 +91,7 @@ export class JwtValidator {
   private readonly algorithms: string[];
   private readonly requireTenantId: boolean;
   private readonly rejectIdTokens: boolean;
+  private readonly allowedAzp: string[];
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
@@ -79,6 +99,7 @@ export class JwtValidator {
     this.algorithms = opts.algorithms ?? ["RS256", "ES256"];
     this.requireTenantId = opts.requireTenantId ?? true;
     this.rejectIdTokens = opts.rejectIdTokens ?? true;
+    this.allowedAzp = opts.allowedAzp ?? [];
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
@@ -126,6 +147,15 @@ export class JwtValidator {
       }
 
       const claims = claimsFromPayload(payload as Record<string, unknown>);
+
+      // Checked BEFORE the tenant requirement below, deliberately. A token from
+      // an application this receiver does not admit is refused for that reason
+      // and not for whatever else happens to be wrong with it -- an operator
+      // told MISSING_TENANT_ID would go looking at scopes when the answer is
+      // that the caller should not be here at all.
+      if (this.allowedAzp.length > 0 && (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))) {
+        throw new CallerNotAllowedError(claims.azp, this.allowedAzp);
+      }
 
       // No platform-scoped exemption, deliberately.
       //

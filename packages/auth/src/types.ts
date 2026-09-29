@@ -99,3 +99,25 @@ export class IdTokenPresentedError extends AuthError {
     this.name = "IdTokenPresentedError";
   }
 }
+
+/**
+ * The token names a calling application that is not on this receiver's
+ * allowlist, or names none at all (ADR-094 invariant 2).
+ *
+ * Its own code because the remedy differs from every other rejection: the token
+ * is valid, the user is real, and what is wrong is WHICH application asked for
+ * it. That is a configuration answer -- add the caller to the allowlist, or stop
+ * it calling -- not a credential one.
+ */
+export class CallerNotAllowedError extends AuthError {
+  constructor(azp: string | undefined, allowed: string[]) {
+    super({
+      code: "CALLER_NOT_ALLOWED",
+      message:
+        azp === undefined
+          ? `Token carries no azp/client_id, so the calling application cannot be established; this receiver admits only [${allowed.join(", ")}] (ADR-094 invariant 2).`
+          : `Calling application "${azp}" is not permitted by this receiver; it admits only [${allowed.join(", ")}] (ADR-094 invariant 2).`,
+    });
+    this.name = "CallerNotAllowedError";
+  }
+}
