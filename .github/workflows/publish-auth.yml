@@ -1,4 +1,4 @@
-name: Publish zero-ops-auth
+name: zero-ops-auth
 
 on:
   workflow_dispatch:
