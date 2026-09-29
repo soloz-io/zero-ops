@@ -45,6 +45,14 @@ cd ../..
 ./scripts/dev/local-e2e.sh 0.1.16-rc.60 bootstrap
 It skips provisioning (the cluster reports Provisioned) and picks up where it stopped.
 
+#### Promote chart
+
+Update targetRevision and bundleVersion value in below,
+- registry/clusters/nutgraf-01/bundle.yaml 
+- registry/clusters/nutgraf-hub/bundle.yaml
+
+KUBECONFIG=.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig/nutgraf-hub.kubeconfig \
+  scripts/argocd-hard-sync.sh --promote 0.1.16-rc.112
 
 ## Tenant repo testing
 ### Once, on a branch you've pushed (ArgoCD reads git, not your working tree)
