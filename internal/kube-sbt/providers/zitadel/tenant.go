@@ -501,8 +501,48 @@ func projectSettings(name string) map[string]any {
 // existed would otherwise never gain it, and the symptom is silent: tokens carry
 // no roles even though the scope was requested and the grant is in place.
 func (a *Auth) ensureRoleAssertion(ctx context.Context, orgID, projectID string) error {
+	// The project's OWN name, not the configured one.
+	//
+	// Zitadel's PUT replaces the whole project, name included, so sending
+	// a.cfg.ProjectName here RENAMES whatever project this is to the shared
+	// default. That was invisible while every application lived in that one
+	// project -- the PUT set the name to what it already was. The moment
+	// ADR-094 gave an application a project of its own it became a rename into
+	// a name the organisation already holds:
+	//
+	//   PUT /management/v1/projects/<oranger's project>
+	//   409 Project already exists on organization (V3-DKcYh)
+	//
+	// which surfaced as a 502 from the identity service, an AINativeSaaS whose
+	// status.identity stayed empty, no OIDC_CLIENT_ID in Infisical, an
+	// ExternalSecret in SecretSyncedError, and finally a gateway pod stuck in
+	// CreateContainerConfigError behind "no healthy upstream". Six symptoms, one
+	// field.
+	name, err := a.projectName(ctx, orgID, projectID)
+	if err != nil {
+		return fmt.Errorf("read project %s before updating it: %w", projectID, err)
+	}
 	return a.api.do(ctx, http.MethodPut, "/management/v1/projects/"+projectID, orgID,
-		projectSettings(a.cfg.ProjectName), nil)
+		projectSettings(name), nil)
+}
+
+// projectName reads a project's current name, so an update can preserve it.
+func (a *Auth) projectName(ctx context.Context, orgID, projectID string) (string, error) {
+	var got struct {
+		Project struct {
+			Name string `json:"name"`
+		} `json:"project"`
+	}
+	if err := a.api.do(ctx, http.MethodGet, "/management/v1/projects/"+projectID, orgID, nil, &got); err != nil {
+		return "", err
+	}
+	if got.Project.Name == "" {
+		// Refused rather than defaulted. Falling back to the configured name is
+		// exactly the bug above, and a project with no name is a response this
+		// code does not understand.
+		return "", fmt.Errorf("zitadel: project %s returned no name", projectID)
+	}
+	return got.Project.Name, nil
 }
 
 // GrantProjectToOrg delegates a project to ANOTHER organisation.

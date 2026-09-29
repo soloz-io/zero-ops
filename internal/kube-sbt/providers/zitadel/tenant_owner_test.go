@@ -35,6 +35,13 @@ func (r *ownerRecorder) handler() http.Handler {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"result": []map[string]any{{"id": "proj-1", "name": "platform", "state": "PROJECT_STATE_ACTIVE"}},
 			})
+		// The project GET, which ensureRoleAssertion reads so its update keeps
+		// the project's own name instead of renaming it (ADR-094).
+		case strings.HasPrefix(req.URL.Path, "/management/v1/projects/") &&
+			req.Method == http.MethodGet && strings.Count(req.URL.Path, "/") == 4:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project": map[string]any{"id": "proj-1", "name": "platform"},
+			})
 		case strings.HasSuffix(req.URL.Path, "/apps/_search"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"result": []any{}})
 		case strings.HasSuffix(req.URL.Path, "/apps/oidc"):

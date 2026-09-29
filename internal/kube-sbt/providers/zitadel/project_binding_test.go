@@ -29,6 +29,24 @@ type projectRecorder struct {
 	projects     map[string]string // name -> id
 	liveIDs      map[string]bool   // ids GET /projects/<id> answers for
 	createdNames []string
+	// putBodies is what each PUT /projects/<id> carried, by id. The project
+	// UPDATE replaces the whole object, name included, so what it sends decides
+	// whether a project keeps its name (ADR-094).
+	putBodies map[string]map[string]any
+}
+
+// nameOf reverses the name->id map, so a project GET can answer with the name
+// it was created under rather than omitting it.
+func (r *projectRecorder) nameOf(id string) string {
+	for name, pid := range r.projects {
+		if pid == id {
+			return name
+		}
+	}
+	// A live project always has a name. A test that registers an id without one
+	// still gets a plausible answer, so the fake cannot make the production code
+	// look broken for a reason the real issuer never produces.
+	return id
 }
 
 func (r *projectRecorder) handler() http.Handler {
@@ -62,6 +80,12 @@ func (r *projectRecorder) handler() http.Handler {
 			r.createdNames = append(r.createdNames, body.Name)
 			id := "proj-" + body.Name
 			r.projects[body.Name] = id
+			// A project is live the moment it is created. Without this the fake
+			// 404s a GET for a project it just returned, which no real issuer does.
+			if r.liveIDs == nil {
+				r.liveIDs = map[string]bool{}
+			}
+			r.liveIDs[id] = true
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
 		case strings.HasPrefix(p, "/management/v1/projects/") && req.Method == http.MethodGet &&
 			strings.Count(p, "/") == 4:
@@ -71,7 +95,30 @@ func (r *projectRecorder) handler() http.Handler {
 				_ = json.NewEncoder(w).Encode(map[string]any{"code": 5, "message": "not found"})
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"project": map[string]any{"id": id}})
+			// The NAME is part of the answer, because ensureRoleAssertion reads
+			// it to avoid renaming the project it is updating.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"project": map[string]any{"id": id, "name": r.nameOf(id)},
+			})
+		case strings.HasPrefix(p, "/management/v1/projects/") && req.Method == http.MethodPut &&
+			strings.Count(p, "/") == 4:
+			id := strings.TrimPrefix(p, "/management/v1/projects/")
+			var body map[string]any
+			_ = json.NewDecoder(req.Body).Decode(&body)
+			if r.putBodies == nil {
+				r.putBodies = map[string]map[string]any{}
+			}
+			r.putBodies[id] = body
+			// A rename onto a name the organisation already holds is what the
+			// real issuer refuses, so the fake refuses it too -- otherwise the
+			// bug this guards against passes the test suite.
+			if n, _ := body["name"].(string); n != "" && r.projects[n] != "" && r.projects[n] != id {
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code": 6, "message": "Project already exists on organization (V3-DKcYh)"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{})
 		case strings.HasSuffix(p, "/apps/oidc"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"appId": "app-1", "clientId": "client-1", "clientSecret": "s"})
 		default:
@@ -210,5 +257,68 @@ func TestEnsureConfidentialClient_LandsInTheResolvedProject(t *testing.T) {
 		if strings.Contains(c, "/orgs/_search") || c == "POST /management/v1/projects/_search" {
 			t.Errorf("looked something up by name instead of using the resolved refs: %s", c)
 		}
+	}
+}
+
+// ADR-094: turning on role assertion must not rename the project.
+//
+// Zitadel's project UPDATE replaces the whole object, name included, so
+// ensureRoleAssertion sending the CONFIGURED name renamed whatever project it
+// was given to the shared default. Invisible while every application lived in
+// that one project -- the PUT set the name to what it already was. The moment an
+// application got a project of its own it became a rename into a name the
+// organisation already holds:
+//
+//	409 Project already exists on organization (V3-DKcYh)
+//
+// which reached the operator as a 502, left status.identity empty, left
+// OIDC_CLIENT_ID unpublished, left the ExternalSecret in SecretSyncedError, and
+// ended as a gateway pod in CreateContainerConfigError behind "no healthy
+// upstream". Six symptoms, one field.
+
+func TestRoleAssertionKeepsTheApplicationsOwnProjectName(t *testing.T) {
+	rec := &projectRecorder{
+		// The tenant already has the shared project, which is what the rename
+		// would collide with. Without it the bug cannot reproduce.
+		projects: map[string]string{"platform": "proj-platform"},
+		liveIDs:  map[string]bool{"proj-platform": true},
+	}
+	a, done := newProjectAuth(t, rec)
+	defer done()
+
+	if _, err := ensure(t, a, models.ProjectBinding{Name: "oranger"}); err != nil {
+		t.Fatalf("EnsureTenantIdentity: %v", err)
+	}
+
+	body, ok := rec.putBodies["proj-oranger"]
+	if !ok {
+		t.Fatal("role assertion was never applied to oranger's project")
+	}
+	if body["name"] != "oranger" {
+		t.Errorf("PUT name = %v, want \"oranger\"; sending the configured name renames the project and the issuer answers 409", body["name"])
+	}
+	// The settings this call exists for must still be applied.
+	for _, k := range []string{"projectRoleAssertion", "projectRoleCheck", "hasProjectCheck"} {
+		if body[k] != true {
+			t.Errorf("%s = %v, want true", k, body[k])
+		}
+	}
+}
+
+func TestRoleAssertionOnTheSharedProjectIsUnchanged(t *testing.T) {
+	// The path that always worked keeps working: an application whose project IS
+	// the shared one PUTs that same name, which is not a rename.
+	rec := &projectRecorder{
+		projects: map[string]string{"platform": "proj-platform"},
+		liveIDs:  map[string]bool{"proj-platform": true},
+	}
+	a, done := newProjectAuth(t, rec)
+	defer done()
+
+	if _, err := ensure(t, a, models.ProjectBinding{Name: "platform"}); err != nil {
+		t.Fatalf("EnsureTenantIdentity: %v", err)
+	}
+	if body := rec.putBodies["proj-platform"]; body["name"] != "platform" {
+		t.Errorf("PUT name = %v, want \"platform\"", body["name"])
 	}
 }
