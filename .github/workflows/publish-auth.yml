@@ -51,7 +51,7 @@ jobs:
     name: Publish to npm
     needs: validate-and-build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/feat/'))) || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       id-token: write
