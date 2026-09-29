@@ -398,6 +398,76 @@ The second case is constructible precisely because Zitadel issues any project's
 audience to any client, as verified above. A receiver that treats audience as the
 tenant check accepts it.
 
+## OPEN: cross-application AUTHORISATION is not decided
+
+Cross-application *authentication* is settled (ADR-095). What a user may DO in
+the target application is not, and this ADR must not be read as deciding it.
+
+**The gap.** Roles are resolved against the exchanging client's project:
+
+```
+token_exchange.go:414
+  getUserInfo(subjectToken.userID, client.client.ProjectID, ...)
+                                   ^^^ the EXCHANGE client's project
+```
+
+So a token oranger mints for waypoint carries **oranger's** roles. waypoint can
+answer "is this token for me?" (`aud`) and "which application called?" (`azp`),
+but not "what may this user do here?".
+
+**The candidate that would close it without another hop or another authorisation
+store**: Zitadel's plural roles scope, `urn:zitadel:iam:org:projects:roles`,
+which emits `urn:zitadel:iam:org:project:<id>:roles` per project. Two details
+read from source, because both differ from how the scope is usually described and
+both change what has to be sent:
+
+- It is driven by the **`:aud` SCOPES in the request**, not by the token's
+  audience. `prepareRoles` builds `roleAudience` with
+  `AddAudScopeToAudience(ctx, roleAudience, scope)`, which parses
+  `urn:zitadel:iam:org:project:id:<id>:aud` out of the SCOPE list. The RFC 8693
+  `audience` parameter is a separate input. **The gateway currently sends no
+  scopes at all**, so today's exchanged token carries only the exchange client's
+  own project roles whatever its audience says.
+- It is **not** subject to the cross-project role filter. `isScopeAllowed`
+  returns true for the plural scope before reaching
+  `slices.Contains(allowedScopes, scope)`, and `allowedScopes` is built from the
+  *authenticating* client's `ProjectRoleKeys`. That check filters a **specific**
+  role scope (`...:project:role:<key>`) by the caller's own project, which is the
+  surface of the defect reported against 4.17.2. So the experiment requests no
+  specific role scopes.
+
+**And a correction to how the mitigation is usually stated.** `ProjectRoleAssertion`
+cannot be varied per client: it is a column on the PROJECT
+(`internal/query/project.go`), shared by every application in it, so it cannot be
+turned off for an exchange client without turning it off for the browser login
+client beside it. The per-app flag is `AccessTokenRoleAssertion`, and it must stay
+**true** — `assertRoles` early-returns on it, so false yields no roles at all
+rather than unfiltered ones. Turning off `ProjectRoleAssertion` would mean only
+that roles are asserted when a scope asks for them, which is defensible but is a
+project-wide change, not a per-client one.
+
+**Decided by experiment, not by argument.** `packages/auth/tests/jwt/zitadel-compat.live.test.ts`
+runs it against the deployed instance. If the peer project's roles arrive under
+their own qualified claim, this ADR adopts:
+
+```
+aud    both projects        resource targeting
+azp    the calling app      the rendered caller allowlist (invariant 2)
+roles  per-project claims   the RECEIVER reads its OWN project's claim
+```
+
+If they do not, the choice is **receiver-side exchange** — waypoint's own gateway
+exchanging into waypoint's project — and not a second authorisation store in every
+application. Authorisation belongs to the resource server, and a waypoint endpoint
+should receive a credential carrying waypoint's authorisation context rather than
+expecting oranger to manufacture waypoint permissions. The tenant-local database
+remains a third option and is deliberately last: it is a second authorisation
+system beside Zitadel's project roles, and it should not be built to work around a
+claim Zitadel can express.
+
+Whichever wins becomes a live check rather than a sentence here, because the
+relevant behaviour is version-sensitive.
+
 ## Consequences
 
 - Provisioning gains a project per application, and the organisation binding is

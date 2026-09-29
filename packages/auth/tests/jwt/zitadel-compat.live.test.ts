@@ -23,6 +23,10 @@ import { IdTokenPresentedError } from "../../src/types.js";
 // The ID token is obtained by logging in and reading the session cookie the
 // gateway set, or from the token endpoint directly. It expires quickly; this is
 // a gate to run at release, not a watch.
+//
+// The second block is the ADR-094 cross-project role EXPERIMENT. It is an open
+// question, not a settled invariant, and it has its own env vars so it can be
+// run without the first block's.
 
 const env = (k: string) => process.env[k] ?? "";
 const ISSUER = env("ZITADEL_ISSUER");
@@ -36,7 +40,7 @@ const configured = Boolean(ISSUER && CLIENT_ID && CLIENT_SECRET && SUBJECT && PR
 // The same request the gateway's backendAuth policy makes. Kept in step with
 // manifests/tenants/charts/universal-tenant/templates/agentgateway.yaml: if the
 // two drift, this gate stops testing what actually runs.
-async function exchange(): Promise<string> {
+async function exchange(extraScopes: string[] = [], extraAudiences: string[] = []): Promise<string> {
   const body = new URLSearchParams({
     grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
     subject_token: SUBJECT,
@@ -48,6 +52,8 @@ async function exchange(): Promise<string> {
     audience: PROJECT_ID,
     // No `resource`: Zitadel rejects it outright.
   });
+  for (const a of extraAudiences) body.append("audience", a);
+  if (extraScopes.length > 0) body.set("scope", extraScopes.join(" "));
 
   const res = await fetch(new URL("/oauth/v2/token", ISSUER), {
     method: "POST",
@@ -109,4 +115,100 @@ describe.skipIf(!configured)("ADR-095 gate: the Zitadel at_hash invariant, live"
     await expect(validator.validate(await exchange())).resolves.toBeDefined();
     await expect(validator.validate(SUBJECT)).rejects.toThrow(IdTokenPresentedError);
   }, 30_000);
+});
+
+// ── ADR-094 EXPERIMENT: can one exchanged token carry BOTH projects' roles? ──
+//
+// The cross-app gap: roles are resolved against the EXCHANGE CLIENT'S project
+// (`getUserInfo(subjectToken.userID, client.client.ProjectID, ...)`), so a token
+// oranger mints for waypoint carries ORANGER's roles. waypoint can then answer
+// "is this token for me?" and "which app called?" but not "what may this user do
+// here?".
+//
+// The candidate fix is Zitadel's plural roles scope. Read from source before
+// writing this, because two details differ from how it is usually described and
+// both change what must be sent:
+//
+//   1. `urn:zitadel:iam:org:projects:roles` is driven by the `:aud` SCOPES in
+//      the request, not by the token's audience. prepareRoles builds its
+//      roleAudience with AddAudScopeToAudience(ctx, roleAudience, scope), which
+//      parses `urn:zitadel:iam:org:project:id:<id>:aud` out of the SCOPE list.
+//      The RFC 8693 `audience` parameter is a different input entirely, so both
+//      are sent below.
+//
+//   2. The plural scope is NOT subject to the cross-project role filter.
+//      isScopeAllowed returns true for it before reaching
+//      `slices.Contains(allowedScopes, scope)`, and allowedScopes is built from
+//      the AUTHENTICATING client's ProjectRoleKeys. That check is what filters a
+//      SPECIFIC role scope (`...:project:role:<key>`) by the caller's own
+//      project -- the defect surface in the report against 4.17.2. So this
+//      deliberately requests NO specific role scopes.
+//
+// Also: `ProjectRoleAssertion` cannot be varied per client. It is a column on
+// the PROJECT (internal/query/project.go), shared by every app in it. What IS
+// per-app is AccessTokenRoleAssertion, and it must stay true -- assertRoles
+// early-returns on it, so false yields no roles at all rather than unfiltered
+// ones.
+//
+//   ZITADEL_PEER_PROJECT_ID=...   the OTHER project (e.g. waypoint's)
+//   ZITADEL_PEER_ROLE=...         a role the test user holds in THAT project
+//
+// A failure here is a FINDING, not a broken build: it decides between the
+// audience-carried roles below and receiver-side exchange. Read the assertion
+// messages rather than only the pass/fail.
+
+const PEER_PROJECT = env("ZITADEL_PEER_PROJECT_ID");
+const PEER_ROLE = env("ZITADEL_PEER_ROLE");
+const crossConfigured = configured && Boolean(PEER_PROJECT && PEER_ROLE);
+
+describe.skipIf(!crossConfigured)("ADR-094 experiment: cross-project roles in one exchanged token", () => {
+  let claims: Record<string, unknown>;
+
+  beforeAll(async () => {
+    const token = await exchange(
+      [
+        "openid",
+        // The plural scope. Singular `...:project:role:<key>` is deliberately
+        // absent -- that is the filtered path.
+        "urn:zitadel:iam:org:projects:roles",
+        // What actually drives roleAudience.
+        `urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud`,
+        `urn:zitadel:iam:org:project:id:${PEER_PROJECT}:aud`,
+      ],
+      [PEER_PROJECT],
+    );
+    claims = jose.decodeJwt(token) as Record<string, unknown>;
+  }, 30_000);
+
+  it("is audienced to BOTH projects", () => {
+    const aud = claims.aud;
+    const list = Array.isArray(aud) ? aud : [aud];
+    expect(list).toContain(PROJECT_ID);
+    expect(list).toContain(PEER_PROJECT);
+  });
+
+  it("carries the OWN project's roles, project-qualified", () => {
+    // setUserInfoRoleClaims emits urn:zitadel:iam:org:project:<id>:roles for
+    // every project whose grants were fetched, plus an unqualified claim for the
+    // requesting project only.
+    expect(claims).toHaveProperty(`urn:zitadel:iam:org:project:${PROJECT_ID}:roles`);
+  });
+
+  it("carries the PEER project's roles — this is the whole experiment", () => {
+    const key = `urn:zitadel:iam:org:project:${PEER_PROJECT}:roles`;
+    expect(
+      claims,
+      `No ${key} in the exchanged token. If this fails, the audience cannot carry ` +
+        `cross-project authorization and the choice is receiver-side exchange, not ` +
+        `a second authorization store. Claims present: ${Object.keys(claims).join(", ")}`,
+    ).toHaveProperty(key);
+    expect(Object.keys(claims[key] as object)).toContain(PEER_ROLE);
+  });
+
+  it("does not collapse the peer's roles into the requesting project's claim", () => {
+    // The failure mode worth naming: roles arriving under the WRONG project key
+    // would let waypoint authorise on oranger's roles while looking correct.
+    const own = (claims[`urn:zitadel:iam:org:project:${PROJECT_ID}:roles`] ?? {}) as object;
+    expect(Object.keys(own)).not.toContain(PEER_ROLE);
+  });
 });
