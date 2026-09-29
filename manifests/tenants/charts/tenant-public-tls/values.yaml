@@ -31,6 +31,19 @@ public:
 issuer: ""
 
 # Per-spoke shared TLS-termination Gateway created by this chart.
+# The Gateway this chart's HTTPRoute ATTACHES to. This chart does not create it
+# and must never create it (ADR-096).
+#
+# It used to. Each app's copy declared only its own listener, and because every
+# ArgoCD Application applies as the same field manager, the copies overwrote one
+# another every reconcile -- flapping the public DNS of apps that were already
+# working. The object now has exactly one owner, the platform-spoke-gateway
+# chart, which renders the complete listener set for the spoke.
+#
+# The name must match that chart's gatewayName, and the listener name derived
+# from each hostname must match its listenerName helper: a route naming a
+# listener that does not exist attaches to nothing while every status still
+# reports Programmed.
 tlsGatewayName: tenant-tls-gateway
 
 # The spoke-catalog-owned :80 Gateway. This chart does not create or edit it — it

@@ -1,0 +1,96 @@
+{{- include "environment-manager.assertSupported" . -}}
+---
+{{- $released := ne .Values.bundleVersion "development" }}
+# ADR-096: the spoke's shared public TLS Gateway, with exactly one owner.
+#
+# One Application per spoke, rendering ONE object whose listener list comes from
+# a generated aggregate. That is the whole point: this object used to be
+# rendered once per APPLICATION by tenant-public-tls, each copy declaring only
+# its own listener, and because every ArgoCD Application applies as the same
+# field manager (`argocd-controller`) the copies overwrote one another every
+# reconcile. Public DNS for apps that already worked flapped on a ~60s cycle.
+#
+# Ownership chain, each link exactly once:
+#   environments/<env>/<app>/values.yaml public.hosts   tenant intent
+#   generated/values/public-hosts.yaml                  platform aggregate
+#   this ApplicationSet                                 one owner per spoke
+#   tenant-public-tls                                   Certificate + HTTPRoute only
+#
+# No tenant Application may create, patch or own this Gateway.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-spoke-gateway
+  namespace: platform-ops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    # The Gateway is the spoke's public entry point. Removing this Application
+    # must not delete it out from under every hostname on the box; spokes are
+    # rotated, not pruned (the same reasoning as platform-spoke-catalog).
+    preserveResourcesOnDeletion: true
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            spoke-type: pool
+  template:
+    metadata:
+      name: 'platform-spoke-gateway-{{"{{"}} .name {{"}}"}}'
+      namespace: platform-ops
+      labels:
+        app.kubernetes.io/part-of: platform
+        resource-type: public-gateway
+    spec:
+      project: boundary-06
+      sources:
+{{- if $released }}
+        - repoURL: {{ .Values.bundleRegistry | quote }}
+          targetRevision: {{ .Values.bundleVersion | quote }}
+          chart: platform-spoke-gateway
+{{- else }}
+        - repoURL: {{ .Values.platformRepoURL | quote }}
+          targetRevision: '{{ .Values.environmentRevision }}'
+          path: manifests/tenants/charts/platform-spoke-gateway
+{{- end }}
+          helm:
+            # The aggregate does not exist until the producer has written it,
+            # and helm EXITS on a values file it cannot open -- which would stop
+            # this Application rendering at all rather than rendering a Gateway
+            # with no listeners. A spoke with no public app must still own the
+            # object, so the first app to declare a hostname adds a listener to
+            # something that already exists.
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - $values/registry/clusters/{{"{{"}} .name {{"}}"}}/generated/values/public-hosts.yaml
+            parameters:
+              # The spoke's own address. external-dns cannot discover it: the
+              # Cilium gateway Service is ClusterIP under hostNetwork
+              # (ADR-046 §8), so with no target nothing is published and every
+              # hostname on this Gateway is unreachable.
+              - name: externalDnsTarget
+                value: '{{"{{"}} (splitList ":" (trimPrefix "https://" .server)) | first {{"}}"}}'
+        - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+          targetRevision: main
+          ref: values
+      destination:
+        name: '{{"{{"}} .name {{"}}"}}'
+        namespace: platform-ops
+      syncPolicy:
+        automated:
+          # prune: true is safe HERE and was not safe in the per-app chart: this
+          # Application is the object's only declarer, so pruning removes what
+          # the aggregate no longer names rather than what another Application
+          # still wants.
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

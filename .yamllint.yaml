@@ -42,6 +42,7 @@ ignore: |
   # Helm chart templates (Go text/template) are validated by helm lint/kubeconform, not yamllint.
   manifests/tenants/charts/universal-tenant/templates/
   manifests/tenants/charts/tenant-public-tls/templates/
+  manifests/tenants/charts/platform-spoke-gateway/templates/
   manifests/argocd/environment-manager/templates/
   manifests/hub-core-services/security/templates/
   manifests/hub-core-services/gateway/templates/

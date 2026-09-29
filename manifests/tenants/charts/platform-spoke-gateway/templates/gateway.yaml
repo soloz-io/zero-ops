@@ -1,0 +1,72 @@
+{{- include "platform-spoke-gateway.requirements" . }}
+# The spoke's shared public TLS-termination Gateway. ONE object, ONE owner.
+#
+# WHY THIS CHART EXISTS AT ALL (ADR-096)
+#
+# This object used to be rendered by tenant-public-tls, once per application,
+# each copy declaring only its own listener. Its comment claimed that was safe:
+# "spec.listeners is x-kubernetes-list-type: map keyed on name, so under
+# ServerSideApply each contributor's entries survive the other's apply."
+#
+# That is true across distinct FIELD MANAGERS. Every ArgoCD Application applies
+# as `argocd-controller`, so there is exactly one manager, and a manager
+# declaring a one-element list removes the entries it previously owned. The
+# result was not a merge but a fight: waypoint and oranger overwrote each other
+# every reconcile, and external-dns followed, deleting and recreating both
+# hostnames roughly every sixty seconds. It was found because a new app could
+# not be reached; what it had actually done was make an EXISTING app's DNS flap.
+#
+# The rule that replaces the technique: NO TENANT APPLICATION MAY CREATE, PATCH
+# OR OWN THIS OBJECT. Not "contributors must use distinct field managers" --
+# that is an implementation detail a future chart can forget. One resource, one
+# Application, one authoritative desired state.
+#
+# Per-host listeners and certificates are kept deliberately. Gateway API selects
+# a listener by SNI, so one Gateway terminates many per-tenant certificates
+# without a wildcard -- and a wildcard covering every application on the spoke
+# would be a materially different security boundary adopted to work around an
+# ownership bug.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gatewayName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: platform-spoke-gateway
+    app.kubernetes.io/part-of: platform
+  {{- if .Values.externalDnsTarget }}
+  annotations:
+    # external-dns reads hostnames from the listeners below and publishes them
+    # at this address. The Cilium gateway Service is ClusterIP under hostNetwork
+    # (ADR-046 §8), so there is no LoadBalancer ingress for it to discover.
+    external-dns.alpha.kubernetes.io/target: {{ .Values.externalDnsTarget | quote }}
+  {{- end }}
+spec:
+  gatewayClassName: cilium
+  # :443 only. tenant-gateway owns :80 on the same shared Envoy, and two
+  # Gateways coexist on DIFFERENT ports but never the same one -- proven on this
+  # spoke's exact Cilium build by spoke-catalog/probes/l2-dual-gateway-probe.yaml.
+  # That is also why the answer to "two owners" was never "two Gateways".
+  listeners:
+  {{- range .Values.publicHosts }}
+    - name: {{ include "platform-spoke-gateway.listenerName" .host }}
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .host | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            # Rendered by tenant-public-tls' Certificate, in this namespace.
+            # That chart still owns the Certificate and the HTTPRoute; it simply
+            # no longer owns the Gateway they attach to.
+            name: {{ .tlsSecret }}
+      allowedRoutes:
+        namespaces:
+          # from: Same -- ADR-050 no-bypass. A tenant cannot attach a route from
+          # its own namespace and serve traffic without traversing AgentGateway.
+          # The tenant HTTPRoutes and the ACME solver routes both live in
+          # platform-ops, so issuance and routing still work.
+          from: Same
+  {{- end }}

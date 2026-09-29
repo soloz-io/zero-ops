@@ -38,6 +38,40 @@
 > owner's listeners while the Gateway continues to report itself programmed. The
 > number of fleets a spoke can serve publicly is the number of distinct writers
 > the model allows, which under delegation is unbounded.
+
+> **Amendment 2026-09-29 — the arrangement this refused was still in the code,
+> and it broke.**
+>
+> The paragraph above is correct and was written on 2026-09-21. It was never
+> implemented. `tenant-public-tls` went on rendering the shared Gateway once per
+> APPLICATION, each copy declaring only its own listener, under a comment
+> asserting the opposite of what this ADR says:
+>
+> > *"spec.listeners is x-kubernetes-list-type: map keyed on name, so under
+> > ServerSideApply each contributor's entries survive the other's apply."*
+>
+> With one public hostname on the box both stories predicted the same behaviour,
+> so nothing reconciled them. The second application exposed it on 2026-09-29:
+> the two Applications overwrote each other every reconcile and external-dns
+> followed, deleting and recreating BOTH hostnames on a ~60 second cycle. The
+> application that had been working for weeks was the one whose DNS flapped; the
+> new one merely failed to appear, which is how it was noticed.
+>
+> The delegated model this ADR describes — a ListenerSet per fleet — remains the
+> target and is NOT what shipped. It is unavailable: there is no ListenerSet CRD
+> on the spoke and the Gateway CRD serves v1/v1beta1, so it waits on ADR-085's
+> Gateway API 1.6 / Cilium 1.20 upgrade.
+>
+> **ADR-096 is the interim implementation of this requirement** with today's
+> machinery: one platform-owned Application renders the complete listener set for
+> the spoke from a generated aggregate, and no tenant Application touches the
+> Gateway at all. It satisfies "two owners must not write one Gateway's
+> spec.listeners" by having exactly one, and is written to be deleted when
+> ListenerSets arrive.
+>
+> The table rows below that name `tenant-public-tls` as the renderer of the
+> TLS gateway and its listeners are superseded accordingly: that chart now
+> renders the Certificate and the HTTPRoute only.
 >
 > It is also the Gateway API expression of what one ingress controller gives by
 > aggregating many Ingress objects by host, which is the arrangement kubefirst

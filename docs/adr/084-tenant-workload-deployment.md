@@ -217,7 +217,14 @@ Reference ADR-039 (Platform Ownership Model).
 | Deployed chart version | Tenant GitOps repository (`environments/<env>/<app>/Chart.yaml`) | Application CI | ArgoCD ApplicationSet | Workload cluster | Day-1+ |
 | Fleet declaration (`environments/<env>/values.yaml`) | Tenant GitOps repository | Tenant | ArgoCD ApplicationSet | Platform charts | Day-1+ |
 | Tenant namespace, gateway, OAuth clients, pull secret | Platform chart (universal-tenant) | Platform | ArgoCD ApplicationSet | Workload cluster | Day-1+ |
-| Public hostname, certificate, TLS gateway, hostname route | Platform chart (tenant-public-tls) | Platform | ArgoCD ApplicationSet | Workload cluster | Day-1+ |
+| Public hostname certificate + hostname route | Platform chart (tenant-public-tls) | Platform | ArgoCD ApplicationSet | Workload cluster | Day-1+ |
+| Shared TLS gateway and its listener set | Platform chart (platform-spoke-gateway), from the generated per-spoke aggregate | Platform | ArgoCD ApplicationSet, one per spoke | Workload cluster | Day-1+ |
+
+<!-- ADR-096: the TLS gateway was split out of tenant-public-tls on 2026-09-29.
+     It had been rendered once per application, each copy declaring only its own
+     listener, and because every ArgoCD Application applies as one field manager
+     the copies overwrote each other and flapped public DNS. One object, one
+     owner. -->
 | GitOps write credential | Tenant's Git organisation | Tenant | Day-0 CLI | Application CI | Day-0 |
 | Workload admission constraints | Workload cluster policy | Platform | Kyverno | Workload cluster | Day-1+ |
 

@@ -21,6 +21,9 @@ A spoke, once this lands. Every workload cluster is identical.
   │   platform-ops                                                       │
   │   ┌────────────────────────────────────────────────────────────┐     │
   │   │  tenant-tls-gateway            :443   ← platform owns       │     │
+  │   │    (ADR-096: one owner TODAY, via a generated listener set;  │     │
+  │   │     allowedListeners below is what this upgrade replaces it  │     │
+  │   │     with -- a ListenerSet per fleet, no aggregate at all)    │     │
   │   │    gatewayClassName: cilium                                 │     │
   │   │    allowedListeners: <namespace selector>                   │     │
   │   │                                                             │     │

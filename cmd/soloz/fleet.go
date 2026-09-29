@@ -16,6 +16,7 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/fleet"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/infisical"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 )
 
 var (
@@ -50,7 +51,42 @@ func newFleetCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&fleetRepoRoot, "repo", ".",
 		"Root of the tenant's GitOps repository (holds environments/<env>/values.yaml)")
 	cmd.AddCommand(newFleetSecretsCmd())
+	cmd.AddCommand(newFleetHostsCmd())
 	return cmd
+}
+
+// newFleetHostsCmd regenerates each spoke's public-hostname aggregate (ADR-096).
+//
+// The shared :443 Gateway has exactly one owner, and its listener list comes
+// from this aggregate rather than from each app's own Application -- the
+// arrangement that previously had two Applications overwriting one another's
+// listener and flapping public DNS. Run it after changing any app's
+// public.hosts; a preflight check asserts the file matches the declarations
+// exactly, in both directions, so forgetting fails review rather than becoming
+// a hostname that does not resolve.
+func newFleetHostsCmd() *cobra.Command {
+	hosts := &cobra.Command{
+		Use:          "hosts",
+		Short:        "Public hostname aggregate for the shared TLS Gateway",
+		SilenceUsage: true,
+	}
+	hosts.AddCommand(&cobra.Command{
+		Use:          "aggregate",
+		Short:        "Regenerate registry/clusters/<spoke>/generated/values/public-hosts.yaml",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			written, err := tenant.AggregatePublicHosts(fleetRepoRoot)
+			if err != nil {
+				return err
+			}
+			for _, spoke := range written {
+				fmt.Printf("[fleet-hosts] ✓ %s/%s\n", spoke, tenant.PublicHostsFile)
+			}
+			fmt.Printf("[fleet-hosts] %d spoke(s) updated; commit the result\n", len(written))
+			return nil
+		},
+	})
+	return hosts
 }
 
 func newFleetSecretsCmd() *cobra.Command {
