@@ -240,8 +240,29 @@ spec:
               # namespace and no pod, so no policy here has anything to say about
               # its contents.
               config:
-                resourceFiltersIncludeNamespaces:
-                  - platform-capi
+                # The webhook is NOT CALLED for platform-capi.
+                #
+                # This is the selector on the generated
+                # ValidatingWebhookConfiguration, and it is the only setting that
+                # stops the request being made. resourceFilters was tried first
+                # and is the wrong knob: it tells Kyverno what to SKIP PROCESSING
+                # once the request has arrived, so the 870 KB still crossed the
+                # tunnel and still had its response truncated. The webhook
+                # selector is what the API server consults before calling at all.
+                #
+                # kube-system is repeated because this REPLACES the chart's
+                # default rather than adding to it; dropping it would put every
+                # kube-system write through a fail-closed webhook across the
+                # tunnel. platform-ops is added separately by
+                # excludeKyvernoNamespace and does not belong here.
+                webhooks:
+                  namespaceSelector:
+                    matchExpressions:
+                    - key: kubernetes.io/metadata.name
+                      operator: NotIn
+                      values:
+                      - kube-system
+                      - platform-capi
               #
               # No replicaCount here. The chart has no such value -- it reads
               # admissionController.replicas (set below) -- so the `replicaCount: 3`
