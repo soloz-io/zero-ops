@@ -88,6 +88,30 @@ spec:
 # presents a token that must pass every check the receiver makes (ADR-094
 # invariant 2). A design that relied on this rule for authentication would be one
 # where anything that got inside a permitted namespace became the caller.
+#
+# IT ALSO CARRIES THE APPLICATION'S OWN INGRESS, AND MUST.
+#
+# A CiliumNetworkPolicy with an `ingress` section flips every endpoint it selects
+# from default-ALLOW to default-DENY for ingress. Nothing else in this chart
+# writes an ingress rule for `app: sdk`, so before this policy exists the SDK
+# accepts its own BFF because no policy says otherwise -- and the instant an
+# application declares `allowedConsumers`, this file takes that away.
+#
+# That is exactly what happened on 2026-09-30. waypoint declared
+# `allowedConsumers: [oranger]`, this policy rendered admitting oranger and
+# nobody else, and waypoint's own BFF stopped reaching its own SDK. The symptom
+# was a 500 from the BFF, because denied ingress is DROPPED without an RST
+# (ADR-046 section 30) so the caller hangs to its timeout -- it does not report a
+# policy, and nothing named this file.
+#
+# The lesson was already written down, in tenant-dns-egress.yaml: "A policy
+# selecting endpoints nothing else selects would flip them from default-allow to
+# default-deny." This file was authored without applying it.
+#
+# So the first rule below restores exactly what the absence of a policy allowed
+# and no more: the application's OWN namespace. It is not a widening --
+# intra-application traffic was always permitted -- it is the displaced default,
+# written down. Cross-namespace ingress stays enumerated from `allowedConsumers`.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -103,6 +127,21 @@ spec:
     matchLabels:
       app: sdk
   ingress:
+  # THIS APPLICATION'S OWN PODS. The BFF calling its SDK over the internal
+  # channel (ADR-057), and the gateway, both of which live in this namespace and
+  # were admitted by the absence of any policy until this one existed.
+  #
+  # Matched by namespace rather than by `app:` label so a second component of the
+  # same application does not have to be added here to keep working: the boundary
+  # this file enforces is the APPLICATION, and everything in this namespace is
+  # already inside it.
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: {{ $ns }}
+    toPorts:
+    - ports:
+      - port: "3000"
+        protocol: TCP
 {{- range $consumers }}
   - fromEndpoints:
     - matchLabels:
