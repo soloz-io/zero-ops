@@ -89,3 +89,36 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+          # WITHOUT THIS, EVERY toFQDNs RULE ON THIS BOX MATCHES NOTHING.
+          #
+          # Cilium does not resolve a `toFQDNs` name itself. It learns the
+          # addresses by PROXYING the workload's own DNS query and reading the
+          # answer, and it only proxies a query when a DNS rule like this one
+          # says to. With no rule, DNS still works -- the packets are allowed by
+          # the ports above -- so nothing looks broken, while the FQDN cache stays
+          # empty and every toFQDNs rule selects zero IPs.
+          #
+          # The failure that follows is silent and misattributed. A workload
+          # selected by any policy is default-deny for everything not explicitly
+          # allowed, so its connection to the issuer is dropped rather than
+          # refused, and the application reports a TIMEOUT:
+          #
+          #   {"code":"TOKEN_INVALID","message":"Token validation failed: request timed out"}
+          #
+          # which reads as a slow or unreachable issuer, not as a policy. It cost
+          # a day of debugging on 2026-09-30, and the tell was that the GATEWAY
+          # reached the same host fine -- because it carries no tenant-id label,
+          # so no policy selects it, so it is unrestricted. Being unrestricted is
+          # what made it work, which is the opposite of the conclusion it invited.
+          #
+          # Confirmed before this was added: `cilium-dbg fqdn cache list` was
+          # EMPTY and `Proxy Status` reported 0 redirects active.
+          #
+          # matchPattern "*" observes every name rather than allow-listing here:
+          # what a workload may REACH is decided by the toFQDNs rules in the
+          # identity, registry and other egress policies. This rule only decides
+          # what Cilium is allowed to LEARN, and narrowing it would silently break
+          # whichever destination someone forgot to add.
+          rules:
+            dns:
+              - matchPattern: "*"
