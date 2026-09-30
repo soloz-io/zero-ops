@@ -57,6 +57,35 @@ APP_CHART_GLOBS = [
 ]
 APP_ROOT = Path(os.environ.get("APP_REPOS_DIR", ZERO_OPS.parent))
 
+WORKLOAD_IDENTITY_TPL = (
+    ZERO_OPS
+    / "manifests/tenants/charts/universal-tenant/templates/workload-platform-identity.yaml"
+)
+
+
+def platform_identity_keys() -> set:
+    """The keys `<app>-platform-identity` carries, read from the template.
+
+    Listed nowhere by hand: the template that renders the object is the only
+    place they are decided, so a key added there is delivered here without this
+    file changing.
+    """
+    if not WORKLOAD_IDENTITY_TPL.exists():
+        return set()
+    text = WORKLOAD_IDENTITY_TPL.read_text()
+    # Only the first ExternalSecret in the file is `<app>-platform-identity`;
+    # the others carry credentials and the caller map, which are mounted (or
+    # not) on their own terms.
+    head = text.split("---")[0] if "---" in text else text
+    for block in text.split("---"):
+        if "platform-identity" in block and "secretKey:" in block:
+            head = block
+            break
+    return set(re.findall(r"^\s*-\s*secretKey:\s*([A-Z][A-Z0-9_]*)", head, re.M))
+
+
+PLATFORM_IDENTITY_KEYS = platform_identity_keys()
+
 
 def env_names() -> dict:
     """PLATFORM_ENV's mapping: the library's key -> the env var it reads."""
@@ -88,6 +117,43 @@ def required_by_surface() -> dict:
             continue
         out[fn] = [names[k] for k in keys]
     return out
+
+
+def wired_names(text: str, app: str) -> set:
+    """The env names this chart actually delivers to the container.
+
+    COMMENTS ARE STRIPPED FIRST, and that is not tidiness. The first version of
+    this check matched the whole file, so the moment waypoint's chart was fixed
+    the comment EXPLAINING the fix satisfied it -- the check would have passed on
+    prose describing the names rather than on the names being wired. A gate that
+    a comment can satisfy is worse than no gate, because it reports green.
+
+    Two shapes count:
+
+      - name: OIDC_ORG_ID              an explicit entry, whatever it reads from
+      envFrom: [secretRef: <app>-platform-identity]
+                                       the platform's identity object mounted
+                                       whole, whose KEYS are the env names
+                                       (PLATFORM_ENV) -- so mounting it delivers
+                                       every name it carries, including ones
+                                       added after this chart was last edited
+
+    The second shape is the one worth having. A chart that restates keys one by
+    one has to be edited every time the platform adds a required value, which is
+    exactly how the gap this gate exists for was created.
+    """
+    stripped = "\n".join(
+        re.sub(r"(?<!\S)#.*$", "", line) for line in text.splitlines()
+    )
+
+    names = set(re.findall(r"^\s*-\s*name:\s*([A-Z][A-Z0-9_]*)", stripped, re.M))
+
+    # `envFrom: - secretRef: {name: <app>-platform-identity}` delivers the keys
+    # the platform renders into that object. Those keys are stated once, by the
+    # chart that renders them, and read here rather than repeated.
+    if re.search(rf"secretRef:\s*\{{?\s*name:\s*{app}-platform-identity", stripped):
+        names |= PLATFORM_IDENTITY_KEYS
+    return names
 
 
 def app_charts():
@@ -123,12 +189,9 @@ def main() -> int:
 
     checked = 0
     for app, values in app_charts():
-        text = values.read_text()
         rel = values.relative_to(APP_ROOT)
-        # A name counts as wired when it appears as an env entry name. Matching
-        # the whole file rather than parsing YAML keeps this readable and errs
-        # toward passing; the failure it must never miss is a name ABSENT.
-        missing = [v for v in browser if not re.search(rf"\b{v}\b", text)]
+        wired = wired_names(values.read_text(), app)
+        missing = [v for v in browser if v not in wired]
         checked += 1
         if missing:
             print(
