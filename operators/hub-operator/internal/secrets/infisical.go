@@ -1407,7 +1407,7 @@ const InfisicalCachePasswordKey = "CACHE_PASSWORD"
 // key naming the application it belongs to, which is what makes a workload's env
 // readable.
 func InfisicalInternalTokenKey(appId string) string {
-	return oauthKeySegment(appId) + "_INTERNAL_TOKEN"
+	return OAuthKeySegment(appId) + "_INTERNAL_TOKEN"
 }
 
 // InfisicalGatewayCookieSecretKey names the tenant gateway's session-cookie
@@ -1440,14 +1440,22 @@ const InfisicalGatewayCookieSecretKey = "AGENTGATEWAY_OIDC_COOKIE_SECRET"
 // The tenant is not part of the key. The folder path already scopes it, and
 // repeating it here would put a tenant identifier in platform code (ADR-047).
 func InfisicalOAuthClientIDKey(clientName string) string {
-	return "OAUTH_" + oauthKeySegment(clientName) + "_CLIENT_ID"
+	return "OAUTH_" + OAuthKeySegment(clientName) + "_CLIENT_ID"
 }
 
 func InfisicalOAuthClientSecretKey(clientName string) string {
-	return "OAUTH_" + oauthKeySegment(clientName) + "_CLIENT_SECRET"
+	return "OAUTH_" + OAuthKeySegment(clientName) + "_CLIENT_SECRET"
 }
 
-func oauthKeySegment(clientName string) string {
+// OAuthKeySegment turns an application or client name into the form a key name
+// uses: upper case, hyphens as underscores.
+//
+// Exported because the key GRAMMAR is one rule and several producers follow it --
+// the OAuth client keys here, and the per-dependency backend keys the controller
+// publishes. A second copy would be a second grammar that drifts silently, since
+// a key nobody writes is a key nobody reads and the failure is an ExternalSecret
+// that never resolves.
+func OAuthKeySegment(clientName string) string {
 	return strings.ToUpper(strings.ReplaceAll(clientName, "-", "_"))
 }
 

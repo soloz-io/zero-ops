@@ -645,6 +645,21 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 			"tenant", tenantId, "app", appId)
 	}
 
+	// Per dependency, for the chart to render one list entry each. See
+	// InfisicalBackendScopeKey for why the aggregate above cannot serve this.
+	for _, d := range deps {
+		if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
+			InfisicalBackendScopeKey(d.AppID), audienceScopeFor(d.ProjectID)); err != nil {
+			logger.Error(err, "Could not publish a backend audience scope",
+				"tenant", tenantId, "app", appId, "target", d.AppID)
+		}
+		if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
+			InfisicalBackendProjectKey(d.AppID), d.ProjectID); err != nil {
+			logger.Error(err, "Could not publish a backend project id",
+				"tenant", tenantId, "app", appId, "target", d.AppID)
+		}
+	}
+
 	// The other half: each TARGET learns it must admit this caller. Published
 	// onto the target's own path, because it is the target that enforces it.
 	//
@@ -824,9 +839,50 @@ func audienceScopesFor(deps []resolvedDependency) string {
 	}
 	out := make([]string, 0, len(deps))
 	for _, d := range deps {
-		out = append(out, "urn:zitadel:iam:org:project:id:"+d.ProjectID+":aud")
+		out = append(out, audienceScopeFor(d.ProjectID))
 	}
 	return strings.Join(out, " ")
+}
+
+// audienceScopeFor is the scope that puts one project into a token's audience.
+func audienceScopeFor(projectID string) string {
+	return "urn:zitadel:iam:org:project:id:" + projectID + ":aud"
+}
+
+// InfisicalBackendScopeKey and InfisicalBackendProjectKey name ONE dependency's
+// facts in the caller's own Infisical folder.
+//
+// PER DEPENDENCY, beside the space-joined aggregate rather than instead of it,
+// and the reason is a seam between what git knows and what the issuer allocates.
+//
+// A chart is rendered from the tenant's repository, which declares dependencies
+// by application id -- so at render time the chart knows HOW MANY there are and
+// what each is called. It cannot know the target's project id, which the issuer
+// allocates at provisioning time and which therefore travels the credential path
+// (the same reason OIDC_CLIENT_ID does).
+//
+// The aggregate cannot close that gap on its own. A gateway's `scopes:` is a YAML
+// LIST, and a single space-delimited variable expands into one list entry
+// containing spaces, not into several entries. Splitting it would mean the chart
+// parsing a string the platform joined -- two representations of one fact, free
+// to disagree.
+//
+// One key per declared dependency removes the seam instead of bridging it: the
+// COUNT and the NAMES come from git, where they are declared, and each VALUE
+// comes from the platform, where it is allocated. The chart renders exactly as
+// many entries as the fleet declared, each naming its own variable, and neither
+// side parses anything the other wrote.
+func InfisicalBackendScopeKey(targetAppID string) string {
+	return "OIDC_BACKEND_AUDIENCE_SCOPE_" + secrets.OAuthKeySegment(targetAppID)
+}
+
+// InfisicalBackendProjectKey is the target's project id on its own, which the
+// exchange sends as the RFC 8693 `audience` parameter. Published separately from
+// the scope because they are consumed at different moments -- the scope at login,
+// the audience at the exchange -- and deriving one from the other at the consumer
+// would put the issuer's scope grammar into a chart (ADR-059).
+func InfisicalBackendProjectKey(targetAppID string) string {
+	return "OIDC_BACKEND_PROJECT_ID_" + secrets.OAuthKeySegment(targetAppID)
 }
 
 // gatewayExchangeClient is the confidential client a tenant's gateway
@@ -873,11 +929,25 @@ func gatewayExchangeClientName(appId string) string {
 // The identity service provisions at the issuer and this operator owns where
 // secrets live — the same division OwnerPassword and OIDC_CLIENT_ID follow.
 //
-// Absent from the response is NOT an error here. The service returns a
-// confidential client's credentials only on the reconcile that minted them; a
-// later one re-asserts nothing, because the issuer discloses a generated secret
-// exactly once and regenerating it would invalidate the credential the running
-// gateway holds. So nothing to publish means already published.
+// Absent from the response is not by itself an error: the service returns a
+// confidential client's credentials only on the reconcile that MINTED them,
+// because the issuer discloses a generated secret exactly once and regenerating
+// it would invalidate the credential a running gateway holds. A later reconcile
+// re-asserting nothing normally means "already published".
+//
+// BUT IT IS AN ERROR WHEN NOTHING IS PUBLISHED, and that distinction is the whole
+// of this function's contract. Two stores hold this one credential: the identity
+// service writes a declared client's credentials to VAULT, and this operator
+// writes them to INFISICAL, which is the store the gateway's ExternalSecret
+// reads. They can disagree permanently -- the service, seeing its own copy in
+// Vault, mints nothing and returns nothing, while Infisical has never held the
+// value. Nothing then publishes it, ever.
+//
+// Silently that is a gateway whose ExternalSecret never resolves, reported as a
+// missing Kubernetes Secret key naming nothing that explains it. Every gateway
+// now mints its backend credential (ADR-095), so this is not a degraded feature
+// but a tenant that cannot log in. It is therefore returned as an error naming
+// the recovery, rather than left for whoever finds the gateway not starting.
 func (r *AINativeSaaSReconciler) publishGatewayExchangeClient(ctx context.Context, cellId, tenantId, appId string, clients []client2.DeclaredClient) error {
 	var minted *client2.DeclaredClient
 	for i := range clients {
@@ -887,7 +957,18 @@ func (r *AINativeSaaSReconciler) publishGatewayExchangeClient(ctx context.Contex
 		}
 	}
 	if minted == nil || minted.ClientSecret == "" {
-		return nil
+		// Nothing minted. Sound only if Infisical already holds the credential.
+		path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
+		if _, err := r.InfisicalClient.GetSecret(ctx, path, "OIDC_EXCHANGE_CLIENT_SECRET"); err == nil {
+			return nil
+		}
+		return fmt.Errorf(
+			"the gateway exchange client %q was not minted on this reconcile and its secret is "+
+				"absent from %s.\n\n"+
+				"The issuer discloses a generated secret once, so it cannot be re-read: the client "+
+				"must be regenerated at the issuer for this application. Until it is, this "+
+				"application's gateway cannot mint a backend credential and will not start",
+			gatewayExchangeClientName(appId), path)
 	}
 
 	// The SECRET first. A published id with no secret is a gateway that starts,

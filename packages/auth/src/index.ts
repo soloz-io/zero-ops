@@ -63,3 +63,31 @@ export type {
   ResolveUserOptions,
 } from "./user/types.js";
 export { resolveUser, withUserContext } from "./user/resolve.js";
+
+// ─── Platform surfaces ─────────────────────────────────────────────
+//
+// What an application should reach for FIRST. The exports above are the
+// primitives this platform is built from; these are the shapes it actually has,
+// with the security-relevant switches already decided. An application that
+// configures a JwtValidator by hand has taken on four decisions whose wrong
+// settings fail by accepting a token rather than by erroring.
+export {
+  PLATFORM_ENV,
+  PLATFORM_LOGIN_SCOPES,
+  PlatformConfigError,
+  requirePlatformEnv,
+  platformEnv,
+} from "./platform/env.js";
+export type { EnvSource } from "./platform/env.js";
+
+export { browserSessionValidator, consumerApiValidator } from "./platform/validators.js";
+export type { SurfaceValidatorOptions } from "./platform/validators.js";
+
+export {
+  internalChannelHeaders,
+  internalCallHeaders,
+  requireInternalCaller,
+  forwardedPrincipal,
+  InternalTokenMissingError,
+} from "./platform/internal-channel.js";
+export type { InternalChannelHeaders } from "./platform/internal-channel.js";

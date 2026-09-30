@@ -15,6 +15,49 @@
        set it could point its login flow at an issuer the platform does not
        trust. */ -}}
 {{- $issuer := required "oidcIssuer must be supplied by the environment" .Values.oidcIssuer }}
+{{- /*
+  The applications this one may call (ADR-094 Part 2), and the issuer's host.
+
+  $deps decides whether this gateway MINTS a backend credential or forwards the
+  session's own token. It is read from the fleet's declaration, so the count and
+  the names come from git -- while each target's project id is allocated by the
+  issuer and arrives through the environment, one variable per declared target.
+  That split is deliberate: a gateway's scopes and audiences are YAML LISTS, and a
+  single space-joined variable expands into one entry containing spaces rather
+  than into several. Rendering one entry per declaration removes the need for
+  either side to parse what the other joined.
+
+  $issuerHost is the token endpoint's authority. The backend takes host:port, not
+  a URL, so the scheme is stripped here rather than in every reference.
+*/ -}}
+{{- $deps := (.Values.identity).backendDependencies | default list }}
+{{- /*
+  HARD FAIL on a dependency this chart cannot render, rather than rendering a
+  gateway that starts and cannot mint.
+
+  A dependency names a SIBLING APPLICATION of the same tenant (ADR-088). Two
+  spellings are refused here because each produces a variable name that no
+  ExternalSecret will ever satisfy, and the failure would otherwise arrive as
+  "environment variable not found" at gateway startup -- which names a variable
+  nobody wrote and no file contains.
+
+    - an entry naming THIS application: a self-dependency renders an audience
+      scope for a project the token already carries, and an allowed-caller entry
+      admitting this app to itself. It is meaningless rather than harmful, and
+      meaningless declarations are how a real one gets overlooked.
+    - an entry that is not a bare appId: a slash, dot or upper case means someone
+      wrote a hostname, a namespace or a project id where an application id
+      belongs. The key derived from it cannot exist.
+*/ -}}
+{{- range $deps }}
+{{- if eq . $t }}
+{{- fail (printf "identity.backendDependencies lists %q, which is this application itself. A dependency names another application of this tenant." .) }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .) }}
+{{- fail (printf "identity.backendDependencies entry %q is not an application id. It must be a bare appId such as \"waypoint\" -- not a hostname, namespace or project id." .) }}
+{{- end }}
+{{- end }}
+{{- $issuerHost := $issuer | trimPrefix "https://" | trimPrefix "http://" | trimSuffix "/" }}
 {{- /* Derived, not declared. A fleet that could name its own backends could
        route to another fleet's services; one that could name its own client id
        could claim another fleet's OAuth client. Both follow from the tenant
@@ -160,45 +203,88 @@ data:
             policies:
               # The BFF receives the session credential the gateway validated.
               #
-              # THIS WAS AN RFC 8693 EXCHANGE, AND THE EXCHANGE CANNOT WORK HERE.
+              # CORRECTED 2026-09-30. This comment previously said the RFC 8693
+              # exchange "cannot work here", and that was wrong.
               #
-              # Zitadel derives an exchanged token's claims entirely from the
-              # SCOPES of the exchange request (`claims.Claims = userInfo.Claims`,
-              # and every claim in userInfoToOIDC sits behind a `case` on a
-              # scope). An ID token used as the subject carries no scopes at all
-              # -- idTokenClaimsToExchangeToken sets no `scopes` field, where
-              # accessToExchangeToken sets `scopes: token.scope` -- so:
+              # It was reasoned from validateUnionTokenExchangeScopes, which is
+              # not the function an id-token subject reaches.
+              # validateImpersonationTokenExchangeScopes is, and it says so:
+              # "applies when the subject token cannot carry scopes (user_id,
+              # id_token)". It classifies scopes instead of demanding all of them
+              # be on an input token, and the tenant claim scope falls in the
+              # class checked against the client allowlist alone.
               #
-              #   send no scopes   -> the exchanged token has NO tenant claim
-              #                       (urn:zitadel:iam:user:resourceowner:id) and
-              #                       NO email. The receiver refuses every
-              #                       request as tenant-less, and resolve_user
-              #                       cannot provision a user without an email.
-              #   send any scope   -> validateUnionTokenExchangeScopes requires
-              #                       each one to appear in subject ∪ actor, and
-              #                       both are empty -> invalid_scope.
+              # So the exchange DOES serve a browser session, and the backendAuth
+              # below mints rather than forwards whenever this application
+              # declares a dependency.
               #
-              # Both doors are shut. The exchange is kept for the CROSS-application
-              # call, where the caller holds an access token that does carry
-              # scopes; it is not usable from a gateway-mediated browser session,
-              # which holds only the ID token.
-              #
-              # So the credential forwarded here is the session's own validated
-              # token, placed in the Authorization header natively rather than
-              # through a CEL expression. What protects the BFF is not the token's
-              # KIND but the caller allowlist it enforces (ADR-094 invariant 2):
-              # `azp` names this gateway's client, and a sibling application's
-              # token -- which carries this project's audience by construction --
-              # is refused there.
+              # What was always true, and still is: the audience alone does not
+              # protect this BFF. Zitadel issues any project's audience to any
+              # client that asks, so a sibling application's token carries this
+              # project's audience by construction. The caller allowlist is what
+              # refuses it (ADR-094 invariant 2).
               backendAuth:
-                passthrough:
-                  # Explicit, though it is also the default. The BFF reads the
-                  # Authorization header and a silent change of location would
-                  # present as "the gateway authenticated nobody".
-                  location:
-                    header:
-                      name: authorization
-                      prefix: "Bearer "
+                # MINT, don't replay (ADR-095 correction 2026-09-30).
+                #
+                # This application calls another, so its backend needs a
+                # credential the other will accept. The gateway does not have the
+                # browser's access token to forward -- AgentGateway keeps only the
+                # id token on a session -- and it does not need one: RFC 8693
+                # mints a fresh access token from the id token it does hold.
+                #
+                # The scopes below are the whole reason this works, and the
+                # reasoning is Zitadel's, not ours. An id-token subject is
+                # validated by validateImpersonationTokenExchangeScopes, which
+                # splits scopes into classes: authorization scopes (roles,
+                # audiences, offline_access) must already be on an input token,
+                # while SUBJECT-DATA scopes are checked against the client's own
+                # allowlist alone. The tenant claim scope is subject-data, so it
+                # may be requested here and the minted token carries the tenant.
+                #
+                # The audience is the part that must already be present, and it
+                # is: this app's login requests the target's audience scope, so
+                # the id token names the target and the exchange may ask for it.
+                #
+                # ONE token for both hops. The audiences list names this
+                # application's own project AND every declared target, so the
+                # minted token satisfies this app's BFF and travels unchanged to
+                # the target's API -- which is the shape waypoint ADR-042
+                # specifies ("the SAME token").
+                oauthTokenExchange:
+                  host: {{ $issuerHost }}:443
+                  path: /oauth/v2/token
+                  subjectToken:
+                    # The session credential the gateway validated. Declared
+                    # rather than defaulted: the default token type is
+                    # access_token, and sending an id token under that label is
+                    # refused by the issuer with a message about the token rather
+                    # than about the label.
+                    tokenType: urn:ietf:params:oauth:token-type:id_token
+                  audiences:
+                  - ${OIDC_PROJECT_ID}
+{{- range $deps }}
+                  - ${OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}}
+{{- end }}
+                  scopes:
+                  # Subject-data scopes. Without the first, the minted token
+                  # carries NO tenant and every receiver refuses it as
+                  # tenant-less -- which is the failure that made this look
+                  # impossible until the two validation paths were told apart.
+                  - urn:zitadel:iam:user:resourceowner
+                  - email
+                  - profile
+                  # NOT optional. createExchangeAccessToken returns an OPAQUE
+                  # token unless a JWT is explicitly requested, whatever the
+                  # application's configured access token type says -- and a
+                  # receiver has nothing to validate in an opaque string.
+                  requestedTokenType: urn:ietf:params:oauth:token-type:jwt
+                  clientAuth:
+                    # The CONFIDENTIAL exchange client, which is what stamps azp
+                    # on the minted token and therefore what a receiver matches
+                    # against its caller allowlist (ADR-094 invariant 2a). A
+                    # browser cannot use it.
+                    clientId: ${OIDC_EXCHANGE_CLIENT_ID}
+                    clientSecret: ${OIDC_EXCHANGE_CLIENT_SECRET}
           hostnames:
           {{- range $hosts }}
           - {{ . }}
@@ -439,6 +525,19 @@ data:
 {{- range .Values.oidcScopes }}
           - {{ . }}
 {{- end }}
+{{- range $deps }}
+          # One per declared dependency: this puts the TARGET's project into the
+          # id token's audience at login, which is what later lets the exchange
+          # ask for that audience at all. validateTokenExchangeAudience accepts a
+          # requested audience only if the subject token already names it, so
+          # without this line the exchange is refused with invalid_target and the
+          # message names the audience rather than the missing login scope.
+          #
+          # The issuer allocates the project id, so the VALUE arrives from the
+          # environment while the fact that there is one comes from the fleet's
+          # declaration.
+          - ${OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}}
+{{- end }}
           # Bind this login to THIS tenant's organisation.
           #
           # A user reaching a tenant's hostname belongs to that tenant. With no
@@ -604,6 +703,46 @@ spec:
     - secretKey: oidc-org-id
       remoteRef:
         key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_ORG_ID
+    # ── Backend credential minting (ADR-094 Part 2, ADR-095) ────────────────────
+    #
+    # UNCONDITIONAL. Every gateway mints; none forwards a session token onward.
+    # These keys are therefore required of every application, not only of one that
+    # declares a dependency, and an ExternalSecret that cannot resolve them fails
+    # as a whole -- which is the intended behaviour. A gateway that cannot mint
+    # must not start and quietly authenticate with something else.
+    #
+    # The platform writes all three for every application: the exchange client is
+    # appended to whatever the fleet declared (gatewayExchangeClient), so it
+    # exists whether or not the fleet asked for one.
+    - secretKey: oidc-project-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_PROJECT_ID
+    # The confidential client the exchange authenticates as, which is what stamps
+    # azp on the minted token (ADR-094 invariant 2a).
+    #
+    # Read under the key the HUB-OPERATOR writes. The identity service also stores
+    # a declared client's credentials under an OAUTH_<NAME>_CLIENT_* grammar, but
+    # it writes them to VAULT (StoreTenantSecret -> tenantPath), while this
+    # ExternalSecret reads INFISICAL. Two stores, one credential: the OAUTH_ key
+    # is not visible here and pointing at it renders an ExternalSecret that can
+    # never resolve.
+    - secretKey: oidc-exchange-client-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_EXCHANGE_CLIENT_ID
+    - secretKey: oidc-exchange-client-secret
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_EXCHANGE_CLIENT_SECRET
+{{- range $deps }}
+    # One pair per declared target: the scope requested at login, and the project
+    # id sent as the exchange's audience parameter. The COUNT comes from the
+    # fleet's declaration in git; each VALUE is allocated by the issuer.
+    - secretKey: oidc-backend-audience-scope-{{ . }}
+      remoteRef:
+        key: /spoke-pool/{{ $.Values.cellId }}/tenants/{{ $t }}/OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}
+    - secretKey: oidc-backend-project-id-{{ . }}
+      remoteRef:
+        key: /spoke-pool/{{ $.Values.cellId }}/tenants/{{ $t }}/OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -716,6 +855,42 @@ spec:
             secretKeyRef:
               name: {{ $name }}-oidc-client
               key: oidc-org-id
+        # ── Backend credential minting ──────────────────────────────────────────
+        #
+        # No `optional: true` on any of these, deliberately. An optional secret key
+        # that is absent becomes an UNSET variable, and agentgateway's config is
+        # shell-expanded before it is parsed -- so the gateway would fail to start
+        # with "environment variable not found" naming the variable, or worse,
+        # expand to empty and authenticate the exchange as a nameless client. A
+        # required key fails at the Secret instead, which names the key and the
+        # ExternalSecret that should have produced it.
+        - name: OIDC_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-project-id
+        - name: OIDC_EXCHANGE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-exchange-client-id
+        - name: OIDC_EXCHANGE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-exchange-client-secret
+{{- range $deps }}
+        - name: OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-backend-audience-scope-{{ . }}
+        - name: OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-backend-project-id-{{ . }}
+{{- end }}
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway

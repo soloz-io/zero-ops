@@ -105,6 +105,19 @@ identity:
   # renders into.
   backendDependencies: []
 
+  # The applications permitted to CALL this one -- the other half of their
+  # backendDependencies (ADR-088, ADR-094 Part 2).
+  #
+  # Both halves are required and neither grants anything alone. Being siblings of
+  # one tenant is what makes the dependency EXPRESSIBLE, never what permits it:
+  # "same tenant is never an argument for access; only a declaration is."
+  #
+  # Declared here rather than inferred from the callers' repositories so the
+  # target's own repository records who may reach it, and so a preflight can
+  # compare the two declarations and fail when they disagree -- which is the gap
+  # ADR-088's amendment named and deferred.
+  allowedConsumers: []
+
 gateway:
   # Does this application's SDK serve workflow webhooks (ADR-024)?
   #

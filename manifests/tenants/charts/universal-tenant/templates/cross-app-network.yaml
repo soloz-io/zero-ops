@@ -1,0 +1,117 @@
+{{- if not .Values.deployXR }}
+{{- $t := include "universal-tenant.tenantId" . }}
+{{- $a := include "universal-tenant.appId" . }}
+{{- $ns := include "universal-tenant.namespace" . }}
+{{- $deps := (.Values.identity).backendDependencies | default list }}
+{{- $consumers := (.Values.identity).allowedConsumers | default list }}
+{{- /*
+  The NETWORK half of a cross-application dependency (ADR-088, ADR-094 Part 2).
+
+  RENDERED BY THE PLATFORM, from the same declaration that renders the token
+  half. ADR-088's amendment introduced `dependsOn` in each application's own
+  chart and said plainly what it did not do: "it does not verify that the callee
+  agreed -- a dependsOn naming an app whose chart declares no matching ingress
+  renders a valid policy and a call that hangs. Closing that needs the two halves
+  rendered from one place ... the right next step once a second cross-app pair
+  exists to prove the shape against."
+
+  waypoint ADR-042 is that second pair, so this is that step. Both halves are
+  rendered here, from two declarations that a preflight compares:
+
+      caller:  identity.backendDependencies: [waypoint]   -> egress, below
+      target:  identity.allowedConsumers:    [oranger]    -> ingress, below
+
+  BOTH ARE STILL REQUIRED, and being siblings is not one of them. ADR-088 states
+  the rule this obeys: "same tenant is never an argument for access; only a
+  declaration is." What changes is that neither half is hand-written in an
+  application's repository, so the two cannot drift into a half-renamed
+  dependency -- which Cilium drops without an RST (ADR-046 section 30), making it
+  a step that hangs rather than one that reports a refusal.
+
+  NO NAMESPACE IS WRITTEN. It is tenant-<tenantId>-<appId>, derived from the axes
+  this chart already holds. The hand-written version hardcoded namespaces eleven
+  times and did it asymmetrically, so a tenant rename moved one end of the call
+  and not the other.
+
+  CROSS-TENANT GAINS NO MECHANISM, structurally: the namespace is built from THIS
+  release's tenant, so there is no field an entry could put another tenant's name
+  into. An allowance beyond this tenant stays a raw rule, written out and reviewed
+  as the exception it is.
+*/ -}}
+{{- range $deps }}
+{{- if eq . $a }}{{ fail (printf "identity.backendDependencies lists %q, which is this application itself." .) }}{{- end }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .) }}{{ fail (printf "identity.backendDependencies entry %q is not an application id." .) }}{{- end }}
+{{- end }}
+{{- range $consumers }}
+{{- if eq . $a }}{{ fail (printf "identity.allowedConsumers lists %q, which is this application itself." .) }}{{- end }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .) }}{{ fail (printf "identity.allowedConsumers entry %q is not an application id." .) }}{{- end }}
+{{- end }}
+{{- if $deps }}
+---
+# This application's SDK reaching the SDK of each application it declares.
+#
+# The SDK is the only workload that makes a cross-application call: the BFF holds
+# the browser session and the frontend serves assets. Granting egress from the
+# whole namespace would let either of those reach another application's API with
+# a token minted for it, which is reachability nothing asked for.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $a }}-cross-app-egress
+  namespace: {{ $ns }}
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchLabels:
+      app: sdk
+  egress:
+{{- range $deps }}
+  - toEndpoints:
+    - matchLabels:
+        app: sdk
+        k8s:io.kubernetes.pod.namespace: tenant-{{ $t }}-{{ . }}
+    toPorts:
+    - ports:
+      - port: "3000"
+        protocol: TCP
+{{- end }}
+{{- end }}
+{{- if $consumers }}
+---
+# The applications this one admits, as the other half of their declaration.
+#
+# Defence in depth and NOT the authentication: an admitted workload still
+# presents a token that must pass every check the receiver makes (ADR-094
+# invariant 2). A design that relied on this rule for authentication would be one
+# where anything that got inside a permitted namespace became the caller.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $a }}-cross-app-ingress
+  namespace: {{ $ns }}
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchLabels:
+      app: sdk
+  ingress:
+{{- range $consumers }}
+  - fromEndpoints:
+    - matchLabels:
+        app: sdk
+        k8s:io.kubernetes.pod.namespace: tenant-{{ $t }}-{{ . }}
+    toPorts:
+    - ports:
+      - port: "3000"
+        protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}

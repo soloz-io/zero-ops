@@ -319,7 +319,53 @@ Reachable without any gateway change, and that is its only merit.
 that includes forwarding claims in `x-auth-*` headers: ADR-050 already refuses
 derived headers as an identity source, and the gateway comment says so.
 
-### The exchange cannot serve a browser session — read this before re-adding it
+### CORRECTION 2026-09-30: the exchange CAN serve a browser session
+
+**The section below is wrong and is kept only so the error is legible.** It was
+written from one of Zitadel's two scope-validation paths, and the other one is the
+one that applies here.
+
+`validateUnionTokenExchangeScopes` — the function the section below reasons
+about — is not reached when the subject is an ID token. That case goes to
+`validateImpersonationTokenExchangeScopes`, whose own comment says so: *"applies
+when the subject token cannot carry scopes (user_id, id_token)"*. It classifies
+scopes rather than requiring them all to be on the input tokens:
+
+```
+authorization scopes   offline_access, project roles, ...:aud, org id,
+                       org domain, IDP        -> must be on subject or actor
+subject-data scopes    email, profile, and
+                       urn:zitadel:iam:user:resourceowner
+                                              -> client allowlist ONLY
+```
+
+`isTokenExchangeAuthorizationScope` is the list, and the tenant claim scope is
+**not in it**. So an exchange with an ID-token subject may request
+`urn:zitadel:iam:user:resourceowner` and the exchanged token carries the tenant.
+The claim below that "the exchanged token has NO tenant claim" is false.
+
+The audience is the part that needs care, and it needs no actor token: the
+`audience` parameter is validated by `validateTokenExchangeAudience`, which
+accepts anything already present in the **subject** token's audience. An
+application whose login requested `urn:zitadel:iam:org:project:id:<target>:aud`
+therefore holds an ID token that already names the target, and may exchange for
+it. That scope is what `OIDC_BACKEND_AUDIENCE_SCOPES` has always been for.
+
+One parameter is not optional: `requested_token_type` must be
+`urn:ietf:params:oauth:token-type:jwt`. Without it `createExchangeAccessToken`
+returns an **opaque** token whatever the application's `accessTokenType` says, and
+a receiver has nothing to validate.
+
+So the cross-application path needs no upstream change. It does not depend on
+AgentGateway retaining the browser's access token, because it does not replay
+that token — it mints a fresh one from the ID token the gateway already holds.
+
+**What this does not change.** The same-application browser hop still forwards the
+ID token today, and `rejectIdTokens: false` on that receiver is still what makes
+it work. That is now a CHOICE rather than a constraint, and it should be removed:
+see "Retiring the ID-token hop" below.
+
+### The exchange cannot serve a browser session — SUPERSEDED, read the correction above
 
 **Established from source on 2026-09-29, after the decision below was accepted
 and implemented.** The gateway no longer exchanges on the same-application path,
@@ -466,6 +512,33 @@ applied. That is the confusion invariant 1 exists to remove.
 So the ID-token path is **interim and inward-facing**, never the foundation for a
 new receiver. A cross-application receiver ships with `rejectIdTokens` left at its
 default.
+
+### Retiring the ID-token hop
+
+The correction above removes the reason the same-application hop forwards an ID
+token. The exchange works from an ID-token subject, so the gateway can mint an
+access token for its OWN application's audience exactly as it does for another's,
+and the receiver can then run with `rejectIdTokens` at its default.
+
+This is not cosmetic tidying. While the exception stands, "authenticated
+principal" means two different things on one box depending on which hop a request
+arrived through, and a receiver has to know which kind of caller it faces before
+it knows which rules apply. The external review named that as the thing to avoid,
+and it was accepted only because the constraint appeared to be Zitadel's. It is
+not.
+
+**Sequenced, not swapped.** Turning the receiver strict before the gateway mints
+access tokens refuses every request; doing it in the other order is invisible and
+safe. So:
+
+1. the gateway exchanges on the same-application route, and the receiver keeps
+   `rejectIdTokens: false` — nothing observable changes, because an access token
+   without `at_hash` passes a receiver that merely tolerates one with it;
+2. the receiver drops the override, which is a one-line change with a deploy of
+   its own and an obvious rollback.
+
+`browserSessionValidator()` in `zero-ops-auth` is where step 2 lands: the switch
+is set once, by the platform, for every application at once.
 
 ### The receiver's validation list, in full
 
