@@ -187,5 +187,28 @@ spec:
     - secretKey: OIDC_SERVICE_CLIENT_SECRET
       remoteRef:
         key: {{ $base }}/OIDC_SERVICE_CLIENT_SECRET
+{{- range $deps }}
+    # The TARGET's project id, one key per declared dependency.
+    #
+    # `serviceTokenSource` turns it into the audience scope the token must carry:
+    # `urn:zitadel:iam:org:project:id:<projectId>:aud`. Without it the minted
+    # token has no audience for the target and the target refuses it -- a refusal
+    # that names neither the missing scope nor this key.
+    #
+    # DELIVERED HERE BECAUSE THE WORKLOAD IS NOW THE CALLER. The platform has
+    # published this key since ADR-095, but only ever mounted it on the GATEWAY,
+    # which was going to perform the exchange. ADR-097 moved cross-application
+    # calling into the application itself -- client credentials, minted by the
+    # workload -- and the key did not follow. The oranger team found it by writing
+    # the calling code against a value that was never mounted.
+    #
+    # The scope is DERIVED from this, never published beside it: one fact, one
+    # key. The platform also writes OIDC_BACKEND_AUDIENCE_SCOPE_<APP>, which the
+    # gateway reads; mounting both here would be two spellings of one thing, free
+    # to disagree.
+    - secretKey: OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}
+      remoteRef:
+        key: {{ $base }}/OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}
+{{- end }}
 {{- end }}
 {{- end }}

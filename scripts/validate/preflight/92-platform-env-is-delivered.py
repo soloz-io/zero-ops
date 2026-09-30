@@ -119,6 +119,56 @@ def required_by_surface() -> dict:
     return out
 
 
+def chart_deliveries() -> set:
+    """Every platform env name a WORKLOAD can reference from the chart.
+
+    Two shapes count, and only two:
+
+      secretKey: X          an ExternalSecret key, mounted into a workload Secret
+      X: <value>            a key of a ConfigMap the workload reads by name
+
+    A gateway container's own `env:` entry does NOT count, and that distinction is
+    the whole point. OIDC_BACKEND_PROJECT_ID_<TARGET> was mounted there and
+    nowhere else: correct while the GATEWAY performed the exchange, wrong the
+    moment ADR-097 moved cross-application calling into the workload. Counting a
+    gateway env entry as delivery would have passed that gap.
+    """
+    tpl_dir = ZERO_OPS / "manifests/tenants/charts/universal-tenant/templates"
+    if not tpl_dir.is_dir():
+        return set()
+    names = set()
+    for t in sorted(tpl_dir.glob("*.yaml")):
+        text = t.read_text()
+        names |= set(re.findall(r"^\s*-\s*secretKey:\s*([A-Z][A-Z0-9_]*)", text, re.M))
+        # ConfigMap data keys: two-space indented `NAME: value` under `data:`.
+        names |= set(re.findall(r"^  ([A-Z][A-Z0-9_]*):\s+\S", text, re.M))
+        # Rendered suffixes (`..._{{ . | upper ... }}`) are matched by prefix.
+        names |= set(re.findall(r"^\s*-\s*secretKey:\s*([A-Z][A-Z0-9_]*_)\{\{", text, re.M))
+    return names
+
+
+def chart_gaps(required: set) -> dict:
+    """Names a shipped surface requires that no workload can reference.
+
+    Scoped to what the factories actually require, plus the per-dependency key
+    `serviceTokenSource` derives. Deliberately NOT every OIDC_ name in the
+    library: PLATFORM_ENV also names the gateway's own credentials and one entry
+    nothing reads, and reporting those is noise. A gate that cries wolf is one
+    people learn to skip, which is how the comment-satisfiable version of this
+    same check nearly shipped.
+    """
+    delivered = chart_deliveries()
+    gaps = {}
+    for name in sorted(required):
+        if name in delivered:
+            continue
+        # A derived name is delivered when its prefix is rendered with a range.
+        if any(d.endswith("_") and name.startswith(d) for d in delivered):
+            continue
+        gaps[name] = "no secretKey or ConfigMap key in universal-tenant"
+    return gaps
+
+
 def wired_names(text: str, app: str) -> set:
     """The env names this chart actually delivers to the container.
 
@@ -186,6 +236,23 @@ def main() -> int:
     if not browser:
         print("BAD\tbrowserSessionValidator no longer declares its required env")
         return 0
+
+    # THE PLATFORM'S OWN HALF, checked before the applications'.
+    #
+    # An app chart can only wire a value the platform actually mounts. This gap
+    # recurred inside the chart on 2026-09-30: OIDC_BACKEND_PROJECT_ID_<TARGET>
+    # had been published since ADR-095 but mounted only on the GATEWAY, because
+    # the gateway was going to perform the exchange. ADR-097 moved cross-
+    # application calling into the workload, and the key did not follow -- so
+    # `serviceTokenSource` read a value the chart never delivered, and the oranger
+    # team found it by writing the calling code.
+    # What serviceTokenSource needs beyond the factories' own lists: the target's
+    # project id, whose name is DERIVED from the dependency (ADR-097).
+    service_required = {"OIDC_SERVICE_CLIENT_ID", "OIDC_SERVICE_CLIENT_SECRET",
+                        "OIDC_BACKEND_PROJECT_ID_WAYPOINT"}
+    required = {v for vs in surfaces.values() for v in vs} | service_required
+    for name, why in chart_gaps(required).items():
+        print(f"BAD\t{name} is required by a shipped surface but {why}")
 
     checked = 0
     for app, values in app_charts():
