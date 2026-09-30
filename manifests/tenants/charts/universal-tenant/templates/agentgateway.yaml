@@ -224,126 +224,43 @@ data:
               # project's audience by construction. The caller allowlist is what
               # refuses it (ADR-094 invariant 2).
               backendAuth:
-                # MINT, don't replay (ADR-095 correction 2026-09-30).
+                # The session credential the gateway validated, forwarded as-is.
                 #
-                # This application calls another, so its backend needs a
-                # credential the other will accept. The gateway does not have the
-                # browser's access token to forward -- AgentGateway keeps only the
-                # id token on a session -- and it does not need one: RFC 8693
-                # mints a fresh access token from the id token it does hold.
+                # NOT an RFC 8693 exchange. That was attempted and reverted on
+                # 2026-09-30 after it was run against the deployed issuer for the
+                # first time: Zitadel v4.15.3 validates exchange scopes with
                 #
-                # The scopes below are the whole reason this works, and the
-                # reasoning is Zitadel's, not ours. An id-token subject is
-                # validated by validateImpersonationTokenExchangeScopes, which
-                # splits scopes into classes: authorization scopes (roles,
-                # audiences, offline_access) must already be on an input token,
-                # while SUBJECT-DATA scopes are checked against the client's own
-                # allowlist alone. The tenant claim scope is subject-data, so it
-                # may be requested here and the minted token carries the tenant.
+                #   !contains(subjectScopes, scope) || !contains(actorScopes, scope)
                 #
-                # The audience is the part that must already be present, and it
-                # is: this app's login requests the target's audience scope, so
-                # the id token names the target and the exchange may ask for it.
+                # -- the scope must be on BOTH input tokens. An id token subject
+                # carries no scopes, so every requested scope is refused:
                 #
-                # ONE token for both hops. The audiences list names this
-                # application's own project AND every declared target, so the
-                # minted token satisfies this app's BFF and travels unchanged to
-                # the target's API -- which is the shape waypoint ADR-042
-                # specifies ("the SAME token").
-                oauthTokenExchange:
-                  host: {{ $issuerHost }}:443
-                  # TLS, because :443 is a port number and not a protocol.
-                  #
-                  # Without this the gateway speaks PLAIN HTTP to 443 and the
-                  # issuer answers 301 to its https:// form, which arrives as
-                  #
-                  #   backend authentication failed: token exchange returned
-                  #   status 301 Moved Permanently
-                  #
-                  # -- a redirect the exchange does not follow, and must not: a
-                  # token request that follows a redirect can be pointed at
-                  # another host by whatever answered first.
-                  #
-                  # Verified, not `insecure`. The issuer is this platform's own
-                  # and presents a certificate the cluster trusts; an exchange
-                  # that skipped verification would send a client secret and a
-                  # user's token to whatever held the address.
-                  policies:
-                    backendTLS:
-                      hostname: {{ $issuerHost }}
-                  path: /oauth/v2/token
-                  subjectToken:
-                    # READ FROM THE SESSION, not from the request.
-                    #
-                    # The default source is the Authorization header, and on this
-                    # hop there is none: a browser presents a COOKIE, and the OIDC
-                    # policy that validates it puts the token in an internal
-                    # extension rather than on the request. `passthrough` is the
-                    # only backendAuth that materialises a header from it -- its
-                    # own comment says so ("That will strip the token. Here we add
-                    # it back").
-                    #
-                    # So the exchange found no subject token and failed before
-                    # contacting the issuer at all: HTTP 400 `invalid request`,
-                    # reason=Internal, duration=0ms, no endpoint contacted. The
-                    # 0ms is the tell -- nothing was asked of Zitadel.
-                    #
-                    # jwt.rawToken is the validated session token; it is redacted
-                    # unless unredacted() is called, which is why that call is
-                    # here and is not decoration.
-                    source:
-                      header:
-                        name: x-session-token
-                    # Declared rather than defaulted: the default token type is
-                    # access_token, and sending an id token under that label is
-                    # refused by the issuer with a message about the token rather
-                    # than about the label.
-                    tokenType: urn:ietf:params:oauth:token-type:id_token
-                  # QUOTED, every one of them, and this is not style.
-                  #
-                  # The config is shell-expanded BEFORE it is parsed as YAML, so
-                  # what the parser sees is the expanded text. A Zitadel project
-                  # id is 18 digits, and unquoted YAML reads 18 digits as an
-                  # INTEGER -- so `audiences` became a list of ints where a list
-                  # of strings was required, and clientId an int where a string
-                  # was required.
-                  #
-                  # serde reports that against the untagged enum it was trying,
-                  # which names neither the field nor the type:
-                  #
-                  #   binds[0].listeners[0].routes[1].backends[0].policies:
-                  #   data did not match any variant of untagged enum
-                  #   BackendAuthCompat
-                  #
-                  # Every field parsed on its own with a non-numeric test value,
-                  # which is what made this look like a version or schema problem
-                  # for two releases. The oidc policy below already quotes
-                  # OIDC_CLIENT_ID for exactly this reason, and says so.
-                  audiences:
-                  - "${OIDC_PROJECT_ID}"
-{{- range $deps }}
-                  - "${OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}}"
-{{- end }}
-                  scopes:
-                  # Subject-data scopes. Without the first, the minted token
-                  # carries NO tenant and every receiver refuses it as
-                  # tenant-less -- which is the failure that made this look
-                  # impossible until the two validation paths were told apart.
-                  - urn:zitadel:iam:user:resourceowner
-                  - email
-                  - profile
-                  # NOT optional. createExchangeAccessToken returns an OPAQUE
-                  # token unless a JWT is explicitly requested, whatever the
-                  # application's configured access token type says -- and a
-                  # receiver has nothing to validate in an opaque string.
-                  requestedTokenType: urn:ietf:params:oauth:token-type:jwt
-                  clientAuth:
-                    # The CONFIDENTIAL exchange client, which is what stamps azp
-                    # on the minted token and therefore what a receiver matches
-                    # against its caller allowlist (ADR-094 invariant 2a). A
-                    # browser cannot use it.
-                    clientId: "${OIDC_EXCHANGE_CLIENT_ID}"
-                    clientSecret: "${OIDC_EXCHANGE_CLIENT_SECRET}"
+                #   {"error":"invalid_scope","error_description":"scope
+                #    \"urn:zitadel:iam:user:resourceowner\" not found in subject
+                #    or actor token"}
+                #
+                # and requesting none yields a token with no tenant claim, which
+                # the receiver refuses as tenant-less. Both doors are shut on this
+                # version. The union-based validation that would allow it is in NO
+                # RELEASED ZITADEL -- not v4.17.3, and there is no published v5
+                # image (registry returns 404 for v5.0.0).
+                #
+                # So user-context propagation across applications waits on the
+                # issuer. Service-to-service does NOT: client credentials needs no
+                # subject token and is therefore unaffected (ADR-097).
+                #
+                # What protects this BFF is not the token's KIND but the caller
+                # allowlist it enforces: `azp` names this gateway's client, and a
+                # sibling application's token -- which carries this project's
+                # audience by construction -- is refused there (ADR-094).
+                passthrough:
+                  # Explicit, though it is also the default. The BFF reads the
+                  # Authorization header and a silent change of location would
+                  # present as "the gateway authenticated nobody".
+                  location:
+                    header:
+                      name: authorization
+                      prefix: "Bearer "
           hostnames:
           {{- range $hosts }}
           - {{ . }}
@@ -365,60 +282,6 @@ data:
                   # them under these names, so the expressions resolve.
                   X-Auth-Subject: jwt.sub
                   X-Auth-Email: jwt.email
-                  # The session token, materialised so the EXCHANGE can read it.
-                  #
-                  # backendAuth reads its subject token from the REQUEST, and on a
-                  # browser hop there is nothing to read: the session arrives as a
-                  # cookie and the OIDC policy keeps the token in an internal
-                  # extension. Its CEL `expression` source evaluates against the
-                  # request too, so pointing it at jwt.rawToken did not help.
-                  #
-                  # A transformation DOES run against that extension, and runs
-                  # BEFORE backendAuth (httpproxy applies route transformations,
-                  # then backend auth). So the token is placed on a header here
-                  # and the exchange is pointed at that header.
-                  #
-                  # unredacted() is required: jwt.rawToken renders as the literal
-                  # string "<redacted>" without it, and the issuer would be sent
-                  # that.
-                  X-Session-Token: jwt.rawToken.unredacted()
-                  #
-                  # NOT stripped before the backend, and that is a deliberate
-                  # limit rather than an oversight. A `remove` here runs in the
-                  # same route transformation as this `set` -- BEFORE backendAuth
-                  # -- so it would delete the header before the exchange reads it.
-                  # Removing it afterwards needs a backend-level transformation,
-                  # which is a separate policy on the backend.
-                  #
-                  # The exposure is bounded: this hop already forwarded exactly
-                  # this token under the previous passthrough design, so nothing
-                  # reaches the application that did not reach it before. What
-                  # minting adds is the audience and azp the receiver checks.
-                  # X-Auth-Role and X-Auth-Tenant are deliberately NOT sent.
-                  #
-                  # They read `jwt.role` and `jwt.tenant_id`, and neither claim
-                  # exists in the token. Zitadel spells the tenant
-                  # `urn:zitadel:iam:user:resourceowner:id` and the roles
-                  # `urn:zitadel:iam:org:project:roles`; `tenant_id` is a field
-                  # the platform sets on its OWN session model after reading
-                  # that, never something the issuer emits. So both headers
-                  # forwarded empty, which is worse than absent: they look like
-                  # identity assertions and carry nothing.
-                  #
-                  # Neither can be fixed by naming the real claim here. The
-                  # tenant's spelling is issuer-specific and ADR-059 keeps every
-                  # such literal in one table (providers/zitadel/claims.go), not
-                  # duplicated into a tenant chart. Roles cannot be computed at
-                  # a gateway at all: the claim is nested
-                  # { role: { grantingTenantID: domain } } and must be filtered
-                  # to the tenant the request is for -- flattening it to a
-                  # scalar returns a role granted in a DIFFERENT tenant, the
-                  # cross-tenant privilege leak rolesGrantedInTenant() exists to
-                  # prevent.
-                  #
-                  # Nothing is lost. The BFF derives both from the Authorization
-                  # token it validates itself, and treats these headers as
-                  # "convenience claims only; never a source of identity".
         - name: {{ $t }}-spa
           backends:
           - host: {{ $frontend }}
@@ -612,19 +475,6 @@ data:
           - email
 {{- range .Values.oidcScopes }}
           - {{ . }}
-{{- end }}
-{{- range $deps }}
-          # One per declared dependency: this puts the TARGET's project into the
-          # id token's audience at login, which is what later lets the exchange
-          # ask for that audience at all. validateTokenExchangeAudience accepts a
-          # requested audience only if the subject token already names it, so
-          # without this line the exchange is refused with invalid_target and the
-          # message names the audience rather than the missing login scope.
-          #
-          # The issuer allocates the project id, so the VALUE arrives from the
-          # environment while the fact that there is one comes from the fleet's
-          # declaration.
-          - "${OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}}"
 {{- end }}
           # Bind this login to THIS tenant's organisation.
           #
@@ -915,20 +765,14 @@ spec:
         # Fixed here, not a value. A fleet able to set this would run an
         # arbitrary container inside its own namespace with the platform's
         # gateway identity.
-        # v1.5.0, and the upgrade is REQUIRED by the config above, not routine.
+        # v1.5.0. A current stable release, kept rather than reverted.
         #
-        # v1.4.1 carries the OAuthTokenExchangeAuth struct but does not accept
-        # `oauthTokenExchange` in its LOCAL configuration: the variant is absent
-        # from types/local.rs, so the field is reachable only over xDS. A local
-        # config naming it fails to deserialise, and the whole backendAuth value
-        # is reported against the untagged enum that could not match it:
-        #
-        #   binds[0].listeners[0].routes[1].backends[0].policies:
-        #   data did not match any variant of untagged enum BackendAuthCompat
-        #
-        # which names neither the field nor the version. v1.5.0 adds the variant
-        # (types/local.rs, `#[serde(rename = "oauthTokenExchange")]`), and its own
-        # tests configure it in exactly the shape this chart renders.
+        # It was taken because `oauthTokenExchange` is absent from v1.4.1's LOCAL
+        # config schema. That exchange is no longer configured here -- the issuer
+        # cannot serve it (see backendAuth above) -- so the pin is no longer
+        # REQUIRED by anything in this file. It stays because moving backwards
+        # buys nothing, and because the service-to-service work (ADR-097) may use
+        # this surface.
         #
         # Pinned to the multi-arch INDEX digest, not to one platform's manifest.
         # This box schedules onto both an on-prem worker and cloud nodes, and an

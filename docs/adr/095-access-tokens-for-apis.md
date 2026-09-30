@@ -16,6 +16,13 @@ browser session".
 ID-token exception is explicitly interim and does not extend to the
 cross-application contract, which is access-token-only. See "The cross-application
 contract is access-token-only".
+**Amended again, same day:** the exchange this ADR describes **cannot run on the
+deployed issuer** and is not configured anywhere. Zitadel v4.15.3 requires an
+exchange scope to be present on both the subject and actor tokens, and a browser
+session's id token carries none; no released version validates it otherwise. The
+browser hop forwards the id token. Service-to-service does not use this mechanism
+at all and is unblocked — ADR-097. Read the WITHDRAWN notice below before the
+"correction" it precedes.
 **Implements:** ADR-094 invariant 1, which sits in that ADR's **Part 1
 (same-application authorisation)**. This ADR decides the CREDENTIAL — what a
 receiver is handed and how it proves which kind of token it is. It does not
@@ -319,11 +326,45 @@ Reachable without any gateway change, and that is its only merit.
 that includes forwarding claims in `x-auth-*` headers: ADR-050 already refuses
 derived headers as an identity source, and the gateway comment says so.
 
-### CORRECTION 2026-09-30: the exchange CAN serve a browser session
+### WITHDRAWN: the "correction" below is wrong; the original section stands
 
-**The section below is wrong and is kept only so the error is legible.** It was
-written from one of Zitadel's two scope-validation paths, and the other one is the
-one that applies here.
+*Withdrawn the same day it was written, 2026-09-30, after the design it licensed
+was run against the issuer for the first time.*
+
+**The correction that follows was derived from unreleased source.** It cites
+`validateImpersonationTokenExchangeScopes`, which exists in a checkout at
+`v5.0.0-base-226-g8ccd5b206` — main, past the only v5 marker — while this platform
+runs **Zitadel v4.15.3**. That version has one scope-validation path:
+
+```go
+if !slices.Contains(subjectScopes, scope) || !slices.Contains(actorScopes, scope) {
+    return nil, oidc.ErrInvalidScope()...
+}
+```
+
+`||`, so a requested scope must be on **both** input tokens. An id-token subject
+carries none, so every scope is refused — observed exactly:
+
+```
+{"error":"invalid_scope","error_description":
+ "scope \"urn:zitadel:iam:user:resourceowner\" not found in subject or actor token"}
+```
+
+and requesting none yields a token with no tenant claim. **The section AFTER this
+correction — "the exchange cannot serve a browser session" — is the one that
+holds.** The gateway forwards the session's id token, as it did before.
+
+The union-based validation is in **no released tag** (`git tag --contains` is
+empty for commit `39ad66bde`, including v4.17.3), and there is no published v5
+image. So this is not a version to upgrade to; it is a capability to wait for.
+
+**This does not block service-to-service.** Client credentials has no subject
+token and therefore no union check to fail — ADR-097. The two were conflated
+because one mechanism had been built to serve both, which is the error under the
+error.
+
+**What follows is kept, struck through in meaning rather than deleted, so the
+mistake is legible rather than silently repaired.**
 
 `validateUnionTokenExchangeScopes` — the function the section below reasons
 about — is not reached when the subject is an ID token. That case goes to
@@ -513,49 +554,29 @@ So the ID-token path is **interim and inward-facing**, never the foundation for 
 new receiver. A cross-application receiver ships with `rejectIdTokens` left at its
 default.
 
-### Retiring the ID-token hop
+### Retiring the ID-token hop — REVERTED, and not available
 
-The correction above removes the reason the same-application hop forwards an ID
-token. The exchange works from an ID-token subject, so the gateway can mint an
-access token for its OWN application's audience exactly as it does for another's,
-and the receiver can then run with `rejectIdTokens` at its default.
+*Written and reverted on 2026-09-30.*
 
-This is not cosmetic tidying. While the exception stands, "authenticated
-principal" means two different things on one box depending on which hop a request
-arrived through, and a receiver has to know which kind of caller it faces before
-it knows which rules apply. The external review named that as the thing to avoid,
-and it was accepted only because the constraint appeared to be Zitadel's. It is
-not.
+This section prescribed removing the ID-token exception: the gateway would mint an
+access token for its own application's audience, and `browserSessionValidator`
+would refuse ID tokens. Both halves were built and shipped, and both are undone.
 
-**DONE IN ONE STEP, 2026-09-30, and the ADR records that rather than the sequence
-it first proposed.** This section previously prescribed a two-deploy rollout —
-gateway first, receiver second — on the reasoning that turning the receiver strict
-before the gateway mints refuses every request.
+They rested on the withdrawn correction at the top of this ADR. The deployed
+issuer cannot mint that token — Zitadel v4.15.3 requires an exchange scope to be
+on both the subject and actor tokens, and an id-token subject has neither. So the
+gateway forwards the session's id token, `passthrough` is restored in the tenant
+chart, and `browserSessionValidator` accepts an ID token again.
 
-That reasoning is sound and the sequence was not taken, because nothing is in
-production: no application serves a user, so there is no request to refuse and no
-window to protect. A staged rollout would have left a `passthrough` fallback and a
-`rejectIdTokens: false` override in the tree, each needing a later change to
-remove, and each readable as the supported arrangement in the meantime. Carrying a
-fallback for a risk that does not exist is how it becomes permanent.
+**The objection that motivated this section still stands and is not answered.**
+"Authenticated principal" does mean two things on this box: an id token on the
+browser hop, an access token on a service call (ADR-097). That is a real cost and
+it is now a constraint rather than a choice. It is removed when the issuer can
+validate the exchange, not before.
 
-So both halves landed together:
-
-- `passthrough` is **removed from the tenant chart entirely** — there is no
-  per-application conditional and no way to configure a gateway that forwards a
-  session credential onward. Every tenant gateway mints.
-- `browserSessionValidator()` refuses ID tokens, with no option to accept one.
-
-The consequence is that an ID token reaching a BFF is no longer a supported
-arrangement: it means the gateway did not mint, and failing loudly is the point.
-
-**One correction the switch forced**, recorded because it is the kind of thing a
-reader will otherwise re-derive: once the gateway mints, the credential a BFF
-receives is a different token in two respects. Its `azp` is the CONFIDENTIAL
-EXCHANGE client, not the public browser client, and its `aud` names the PROJECT,
-not the application's client id. A receiver still checking the browser client
-refuses every request — which is what `browserSessionValidator` did until it was
-corrected, and what its tests now pin.
+**What makes the browser hop safe meanwhile is the caller allowlist, not the
+token's kind.** `azp` must be the application's own gateway client, and an absent
+`azp` is a refusal. That check was always the control; the token kind never was.
 
 ### The receiver's validation list, in full
 

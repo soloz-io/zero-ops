@@ -36,49 +36,53 @@ export interface SurfaceValidatorOptions {
  * REFUSES AN ID TOKEN, like every other surface. There is no browser exception
  * and there is no switch to turn one on.
  *
- * There was one until 2026-09-30, on the belief that Zitadel's exchange could not
- * serve a browser session. It can: an ID-token subject is validated by
- * `validateImpersonationTokenExchangeScopes`, which checks subject-data scopes
- * against the client's allowlist rather than against the subject token, so the
- * minted token carries the tenant claim. Every tenant gateway now mints an access
- * token and forwards that, so a BFF receiving an ID token is not a supported
- * arrangement -- it is a gateway that is not doing its job, and accepting it
- * would hide that.
+ * ACCEPTS AN ID TOKEN, because that is what the gateway forwards. The caller
+ * allowlist below is what makes that safe.
  *
- * Two controls, not one, and both are fixed here. `azp` must be this
- * application's own gateway exchange client, so a sibling application's token is
- * refused even though it carries this project's audience by construction --
- * Zitadel issues any project's audience to any client that asks, so the audience
- * has never been the control.
+ * This surface briefly refused them, on the belief that the gateway could mint an
+ * access token instead. It cannot on the deployed issuer, and that was found by
+ * RUNNING it rather than reading it. Zitadel v4.15.3 validates exchange scopes
+ * with
+ *
+ *     !contains(subjectScopes, scope) || !contains(actorScopes, scope)
+ *
+ * -- the scope must be on BOTH input tokens -- and an id-token subject carries
+ * none. So every requested scope is refused:
+ *
+ *     {"error":"invalid_scope","error_description":"scope
+ *      \"urn:zitadel:iam:user:resourceowner\" not found in subject or actor token"}
+ *
+ * and requesting no scopes yields a token with no tenant claim, which a receiver
+ * refuses as tenant-less. No RELEASED Zitadel validates it otherwise: the union
+ * check that would is in no tag, and there is no published v5 image.
+ *
+ * `azp` must be this application's own gateway client, so a sibling
+ * application's token is refused even though it carries this project's audience
+ * by construction -- Zitadel issues any project's audience to any client that
+ * asks, so the audience has never been the control.
+ *
+ * SERVICE-TO-SERVICE IS UNAFFECTED. Client credentials has no subject token, so
+ * there is no union check to fail; that path is `consumerApiValidator` and it is
+ * not waiting on anything (ADR-097).
  */
 export function browserSessionValidator(opts: SurfaceValidatorOptions = {}): JwtValidator {
   const env = opts.env ?? process.env;
   const cfg = requirePlatformEnv(
-    ["issuerUrl", "jwksUrl", "projectId", "exchangeClientId", "orgId"],
-    "a BFF cannot validate the token its gateway mints",
+    ["issuerUrl", "jwksUrl", "clientId", "orgId"],
+    "a BFF cannot validate the session its gateway forwards",
     env,
   );
 
   return new JwtValidator({
     jwksUrl: cfg.jwksUrl,
     issuer: cfg.issuerUrl,
-    // The PROJECT, not this application's client id.
-    //
-    // A minted token is audienced to projects -- this application's own, plus
-    // every application it calls -- because that is what an RFC 8693 `audience`
-    // parameter names. Checking a client id here refuses every request, and the
-    // error reads as an audience mismatch against a value that looks plausible.
-    audience: cfg.projectId,
-    // The EXCHANGE client, not the browser client.
-    //
-    // `azp` names the client that AUTHENTICATED the exchange, which is the
-    // confidential exchange client -- never the public PKCE client the browser
-    // logged in with. The two are different identities, and admitting the public
-    // one would admit any token obtained through this application's own login.
-    allowedAzp: [cfg.exchangeClientId],
-    // Default, stated. An ID token reaching here means the gateway forwarded a
-    // session credential instead of minting one, and that must fail loudly.
-    rejectIdTokens: true,
+    // This application's own client: the audience the gateway requested at login,
+    // and the `azp` on the id token it forwards.
+    audience: cfg.clientId,
+    allowedAzp: [cfg.clientId],
+    // See the note above. Set by the platform WITH its reason, so it is not a
+    // line an application flips to make an error go away.
+    rejectIdTokens: false,
     requireTenantId: true,
     // COMPARED, not merely required. A sibling tenant's user carries a valid
     // tenant claim -- a different one -- and presence alone accepts it.

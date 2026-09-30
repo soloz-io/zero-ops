@@ -27,21 +27,23 @@ const BASE = {
 const sw = (v: unknown) => v as unknown as Record<string, unknown>;
 
 describe("browserSessionValidator", () => {
-  it("refuses an ID token: every gateway mints, so one arriving means it did not", () => {
-    expect(sw(browserSessionValidator({ env: BASE })).rejectIdTokens).toBe(true);
+  it("accepts an ID token, because that is what the gateway forwards", () => {
+    // Not a preference. Zitadel v4.15.3 requires an exchange scope to be on BOTH
+    // the subject and actor tokens, and an id-token subject carries none -- so
+    // minting an access token here is refused by the issuer, and no released
+    // Zitadel validates it otherwise.
+    expect(sw(browserSessionValidator({ env: BASE })).rejectIdTokens).toBe(false);
   });
 
-  it("admits the EXCHANGE client, never the public browser client", () => {
-    // The minted token's azp is the client that authenticated the exchange.
-    // Admitting the public PKCE client would admit any token obtained through
-    // this application's own browser login.
+  it("still admits exactly one caller, which is what keeps a sibling out", () => {
+    // THE pairing that must never come apart: ID tokens accepted AND no caller
+    // check would leave this surface open to every application on the box.
     const v = sw(browserSessionValidator({ env: BASE }));
-    expect(v.allowedAzp).toEqual([BASE.OIDC_EXCHANGE_CLIENT_ID]);
-    expect(v.allowedAzp).not.toContain(BASE.OIDC_CLIENT_ID);
+    expect(v.allowedAzp).toEqual([BASE.OIDC_CLIENT_ID]);
   });
 
-  it("audiences on the project, which is what a minted token carries", () => {
-    expect(sw(browserSessionValidator({ env: BASE })).audience).toBe(BASE.OIDC_PROJECT_ID);
+  it("audiences on this application's own client, which the id token carries", () => {
+    expect(sw(browserSessionValidator({ env: BASE })).audience).toBe(BASE.OIDC_CLIENT_ID);
   });
 
   it("COMPARES the tenant, not merely requires it (ADR-094 invariant 3)", () => {
@@ -60,8 +62,7 @@ describe("browserSessionValidator", () => {
       expect(e).toBeInstanceOf(PlatformConfigError);
       expect((e as PlatformConfigError).missing).toEqual([
         "OIDC_JWKS_URL",
-        "OIDC_PROJECT_ID",
-        "OIDC_EXCHANGE_CLIENT_ID",
+        "OIDC_CLIENT_ID",
         "OIDC_ORG_ID",
       ]);
     }
