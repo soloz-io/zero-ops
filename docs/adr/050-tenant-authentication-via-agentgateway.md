@@ -384,6 +384,57 @@ The cross-namespace reference this requires — the tenant's public route names 
 
 ---
 
+## The platform owns the validator configuration, not just the library (2026-09-30)
+
+`zero-ops-auth` shipped PRIMITIVES — `JwtValidator` and its options — and left
+every application to assemble them. That is the wrong boundary, and the reason is
+specific rather than aesthetic.
+
+`JwtValidator` has four security-relevant switches: `audience`, the caller
+allowlist, `rejectIdTokens`, `requireTenantId`. The correct setting of each
+depends on facts about the issuer and about this gateway that live nowhere near an
+application's repository. Asking each product team to derive four switches from an
+ADR means each team re-derives the same reasoning, and one of them gets it wrong
+quietly — because **a wrong switch here fails by ACCEPTING a token, not by
+erroring.** Nothing fails when a receiver admits too much.
+
+It had already happened twice. The caller allowlist was rendered with the public
+PKCE client id, which would have admitted any token from the calling application's
+own login; and when the gateway began minting, every receiver still checking the
+browser client would have refused every request. Neither is a mistake a product
+team should be positioned to make.
+
+**So the platform names the SURFACES and owns the switches.** An application picks
+the surface it is building:
+
+```
+browserSessionValidator()   a BFF behind this tenant's gateway
+consumerApiValidator()      a surface another APPLICATION calls (ADR-042)
+```
+
+Three properties are deliberate:
+
+- **The switches cannot be overridden through the factory.** There is no option to
+  accept an ID token on either surface. A setting that can be turned off to make
+  an error go away will be.
+- **`consumerApiValidator` refuses to BUILD when no callers are published.** An
+  empty allowlist is not "admit nobody" — `JwtValidator` reads it as "check
+  nothing", which on a cross-application surface is open to every application on
+  the box. The surface should not mount until a caller exists.
+- **Every platform-published environment key is named in one module**
+  (`PLATFORM_ENV`), so a rename by the platform is a type error in the
+  application rather than an empty string at runtime. When `OIDC_ALLOWED_AZP`
+  changed from a list to a map, any application that had written
+  `process.env.OIDC_ALLOWED_AZP.split(' ')` became silently wrong with nothing in
+  its own repository saying so.
+
+The same reasoning covers the intra-application BFF→SDK channel (ADR-057), whose
+two halves are a matched pair of header names that were written out by hand on
+both sides of a repository boundary — and whose caller half appeared in waypoint
+eight times as `process.env.X ? { header } : {}`, so an absent token produced a
+call with NO header and a bare 401 at the far end. `internalCallHeaders` throws
+instead. A missing credential stops the caller; it does not travel.
+
 ## Ownership
 
 | Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |

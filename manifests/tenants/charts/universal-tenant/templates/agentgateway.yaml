@@ -720,18 +720,17 @@ spec:
     # The confidential client the exchange authenticates as, which is what stamps
     # azp on the minted token (ADR-094 invariant 2a).
     #
-    # Read under the key the HUB-OPERATOR writes. The identity service also stores
-    # a declared client's credentials under an OAUTH_<NAME>_CLIENT_* grammar, but
-    # it writes them to VAULT (StoreTenantSecret -> tenantPath), while this
-    # ExternalSecret reads INFISICAL. Two stores, one credential: the OAUTH_ key
-    # is not visible here and pointing at it renders an ExternalSecret that can
-    # never resolve.
+    # The OAUTH_ key grammar, which is where every declared confidential client's
+    # credentials live. The exchange client is one -- the platform appends it to
+    # whatever the fleet declared -- so it is published by the same loop, under
+    # the same rule, and read here under the same name. There is no second key
+    # for it and no second publisher.
     - secretKey: oidc-exchange-client-id
       remoteRef:
-        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_EXCHANGE_CLIENT_ID
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OAUTH_{{ $t | upper | replace "-" "_" }}_GATEWAY_EXCHANGE_CLIENT_ID
     - secretKey: oidc-exchange-client-secret
       remoteRef:
-        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_EXCHANGE_CLIENT_SECRET
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OAUTH_{{ $t | upper | replace "-" "_" }}_GATEWAY_EXCHANGE_CLIENT_SECRET
 {{- range $deps }}
     # One pair per declared target: the scope requested at login, and the project
     # id sent as the exchange's audience parameter. The COUNT comes from the

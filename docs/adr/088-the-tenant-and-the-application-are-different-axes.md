@@ -420,6 +420,57 @@ from one place — a platform-level dependency record rather than a value in eac
 chart — which is a larger change than this amendment, and is the right next step
 once a second cross-app pair exists to prove the shape against.
 
+*Amendment, 2026-09-30. That step is taken. waypoint ADR-042 is the second pair,
+and it is an application calling another application's API rather than an agent
+runtime — which is the case `dependsOn` could not verify.*
+
+**An APPLICATION-to-APPLICATION dependency is declared on both sides, and the
+platform renders every artefact both halves imply.**
+
+```yaml
+# the caller's own values.yaml
+identity:
+  backendDependencies: [waypoint]
+# the target's own values.yaml
+identity:
+  allowedConsumers: [oranger]
+```
+
+From those two declarations the platform renders four things, none of which is
+written by hand in an application's repository:
+
+```
+caller   CiliumNetworkPolicy egress, sdk -> the target's sdk
+caller   the audience scope its login requests, so its token names the target
+target   CiliumNetworkPolicy ingress, from the caller's sdk
+target   the caller's exchange client in OIDC_ALLOWED_AZP
+```
+
+`dependsOn` is unchanged and still serves its own case: a workload reaching
+another workload, in this app's namespace or a sibling's, addressed by a URL the
+same entry produces. What is new is the case where the thing being reached is an
+application's authenticated API, where a network rule alone permits nothing —
+the caller must also hold a token the target will accept, and that token is
+rendered from the same declaration.
+
+**Both sides still declare, and now that is enforced rather than hoped for.** A
+preflight (`94-cross-app-dependency-halves`) fails the build when only one side
+declares, in either direction. Both single-sided states are silent at runtime and
+that is why they are worth a gate: a missing ingress HANGS, because Cilium drops
+denied ingress without an RST (§30 above), so it reads as a slow or absent
+service rather than a refusal; a missing caller declaration means the platform
+renders no audience scope, and the exchange fails with `invalid_target` naming an
+audience rather than the file that is wrong.
+
+**Cross-tenant still gains no mechanism, structurally.** The namespace is built
+from the rendering release's own tenant, so there is no field an entry could put
+another tenant's name into.
+
+**Scoped to the SDK, not the namespace.** Egress is granted from `app: sdk` alone.
+The BFF holds the browser session and the frontend serves assets; neither has
+business reaching another application's API, and granting the whole namespace
+would give them reachability nothing declared.
+
 
 ## Impact
 

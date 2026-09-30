@@ -243,6 +243,54 @@ Implementing confidential client registration, ownership scoping, orphan retirem
 
 Rotating with a period during which two secrets are simultaneously valid is not available. Neither the registration authority's model nor the controller that drives it represents more than one secret per client.
 
+### One credential, one writer, one key (2026-09-30)
+
+*Recorded after wiring the gateway's exchange client, and after getting the
+diagnosis wrong once.*
+
+The exchange client's credentials were being written to Infisical **twice, by the
+same reconcile, under two names**:
+
+```
+the declared-clients loop   OAUTH_<NAME>_CLIENT_ID / _SECRET     (every client)
+publishGatewayExchangeClient  OIDC_EXCHANGE_CLIENT_ID / _SECRET  (this one only)
+```
+
+The exchange client is a declared client -- the platform appends it to whatever
+the fleet declared -- so the first writer already covered it. The second was pure
+duplication: same values, same folder, a second name for one fact. Two names are
+two things to keep in step, and a reader of either cannot tell which is
+authoritative.
+
+**Resolved by deletion, not by documentation.** `publishGatewayExchangeClient` is
+gone, along with a lookup that fell back to the second key. A confidential
+client's credentials live under the `OAUTH_` grammar derived from the client's own
+name, like every other declared client's, and the gateway chart reads that key.
+
+**The first diagnosis was wrong, and the correction matters more than the bug.**
+This section previously claimed the duplication was across two STORES -- Vault and
+Infisical -- because `ensureDeclaredClients` writes through an `ISecretManager`
+whose only implementation is Vault-backed. It does not run. Nothing constructs a
+`ControlPlane`, the identity service wires its route straight to the provider, and
+`internal/kube-sbt/api/handlers/tenant_identity.go` already said so: *"It was
+written on ControlPlane.EnsureTenantIdentity, which nothing reaches."*
+
+So there was never a second store -- only dead code that made it look like there
+was, which is worse than no code, because it is read as architecture. That path is
+now deleted: `controlplane/tenant_identity.go`, `interfaces/secretmanager.go`, the
+`providers/vault` package, and the unused `SecretManager` field. ADR-003 already
+said Infisical is the System of Record for all secret material; the tree now
+agrees with it rather than carrying an unreachable alternative.
+
+**What remains true and is checked.** The issuer discloses a generated secret
+exactly once, so a client already provisioned returns nothing on a later
+reconcile and the publishing loop is correctly silent. That is not acceptable for
+the gateway's exchange client, because every gateway now mints its backend
+credential (ADR-095) and one without it does not start. The operator therefore
+verifies that credential is present in Infisical after publishing, and reports
+what to do -- regenerate at the issuer -- rather than leaving it to be found as a
+gateway that will not start.
+
 ## Ownership
 
 Per ADR-039.

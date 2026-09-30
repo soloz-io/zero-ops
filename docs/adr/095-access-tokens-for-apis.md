@@ -527,18 +527,35 @@ it knows which rules apply. The external review named that as the thing to avoid
 and it was accepted only because the constraint appeared to be Zitadel's. It is
 not.
 
-**Sequenced, not swapped.** Turning the receiver strict before the gateway mints
-access tokens refuses every request; doing it in the other order is invisible and
-safe. So:
+**DONE IN ONE STEP, 2026-09-30, and the ADR records that rather than the sequence
+it first proposed.** This section previously prescribed a two-deploy rollout —
+gateway first, receiver second — on the reasoning that turning the receiver strict
+before the gateway mints refuses every request.
 
-1. the gateway exchanges on the same-application route, and the receiver keeps
-   `rejectIdTokens: false` — nothing observable changes, because an access token
-   without `at_hash` passes a receiver that merely tolerates one with it;
-2. the receiver drops the override, which is a one-line change with a deploy of
-   its own and an obvious rollback.
+That reasoning is sound and the sequence was not taken, because nothing is in
+production: no application serves a user, so there is no request to refuse and no
+window to protect. A staged rollout would have left a `passthrough` fallback and a
+`rejectIdTokens: false` override in the tree, each needing a later change to
+remove, and each readable as the supported arrangement in the meantime. Carrying a
+fallback for a risk that does not exist is how it becomes permanent.
 
-`browserSessionValidator()` in `zero-ops-auth` is where step 2 lands: the switch
-is set once, by the platform, for every application at once.
+So both halves landed together:
+
+- `passthrough` is **removed from the tenant chart entirely** — there is no
+  per-application conditional and no way to configure a gateway that forwards a
+  session credential onward. Every tenant gateway mints.
+- `browserSessionValidator()` refuses ID tokens, with no option to accept one.
+
+The consequence is that an ID token reaching a BFF is no longer a supported
+arrangement: it means the gateway did not mint, and failing loudly is the point.
+
+**One correction the switch forced**, recorded because it is the kind of thing a
+reader will otherwise re-derive: once the gateway mints, the credential a BFF
+receives is a different token in two respects. Its `azp` is the CONFIDENTIAL
+EXCHANGE client, not the public browser client, and its `aud` names the PROJECT,
+not the application's client id. A receiver still checking the browser client
+refuses every request — which is what `browserSessionValidator` did until it was
+corrected, and what its tests now pin.
 
 ### The receiver's validation list, in full
 

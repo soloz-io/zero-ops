@@ -1,7 +1,15 @@
 # ADR-062: Onboarding and Scaffolding a Tenant
 
 **Date:** 2026-09-06
-**Status:** Proposed
+**Status:** Accepted — implemented as `soloz tenant scaffold`; `nutgraf-gitops` is
+a repository this produced.
+
+**Scope: a TENANT, not an application.** This ADR is how an organisation becomes a
+running box: repositories, scaffolding, who may write where. It does not describe
+how a product team puts a workload on that box — what the platform delivers
+unasked, what a fleet declares, which labels a chart must carry. That is
+`docs/onboarding-an-application.md`, and a reader who arrived here looking for it
+should go there instead.
 
 *Amended by: ADR-065 (The Control Plane Ships Into the Box), ADR-073 (Workload Delivery is Version Pinning), ADR-088 (The Tenant and the Application Are Different Axes)*
 
@@ -116,7 +124,11 @@ One word per concept, used unchanged by ADR-063 through ADR-067.
 
 **Platform** is the golden path: the types, the bundle, and the engineering that maintains them.
 
-**Tenant** is a customer organisation, and holds exactly one **box** — control plane access together with that tenant's own spoke clusters. `fleetId` in ADR-047 is `tenantId`, which is what the implementation has used throughout.
+**Tenant** is a customer organisation, and holds exactly one **box** — control plane access together with that tenant's own spoke clusters. It is `tenantId`.
+
+**Application** is a product running on that box, and is `appId`. It is the isolation unit: it gets the namespace, the database, the identity project, the secret prefix and the policy. One tenant holds any number of applications, and they share nothing but the box.
+
+The tenant and the application are **different axes** (ADR-088), and neither defaults to the other. This section said `fleetId` in ADR-047 is `tenantId` — which answered the vocabulary problem in this ADR's own Context by deleting a level rather than naming one. The level it deleted was the tenant, which this ADR defines as the owner of a box; what the single identifier then held was the product. So a customer running two products had two "tenants" and no way to say they were the same customer. Both axes are now named, and every namespace, role, secret path and policy selector is built from the pair.
 
 **Spoke cluster** is the unit of everything measurable. It declares its region, provider and node pool, pins a bundle version, and is where compute is metered. It belongs to exactly one tenant, and is a **cluster instance** when referred to as a record in the tenant's infrastructure repository.
 
@@ -194,16 +206,7 @@ The scaffolding template is a second expression of what a box contains, alongsid
 
 Supersedes ADR-004. The dual-repository contract is replaced by the separation above.
 
-Amends ADR-047. The rejection of fleets authoring external workload repositories stands on its original ground. `fleetId` is `tenantId` throughout.
-
-> **Withdrawn by ADR-088.** `fleetId` is `tenantId` resolved the vocabulary
-> problem this ADR's own context describes — "the word 'fleet' names two
-> different things" — by deleting a level rather than naming one. The level it
-> deleted was the tenant, which this ADR defines two sections above as the owner
-> of a box: "A tenant is onboarded by creating and scaffolding the repositories
-> its box reconciles." What the identifier then held was the product. ADR-088
-> separates them: `tenantId` is the organisation whose box it is, `appId` is a
-> product on it. Everything else in this amendment stands.
+Amends ADR-047. The rejection of fleets authoring external workload repositories stands on its original ground. Its `fleetId` is resolved into the two axes named in Vocabulary above — `tenantId` for the organisation, `appId` for the product — not into `tenantId` alone, which is what this ADR first said and ADR-088 corrected.
 
 Amends ADR-007. The spoke flow is unchanged in mechanism, but the repository it names now holds the platform's own cluster instances.
 
@@ -233,3 +236,6 @@ No change to ADR-021, ADR-037, ADR-039, ADR-043 or ADR-055. No change to ADR-061
 - ADR-065: The Control Plane Ships Into the Box
 - ADR-067: Support Telemetry and the Basis of Maintenance
 - ADR-069: The Maintenance Promise
+- ADR-082: Tenant Repository Layout and Cluster Naming
+- ADR-088: The Tenant and the Application Are Different Axes — the second axis this ADR's Vocabulary now names
+- `docs/onboarding-an-application.md` — putting a workload on a box this ADR created

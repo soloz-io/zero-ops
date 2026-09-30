@@ -5,27 +5,27 @@
 
 *Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-073 (Workload Delivery is Version Pinning), ADR-074 (Withdrawing Atlas), ADR-088 (The Tenant and the Application Are Different Axes)*
 
-> `fleetId` is `tenantId` throughout (ADR-062). The rejection of fleets authoring
-> external workload repositories stands, but on new ground: ADR-073 replaces
-> cross-tenant containment with the argument that a published version already
-> identifies the content, and withdraws `workloads.gitRepo`, `gitPath` and
-> `gitRevision` from the fleet values schema. ADR-074 withdraws the `migrations`
-> block with them.
+> **Read `fleetId` below as the APPLICATION, and its resources as keyed on the
+> tenant AND the application together.** This ADR was written when one identifier
+> held both, and ADR-062 then restated that as "`fleetId` is `tenantId`" — a
+> collapse of two levels rather than a rename of one. This ADR's own definition
+> has a tenant ABOVE the fleet ("belonging to one tenant"), so the identifier
+> deleted the tenant and kept the product. ADR-088 separates them: `tenantId` is
+> the organisation whose box it is, `appId` is a product on it, and the pair is
+> combined once as `scopeId` = `<tenantId>-<appId>`, from which every namespace,
+> object name and secret path is built. The names in the body are updated to that
+> form.
 >
-> **ADR-088 withdraws the first sentence.** `fleetId` is `tenantId` was a
-> collapse of two levels, not a rename of one: this ADR's own definition of a
-> fleet — "a **tenant-owned** logical product/deployment boundary… belonging to
-> one tenant" — has a tenant above the fleet, and the identifier deleted the
-> tenant rather than the fleet. The product boundary is now `appId` and the
-> owning organisation is `tenantId`, and neither defaults to the other. Read
-> `{fleetId}-xr`, `{fleetId}-spoke` and `tenant-{fleetId}-workloads` below as
-> keyed on the APPLICATION; what they are named after ADR-088's migration is
-> settled there, not here.
+> ADR-073 replaces cross-tenant containment with the argument that a published
+> version already identifies the content, and withdraws `workloads.gitRepo`,
+> `gitPath` and `gitRevision` from the fleet values schema. ADR-074 withdraws the
+> `migrations` block with them. The rejection of fleets authoring external
+> workload repositories stands, on that new ground.
 >
-> Everything else in this ADR stands unchanged. The tier model, the rejection of
-> fleets authoring RBAC and ExternalSecrets, and the namespace as the primary
-> isolation boundary are all statements about the product boundary, which is the
-> level that keeps them.
+> Everything else stands unchanged. The tier model, the rejection of fleets
+> authoring RBAC and ExternalSecrets, and the namespace as the primary isolation
+> boundary are statements about the product boundary, which is the level that
+> keeps them.
 
 ## Context
 
@@ -41,7 +41,7 @@
 
 ### Fleet Structure
 
-A fleet is a logical product/deployment boundary: the collective set of workloads and supporting resources belonging to one tenant, reconciled through the tenant's workload Application across its assigned spoke/environment. The tenant namespace is its primary Kubernetes isolation boundary; the platform's tenant provisioning ApplicationSets provide the reconciliation mechanism (see fleet-registry/README.md). For the current deployment model, a fleet is realized through three tenant lifecycle resources: `{fleetId}-xr`, `{fleetId}-spoke`, and `tenant-{fleetId}-workloads`.
+A fleet is a logical product/deployment boundary: the collective set of workloads and supporting resources belonging to one tenant, reconciled through the tenant's workload Application across its assigned spoke/environment. The tenant namespace is its primary Kubernetes isolation boundary; the platform's tenant provisioning ApplicationSets provide the reconciliation mechanism (see fleet-registry/README.md). For the current deployment model, a fleet is realized through three lifecycle resources named from `scopeId` (`<tenantId>-<appId>`) and the environment: `{scopeId}-{env}-xr`, `{scopeId}-{env}-spoke`, and one Application per workload, `tenant-{scopeId}-{env}-{workload}`. On the running platform those read `nutgraf-oranger-dev-xr`, `nutgraf-oranger-dev-spoke` and `tenant-nutgraf-oranger-dev-bff`.
 
 ### Tenant Provisioning ApplicationSets
 
@@ -52,14 +52,14 @@ The platform SHALL provide the tenant provisioning ApplicationSets required to r
 | Tier | Scope | Owns |
 |---|---|---|
 | Tier 1 | Platform / cluster | spoke catalog: CRDs, controllers, cluster RBAC, cluster-wide network policies |
-| Tier 2 | Platform / namespace | `{fleetId}-spoke` rendering platform-authored fleet RBAC and ExternalSecrets |
+| Tier 2 | Platform / namespace | `{scopeId}-{env}-spoke` rendering platform-authored RBAC and ExternalSecrets |
 | Tier 3 | Fleet / workload | `tenant-workloads`: Deployments, Rollouts, Jobs, Services, ConfigMaps, ServiceAccounts, Ingress, NetworkPolicies |
 
 The governing principle: **a fleet consumes platform capabilities but cannot author platform security or control-plane capabilities.** Consequently, `tenant-workloads` may not author Role, RoleBinding, ExternalSecret, Secret, PVC, StatefulSet, CRDs, or cluster-scoped resources. Fleet-created ServiceAccounts are permitted, but they cannot create or modify RBAC bindings; effective elevated permissions are exclusively granted through platform-owned RBAC.
 
 ### Secrets and Machine Identity
 
-ADR-031 is preserved: tenants remain denied ExternalSecret authoring. The platform renders ExternalSecrets through `{fleetId}-spoke` against the tenant secret store, and the Infisical machine identity remains platform-managed.
+ADR-031 is preserved: tenants remain denied ExternalSecret authoring. The platform renders ExternalSecrets through `{scopeId}-{env}-spoke` against the tenant secret store, and the Infisical machine identity remains platform-managed.
 
 ### Data Plane
 
@@ -135,7 +135,7 @@ This ADR defines architectural constraints and does not own platform resources. 
 ## Addendum (2026-08-23): no tenant identifiers in platform code
 
 This ADR and ADR-004 place tenant runtime state in fleet-registry and have the
-platform render tenant resources parameterised by fleet — `{fleetId}-spoke`, never a
+platform render tenant resources parameterised by the pair — `{scopeId}-{env}-spoke`, never a
 literal name. That direction was never stated as a rule the platform itself must
 obey, and the platform has drifted across it.
 
@@ -143,7 +143,7 @@ obey, and the platform has drifted across it.
 
 **A platform manifest or binary SHALL NOT contain a tenant or fleet identifier.**
 Tenant-specific OAuth clients, hostnames, secrets and ExternalSecrets are created
-during onboarding, from fleet-registry, keyed by `fleetId`. The platform provides
+during onboarding, from the tenant GitOps repository, keyed by `tenantId` and `appId`. The platform provides
 the capability; it does not know who consumes it.
 
 "Platform" here means `manifests/hub-core-services/`, `manifests/argocd/`,
@@ -191,7 +191,7 @@ tenant hardcoded the same way — fails before a cluster is built.
 ### Remediation (not yet done)
 
 1. `RegisterClient` takes a client spec rather than compiled-in IDs and redirect URIs.
-2. `oauth2clients.yaml` moves to the tenant provisioning path, templated by `fleetId`.
+2. `oauth2clients.yaml` moves to the tenant provisioning path, templated by `tenantId` and `appId`.
 3. `waypoint-bff-client-secret-es.yaml` becomes a per-fleet ExternalSecret rendered
    at onboarding against the tenant secret store — the shape this ADR already
    specifies.

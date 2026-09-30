@@ -575,6 +575,23 @@ is not yet known, the platform publishes NOTHING and waits for the next reconcil
 A target admitting the wrong caller looks configured and is not, which is strictly
 worse than one admitting nobody: the latter fails closed.
 
+**`OIDC_ALLOWED_AZP` is a MAP, not a list** (2026-09-30). Each entry is
+`<clientId>=<appId>`, and the second half is what makes invariant 2b reachable.
+
+A list says a caller may enter and does not say WHO entered. A receiver that owns
+records per consuming application — waypoint ADR-042 partitions chat sessions and
+runs by `consumer_app_id` — would then have to take the name from the request,
+which is exactly what 2b forbids. Only the platform can supply the mapping: it
+holds both halves when it renders the allowlist, and neither end can be trusted
+to assert it, because the caller would be naming itself and the receiver has
+nothing to derive it from.
+
+A bare `<clientId>` with no `=` is read as admitted-but-unnamed rather than
+dropped. Dropping it would REVOKE a caller during the very upgrade that
+introduces names. `zero-ops-auth` leaves `consumer_app_id` undefined for such an
+entry rather than empty, so a receiver partitioning by it fails a lookup instead
+of writing records under an empty owner that every later caller would match.
+
 **Implemented** in `zero-ops-auth` as `JwtValidator({ allowedAzp: [...] })`.
 Three properties are deliberate and are covered by tests:
 

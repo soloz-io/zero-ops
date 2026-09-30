@@ -318,6 +318,32 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					}
 				}
 
+				// The gateway's exchange client must have landed, or this
+				// application has no gateway (ADR-095).
+				//
+				// The loop above is silent by design: a client already
+				// provisioned returns no secret, because the issuer discloses a
+				// generated one exactly once, and rewriting it would invalidate
+				// the credential a running workload holds. "Nothing to publish"
+				// is therefore normally correct.
+				//
+				// It is NOT correct for this one client, because every gateway
+				// now mints its backend credential rather than forwarding a
+				// session token. A gateway whose exchange credential is absent
+				// does not degrade -- it fails to start, and the ExternalSecret
+				// reports a missing key rather than a client that was never
+				// regenerated. Checked here, once, where the recovery can be
+				// named.
+				exchangeKey := secrets.InfisicalOAuthClientSecretKey(gatewayExchangeClientName(appId))
+				exchangePath := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
+				if _, err := r.InfisicalClient.GetSecret(ctx, exchangePath, exchangeKey); err != nil {
+					logger.Error(err, "CRITICAL: the gateway exchange client credential is absent. "+
+						"The issuer discloses a generated secret once, so it cannot be re-read: the client "+
+						"must be regenerated at the issuer. Until it is, this application's gateway cannot "+
+						"mint a backend credential and will not start",
+						"tenant", tenantId, "app", appId, "path", exchangePath, "key", exchangeKey)
+				}
+
 				if identity.OwnerPassword != "" {
 					if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OWNER_INITIAL_PASSWORD", identity.OwnerPassword); err != nil {
 						logger.Error(err, "Provisioned the tenant owner but could not publish their initial password",
@@ -392,10 +418,6 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// identity exists but whose exchange client does not is one that
 				// cannot serve its API, and returning here would also lose the
 				// values already published.
-				if err := r.publishGatewayExchangeClient(ctx, cellId, tenantId, appId, identity.Clients); err != nil {
-					logger.Error(err, "Provisioned tenant identity but could not publish its gateway exchange client; will retry",
-						"tenant", tenantId)
-				}
 			}
 		}
 	}
@@ -719,13 +741,18 @@ func (r *AINativeSaaSReconciler) callerExchangeClientID(
 		return id
 	}
 
+	// ONE key, and no second place to look.
+	//
+	// There was a fallback here reading OIDC_EXCHANGE_CLIENT_ID, which a second
+	// publisher used to write beside this one -- the same value, from the same
+	// reconcile, into the same folder, under a different name. Two names for one
+	// fact is two things to keep in step, and a reader of either one cannot tell
+	// which is authoritative. The second publisher is gone and so is the
+	// fallback: a confidential client's credentials live under the OAUTH_ key
+	// grammar, derived from the client's own name, like every other declared
+	// client's.
 	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
 	if got, err := r.InfisicalClient.GetSecret(ctx, path, secrets.InfisicalOAuthClientIDKey(name)); err == nil {
-		return got
-	}
-	// The hub-operator's own key, for a client minted before the one above was
-	// the published name.
-	if got, err := r.InfisicalClient.GetSecret(ctx, path, "OIDC_EXCHANGE_CLIENT_ID"); err == nil {
 		return got
 	}
 	return ""
@@ -921,67 +948,6 @@ func gatewayExchangeClient(appId string) client2.OAuthClient {
 // whichever project it happens to sit in.
 func gatewayExchangeClientName(appId string) string {
 	return appId + "-gateway-exchange"
-}
-
-// publishGatewayExchangeClient writes the exchange client's credentials to the
-// tenant's Infisical folder, where ExternalSecret delivers them to the gateway.
-//
-// The identity service provisions at the issuer and this operator owns where
-// secrets live — the same division OwnerPassword and OIDC_CLIENT_ID follow.
-//
-// Absent from the response is not by itself an error: the service returns a
-// confidential client's credentials only on the reconcile that MINTED them,
-// because the issuer discloses a generated secret exactly once and regenerating
-// it would invalidate the credential a running gateway holds. A later reconcile
-// re-asserting nothing normally means "already published".
-//
-// BUT IT IS AN ERROR WHEN NOTHING IS PUBLISHED, and that distinction is the whole
-// of this function's contract. Two stores hold this one credential: the identity
-// service writes a declared client's credentials to VAULT, and this operator
-// writes them to INFISICAL, which is the store the gateway's ExternalSecret
-// reads. They can disagree permanently -- the service, seeing its own copy in
-// Vault, mints nothing and returns nothing, while Infisical has never held the
-// value. Nothing then publishes it, ever.
-//
-// Silently that is a gateway whose ExternalSecret never resolves, reported as a
-// missing Kubernetes Secret key naming nothing that explains it. Every gateway
-// now mints its backend credential (ADR-095), so this is not a degraded feature
-// but a tenant that cannot log in. It is therefore returned as an error naming
-// the recovery, rather than left for whoever finds the gateway not starting.
-func (r *AINativeSaaSReconciler) publishGatewayExchangeClient(ctx context.Context, cellId, tenantId, appId string, clients []client2.DeclaredClient) error {
-	var minted *client2.DeclaredClient
-	for i := range clients {
-		if clients[i].Name == gatewayExchangeClientName(appId) {
-			minted = &clients[i]
-			break
-		}
-	}
-	if minted == nil || minted.ClientSecret == "" {
-		// Nothing minted. Sound only if Infisical already holds the credential.
-		path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
-		if _, err := r.InfisicalClient.GetSecret(ctx, path, "OIDC_EXCHANGE_CLIENT_SECRET"); err == nil {
-			return nil
-		}
-		return fmt.Errorf(
-			"the gateway exchange client %q was not minted on this reconcile and its secret is "+
-				"absent from %s.\n\n"+
-				"The issuer discloses a generated secret once, so it cannot be re-read: the client "+
-				"must be regenerated at the issuer for this application. Until it is, this "+
-				"application's gateway cannot mint a backend credential and will not start",
-			gatewayExchangeClientName(appId), path)
-	}
-
-	// The SECRET first. A published id with no secret is a gateway that starts,
-	// reads a client id, and fails every exchange with an authentication error
-	// naming a client that looks correctly configured. The reverse — a secret
-	// with no id — fails at startup, which says so once.
-	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_EXCHANGE_CLIENT_SECRET", minted.ClientSecret); err != nil {
-		return fmt.Errorf("publish gateway exchange client secret: %w", err)
-	}
-	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId, "OIDC_EXCHANGE_CLIENT_ID", minted.ClientID); err != nil {
-		return fmt.Errorf("publish gateway exchange client id: %w", err)
-	}
-	return nil
 }
 
 // conditionState enumerates the three terminal states for TenantDBCredentialsSeeded.

@@ -85,6 +85,33 @@ in an ignored file. Infisical remains the System of Record for secret material
 (ADR-003); this ADR governs what must be declared and when it is verified, not
 where it is stored.
 
+*Amendment, 2026-09-30. "Supplied out of band" means supplied by a HUMAN, and
+this decision applied it to secrets no human chooses.*
+
+**A secret whose value nobody chooses is platform plumbing, and the platform
+seeds it.** The test is the declaration's own words: where a fleet writes "any
+long random value", there is no decision for an operator to make, and asking for
+one buys nothing but a step that can be forgotten.
+
+It was forgotten. `ORANGER_INTERNAL_TOKEN` — the credential oranger's BFF presents
+to oranger's own SDK (ADR-057) — was declared correctly and never supplied. Both
+ExternalSecrets failed, so neither Secret existed, so both workloads sat in
+`CreateContainerConfigError` for a day naming a *Kubernetes Secret* rather than
+the Infisical key actually missing. Nothing in that chain says "a human forgot to
+run a command", and every new application would have met the same wall.
+
+So the platform now seeds `<APPID>_INTERNAL_TOKEN` for every application, on the
+same rule as the gateway cookie key: written on absence whatever the tenant's age,
+never rewritten once present. An absent token means neither workload has ever
+started holding one, so there is no live channel to break; rotating it must
+restart both sides, which a reconcile must not do to a running application.
+
+This does not weaken the rule above. The VALUE is still never in the repository,
+the declaration still names the capability and the workloads, and a secret a
+human genuinely chooses — a third-party API key, a partner credential — is still
+supplied out of band and still reported as missing until it is. What changed is
+that "declared" no longer implies "a person must type it".
+
 Three properties make the declaration load-bearing rather than documentation:
 
 **A declared secret names its capability.** The capability, not the key, is what

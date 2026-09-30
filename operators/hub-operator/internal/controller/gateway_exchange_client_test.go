@@ -69,8 +69,8 @@ func TestTheExchangeClientIsPerApp(t *testing.T) {
 func TestTheFleetCannotSupplyTheExchangeClient(t *testing.T) {
 	// A fleet naming this client would be naming the holder of a credential that
 	// mints tokens for an API. The platform's entry is appended AFTER the
-	// declaration and is the one publishGatewayExchangeClient matches, so a
-	// same-named fleet entry cannot stand in for it.
+	// declaration, so it is the one the publishing loop and callerExchangeClientID
+	// resolve, and a same-named fleet entry cannot stand in for it.
 	obj := xr(map[string]interface{}{
 		"name": "waypoint-gateway-exchange", "type": "public",
 	})
