@@ -91,3 +91,14 @@ export {
   InternalTokenMissingError,
 } from "./platform/internal-channel.js";
 export type { InternalChannelHeaders } from "./platform/internal-channel.js";
+
+// Calling another application as THIS APPLICATION, with no user in the request
+// (ADR-097). The scopes an issuer needs for that are raw vocabulary; naming them
+// here means a product team never writes them.
+export {
+  serviceTokenSource,
+  backendProjectIdKey,
+  projectAudienceScope,
+  RESOURCE_OWNER_SCOPE,
+} from "./platform/service-token.js";
+export type { ServiceTokenOptions, ServiceTokenSource } from "./platform/service-token.js";

@@ -225,7 +225,17 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 			projectName, knownProjectID := applicationProject(appId, ownOrgID, ownProjectID)
 
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, redirects, postLogout, oauthClients)
+			// A service identity is provisioned only for an application that
+			// declares it calls another one. Minting one for every application
+			// would leave a standing credential, in every tenant, that nothing
+			// uses and nobody rotates -- and a credential whose compromise has no
+			// observable effect is the hardest kind to notice (ADR-097).
+			serviceClient := ""
+			if len(backendDependenciesOf(ainativesaas)) > 0 {
+				serviceClient = serviceUserName(appId)
+			}
+
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, redirects, postLogout, oauthClients, serviceClient)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
@@ -396,7 +406,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						logger.Info("Backend dependencies waiting on the target's project",
 							"tenant", tenantId, "app", appId, "pending", pendingDeps)
 					}
-					r.publishCrossApplicationTrust(ctx, logger, cellId, tenantId, appId, deps, identity.Clients)
+					r.publishCrossApplicationTrust(ctx, logger, cellId, tenantId, appId, deps, identity.Clients, identity.ServiceClient)
 				}
 
 				// The audience the gateway's token exchange asks for (ADR-095).
@@ -645,6 +655,18 @@ func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellI
 // allowedAzpKey is where a receiver reads the callers it admits.
 const allowedAzpKey = "OIDC_ALLOWED_AZP"
 
+// The service identity an application calls other applications with (ADR-097).
+//
+// Its own folder, never a target's: this is the CALLER's credential. The
+// allowlist entry that lets it in is published onto the target separately, and
+// keeping the two apart is what makes a revocation mean something -- deleting
+// the credential stops the caller, deleting the entry stops the target admitting
+// it, and neither is the other.
+const (
+	serviceClientIDKey     = "OIDC_SERVICE_CLIENT_ID"
+	serviceClientSecretKey = "OIDC_SERVICE_CLIENT_SECRET"
+)
+
 // publishCrossApplicationTrust renders one application's resolved backend
 // dependencies into the two places they must appear (ADR-094 Part 2).
 //
@@ -660,6 +682,7 @@ const allowedAzpKey = "OIDC_ALLOWED_AZP"
 func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 	ctx context.Context, logger logr.Logger, cellId, tenantId, appId string,
 	deps []resolvedDependency, clients []client2.DeclaredClient,
+	service *client2.ServiceClient,
 ) {
 	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
 		"OIDC_BACKEND_AUDIENCE_SCOPES", audienceScopesFor(deps)); err != nil {
@@ -702,6 +725,66 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 	for _, d := range deps {
 		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, callerAzp, appId); err != nil {
 			logger.Error(err, "Could not publish the allowed caller onto the target",
+				"tenant", tenantId, "caller", appId, "target", d.AppID)
+		}
+	}
+
+	r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, deps, service)
+}
+
+// publishServiceIdentity puts the CALLER's client-credentials identity where the
+// caller can read it, and its client id where every TARGET will match it
+// (ADR-097).
+//
+// TWO CALLER IDENTITIES, ONE ALLOWLIST. A receiver matches `azp || client_id`,
+// and the two flows fill different claims:
+//
+//	user access token (a gateway exchange)   azp        = the exchange client
+//	client credentials (no user at all)      client_id  = the machine client
+//
+// Both are this application calling, so both map to the same application name and
+// both belong in the same allowlist. `publishAllowedCaller` is keyed on the client
+// id, so adding the second leaves the first in place.
+//
+// The ADR is explicit that client credentials does NOT produce `azp`; an
+// implementation written to that belief admits nobody. This publishes the id the
+// issuer actually stamps, which for a machine user is `client_id`.
+func (r *AINativeSaaSReconciler) publishServiceIdentity(
+	ctx context.Context, logger logr.Logger, cellId, tenantId, appId string,
+	deps []resolvedDependency, service *client2.ServiceClient,
+) {
+	if service == nil || service.ClientID == "" {
+		// Pending, not an error, and NOT a fallback to the exchange client. The
+		// exchange client cannot authenticate client credentials -- it is an OIDC
+		// application, not a machine user -- so admitting it here would publish an
+		// allowlist entry that no service token can ever match, while looking
+		// configured. The next reconcile carries the value.
+		logger.Info("Cross-application calls wait on this application's service identity",
+			"tenant", tenantId, "app", appId, "expected", serviceUserName(appId))
+		return
+	}
+
+	// The caller's own credential. The id is republished every reconcile because
+	// it is stable and cheap; the secret only when the issuer disclosed one, since
+	// writing an empty value over a stored secret is how a running workload loses
+	// the credential it is holding.
+	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
+		serviceClientIDKey, service.ClientID); err != nil {
+		logger.Error(err, "Could not publish this application's service client id",
+			"tenant", tenantId, "app", appId)
+	}
+	if service.ClientSecret != "" {
+		if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
+			serviceClientSecretKey, service.ClientSecret); err != nil {
+			logger.Error(err, "Could not publish this application's service client secret",
+				"tenant", tenantId, "app", appId)
+		}
+	}
+
+	// The other half, onto each target.
+	for _, d := range deps {
+		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, service.ClientID, appId); err != nil {
+			logger.Error(err, "Could not publish the service caller onto the target",
 				"tenant", tenantId, "caller", appId, "target", d.AppID)
 		}
 	}
@@ -948,6 +1031,22 @@ func gatewayExchangeClient(appId string) client2.OAuthClient {
 // whichever project it happens to sit in.
 func gatewayExchangeClientName(appId string) string {
 	return appId + "-gateway-exchange"
+}
+
+// serviceUserName is the login name of the machine user an application calls
+// other applications as (ADR-097).
+//
+// Derived here and sent to the identity service rather than invented there,
+// because the same name has to agree with the Infisical key the credential is
+// published under. Two derivations of one name is two things to keep in step,
+// and the OIDC_ALLOWED_AZP grammar already cost us that lesson once.
+//
+// Distinct from the exchange client above, and deliberately not a variant of it:
+// one authenticates a token exchange carrying a USER, the other authenticates a
+// service acting as itself. Naming them alike would invite the reading that a
+// machine token is a user token with the user left out.
+func serviceUserName(appId string) string {
+	return appId + "-service"
 }
 
 // conditionState enumerates the three terminal states for TenantDBCredentialsSeeded.

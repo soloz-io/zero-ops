@@ -4,6 +4,7 @@
 {{- $ns := include "universal-tenant.namespace" . }}
 {{- $base := printf "/spoke-pool/%s/tenants/%s" (required "cellId must be supplied" .Values.cellId) $a }}
 {{- $consumers := (.Values.identity).allowedConsumers | default list }}
+{{- $deps := (.Values.identity).backendDependencies | default list }}
 {{- $key := $a | upper | replace "-" "_" }}
 {{- /*
   The platform's own identity values, delivered to a fleet's WORKLOADS.
@@ -139,5 +140,52 @@ spec:
     - secretKey: OIDC_ALLOWED_AZP
       remoteRef:
         key: {{ $base }}/OIDC_ALLOWED_AZP
+{{- end }}
+{{- if $deps }}
+---
+# This application's SERVICE identity: the client credentials it calls another
+# application WITH (ADR-097).
+#
+# RENDERED ONLY WHEN THIS APPLICATION CALLS ANOTHER, from the same
+# `backendDependencies` that renders its cross-app egress and audience scopes --
+# so the credential, the network rule and the scope cannot disagree about who
+# this application talks to. An application that calls nobody gets no machine
+# credential, because an unused one is a standing credential nobody rotates.
+#
+# ITS OWN OBJECT, not folded into platform-credentials above, for the reason that
+# file's header gives: an ExternalSecret is atomic, and these two keys come into
+# existence on a different event from every other key there -- the first reconcile
+# after a dependency is declared. Grouped with them, an application that declares
+# no dependency would fail the whole object and lose its internal token with it.
+#
+# THIS IS NOT THE EXCHANGE CLIENT. That one authenticates a token exchange
+# carrying a USER; this one authenticates this application acting as ITSELF, with
+# no user in the request. A receiver matches `azp || client_id` and admits both,
+# but they are different credentials with different lifecycles and nothing may
+# read a person out of a token minted from this one.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $a }}-service-identity
+  namespace: {{ $ns }}
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: tenant-secret-store
+    kind: SecretStore
+  target:
+    name: {{ $a }}-service-identity
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: OIDC_SERVICE_CLIENT_ID
+      remoteRef:
+        key: {{ $base }}/OIDC_SERVICE_CLIENT_ID
+    - secretKey: OIDC_SERVICE_CLIENT_SECRET
+      remoteRef:
+        key: {{ $base }}/OIDC_SERVICE_CLIENT_SECRET
 {{- end }}
 {{- end }}

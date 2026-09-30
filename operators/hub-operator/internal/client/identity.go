@@ -100,6 +100,23 @@ type TenantIdentity struct {
 	// service: it provisions at the issuer and this operator owns where secrets
 	// live, the same division OwnerPassword already follows.
 	Clients []DeclaredClient `json:"clients,omitempty"`
+
+	// ServiceClient is this application's machine identity, which it calls other
+	// applications as (ADR-097). Nil when the application declared no
+	// cross-application dependencies.
+	//
+	// ClientID is present on every reconcile once the identity exists; it is what
+	// each TARGET allowlists, and a reconcile that omitted it would look like a
+	// caller that no longer exists. ClientSecret is present only on the call that
+	// minted it, exactly as for a confidential client.
+	ServiceClient *ServiceClient `json:"serviceClient,omitempty"`
+}
+
+// ServiceClient is the client-credentials identity behind a cross-application
+// call. Its subject is the SERVICE; nothing may resolve it to a person.
+type ServiceClient struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret,omitempty"`
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
@@ -107,7 +124,7 @@ type TenantIdentity struct {
 // knownProjectID is the immutable binding and wins; otherwise projectName is
 // found or created inside the bound organisation; both empty keeps the
 // application on the legacy shared project.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient, serviceClientName string) (*TenantIdentity, error) {
 	// Sent as declared. The service provisions exactly this set and no more, so a
 	// fleet that declares nothing gets no clients rather than a default one.
 	clients := make([]map[string]any, 0, len(oauthClients))
@@ -129,6 +146,10 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
 		"oauthClients":     clients,
+		// Empty when the application declares no backend dependencies, and the
+		// service then provisions no machine identity. An unused machine
+		// credential is a standing credential nobody rotates.
+		"serviceClientName": serviceClientName,
 	})
 	if err != nil {
 		return nil, err

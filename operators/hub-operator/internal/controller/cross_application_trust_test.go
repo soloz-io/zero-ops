@@ -94,7 +94,7 @@ func TestTheTargetsAllowlistGetsTheCallersExchangeClient(t *testing.T) {
 	r, store, deps, clients := orangerCallsWaypoint()
 
 	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, clients)
+		"nutgraf-01", "nutgraf", "oranger", deps, clients, nil)
 
 	// A MAP entry, not a bare id: waypoint must be able to NAME its caller, or
 	// ADR-042's per-consumer record ownership has to take the name from the
@@ -115,7 +115,7 @@ func TestTheTargetsAllowlistNeverGetsTheCallersBrowserClient(t *testing.T) {
 	r, store, deps, clients := orangerCallsWaypoint()
 
 	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, clients)
+		"nutgraf-01", "nutgraf", "oranger", deps, clients, nil)
 
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
 	if strings.HasPrefix(got, orangerBrowserClientID+"=") || got == orangerBrowserClientID {
@@ -133,7 +133,7 @@ func TestTheAudienceScopeIsPublishedOntoTheCallerNotTheTarget(t *testing.T) {
 	r, store, deps, clients := orangerCallsWaypoint()
 
 	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, clients)
+		"nutgraf-01", "nutgraf", "oranger", deps, clients, nil)
 
 	want := "urn:zitadel:iam:org:project:id:" + waypointProjectID + ":aud"
 	if got := store.data[k(tenantPath("nutgraf-01", "oranger"), "OIDC_BACKEND_AUDIENCE_SCOPES")]; got != want {
@@ -156,7 +156,7 @@ func TestNoExchangeClientPublishesNoAllowlistAtAll(t *testing.T) {
 	clients := []client2.DeclaredClient{{Name: "bff", ClientID: "oranger-bff@nutgraf"}}
 
 	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, clients)
+		"nutgraf-01", "nutgraf", "oranger", deps, clients, nil)
 
 	if got, ok := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]; ok {
 		t.Fatalf("published %q while the exchange client was unknown; want no write", got)
@@ -176,7 +176,7 @@ func TestTheExchangeClientIsReadFromInfisicalOnLaterReconciles(t *testing.T) {
 	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
 
 	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, nil /* no Clients this reconcile */)
+		"nutgraf-01", "nutgraf", "oranger", deps, nil /* no Clients this reconcile */, nil /* no service identity */)
 
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
 	if want := orangerExchangeClientID + "=oranger"; got != want {
@@ -197,11 +197,135 @@ func TestASecondCallerIsAddedNotSubstituted(t *testing.T) {
 			{Name: gatewayExchangeClientName(app), ClientID: app + "-gateway-exchange@nutgraf"},
 		}
 		r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-			"nutgraf-01", "nutgraf", app, deps, clients)
+			"nutgraf-01", "nutgraf", app, deps, clients, nil)
 	}
 
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
 	if want := "atlas-gateway-exchange@nutgraf=atlas oranger-gateway-exchange@nutgraf=oranger"; got != want {
 		t.Fatalf("waypoint's %s = %q; want both callers, sorted: %q", allowedAzpKey, got, want)
+	}
+}
+
+// ── The service identity (ADR-097) ───────────────────────────────────────────
+//
+// Client credentials is the flow that actually works on the deployed issuer, so
+// these cover the wiring that carries it: the caller's own credential, and the
+// allowlist entry without which the target refuses every service call.
+
+const orangerServiceClientID = "oranger-service@nutgraf"
+
+// A receiver matches `azp || client_id`, and the two flows fill different claims:
+// a gateway exchange stamps azp with the exchange client, client credentials
+// stamps client_id with the machine client. Both are oranger calling. Publishing
+// only one leaves the other flow refused by a target that looks configured.
+func TestBothCallerIdentitiesReachTheTargetAllowlist(t *testing.T) {
+	store := newFakeSecretStore()
+	r := &AINativeSaaSReconciler{InfisicalClient: store}
+	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
+	clients := []client2.DeclaredClient{
+		{Name: gatewayExchangeClientName("oranger"), ClientID: orangerExchangeClientID},
+	}
+
+	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
+		"nutgraf-01", "nutgraf", "oranger", deps, clients,
+		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"})
+
+	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
+	want := orangerExchangeClientID + "=oranger " + orangerServiceClientID + "=oranger"
+	if got != want {
+		t.Fatalf("waypoint's %s = %q; want both of oranger's identities: %q", allowedAzpKey, got, want)
+	}
+}
+
+// The caller needs its own credential to mint a token with. Published onto the
+// CALLER's path -- the target's folder holds only the allowlist entry, and
+// keeping them apart is what lets one be revoked without the other.
+func TestTheServiceCredentialIsPublishedToTheCaller(t *testing.T) {
+	store := newFakeSecretStore()
+	r := &AINativeSaaSReconciler{InfisicalClient: store}
+	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
+
+	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
+		"nutgraf-01", "nutgraf", "oranger", deps,
+		[]client2.DeclaredClient{{Name: gatewayExchangeClientName("oranger"), ClientID: orangerExchangeClientID}},
+		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"})
+
+	caller := tenantPath("nutgraf-01", "oranger")
+	if got := store.data[k(caller, serviceClientIDKey)]; got != orangerServiceClientID {
+		t.Fatalf("caller's %s = %q, want %q", serviceClientIDKey, got, orangerServiceClientID)
+	}
+	if got := store.data[k(caller, serviceClientSecretKey)]; got != "svc-secret" {
+		t.Fatalf("caller's %s = %q, want the minted secret", serviceClientSecretKey, got)
+	}
+	// The credential belongs to the caller and must not appear in the target's
+	// folder, which the target's workload reads.
+	if got, ok := store.data[k(tenantPath("nutgraf-01", "waypoint"), serviceClientSecretKey)]; ok {
+		t.Fatalf("caller's secret leaked into the target's folder: %q", got)
+	}
+}
+
+// The issuer discloses a generated secret once, so most reconciles carry none.
+// Writing the empty value would overwrite the credential the running workload is
+// holding, and the failure lands on its next call rather than on this reconcile.
+func TestALaterReconcileDoesNotBlankTheServiceSecret(t *testing.T) {
+	store := newFakeSecretStore()
+	r := &AINativeSaaSReconciler{InfisicalClient: store}
+	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
+	clients := []client2.DeclaredClient{
+		{Name: gatewayExchangeClientName("oranger"), ClientID: orangerExchangeClientID},
+	}
+
+	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
+		"nutgraf-01", "nutgraf", "oranger", deps, clients,
+		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"})
+	// The next reconcile: the identity exists, so the issuer discloses nothing.
+	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
+		"nutgraf-01", "nutgraf", "oranger", deps, clients,
+		&client2.ServiceClient{ClientID: orangerServiceClientID})
+
+	caller := tenantPath("nutgraf-01", "oranger")
+	if got := store.data[k(caller, serviceClientSecretKey)]; got != "svc-secret" {
+		t.Fatalf("second reconcile left %s = %q; want the stored secret untouched", serviceClientSecretKey, got)
+	}
+	// The id is still republished: it is what the target matches, and dropping it
+	// would read as a caller that no longer exists.
+	if got := store.data[k(caller, serviceClientIDKey)]; got != orangerServiceClientID {
+		t.Fatalf("second reconcile lost %s = %q", serviceClientIDKey, got)
+	}
+}
+
+// An absent service identity must publish NOTHING for it, and must not fall back
+// to the exchange client. The exchange client is an OIDC application, not a
+// machine user; it cannot authenticate client credentials, so an allowlist entry
+// naming it can never be matched by a service token while looking configured.
+func TestAPendingServiceIdentityPublishesNothingAndDoesNotFallBack(t *testing.T) {
+	store := newFakeSecretStore()
+	r := &AINativeSaaSReconciler{InfisicalClient: store}
+	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
+
+	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
+		"nutgraf-01", "nutgraf", "oranger", deps,
+		[]client2.DeclaredClient{{Name: gatewayExchangeClientName("oranger"), ClientID: orangerExchangeClientID}},
+		nil)
+
+	caller := tenantPath("nutgraf-01", "oranger")
+	if got, ok := store.data[k(caller, serviceClientIDKey)]; ok {
+		t.Fatalf("published a service client id with no service identity: %q", got)
+	}
+	// The exchange half still stands -- the browser path does not wait on this.
+	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
+	if want := orangerExchangeClientID + "=oranger"; got != want {
+		t.Fatalf("waypoint's %s = %q; want only the exchange caller: %q", allowedAzpKey, got, want)
+	}
+}
+
+// The name the operator sends to the identity service is the name the credential
+// is published against, and the two must not drift apart.
+func TestTheServiceUserNameIsDistinctFromTheExchangeClient(t *testing.T) {
+	if serviceUserName("oranger") == gatewayExchangeClientName("oranger") {
+		t.Fatal("the service identity and the exchange client share a name; one authenticates a user exchange, the other a service")
+	}
+	if got, want := serviceUserName("oranger"), "oranger-service"; got != want {
+		t.Fatalf("serviceUserName = %q, want %q", got, want)
 	}
 }

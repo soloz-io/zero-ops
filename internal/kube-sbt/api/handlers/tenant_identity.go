@@ -53,6 +53,17 @@ type ensureTenantIdentityRequest struct {
 	// account in it. Scoped to this tenant's organisation by the gateway, so it
 	// cannot create accounts anywhere else.
 	SelfRegistration bool `json:"selfRegistration"`
+
+	// ServiceClientName is the login name for this application's SERVICE
+	// identity, which it calls other applications as (ADR-097).
+	//
+	// Named by the CALLER rather than derived here. The name has to agree with
+	// the key the caller publishes the credential under, and a name invented on
+	// each side is two names for one identity -- the defect the OIDC_ALLOWED_AZP
+	// grammar already cost us once. Empty means the application declares no
+	// cross-application calling and gets no service identity: an unused machine
+	// credential is a standing credential nobody rotates.
+	ServiceClientName string `json:"serviceClientName"`
 	// OAuthClients are the clients this FLEET declares. Exactly this set is
 	// provisioned and no more: a fleet that declares none gets none, rather than
 	// a set the platform chose for it (ADR-047).
@@ -144,6 +155,30 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		})
 	}
 
+	// The SERVICE identity, for calling other applications (ADR-097).
+	//
+	// Provisioned after the tenant's identity for the same reason the declared
+	// clients are: it belongs to an organisation this call has just resolved, and
+	// creating it against an organisation resolved some other way is how a
+	// credential ends up somewhere the tenant cannot see and nothing revokes with
+	// the tenant.
+	//
+	// Failure is reported in Incomplete, not fatal. The browser path does not
+	// depend on this; an application whose service identity is missing loses
+	// cross-application calling and keeps its login, and the caller learns which
+	// capability is absent instead of finding a workload that will not start.
+	if req.ServiceClientName != "" {
+		svc, serr := h.provisioner.EnsureMachineClient(
+			c.Request.Context(), identity.TenantRef, req.ServiceClientName, req.ServiceClientName, false)
+		switch {
+		case serr != nil:
+			identity.Incomplete = append(identity.Incomplete,
+				fmt.Sprintf("provision service identity %q: %v", req.ServiceClientName, serr))
+		default:
+			identity.ServiceClient = svc
+		}
+	}
+
 	// Published before the response. A caller that saw success and then found no
 	// client id could not tell "not provisioned" from "provisioned, publish
 	// failed", and only the second needs a retry.
@@ -171,6 +206,18 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 	// later calls is the signal that no new credential exists, so a caller that
 	// persists it unconditionally would overwrite a stored password with an
 	// empty value.
+	// The service identity's client id, and its secret ONLY when this call minted
+	// one. The id is what every TARGET allowlists, so it must reach the caller
+	// even on a reconcile that disclosed no secret -- the receiver's allowlist is
+	// rebuilt from it, and a reconcile that omitted it would look like a caller
+	// that no longer exists.
+	if identity.ServiceClient != nil && identity.ServiceClient.ClientID != "" {
+		svc := gin.H{"clientId": identity.ServiceClient.ClientID}
+		if identity.ServiceClient.ClientSecret != "" {
+			svc["clientSecret"] = identity.ServiceClient.ClientSecret
+		}
+		resp["serviceClient"] = svc
+	}
 	if identity.OwnerPassword != "" {
 		resp["ownerPassword"] = identity.OwnerPassword
 	}

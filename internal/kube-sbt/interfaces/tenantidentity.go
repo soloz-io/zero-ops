@@ -61,4 +61,29 @@ type ITenantIdentityProvisioner interface {
 	// returned, so the client lands beside the application's browser client and
 	// never in a project or organisation resolved some other way.
 	EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
+
+	// EnsureMachineClient provisions the SERVICE identity an application calls
+	// another application with (ADR-097).
+	//
+	// Distinct from the confidential client above, which authenticates a client
+	// acting FOR A PERSON: the authorization code it completes belongs to someone
+	// who logged in. A service-to-service call has no person, and modelling one
+	// produces a token whose subject is a user that nobody is. A machine user's
+	// subject IS the service, which is what lets invariant 8 hold -- nothing may
+	// map a machine token's subject to a person.
+	//
+	// The implementation must ensure the identity mints JWTs rather than the
+	// issuer's opaque default, and must assert that on an identity it did not
+	// create. An opaque token cannot be validated locally, so a receiver holding
+	// one has to introspect -- putting the issuer in the path of every
+	// cross-application request, and failing in a way that reads as an
+	// authorization bug rather than a provisioning one.
+	//
+	// clientSecret is returned ONLY when this call created or regenerated it, for
+	// the same reason it is above.
+	//
+	// orgID is the TenantRef EnsureTenantIdentity returned. There is no project:
+	// a machine user belongs to the organisation, and the audience it may request
+	// is decided per token, not at provisioning (invariant 3).
+	EnsureMachineClient(ctx context.Context, orgID, userName, displayName string, regenerateIfExists bool) (*models.MachineClient, error)
 }

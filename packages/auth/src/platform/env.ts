@@ -52,6 +52,20 @@ export const PLATFORM_ENV = {
   /** The confidential client this application's gateway exchanges as. */
   exchangeClientId: "OIDC_EXCHANGE_CLIENT_ID",
   exchangeClientSecret: "OIDC_EXCHANGE_CLIENT_SECRET",
+  /**
+   * The machine identity this application calls ANOTHER APPLICATION as, with no
+   * user in the request (ADR-097).
+   *
+   * Not a variant of the exchange client above, and the distinction is the whole
+   * point: that one authenticates a token exchange carrying a person, this one
+   * authenticates this application acting as itself. A receiver admits both,
+   * because it matches `azp || client_id` and they fill different claims -- but
+   * nothing may read a person out of a token minted from this pair.
+   *
+   * Present only for an application that declares `backendDependencies`.
+   */
+  serviceClientId: "OIDC_SERVICE_CLIENT_ID",
+  serviceClientSecret: "OIDC_SERVICE_CLIENT_SECRET",
 } as const;
 
 /**

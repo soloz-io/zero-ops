@@ -59,6 +59,10 @@ type ProjectBinding struct {
 // TenantIdentity is what a tenant needs in order to authenticate, and the only
 // output of identity provisioning that anything downstream consumes.
 type TenantIdentity struct {
+	// ServiceClient is this application's machine identity for calling other
+	// applications (ADR-097). Nil when the application declared none.
+	ServiceClient *MachineClient
+
 	// Incomplete says what did not finish, and is empty when the tenant is
 	// usable.
 	//
@@ -113,6 +117,23 @@ type TenantIdentity struct {
 // (ADR-003). A client whose credentials were minted and not persisted is worse
 // than one never created -- the issuer has rotated the secret and nothing holds
 // the new value.
+// MachineClient is the service identity one application calls another with
+// (ADR-097): OAuth 2.0 client credentials, no user in the request.
+//
+// UserID is the machine user's subject. It identifies the SERVICE and nothing may
+// resolve it to a person.
+//
+// ClientID is what the RECEIVER allowlists. The issuer allocates it when the
+// secret is generated and it is unrelated to the login name, so it cannot be
+// spelled out in a manifest ahead of time -- it has to travel from here.
+//
+// ClientSecret is present only when this call created or regenerated it.
+type MachineClient struct {
+	UserID       string
+	ClientID     string
+	ClientSecret string
+}
+
 type DeclaredClient struct {
 	// Name as the fleet declared it. The caller derives its key names from this.
 	Name string

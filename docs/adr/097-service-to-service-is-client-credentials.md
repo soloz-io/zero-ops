@@ -166,11 +166,47 @@ until it names the version it was read from and that version is the one running.
 
 ## Impact
 
-- `internal/kube-sbt/providers/zitadel` — a machine user and confidential client
-  per application, `accessTokenType: JWT`.
-- `operators/hub-operator` — publish that client's id into each declared target's
-  allowlist, beside what `publishAllowedCaller` already does.
-- `packages/auth` — no change; `azp || client_id` already covers it.
-- `manifests/tenants/charts/universal-tenant` — no change; the cross-application
-  network policies already render from `backendDependencies`.
+Built on 2026-09-30. Every endpoint below was read from `v4.15.3` — the deployed
+release — and not from the reference checkout, which defaults to
+`v5.0.0-base-226-g8ccd5b206` and is the trap this ADR records.
+
+- `internal/kube-sbt/providers/zitadel` — `EnsureMachineClient`: a machine user
+  per application, created with `ACCESS_TOKEN_TYPE_JWT`.
+  `POST /management/v1/users/machine`, `PUT /users/{id}/secret`,
+  `PUT /users/{id}/machine`, and a `POST /v2/users` search scoped by
+  `organizationIdQuery`. The token type is **asserted on an identity it did not
+  create**, not assumed: Zitadel's default is opaque, and a machine user made by
+  hand or by older code carries it. It refuses an ambiguous login name and a
+  human account occupying one, because either would publish an allowlist entry
+  for a credential the caller does not hold.
+- `internal/kube-sbt/api/handlers` — provisioned from `serviceClientName` on the
+  identity request, and returned as `serviceClient`. Named by the CALLER, since
+  the same name has to agree with the key the credential is published under.
+  Failure lands in `Incomplete`: the browser path does not depend on it.
+- `operators/hub-operator` — `publishServiceIdentity`. The credential goes to the
+  CALLER's folder as `OIDC_SERVICE_CLIENT_ID` / `OIDC_SERVICE_CLIENT_SECRET`; the
+  client id goes into each TARGET's `OIDC_ALLOWED_AZP` beside the exchange client,
+  because a receiver matches `azp || client_id` and one allowlist serves both.
+  Provisioned only for an application that declares `backendDependencies` — an
+  unused machine credential is a standing credential nobody rotates. The secret is
+  never republished empty over a stored one.
+- `packages/auth` 0.17.0 — `serviceTokenSource({ target })`. The correction to
+  "no change": validation needed none, but the CALLER had no way to mint. The two
+  scopes are raw issuer vocabulary, and an application writing them by hand gets
+  `invalid_target` or a tenant-less rejection with nothing naming the missing one.
+  It caches until shortly before expiry, collapses concurrent mints, treats a
+  response with no `expires_in` as expiring immediately, and refuses to build for
+  a target the application has not declared.
+- `manifests/tenants/charts/universal-tenant` — `<app>-service-identity`, its own
+  ExternalSecret, rendered only from `backendDependencies`. Separate because an
+  ExternalSecret is atomic and these keys appear on a different event from every
+  other key in `platform-credentials`.
 - ADR-095 — its 2026-09-30 amendment is withdrawn; see that ADR.
+
+### What is still not built
+
+The **product-team-facing half**: neither oranger nor waypoint calls
+`serviceTokenSource` yet, and waypoint's `/consumer/v1` still mounts nothing. The
+platform now provisions the identity, publishes both halves of the trust, and
+hands the caller a token source. Wiring it into an application is that
+application's change.
