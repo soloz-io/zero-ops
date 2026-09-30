@@ -6,7 +6,19 @@ import type {
   SqlTransactor,
 } from "./types.js";
 
-const DEFAULT_PROVIDER = "ory";
+// The issuer this platform runs. It was "ory" until 2026-09-30 -- a default
+// carried over from an earlier identity provider, on a fleet whose issuer has
+// only ever been Zitadel. Nothing failed, because this name is only ever
+// compared against itself, so a wrong one stays consistent with itself and is
+// invisible; the oranger team found it by reading a row.
+//
+// `identities` is UNIQUE(provider, provider_user_id), so this value and the
+// stored one must move together: tenant migration 8 rewrites every "ory" row,
+// and resolve_user now REFUSES the old name rather than treating it as an alias.
+// An alias would let a stale workload look a person up under a name no row
+// carries, find nothing, and create a second user for them -- silently, since
+// the insert succeeds.
+const DEFAULT_PROVIDER = "zitadel";
 const DEFAULT_SCHEMA = "public";
 
 /** Reject anything that could not be a bare SQL identifier. */

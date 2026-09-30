@@ -63,12 +63,35 @@ describe("resolveUser", () => {
     // Subject, never address. Joining on email silently merges two people the
     // moment an address is reassigned.
     expect(db.params[0]).toEqual([
-      "ory",
+      "zitadel",
       "kratos-subject-1",
       "person@example.com",
     ]);
     expect(db.sql[0]).toContain("resolve_user($1, $2, $3)");
     expect(db.sql[0]).not.toContain("u.email = ");
+  });
+
+  it("names the provider Zitadel, which is the issuer this platform runs", async () => {
+    // Pinned by name, because this value is only ever compared against itself:
+    // `identities` is UNIQUE(provider, provider_user_id) and every lookup sends
+    // the same constant it stored. A wrong name is therefore self-consistent and
+    // fails nothing -- "ory" survived here for months that way.
+    //
+    // What makes it matter is CHANGING it. The stored rows and this constant
+    // must move together (tenant migration 8); if they ever diverge, a lookup
+    // matches no row, the person is judged new, and a second users row is
+    // created for them. That insert succeeds, so nothing reports it.
+    const db = fakeDb([[{ user_id: "u", email: "person@example.com", is_new: false }]]);
+    await resolveUser(db, claims());
+    expect(db.params[0][0]).toBe("zitadel");
+  });
+
+  it("still lets a genuine second provider be named", async () => {
+    // Federation is the one legitimate override: the same subject from two
+    // providers is two people until something says otherwise.
+    const db = fakeDb([[{ user_id: "u", email: "person@example.com", is_new: false }]]);
+    await resolveUser(db, claims(), { provider: "okta" });
+    expect(db.params[0][0]).toBe("okta");
   });
 
   it("issues exactly one statement", async () => {

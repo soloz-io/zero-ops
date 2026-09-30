@@ -72,7 +72,7 @@ describe("identityHandler", () => {
     await me(app(validatorReturning(claims), db));
     expect(calls).toHaveLength(1);
     expect(calls[0].sql).toContain("resolve_user(");
-    expect(calls[0].params).toEqual(["ory", "subject-1", "a@example.com"]);
+    expect(calls[0].params).toEqual(["zitadel", "subject-1", "a@example.com"]);
   });
 
   it("is signed in with ownership unknown when resolution fails -- not an error", async () => {

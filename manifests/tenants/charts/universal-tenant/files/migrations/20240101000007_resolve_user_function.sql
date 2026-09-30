@@ -128,6 +128,23 @@ BEGIN
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
+  -- "ory" IS REFUSED, RATHER THAN ACCEPTED AS AN ALIAS.
+  --
+  -- It was the library's default provider name on a fleet whose issuer is
+  -- Zitadel, and migration 8 rewrote every stored row to "zitadel". A workload
+  -- still running zero-ops-auth < 0.16.0 keeps sending the old name, and if this
+  -- accepted it the lookup would match no row, resolve_user would conclude the
+  -- person is new, and insert a SECOND users row for someone who already has
+  -- one. That failure is silent -- the insert succeeds -- and it is discovered
+  -- later as a person whose records have vanished.
+  --
+  -- So the stale caller gets an error it cannot miss instead. This is a rollout
+  -- window measured in minutes, against a duplicate that is permanent.
+  IF p_provider = 'ory' THEN
+    RAISE EXCEPTION 'resolve_user: provider "ory" was renamed to "zitadel" (migration 8). This caller is running zero-ops-auth < 0.16.0; upgrade it.'
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
   LOOP
     -- BOUNDED. A genuine race resolves on the first retry: the loser re-reads and
     -- finds the winner's identity. More than a couple of passes means something
