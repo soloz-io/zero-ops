@@ -1,9 +1,19 @@
 # ADR-093: The application must not own the tables it queries
 
 **Date:** 2026-09-28
-**Status:** Accepted
+**Status:** Superseded by ADR-099 (2026-10-01)
 **Amends:** ADR-057 (which specifies the RLS context and is silent on the precondition for it to have any effect)
 **Relates to:** ADR-090 (one name for the database role), ADR-089 (the tenant baseline has an owner again), ADR-014
+
+> **SUPERSEDED by ADR-099 (2026-10-01).** The finding below is sound and worth
+> reading: the baseline's policies enforced nothing, because PostgreSQL exempts a
+> table's owner from its own policies. The conclusion is not. The policy it was
+> protecting reads `current_setting('request.jwt.claims')`, which **the
+> application sets** — so it caught a forgotten `WHERE` and constrained nothing
+> else. Taking ownership to make a within-application backstop bite cost a
+> `SECURITY DEFINER` function, a 120-line grant migration, a production outage in
+> graphile-worker, and a second migration to hand ownership back where the split
+> did not fit. ADR-099 removes the baseline instead.
 
 ## Context
 

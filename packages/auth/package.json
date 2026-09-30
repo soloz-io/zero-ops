@@ -1,6 +1,6 @@
 {
   "name": "zero-ops-auth",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": false,
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,7 +25,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "schema"
   ],
   "publishConfig": {
     "access": "public"

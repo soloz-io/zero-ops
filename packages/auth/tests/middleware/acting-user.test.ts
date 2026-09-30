@@ -18,8 +18,8 @@ const rejectingValidator = {
   },
 } as unknown as JwtValidator;
 
-/** A transactor that answers resolve_user with a fixed row and records the call. */
-function fakeDb(row: { user_id: string; email: string | null; is_new: boolean } | Error) {
+/** A transactor that answers the identity lookup with a fixed row, and records it. */
+function fakeDb(row: { user_id: string; email: string | null } | Error) {
   const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
   const tx: SqlExecutor = {
     async query<T>(sql: string, params: readonly unknown[] = []) {
@@ -67,12 +67,13 @@ describe("identityHandler", () => {
     });
   });
 
-  it("resolves by subject through resolve_user, passing the address as data only", async () => {
-    const { db, calls } = fakeDb({ user_id: "u", email: null, is_new: true });
+  it("resolves by SUBJECT, never by the address", async () => {
+    // The address travels as data to be stored or refreshed. Looking a person up
+    // by it merges two accounts the moment one is reassigned.
+    const { db, calls } = fakeDb({ user_id: "u", email: "a@example.com" });
     await me(app(validatorReturning(claims), db));
-    expect(calls).toHaveLength(1);
-    expect(calls[0].sql).toContain("resolve_user(");
-    expect(calls[0].params).toEqual(["zitadel", "subject-1", "a@example.com"]);
+    expect(calls[0].sql).toContain("i.provider_user_id = $2");
+    expect(calls[0].params).toEqual(["zitadel", "subject-1"]);
   });
 
   it("is signed in with ownership unknown when resolution fails -- not an error", async () => {

@@ -120,7 +120,7 @@ identity:
   backendDependencies: []  # apps THIS app calls        (§7)
   allowedConsumers: []     # apps allowed to call THIS  (§7)
 
-database: {}               # empty is meaningful: the baseline schema, nothing custom
+database: {}               # you get an empty database and a role; the schema is yours (§6)
 config: {}                 # non-secret values your workloads read
 secrets: []                # secrets a HUMAN must supply (§5)
 ```
@@ -132,6 +132,37 @@ them is the mistake ADR-088 exists to remove. Their combined length is capped at
 which would map two apps onto one role.
 
 ---
+
+
+## 6. Your database
+
+The platform provisions a **database and a role**. Nothing is inside it (ADR-099).
+
+No tables, no functions, no policies, no migration Job — the schema is yours,
+applied by your own migrations, changed on your own schedule. A library the
+platform ships cannot break your queue, because the platform owns no object in
+your database.
+
+**If you authenticate people, start from `zero-ops-auth/schema/identity.sql`.**
+Copy it into your migrations. It is the two tables `resolveUser()` expects —
+`users` and `identities` — and it exists because there is one way to get the
+mapping wrong that never announces itself:
+
+> Join on the **subject**, never on the email address. An address is mutable at
+> the provider and reassignable between people, so a lookup keyed on it merges
+> two accounts the moment an address changes hands, and the result is one person
+> reading another's records with nothing reporting an error.
+
+`resolveUser()` handles that, and the first-sighting race, which needs the
+`UNIQUE (provider, provider_user_id)` constraint the file declares.
+
+**Applications provisioned before 2026-10-01**: these tables already exist in
+your database with your users in them. Adopting the file is a no-op —
+`CREATE TABLE IF NOT EXISTS`. Do not drop and recreate: `identities` is how your
+existing people are found. Two things have already run and must not be repeated:
+the rewrite of `identities.provider` from `ory` to `zitadel`, and the removal of
+the baseline's row-level security policies. `sessions`, `buckets` and `objects`
+are also there, used by nothing; drop them whenever you like — they are yours.
 
 ## 4. What your chart must carry
 

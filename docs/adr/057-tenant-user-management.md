@@ -14,6 +14,21 @@ that a cross-application hop is **replaced** with ADR-094's model as a deliberat
 change, never retrofitted onto these headers. See ADR-094 "External security
 review, 2026-09-30", requirements 4–7.
 
+> **AMENDED by ADR-099 (2026-10-01).** What this ADR decides — that a person is
+> found by SUBJECT and never by email address, that resolution is a platform
+> library rather than fifty lines in each tenant, and that provisioning and
+> linking are one atomic operation — all stands.
+>
+> What changes is where the tables live. **The platform no longer ships a tenant
+> baseline.** It provisions a database and a role; `users` and `identities` are
+> the application's, declared in its own migrations from
+> `zero-ops-auth/schema/identity.sql`. `resolveUser` issues its own SQL against
+> them again, so the `SECURITY DEFINER` function this ADR's 2026-09-28 amendment
+> introduced is gone, and so are the row-level security policies — they never
+> constrained the application, which sets the claim they read.
+>
+> Read "the baseline" below as "the two tables the application declares".
+
 ## Context
 
 The platform provisions every tenant database from a common baseline, and that baseline has always included a table of users and a table of identities linking each user to an external identity provider, together with row-level security policies restricting access to the acting user's own rows. The identity table exists precisely to hold the mapping between a provider's subject and a tenant-local user.
@@ -54,9 +69,9 @@ It said `"ory"` until 2026-09-30 — a default carried over from the identity pr
 
 **The stored value and the sent value move in the same change.** `identities` is `UNIQUE(provider, provider_user_id)` and resolution looks a person up by that pair, so changing the name the library sends without rewriting the stored rows makes every existing identity unreachable: the lookup matches nothing, `resolve_user` concludes the person is new, and inserts a **second** `users` row for someone who already has one. That insert succeeds. Nothing reports it, and the person's records stay behind the identifier they no longer resolve to.
 
-So the rename is one change with two halves — tenant baseline migration 8 rewrites every stored row, and `zero-ops-auth` 0.16.0 sends the new name.
+So the rename was one change with two halves — a platform migration rewrote every stored row, and `zero-ops-auth` 0.16.0 sent the new name. **Both have run.** An application adopting the schema under ADR-099 inherits rows that already say `zitadel` and must not repeat the rewrite.
 
-**The old name is refused, not aliased.** `resolve_user` raises on `provider = 'ory'`. Accepting both names for one issuer is exactly what creates the duplicate above, and it would do so during the rollout window in which some workloads are upgraded and some are not. A stale caller gets an error naming the version it must upgrade to; a rollout window measured in minutes is the right price for a duplicate that is permanent.
+**The old name was refused, not aliased.** The platform's `resolve_user` function raised on `provider = 'ory'` while it existed. It is gone with the baseline (ADR-099), and the guard is no longer needed: every stored row was rewritten and no shipped library sends the old name. Accepting both names for one issuer is exactly what creates the duplicate above, and it would do so during the rollout window in which some workloads are upgraded and some are not. A stale caller gets an error naming the version it must upgrade to; a rollout window measured in minutes is the right price for a duplicate that is permanent.
 
 This does not constrain genuine federation. A tenant that really does add a second issuer names it explicitly, which is the case the provider column exists for.
 
@@ -70,21 +85,15 @@ Two requests from the same person arriving together will both observe no user an
 
 ### Row-level security context is transaction-scoped
 
-> **Amendment 2026-09-28 (ADR-093).** Everything this section decides is correct and
-> implemented, and NONE of it had any effect until ADR-093. Setting the context is
-> necessary and not sufficient: PostgreSQL exempts a table's owner from its policies,
-> and the application connected as the owner of every baseline table, so the policies
-> were never evaluated. Measured on a live spoke as the application's own role with no
-> claims set, a query returned every row where the policy would have matched none.
-> ADR-093 separates the owner from the runtime role, which is the precondition that
-> makes this section load-bearing. Read them together; this one alone describes a
-> mechanism that runs and protects nothing.
+> **Amendment 2026-09-28, WITHDRAWN 2026-10-01 (ADR-099).** It read: the RLS
+> context this section specifies had no effect until ADR-093 separated the owner
+> from the runtime role, and `resolveUser` would thereafter reach `identities`
+> through a hardened `SECURITY DEFINER` function.
 >
-> ADR-093 also changes HOW `resolveUser` reaches `identities`. The lookup happens
-> before any acting user exists, so under enforced RLS it matches nothing; it becomes
-> a hardened `SECURITY DEFINER` function. That is still a library on the application's
-> own connection, as decided below -- no network hop, no second component on the
-> request path -- only the privilege the statement runs with changes.
+> Both halves are withdrawn. The policies were inert, but making them bite was not
+> worth what it cost, and they bound nobody even when they worked: the application
+> supplies the `user_id` they compare against. There are no baseline policies now
+> and no function — `resolveUser` reads the application's own tables directly.
 
 The setting the baseline policies read is established for the duration of a transaction and no longer.
 
@@ -369,10 +378,11 @@ Per ADR-039.
 
 - **Extends the tenant baseline's role.** The baseline's user and identity tables become part of the platform's contract with tenants rather than unused scaffolding.
 - **Fixes the provider name in the baseline and the library together** (2026-09-30).
-  Tenant migration 8 rewrites every `identities.provider` from `ory` to `zitadel`;
-  `resolve_user` refuses the old name rather than aliasing it; `zero-ops-auth`
-  0.16.0 sends the new one. Migration 8 must land BEFORE any workload upgrades,
-  because the refusal takes effect the moment it applies.
+  A platform migration rewrote every `identities.provider` from `ory` to
+  `zitadel` and `zero-ops-auth` 0.16.0 sends the new name. **Both have run.**
+  Under ADR-099 the platform ships no migrations, so an application adopting
+  `users` and `identities` inherits rows that already say `zitadel` — it must not
+  repeat the rewrite, and nothing in the shipped library sends the old name.
 - **Supersedes ADR-010** (marked 2026-09-28). That decision predates ZITADEL,
   assumed PostgREST and Atlas, and provisioned users through an administrative API
   rather than on first authenticated request. It is retained for history only.

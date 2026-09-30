@@ -1,8 +1,12 @@
 # ADR-089: The Tenant Baseline Has an Owner Again
 
-**Status:** Accepted
+**Status:** Superseded by ADR-099 (2026-10-01)
 **Date:** 2026-09-25
 **Amends:** ADR-074 (which left this seat vacant)
+
+> **SUPERSEDED by ADR-099 (2026-10-01).** The tenant baseline no longer exists.
+> The platform provisions a database and a role; the tables are the application's,
+> so the question of who owns them is the application's too.
 
 ## Context
 
