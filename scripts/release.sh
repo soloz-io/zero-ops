@@ -5,7 +5,7 @@
 #   scripts/release.sh --version 0.1.17-rc.1 an explicit version
 #   scripts/release.sh --dry-run             say what it would do, change nothing
 #   scripts/release.sh --no-promote          publish only
-#   scripts/release.sh --sync                promote, then hard-sync the box
+#   scripts/release.sh --no-sync             publish and promote, do not sync
 #
 # WHY ONE SCRIPT. Publishing and promoting are two halves of one intent, and
 # doing them by hand has failed in three distinct ways that this sequence
@@ -33,14 +33,14 @@ OWNER="${OWNER:-soloz-io}"
 VERSION=""
 DRY_RUN=0
 PROMOTE=1
-SYNC=0
+SYNC=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --version)    VERSION="${2:?--version needs a value}"; shift 2 ;;
     --dry-run)    DRY_RUN=1; shift ;;
     --no-promote) PROMOTE=0; shift ;;
-    --sync)       SYNC=1; shift ;;
+    --no-sync)    SYNC=0; shift ;;
     -h|--help)    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -156,11 +156,14 @@ FILES="$(grep -rl -- "$CURRENT" registry/ --include='*.yaml' 2>/dev/null || true
 note "rewriting: $(echo "$FILES" | tr '\n' ' ')"
 
 if [ "$DRY_RUN" = 1 ]; then
-  note "would rewrite $(echo "$FILES" | wc -l | tr -d ' ') file(s) and push"
+  # Falls THROUGH to step 5 rather than exiting. A dry run that stops before the
+  # last step cannot answer the question a dry run is for -- what will this do to
+  # the box -- and the sync is the step with the consequences.
+  note "would rewrite $(echo "$FILES" | wc -l | tr -d ' ') file(s), commit, rebase and push"
   cd - >/dev/null
-  say "Dry run complete. Nothing published, nothing promoted."
-  exit 0
+  DRY_PROMOTED=1
 fi
+if [ "${DRY_PROMOTED:-0}" != 1 ]; then
 
 for f in $FILES; do
   # In place, both GNU and BSD sed.
@@ -195,15 +198,59 @@ git -c rebase.autoStash=true pull --rebase -q || die "the remote moved and the r
 git push -q || die "push rejected. $VERSION IS PUBLISHED but not promoted -- resolve in $GITOPS_DIR and push"
 note "pushed $(git log --oneline -1)"
 cd - >/dev/null
-
 say "Promoted to $VERSION"
-
-if [ "$SYNC" = 1 ]; then
-  say "5. Sync the box"
-  [ -n "${KUBECONFIG:-}" ] || die "--sync needs KUBECONFIG set to the hub's kubeconfig"
-  scripts/argocd-hard-sync.sh --promote "$VERSION" || die "the box did not converge on $VERSION"
-else
-  echo
-  note "Next: KUBECONFIG=$GITOPS_DIR/k8-secrets/kubeconfig/<hub>.kubeconfig \\"
-  note "        scripts/argocd-hard-sync.sh --promote $VERSION"
 fi
+
+# ---------------------------------------------------------------------------
+# 5. Sync, and VERIFY the box reached the version.
+#
+# Not an opt-in step, and not a line of advice printed at the end. A promotion
+# that is written to git and never confirmed on the box is the failure this
+# whole script exists to prevent: the repository says rc.N, every child stays on
+# rc.N-1, and nothing reports it. Printing "Next: run this" leaves exactly that
+# gap, and leaves it at the moment the operator has most reason to believe the
+# work is done.
+#
+# The hard-sync is what turns "written" into "running": it drives the root, waits
+# for each child to reach the version, and exits non-zero naming any that did
+# not. This script's exit code is therefore the answer to "is the box on the new
+# version", which is the only question worth asking after a release.
+# ---------------------------------------------------------------------------
+if [ "$SYNC" = 0 ]; then
+  echo
+  note "Not synced (--no-sync). The repository says $VERSION; the box does not yet."
+  note "  KUBECONFIG=$GITOPS_DIR/k8-secrets/kubeconfig/<hub>.kubeconfig \\"
+  note "    scripts/argocd-hard-sync.sh --promote $VERSION"
+  exit 0
+fi
+
+say "5. Sync the box and verify it reached $VERSION"
+if [ -z "${KUBECONFIG:-}" ]; then
+  # Discovered, not assumed. Exactly one match or it asks: guessing which cluster
+  # to drive is not a thing a release script may do quietly.
+  # Plain globbing, not mapfile: the system bash on macOS is 3.2, where mapfile
+  # does not exist and the script would die with "command not found" at the last
+  # step of a release that had already published and promoted.
+  HUBS=""
+  for k in "$GITOPS_DIR"/k8-secrets/kubeconfig/*hub*.kubeconfig; do
+    [ -f "$k" ] && HUBS="$HUBS$k"$'\n'
+  done
+  HUB_COUNT=$(printf '%s' "$HUBS" | grep -c . || true)
+  case "$HUB_COUNT" in
+    1) KUBECONFIG="$(printf '%s' "$HUBS" | head -1)"; export KUBECONFIG; note "using $KUBECONFIG" ;;
+    0) die "no hub kubeconfig under $GITOPS_DIR/k8-secrets/kubeconfig/ -- set KUBECONFIG" ;;
+    *) die "several hub kubeconfigs found; set KUBECONFIG to the one to drive:
+$(printf '%s' "$HUBS" | sed 's/^/     /')" ;;
+  esac
+fi
+
+if [ "$DRY_RUN" = 1 ]; then
+  note "would run: scripts/argocd-hard-sync.sh --promote $VERSION"
+  exit 0
+fi
+
+scripts/argocd-hard-sync.sh --promote "$VERSION" || die "$VERSION is published and promoted in git, but the box did NOT converge.
+   The Applications named above are still on the previous version.
+   Fix them and re-run the sync; do not re-publish."
+
+say "Done. $VERSION is published, promoted and running."
