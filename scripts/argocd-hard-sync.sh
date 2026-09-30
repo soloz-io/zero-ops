@@ -132,9 +132,38 @@ wait_for() {
       [ "$health" = "Healthy" ] || echo "   WARN health=${health} -- read its conditions; a resync will not change it"
       return 0
     fi
+    # A ComparisonError means ArgoCD cannot even diff this Application -- a stuck
+    # admission webhook, an unrenderable source. Waiting the rest of the timeout
+    # cannot change that, so stop now and say which it is instead of reporting a
+    # generic TIMEOUT five minutes later.
+    if [ "$sync" = "Unknown" ] && app_field "$app" .status.conditions 2>/dev/null | grep -q ComparisonError; then
+      echo "   COMPARISON ERROR ${app}: ArgoCD cannot diff it (sync=Unknown) -- waiting will not help"
+      return 1
+    fi
     sleep 5
   done
   echo "   TIMEOUT ${app} not Synced in ${WAIT_TIMEOUT}s (rev=${rev:-?} sync=${sync:-?} health=${health:-?})"
+  return 1
+}
+
+# summarise prints the ledger and decides the exit code.
+#
+# Loud on failure and silent-ish on success, because the useful question after a
+# 20-minute promotion is "which ones failed", and the answer must not require
+# scrolling. A non-empty ledger exits non-zero -- this script is run by a human
+# who then says "it worked", so it has to be the thing that knows.
+summarise() {
+  echo
+  if [ ${#FAILURES[@]} -eq 0 ]; then
+    echo "OK  every Application reached Synced."
+    echo "Now verify what actually SHIPPED, not just that ArgoCD is green."
+    return 0
+  fi
+  echo "FAILED  ${#FAILURES[@]} Application(s) did not converge:"
+  for f in "${FAILURES[@]}"; do echo "  - ${f}"; done
+  echo
+  echo "This is a FAILED promotion. Nothing below this line shipped reliably --"
+  echo "do not treat the box as running the new version until these are resolved."
   return 1
 }
 
@@ -145,6 +174,14 @@ conditions_of() {
 }
 
 rc=0
+# Every failure, collected rather than only counted.
+#
+# The per-app output of a promotion is hundreds of lines, so a failure that only
+# set an exit code scrolled past and the run looked fine. FAILURES is printed as
+# a block at the end and the script exits non-zero -- one place to read, one
+# answer to "did that work".
+FAILURES=()
+fail() { FAILURES+=("$1"); rc=1; }
 
 if [ "$MODE" = "promote" ]; then
   VERSION="${1:?usage: $0 --promote <version>}"
@@ -154,7 +191,7 @@ if [ "$MODE" = "promote" ]; then
   app_exists "$ROOT_APP" || { echo "   ERROR no Application ${ROOT_APP} in ${ARGOCD_NS}"; exit 1; }
   hard_refresh "$ROOT_APP"
   trigger_sync "$ROOT_APP"
-  wait_for "$ROOT_APP" || rc=1
+  wait_for "$ROOT_APP" || fail "${ROOT_APP}: root did not reach Synced -- children cannot regenerate"
   conditions_of "$ROOT_APP"
   echo
   echo "-- children, once the root has regenerated them at ${VERSION}"
@@ -166,17 +203,22 @@ if [ "$MODE" = "promote" ]; then
     # Only version-pinned children are ours to promote; one tracking a branch is not.
     case "$cur" in *rc.*) ;; *) continue ;; esac
     if [ "$cur" != "$VERSION" ]; then
-      echo "   ${app}: still ${cur:-<none>} -- root has not regenerated it yet"
+      # A FAILURE, not a note. This used to `continue` silently, and that is
+      # exactly how two promotions reported success while shipping nothing: the
+      # version had been bumped only in values.yaml, the root synced, every child
+      # stayed on the previous release, each printed one line here, none set an
+      # exit code, and the script exited 0.
+      echo "   ${app}: still ${cur:-<none>} -- root has NOT regenerated it at ${VERSION}"
+      fail "${app}: not regenerated -- still ${cur:-<none>}, wanted ${VERSION}"
       continue
     fi
     echo "-- ${app}"
     hard_refresh "$app"
     trigger_sync "$app"
-    wait_for "$app" "$VERSION" || rc=1
+    wait_for "$app" "$VERSION" || fail "${app}: did not reach Synced at ${VERSION}"
     conditions_of "$app"
   done
-  echo
-  echo "Now verify what actually SHIPPED, not just that ArgoCD is green."
+  summarise || rc=1
   exit $rc
 fi
 
@@ -189,13 +231,14 @@ for app in "$@"; do
   echo "-- ${app}"
   if ! app_exists "$app"; then
     echo "   ERROR no Application ${app} in namespace ${ARGOCD_NS}"
-    rc=1; continue
+    fail "${app}: no such Application in ${ARGOCD_NS}"; continue
   fi
   case "$MODE" in
     refresh) hard_refresh "$app" ;;
-    wait)    wait_for "$app" || rc=1; conditions_of "$app" ;;
-    sync)    hard_refresh "$app"; trigger_sync "$app"; wait_for "$app" || rc=1; conditions_of "$app" ;;
+    wait)    wait_for "$app" || fail "${app}: did not reach Synced"; conditions_of "$app" ;;
+    sync)    hard_refresh "$app"; trigger_sync "$app"; wait_for "$app" || fail "${app}: did not reach Synced"; conditions_of "$app" ;;
   esac
 done
 
+summarise || rc=1
 exit $rc
