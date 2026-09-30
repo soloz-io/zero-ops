@@ -14,7 +14,9 @@
   value it does not own (ADR-087).
 
   Without this template they reached the gateway and stopped there. A BFF calling
-  browserSessionValidator() needs OIDC_PROJECT_ID and OIDC_EXCHANGE_CLIENT_ID; a
+  browserSessionValidator() needs OIDC_CLIENT_ID and OIDC_ORG_ID -- its own client
+  and its organisation, since 0.15.0 compares the tenant rather than merely
+  requiring it; a receiver calling consumerApiValidator() needs OIDC_PROJECT_ID; a
   BFF and SDK talking over the internal channel need the token the platform now
   seeds; a receiver needs its caller map. Each was written to Infisical and
   delivered to nothing, so the first application to follow the guide would have
