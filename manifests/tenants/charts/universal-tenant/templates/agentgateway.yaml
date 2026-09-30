@@ -252,6 +252,25 @@ data:
                 # specifies ("the SAME token").
                 oauthTokenExchange:
                   host: {{ $issuerHost }}:443
+                  # TLS, because :443 is a port number and not a protocol.
+                  #
+                  # Without this the gateway speaks PLAIN HTTP to 443 and the
+                  # issuer answers 301 to its https:// form, which arrives as
+                  #
+                  #   backend authentication failed: token exchange returned
+                  #   status 301 Moved Permanently
+                  #
+                  # -- a redirect the exchange does not follow, and must not: a
+                  # token request that follows a redirect can be pointed at
+                  # another host by whatever answered first.
+                  #
+                  # Verified, not `insecure`. The issuer is this platform's own
+                  # and presents a certificate the cluster trusts; an exchange
+                  # that skipped verification would send a client secret and a
+                  # user's token to whatever held the address.
+                  policies:
+                    backendTLS:
+                      hostname: {{ $issuerHost }}
                   path: /oauth/v2/token
                   subjectToken:
                     # READ FROM THE SESSION, not from the request.
