@@ -292,7 +292,8 @@ data:
                     # unless unredacted() is called, which is why that call is
                     # here and is not decoration.
                     source:
-                      expression: jwt.rawToken.unredacted()
+                      header:
+                        name: x-session-token
                     # Declared rather than defaulted: the default token type is
                     # access_token, and sending an id token under that label is
                     # refused by the issuer with a message about the token rather
@@ -364,6 +365,35 @@ data:
                   # them under these names, so the expressions resolve.
                   X-Auth-Subject: jwt.sub
                   X-Auth-Email: jwt.email
+                  # The session token, materialised so the EXCHANGE can read it.
+                  #
+                  # backendAuth reads its subject token from the REQUEST, and on a
+                  # browser hop there is nothing to read: the session arrives as a
+                  # cookie and the OIDC policy keeps the token in an internal
+                  # extension. Its CEL `expression` source evaluates against the
+                  # request too, so pointing it at jwt.rawToken did not help.
+                  #
+                  # A transformation DOES run against that extension, and runs
+                  # BEFORE backendAuth (httpproxy applies route transformations,
+                  # then backend auth). So the token is placed on a header here
+                  # and the exchange is pointed at that header.
+                  #
+                  # unredacted() is required: jwt.rawToken renders as the literal
+                  # string "<redacted>" without it, and the issuer would be sent
+                  # that.
+                  X-Session-Token: jwt.rawToken.unredacted()
+                  #
+                  # NOT stripped before the backend, and that is a deliberate
+                  # limit rather than an oversight. A `remove` here runs in the
+                  # same route transformation as this `set` -- BEFORE backendAuth
+                  # -- so it would delete the header before the exchange reads it.
+                  # Removing it afterwards needs a backend-level transformation,
+                  # which is a separate policy on the backend.
+                  #
+                  # The exposure is bounded: this hop already forwarded exactly
+                  # this token under the previous passthrough design, so nothing
+                  # reaches the application that did not reach it before. What
+                  # minting adds is the audience and azp the receiver checks.
                   # X-Auth-Role and X-Auth-Tenant are deliberately NOT sent.
                   #
                   # They read `jwt.role` and `jwt.tenant_id`, and neither claim
