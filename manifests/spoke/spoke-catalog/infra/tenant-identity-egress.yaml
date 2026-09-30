@@ -85,3 +85,35 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
+    # The allowance that actually carries the traffic, moved here from the charts.
+    #
+    # The rule above is inert -- the DNS proxy on this fleet receives no queries,
+    # as the header explains -- so until it is not, something must grant outbound
+    # 443 or a tenant workload cannot reach its own issuer. Every workload chart
+    # was shipping exactly this rule to do that. waypoint's does; oranger's does
+    # not, and oranger could not validate a token: it followed the onboarding
+    # guide, which tells applications not to write network policy. The guide was
+    # right and the platform was not keeping its side.
+    #
+    # NOT WIDER THAN WHAT IT REPLACES. This is the same `toEntities: world` on 443
+    # the charts already ship, in one place instead of N. Moving it does not
+    # loosen the box; leaving it in the charts meant the grant existed only for
+    # applications that happened to write it, which is the opposite of a platform
+    # contract.
+    #
+    # NOT AN ADDRESS. A /32 lived here once and is the mistake the header records:
+    # the catalogue is published, so one box's hub IP reached every box that
+    # pulled the bundle. `world` is per-box-correct by carrying no box's facts.
+    #
+    # It is wide, and narrowing it is still the goal -- the FQDN rule above is
+    # what it narrows to, the moment the DNS proxy delivers. Three attempts at
+    # that have now failed; the third added a DNS visibility rule to
+    # tenant-dns-egress and broke DNS for every tenant workload on the spoke.
+    # Do not try a fourth without reading
+    # .agents/spec/enhancements/2026-08-31.md items 9 and 10 first.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

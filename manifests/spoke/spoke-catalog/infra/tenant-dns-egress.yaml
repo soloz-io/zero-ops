@@ -89,36 +89,27 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-          # WITHOUT THIS, EVERY toFQDNs RULE ON THIS BOX MATCHES NOTHING.
+          # NO DNS RULE HERE, AND THAT IS NOW A DELIBERATE ABSENCE.
           #
-          # Cilium does not resolve a `toFQDNs` name itself. It learns the
-          # addresses by PROXYING the workload's own DNS query and reading the
-          # answer, and it only proxies a query when a DNS rule like this one
-          # says to. With no rule, DNS still works -- the packets are allowed by
-          # the ports above -- so nothing looks broken, while the FQDN cache stays
-          # empty and every toFQDNs rule selects zero IPs.
+          # A `rules: dns: matchPattern: "*"` was added on 2026-09-30 so Cilium
+          # would learn the addresses behind the toFQDNs rules elsewhere: it does
+          # not resolve those names itself, it reads them from a DNS answer it
+          # proxies, and it only proxies when a rule like that says to. The
+          # reasoning was right and the change BROKE DNS ENTIRELY for every tenant
+          # workload on this spoke -- public names and in-cluster Service names
+          # alike returned EAI_AGAIN after ~5s, and waypoint, which had been
+          # working, went down beside oranger.
           #
-          # The failure that follows is silent and misattributed. A workload
-          # selected by any policy is default-deny for everything not explicitly
-          # allowed, so its connection to the issuer is dropped rather than
-          # refused, and the application reports a TIMEOUT:
+          # Reverted rather than tuned. That rule puts the DNS proxy in the path
+          # of EVERY query from EVERY tenant workload, and on this box that path
+          # does not carry it. Whatever the cause -- the node-local-dns redirect
+          # and the proxy interacting, the external Envoy, or proxy settings this
+          # chart does not configure -- a shared policy is the wrong place to find
+          # out.
           #
-          #   {"code":"TOKEN_INVALID","message":"Token validation failed: request timed out"}
-          #
-          # which reads as a slow or unreachable issuer, not as a policy. It cost
-          # a day of debugging on 2026-09-30, and the tell was that the GATEWAY
-          # reached the same host fine -- because it carries no tenant-id label,
-          # so no policy selects it, so it is unrestricted. Being unrestricted is
-          # what made it work, which is the opposite of the conclusion it invited.
-          #
-          # Confirmed before this was added: `cilium-dbg fqdn cache list` was
-          # EMPTY and `Proxy Status` reported 0 redirects active.
-          #
-          # matchPattern "*" observes every name rather than allow-listing here:
-          # what a workload may REACH is decided by the toFQDNs rules in the
-          # identity, registry and other egress policies. This rule only decides
-          # what Cilium is allowed to LEARN, and narrowing it would silently break
-          # whichever destination someone forgot to add.
-          rules:
-            dns:
-              - matchPattern: "*"
+          # So the issuer path remains broken for a workload that relies only on
+          # the platform grant. That is a KNOWN GAP, not a fixed one: toFQDNs
+          # cannot work without DNS visibility, and DNS visibility cannot be
+          # turned on this way. Closing it means either a narrow DNS rule proven
+          # on ONE workload first, or granting the issuer by CIDR rather than by
+          # name. Neither is done.
