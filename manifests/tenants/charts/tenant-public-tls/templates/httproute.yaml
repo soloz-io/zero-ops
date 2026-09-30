@@ -86,6 +86,13 @@ spec:
         - name: agentgateway-{{ .Values.appId }}
           namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3002
+{{- if .Values.gateway.webhooks.enabled }}
+    # Only for an application whose SDK actually serves workflow webhooks
+    # (ADR-024). The gateway binds :3001 under the same condition, so a route to
+    # it must carry the same one -- otherwise this sends public traffic at a port
+    # with no listener and the caller sees 503, or worse reaches a private
+    # service whose own policy then refuses it, which reads as a broken platform
+    # rather than as a route nobody meant to create.
     - matches:
         - path:
             type: PathPrefix
@@ -94,6 +101,7 @@ spec:
         - name: agentgateway-{{ .Values.appId }}
           namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3001
+{{- end }}
     - filters:
         # Tell the browser never to try plaintext for this host again. The
         # redirect below only helps someone who already made the insecure

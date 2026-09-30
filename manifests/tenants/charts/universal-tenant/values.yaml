@@ -106,6 +106,22 @@ identity:
   backendDependencies: []
 
 gateway:
+  # Does this application's SDK serve workflow webhooks (ADR-024)?
+  #
+  # OFF by default, and the default is the decision. The gateway used to bind
+  # :3001 and route /v1/webhooks/ to sdk-workload for EVERY application, because
+  # waypoint's SDK resumes workflows that way. An application whose `sdk` is
+  # something else entirely -- oranger's is a private domain service that trusts
+  # headers forwarded by its BFF and admits nothing else (ADR-057) -- got a
+  # public route to a service whose own network policy correctly refuses it. The
+  # result was a 503 on a public hostname and a Cilium denial in the log, for an
+  # endpoint nobody meant to expose.
+  #
+  # Declaring it OFF is not merely tidier: a route that exists and is refused is
+  # indistinguishable from one that is broken, and it invites someone to "fix"
+  # the policy that is doing its job.
+  webhooks:
+    enabled: false
   enabled: false
   # Hostnames this fleet answers on. The first is the browser-facing host and is
   # where the OAuth redirect returns; the rest are additional names for the same

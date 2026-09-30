@@ -278,6 +278,7 @@ data:
     # and the request must still present an unguessable single-use token the SDK
     # minted for one specific run — 80 bits of CSPRNG entropy, claimed exactly
     # once. Nothing else on the SDK is reachable through it.
+{{- if .Values.gateway.webhooks.enabled }}
     - port: 3001
       listeners:
       - name: webhook
@@ -306,6 +307,7 @@ data:
           # stays unreachable from outside.
           - path:
               pathPrefix: /v1/webhooks/
+{{- end }}
     # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
     # The session cookie's name is derived from the identity of whatever the
@@ -821,9 +823,11 @@ spec:
   # The callback bind. Reachable only via the platform HTTPRoute rule that
   # selects this port for the callback prefix (tenant-public-tls); nothing else
   # routes to it.
+{{- if .Values.gateway.webhooks.enabled }}
   - name: webhook
     port: 3001
     targetPort: 3001
+{{- end }}
   # The callback shim. Only /oauth/callback is routed here.
   - name: callback
     port: 3002

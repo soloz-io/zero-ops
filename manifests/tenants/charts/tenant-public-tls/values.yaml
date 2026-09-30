@@ -78,3 +78,10 @@ certificateRenewBefore: 720h  # 30 days
 #
 # Empty string = no annotation rendered (external-dns skips the record).
 externalDnsTarget: ""
+
+# Mirrors the application's own declaration (ADR-024). The gateway binds :3001
+# only when this is on, so the route to it must carry the same condition -- the
+# two charts render one decision and disagreeing is a 503 on a public hostname.
+gateway:
+  webhooks:
+    enabled: false
