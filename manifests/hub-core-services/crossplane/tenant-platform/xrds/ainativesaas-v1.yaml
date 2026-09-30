@@ -31,7 +31,6 @@ spec:
             - cellId
             - database
             - dbRoleName
-            - dbOwnerRoleName
             x-kubernetes-validations:
               # 'tenant_'(7) + '_'(1) + '_user'(5) = 13 fixed bytes, leaving 50
               # for the two components. The grammar admits only single-byte
@@ -49,16 +48,6 @@ spec:
                 message: >-
                   dbRoleName is derived, not declared: it must equal
                   tenant_<tenantId>_<appId>_user.
-              - rule: "self.dbOwnerRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_owner'"
-                message: >-
-                  dbOwnerRoleName is derived, not declared: it must equal
-                  tenant_<tenantId>_<appId>_owner.
-              # The two roles must never be the same identity: that IS the defect
-              # ADR-093 removes, and it would otherwise be reachable by a value.
-              - rule: "self.dbOwnerRoleName != self.dbRoleName"
-                message: >-
-                  the owner and runtime roles must differ: an application that owns
-                  its tables is exempt from their row-level security policies.
             properties:
               tenantId:
                 type: string
@@ -112,6 +101,13 @@ spec:
               dbOwnerRoleName:
                 type: string
                 description: >-
+                  DEPRECATED 2026-10-01 (ADR-099), and ignored. The platform
+                  provisions a database and a role; it creates nothing inside the
+                  database, so there is no second role to own anything and none is
+                  created. The field is retained so XRs written before this date
+                  still validate, and is removed once none carries it.
+
+
                   The postgres role that owns this app's objects and runs its
                   migrations: "tenant_<tenantId>_<appId>_owner" (ADR-093).
 

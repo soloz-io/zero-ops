@@ -137,6 +137,13 @@ mounts it is back to the state ADR-093 exists to remove, and silently so.
 
 Composed here, once, for the same reason dbRoleName is: two names that must agree
 with what the composition creates, rebuilt at neither of their consumers.
+
+DEPRECATED 2026-10-01 (ADR-099). The owner role is no longer created: the platform
+provisions a database and a role and puts nothing inside the database, so there is
+nothing for a second role to own. The value is still emitted onto the XR because
+the field is still present on both XRDs -- optional and ignored -- and removing the
+two together is one change too many for one release. When the property goes, so
+does this helper, and the role-length budget it drives loosens with it.
 */}}
 {{- define "universal-tenant.dbOwnerRoleName" -}}
 {{- $t := include "universal-tenant.tenantId" . -}}

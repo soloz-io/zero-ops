@@ -27,7 +27,6 @@ spec:
               - scopeId
               - databaseName
               - dbRoleName
-              - dbOwnerRoleName
             properties:
               tenantId:
                 type: string
@@ -106,6 +105,13 @@ spec:
               dbOwnerRoleName:
                 type: string
                 description: >-
+                  DEPRECATED 2026-10-01 (ADR-099), and ignored. The platform
+                  provisions a database and a role; it creates nothing inside the
+                  database, so there is no second role to own anything and none is
+                  created. The field is retained so XRs written before this date
+                  still validate, and is removed once none carries it.
+
+
                   The postgres role that owns this app's objects and runs its
                   migrations: "tenant_<tenantId>_<appId>_owner" (ADR-093).
 
