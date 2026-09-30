@@ -54,7 +54,7 @@ export interface SurfaceValidatorOptions {
 export function browserSessionValidator(opts: SurfaceValidatorOptions = {}): JwtValidator {
   const env = opts.env ?? process.env;
   const cfg = requirePlatformEnv(
-    ["issuerUrl", "jwksUrl", "projectId", "exchangeClientId"],
+    ["issuerUrl", "jwksUrl", "projectId", "exchangeClientId", "orgId"],
     "a BFF cannot validate the token its gateway mints",
     env,
   );
@@ -80,6 +80,9 @@ export function browserSessionValidator(opts: SurfaceValidatorOptions = {}): Jwt
     // session credential instead of minting one, and that must fail loudly.
     rejectIdTokens: true,
     requireTenantId: true,
+    // COMPARED, not merely required. A sibling tenant's user carries a valid
+    // tenant claim -- a different one -- and presence alone accepts it.
+    expectedTenantId: cfg.orgId,
     jwksCache: opts.jwksCache,
   });
 }
@@ -107,7 +110,7 @@ export function browserSessionValidator(opts: SurfaceValidatorOptions = {}): Jwt
 export function consumerApiValidator(opts: SurfaceValidatorOptions = {}): JwtValidator {
   const env = opts.env ?? process.env;
   const cfg = requirePlatformEnv(
-    ["issuerUrl", "jwksUrl", "projectId"],
+    ["issuerUrl", "jwksUrl", "projectId", "orgId"],
     "a cross-application surface cannot validate its callers",
     env,
   );
@@ -133,6 +136,9 @@ export function consumerApiValidator(opts: SurfaceValidatorOptions = {}): JwtVal
     allowedCallers,
     rejectIdTokens: true,
     requireTenantId: true,
+    // COMPARED, not merely required. A sibling tenant's user carries a valid
+    // tenant claim -- a different one -- and presence alone accepts it.
+    expectedTenantId: cfg.orgId,
     jwksCache: opts.jwksCache,
   });
 }

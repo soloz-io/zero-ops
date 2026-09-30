@@ -6,6 +6,7 @@ import {
   InvalidIssuerError,
   InvalidAudienceError,
   TokenMissingError,
+  TenantMismatchError,
   IdTokenPresentedError,
   CallerNotAllowedError,
   AuthError,
@@ -31,6 +32,16 @@ export interface JwtValidatorOptions {
    * tenant isolation is the boundary.
    */
   requireTenantId?: boolean;
+  /**
+   * The tenant this receiver belongs to. A token carrying a DIFFERENT tenant is
+   * refused (ADR-094 invariant 3).
+   *
+   * `requireTenantId` asks only that the claim exist, which is not isolation: a
+   * user of another tenant carries a valid tenant claim, just not this one.
+   * Omit this ONLY on a platform-scoped surface that no single tenant owns, and
+   * say so where you omit it.
+   */
+  expectedTenantId?: string;
   /**
    * Refuse a token that carries `at_hash`. Default true.
    *
@@ -139,6 +150,7 @@ export class JwtValidator {
   private readonly rejectIdTokens: boolean;
   private readonly allowedAzp: string[];
   private readonly allowedCallers?: Record<string, string>;
+  private readonly expectedTenantId?: string;
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
@@ -148,6 +160,7 @@ export class JwtValidator {
     this.rejectIdTokens = opts.rejectIdTokens ?? true;
     this.allowedAzp = opts.allowedAzp ?? [];
     this.allowedCallers = opts.allowedCallers;
+    this.expectedTenantId = opts.expectedTenantId;
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
@@ -240,6 +253,21 @@ export class JwtValidator {
           code: "MISSING_TENANT_ID",
           message: "Token missing required tenant_id claim",
         });
+      }
+
+      // COMPARED, not merely required (ADR-094 invariant 3).
+      //
+      // Requiring the claim to be PRESENT is not tenant isolation. Zitadel mints
+      // the tenant from the subject's own organisation, so a user of another
+      // tenant presents a token carrying a perfectly good tenant claim -- a
+      // different one. A receiver that only checks presence accepts it and then
+      // reads an identity out of it.
+      //
+      // Absent from `expectedTenantId`, this check does not run, which is
+      // correct only for a platform-scoped surface where no single tenant owns
+      // the receiver. Every tenant-scoped receiver must set it.
+      if (this.expectedTenantId !== undefined && claims.tenant_id !== this.expectedTenantId) {
+        throw new TenantMismatchError(this.expectedTenantId, claims.tenant_id);
       }
 
       return claims;

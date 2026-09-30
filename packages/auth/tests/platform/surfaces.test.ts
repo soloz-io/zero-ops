@@ -20,6 +20,7 @@ const BASE = {
   OIDC_CLIENT_ID: "oranger-public@nutgraf",
   OIDC_PROJECT_ID: "392885920103137720",
   OIDC_EXCHANGE_CLIENT_ID: "oranger-gateway-exchange@nutgraf",
+  OIDC_ORG_ID: "331885920103137720",
 };
 
 /** The switches live on the instance; read them without widening the public API. */
@@ -43,8 +44,12 @@ describe("browserSessionValidator", () => {
     expect(sw(browserSessionValidator({ env: BASE })).audience).toBe(BASE.OIDC_PROJECT_ID);
   });
 
-  it("requires a tenant", () => {
-    expect(sw(browserSessionValidator({ env: BASE })).requireTenantId).toBe(true);
+  it("COMPARES the tenant, not merely requires it (ADR-094 invariant 3)", () => {
+    // Presence alone is not isolation: a sibling tenant's user carries a valid
+    // tenant claim, just a different one.
+    const v = sw(browserSessionValidator({ env: BASE }));
+    expect(v.requireTenantId).toBe(true);
+    expect(v.expectedTenantId).toBe(BASE.OIDC_ORG_ID);
   });
 
   it("names every missing platform value at once, not the first", () => {
@@ -57,6 +62,7 @@ describe("browserSessionValidator", () => {
         "OIDC_JWKS_URL",
         "OIDC_PROJECT_ID",
         "OIDC_EXCHANGE_CLIENT_ID",
+        "OIDC_ORG_ID",
       ]);
     }
   });
@@ -71,6 +77,10 @@ describe("consumerApiValidator", () => {
 
   it("audiences on the project, which is what an exchanged token carries", () => {
     expect(sw(consumerApiValidator({ env })).audience).toBe(BASE.OIDC_PROJECT_ID);
+  });
+
+  it("compares the tenant too", () => {
+    expect(sw(consumerApiValidator({ env })).expectedTenantId).toBe(BASE.OIDC_ORG_ID);
   });
 
   it("uses the caller MAP, so the receiver can name its caller", () => {

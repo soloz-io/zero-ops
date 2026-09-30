@@ -1,0 +1,141 @@
+{{- if not .Values.deployXR }}
+{{- $t := include "universal-tenant.tenantId" . }}
+{{- $a := include "universal-tenant.appId" . }}
+{{- $ns := include "universal-tenant.namespace" . }}
+{{- $base := printf "/spoke-pool/%s/tenants/%s" (required "cellId must be supplied" .Values.cellId) $a }}
+{{- $consumers := (.Values.identity).allowedConsumers | default list }}
+{{- $key := $a | upper | replace "-" "_" }}
+{{- /*
+  The platform's own identity values, delivered to a fleet's WORKLOADS.
+
+  workload-secrets.yaml renders what a fleet DECLARES, and only that. These are
+  values the fleet declares nothing about and must not: the platform seeds them,
+  and a fleet that listed them in `secrets:` would become a second producer of a
+  value it does not own (ADR-087).
+
+  Without this template they reached the gateway and stopped there. A BFF calling
+  browserSessionValidator() needs OIDC_PROJECT_ID and OIDC_EXCHANGE_CLIENT_ID; a
+  BFF and SDK talking over the internal channel need the token the platform now
+  seeds; a receiver needs its caller map. Each was written to Infisical and
+  delivered to nothing, so the first application to follow the guide would have
+  found the values it was told never to supply also nowhere to be read.
+
+  THREE OBJECTS, NOT ONE, and the split is the whole design here. An
+  ExternalSecret is atomic: one key the provider cannot supply fails the entire
+  object and withholds every other key in it. So keys are grouped by WHEN THEY
+  EXIST, not by who reads them:
+
+    always            OIDC_CLIENT_ID, OIDC_ORG_ID, OIDC_PROJECT_ID
+                      -- written when the application is provisioned
+    always            <APPID>_INTERNAL_TOKEN, OIDC_EXCHANGE_CLIENT_ID
+                      -- seeded for every application, but later than the above
+                      on a box provisioned before they existed
+    on declaration    OIDC_ALLOWED_AZP
+                      -- written only when ANOTHER application declares a
+                      dependency on this one, so it is absent for most apps and
+                      would fail the whole object for all of them
+
+  Putting the last in with the first is the cache-credential failure again: an
+  object naming a key nothing writes fails forever, and takes the working keys
+  with it.
+*/ -}}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $a }}-platform-identity
+  namespace: {{ $ns }}
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: tenant-secret-store
+    kind: SecretStore
+  target:
+    name: {{ $a }}-platform-identity
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    # This application's own OAuth client, which is its audience on the browser
+    # path and what a workload validating an id token checks.
+    - secretKey: OIDC_CLIENT_ID
+      remoteRef:
+        key: {{ $base }}/OIDC_CLIENT_ID
+    # The organisation that owns this application's identities. A receiver
+    # compares the token's tenant claim against it (ADR-094 invariant 3).
+    - secretKey: OIDC_ORG_ID
+      remoteRef:
+        key: {{ $base }}/OIDC_ORG_ID
+    # The identity project. A MINTED token is audienced to projects, not to
+    # client ids, so this is what a receiver checks `aud` against.
+    - secretKey: OIDC_PROJECT_ID
+      remoteRef:
+        key: {{ $base }}/OIDC_PROJECT_ID
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $a }}-platform-credentials
+  namespace: {{ $ns }}
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: tenant-secret-store
+    kind: SecretStore
+  target:
+    name: {{ $a }}-platform-credentials
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    # The BFF -> SDK channel (ADR-057). Seeded by the platform, never declared by
+    # the fleet: its value is "any long random value", which is not a decision an
+    # operator makes.
+    - secretKey: {{ $key }}_INTERNAL_TOKEN
+      remoteRef:
+        key: {{ $base }}/{{ $key }}_INTERNAL_TOKEN
+    # The client the gateway mints as, and therefore the `azp` a receiver on the
+    # browser path admits. Not secret -- a client id -- but issuer-allocated, so
+    # it travels this path rather than a values file.
+    - secretKey: OIDC_EXCHANGE_CLIENT_ID
+      remoteRef:
+        key: {{ $base }}/OAUTH_{{ $key }}_GATEWAY_EXCHANGE_CLIENT_ID
+{{- if $consumers }}
+---
+# The applications this one admits, as `<clientId>=<appId>` entries.
+#
+# RENDERED ONLY WHEN THIS APPLICATION IS CALLED. The platform writes this key
+# when another application declares a dependency on this one, so for an
+# application nobody calls it does not exist -- and an ExternalSecret naming it
+# would fail as a whole, taking nothing with it only because it is alone here.
+#
+# `allowedConsumers` is the same declaration that renders this application's
+# cross-app ingress, so the Secret and the network rule cannot disagree about
+# who may call.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $a }}-consumer-callers
+  namespace: {{ $ns }}
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: tenant-secret-store
+    kind: SecretStore
+  target:
+    name: {{ $a }}-consumer-callers
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: OIDC_ALLOWED_AZP
+      remoteRef:
+        key: {{ $base }}/OIDC_ALLOWED_AZP
+{{- end }}
+{{- end }}

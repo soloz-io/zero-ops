@@ -60,6 +60,28 @@ These are **allocated by the issuer at provisioning time**, so they cannot exist
 when your chart is rendered. That is why they travel as a Secret and not as a Helm
 value (ADR-053).
 
+### Secrets delivered to your workloads
+
+**This is what you mount.** The gateway's Secret above is the gateway's; these are
+yours. Keys are already spelled as the `PLATFORM_ENV` names, so map them straight
+into your container environment.
+
+| Secret | keys | who reads it |
+|---|---|---|
+| `<app>-platform-identity` | `OIDC_CLIENT_ID`, `OIDC_ORG_ID`, `OIDC_PROJECT_ID` | any workload validating a token |
+| `<app>-platform-credentials` | `<APPID>_INTERNAL_TOKEN`, `OIDC_EXCHANGE_CLIENT_ID` | your BFF and SDK |
+| `<app>-consumer-callers` | `OIDC_ALLOWED_AZP` | your SDK, **only if** you declared `allowedConsumers` |
+
+Three objects rather than one, because an ExternalSecret is **atomic** — one
+unresolvable key fails the whole object. They are grouped by *when the value
+exists*, not by who reads it: `OIDC_ALLOWED_AZP` is written only when another
+application declares a dependency on you, so for an application nobody calls it
+does not exist, and putting it in with the others would fail all of them.
+
+`<app>-consumer-callers` is rendered from the same `allowedConsumers` declaration
+as your cross-app ingress, so the Secret and the network rule cannot disagree
+about who may call you.
+
 ### Credentials the platform generates for you
 
 Written to your Infisical folder and delivered by ExternalSecret. You declare the
@@ -179,6 +201,13 @@ const validator = browserSessionValidator();   // a BFF behind your gateway
 const validator = consumerApiValidator();      // a surface another APP calls
 ```
 
+Both read their configuration from the environment, which comes from
+`<app>-platform-identity` and `<app>-platform-credentials` above. Both **compare**
+the tenant against `OIDC_ORG_ID` rather than merely requiring the claim to be
+present — a sibling tenant's user carries a valid tenant claim, just a different
+one, so presence alone is not isolation (ADR-094 invariant 3). You do not need a
+separate tenant-boundary check on these surfaces.
+
 `JwtValidator` has four security-relevant switches whose correct settings depend
 on facts about the issuer and the gateway that are not visible from your
 repository. **A wrong switch fails by accepting a token, not by erroring** — so
@@ -210,6 +239,12 @@ identity:                          identity:
 From those two lines the platform renders four things: your egress, the audience
 scope your login requests, their ingress, and your client in their caller
 allowlist. You write none of them.
+
+**One token serves both hops.** Your gateway mints a token whose `audiences`
+include your own project *and* each declared target's, so the same token
+satisfies your own BFF and travels unchanged to theirs. Your SDK forwards what it
+received and performs no exchange of its own — the exchange client's credentials
+are delivered to the gateway alone, deliberately.
 
 A preflight fails the build if only one side declares. Both one-sided states are
 silent at runtime — a missing ingress **hangs** rather than refusing, because

@@ -1,5 +1,7 @@
 # Hub boostratp
 
+- zero-ops/docs/onboarding-an-application.md
+
 ## Local Testing
 ### A rule of thumb: 
 #### CLI change → 
