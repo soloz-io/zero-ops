@@ -254,8 +254,27 @@ data:
                   host: {{ $issuerHost }}:443
                   path: /oauth/v2/token
                   subjectToken:
-                    # The session credential the gateway validated. Declared
-                    # rather than defaulted: the default token type is
+                    # READ FROM THE SESSION, not from the request.
+                    #
+                    # The default source is the Authorization header, and on this
+                    # hop there is none: a browser presents a COOKIE, and the OIDC
+                    # policy that validates it puts the token in an internal
+                    # extension rather than on the request. `passthrough` is the
+                    # only backendAuth that materialises a header from it -- its
+                    # own comment says so ("That will strip the token. Here we add
+                    # it back").
+                    #
+                    # So the exchange found no subject token and failed before
+                    # contacting the issuer at all: HTTP 400 `invalid request`,
+                    # reason=Internal, duration=0ms, no endpoint contacted. The
+                    # 0ms is the tell -- nothing was asked of Zitadel.
+                    #
+                    # jwt.rawToken is the validated session token; it is redacted
+                    # unless unredacted() is called, which is why that call is
+                    # here and is not decoration.
+                    source:
+                      expression: jwt.rawToken.unredacted()
+                    # Declared rather than defaulted: the default token type is
                     # access_token, and sending an id token under that label is
                     # refused by the issuer with a message about the token rather
                     # than about the label.
