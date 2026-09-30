@@ -129,9 +129,20 @@ applications' databases; the platform simply stops managing them and each
 application adopts the existing DDL. `sessions`, `buckets` and `objects` can be
 dropped by whoever wants to, whenever, by the application that owns them.
 
-Two operations already performed must NOT be repeated by an adopting application:
-the `ory` → `zitadel` rewrite of `identities.provider`, which has run; and the
-removal of the baseline policies.
+One operation already performed must NOT be repeated by an adopting application:
+the `ory` → `zitadel` rewrite of `identities.provider`, which has run.
+
+**Deleting the migrations from the chart changes nothing in a live database.** On
+every database provisioned before this ADR, the baseline tables still carry
+row-level security and are still owned by the separate owner role, and the
+`SECURITY DEFINER` function still exists. `zero-ops-auth` 0.17.0 keeps working
+because it calls that function; **0.18.0 does not**, because it issues its own
+SQL as a role the policies apply to, and they match nothing.
+
+So the live cutover is a one-time operator action, not a consequence of the
+release: `docs/runbooks/retire-the-tenant-database-owner-role.md`. It hands
+ownership to the application's role, removes the policies, and is a prerequisite
+to 0.18.0 as well as to retiring the owner role.
 
 ## Impact
 
