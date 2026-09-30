@@ -70,6 +70,11 @@ require_tools kubectl || exit 1
 ARGOCD_NS="${ARGOCD_NS:-platform-ops}"
 ROOT_APP="${ROOT_APP:-nutgraf-hub-root}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
+# How long the root may take to rewrite a child's targetRevision after it syncs.
+# Shorter than WAIT_TIMEOUT: this is one controller writing one field, not a
+# workload converging, and a child that has not been touched in this long has not
+# been regenerated at all.
+REGEN_TIMEOUT="${REGEN_TIMEOUT:-120}"
 
 
 MODE="sync"
@@ -115,6 +120,31 @@ trigger_sync() {
   payload=$(printf '{"operation":{"initiatedBy":{"username":"argocd-hard-sync.sh"},"sync":{"revision":"%s","syncOptions":%s}}}' "$rev" "$opts")
   kc patch application "$app" --type=merge -p "$payload" >/dev/null
   echo "   sync requested at revision ${rev:-<none>}"
+}
+
+wait_for_regeneration() {
+  # Wait for the ROOT to rewrite one child's targetRevision to the new version.
+  #
+  # Regeneration is ASYNCHRONOUS. The root reaching Synced means it applied the
+  # generator; the generated Applications are then rewritten by the
+  # ApplicationSet controller a moment later, one at a time. Sampling a child
+  # once, immediately, reads whichever ones have not been reached yet -- which is
+  # alphabetical luck, not a fault. A promotion of rc.119 -> rc.120 reported
+  # twelve children "not regenerated" while platform-appproject-infrastructure,
+  # further down the same list, already showed the new version.
+  #
+  # The protection this must NOT lose: when only environmentRevision was bumped,
+  # children were never regenerated AT ALL, and a promotion shipped nothing while
+  # exiting 0. That case still fails here -- it simply fails after the timeout
+  # rather than instantly, which is the price of telling the two apart.
+  local app="$1" want="$2" deadline cur
+  deadline=$(( $(date +%s) + REGEN_TIMEOUT ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    cur="$(app_field "$app" .spec.source.targetRevision)"
+    [ "$cur" = "$want" ] && return 0
+    sleep 5
+  done
+  return 1
 }
 
 wait_for() {
@@ -203,14 +233,18 @@ if [ "$MODE" = "promote" ]; then
     # Only version-pinned children are ours to promote; one tracking a branch is not.
     case "$cur" in *rc.*) ;; *) continue ;; esac
     if [ "$cur" != "$VERSION" ]; then
-      # A FAILURE, not a note. This used to `continue` silently, and that is
-      # exactly how two promotions reported success while shipping nothing: the
-      # version had been bumped only in values.yaml, the root synced, every child
-      # stayed on the previous release, each printed one line here, none set an
-      # exit code, and the script exited 0.
-      echo "   ${app}: still ${cur:-<none>} -- root has NOT regenerated it at ${VERSION}"
-      fail "${app}: not regenerated -- still ${cur:-<none>}, wanted ${VERSION}"
-      continue
+      echo "   ${app}: still ${cur:-<none>} -- waiting for the root to regenerate it"
+      if ! wait_for_regeneration "$app" "$VERSION"; then
+        # Waited and it never moved. THIS is the rc.111/rc.112 failure: the
+        # version was bumped in one file, the root synced against it, and the
+        # children were never rewritten -- a promotion that ships nothing while
+        # every Application reports Synced at the previous release.
+        cur="$(app_field "$app" .spec.source.targetRevision)"
+        echo "   NOT REGENERATED ${app}: still ${cur:-<none>} after ${REGEN_TIMEOUT}s"
+        fail "${app}: not regenerated -- still ${cur:-<none>}, wanted ${VERSION}"
+        continue
+      fi
+      echo "   ${app}: regenerated at ${VERSION}"
     fi
     echo "-- ${app}"
     hard_refresh "$app"

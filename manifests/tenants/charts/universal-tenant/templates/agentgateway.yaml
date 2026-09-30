@@ -260,10 +260,30 @@ data:
                     # refused by the issuer with a message about the token rather
                     # than about the label.
                     tokenType: urn:ietf:params:oauth:token-type:id_token
+                  # QUOTED, every one of them, and this is not style.
+                  #
+                  # The config is shell-expanded BEFORE it is parsed as YAML, so
+                  # what the parser sees is the expanded text. A Zitadel project
+                  # id is 18 digits, and unquoted YAML reads 18 digits as an
+                  # INTEGER -- so `audiences` became a list of ints where a list
+                  # of strings was required, and clientId an int where a string
+                  # was required.
+                  #
+                  # serde reports that against the untagged enum it was trying,
+                  # which names neither the field nor the type:
+                  #
+                  #   binds[0].listeners[0].routes[1].backends[0].policies:
+                  #   data did not match any variant of untagged enum
+                  #   BackendAuthCompat
+                  #
+                  # Every field parsed on its own with a non-numeric test value,
+                  # which is what made this look like a version or schema problem
+                  # for two releases. The oidc policy below already quotes
+                  # OIDC_CLIENT_ID for exactly this reason, and says so.
                   audiences:
-                  - ${OIDC_PROJECT_ID}
+                  - "${OIDC_PROJECT_ID}"
 {{- range $deps }}
-                  - ${OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}}
+                  - "${OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}}"
 {{- end }}
                   scopes:
                   # Subject-data scopes. Without the first, the minted token
@@ -283,8 +303,8 @@ data:
                     # on the minted token and therefore what a receiver matches
                     # against its caller allowlist (ADR-094 invariant 2a). A
                     # browser cannot use it.
-                    clientId: ${OIDC_EXCHANGE_CLIENT_ID}
-                    clientSecret: ${OIDC_EXCHANGE_CLIENT_SECRET}
+                    clientId: "${OIDC_EXCHANGE_CLIENT_ID}"
+                    clientSecret: "${OIDC_EXCHANGE_CLIENT_SECRET}"
           hostnames:
           {{- range $hosts }}
           - {{ . }}
@@ -536,7 +556,7 @@ data:
           # The issuer allocates the project id, so the VALUE arrives from the
           # environment while the fact that there is one comes from the fleet's
           # declaration.
-          - ${OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}}
+          - "${OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}}"
 {{- end }}
           # Bind this login to THIS tenant's organisation.
           #

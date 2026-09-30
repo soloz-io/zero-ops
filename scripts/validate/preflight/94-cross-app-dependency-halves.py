@@ -64,6 +64,56 @@ def declarations(root: Path):
     return out
 
 
+
+def key_grammar_agrees() -> None:
+    """The chart and the operator must derive the same key name from one appId.
+
+    TWO IMPLEMENTATIONS OF ONE RULE, in two languages:
+
+        Helm  {{ . | upper | replace "-" "_" }}
+        Go    strings.ToUpper(strings.ReplaceAll(name, "-", "_"))   OAuthKeySegment
+
+    The operator WRITES the Infisical key with the Go rule; the chart READS it
+    with the Helm rule. Nothing connects them, so a change to either produces an
+    ExternalSecret asking for a key nothing wrote -- reported as
+    SecretSyncedError naming a key that looks entirely plausible.
+
+    Checked on an appId that actually exercises the rule. A single-word id agrees
+    under any transform, so it would prove nothing.
+    """
+    import re
+    import subprocess
+
+    chart = Path("manifests/tenants/charts/universal-tenant")
+    if not chart.is_dir():
+        return
+    out = subprocess.run(
+        [
+            "helm", "template", "t", str(chart),
+            "--set", "oidcIssuer=https://issuer.example",
+            "--set", "tenantId=t", "--set", "appId=a", "--set", "cellId=c",
+            "--set", "scopeId=t-a", "--set", "deployXR=false",
+            "--set-json", 'gateway={"enabled":true,"hostnames":["h.example"]}',
+            "--set-json", 'identity={"backendDependencies":["code-builder"]}',
+        ],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        print("BAD\tthe tenant chart does not render, so key-name agreement cannot be checked")
+        return
+
+    expected = "CODE_BUILDER"  # what Go's OAuthKeySegment produces for code-builder
+    for key in ("OIDC_BACKEND_AUDIENCE_SCOPE_", "OIDC_BACKEND_PROJECT_ID_"):
+        found = set(re.findall(rf"{key}([A-Z0-9_]+)", out.stdout))
+        if found == {expected}:
+            print(f"OK\t{key}<appId> agrees with the operator's key grammar ({expected})")
+        else:
+            print(
+                f"BAD\tthe chart derives {key}{found or '<nothing>'} where the operator writes "
+                f"{key}{expected}. An ExternalSecret would request a key nothing publishes."
+            )
+
+
 def main() -> int:
     root = Path(REPO)
     if not root.is_dir():
@@ -116,6 +166,8 @@ def main() -> int:
 
     if pairs == 0 and not bad:
         print("OK\tno cross-application dependencies declared")
+
+    key_grammar_agrees()
     return 1 if bad else 0
 
 
