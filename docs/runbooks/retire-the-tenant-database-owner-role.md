@@ -193,6 +193,74 @@ Sync the composition. Crossplane issues `DROP ROLE` and it succeeds.
 Verify the application still connects — it now owns its own tables, which is what
 ADR-099 decides — and, on waypoint, that a workflow run re-enqueues.
 
+## This fleet, 2026-10-01
+
+The two databases, as measured before execution. Recorded so the counts below can
+be checked against, and so a later reader knows what "everything" meant here.
+
+| database | owner role | objects owned | policies |
+|---|---|---|---|
+| `nutgraf-oranger-db` | `tenant_nutgraf_oranger_owner` | 39 | 7 |
+| `tenant-waypoint-db` | `tenant_nutgraf_waypoint_owner` | 274 | 7 |
+
+Both counts must read **0** afterwards, and the database owner must be the
+application's role.
+
+```bash
+# The superuser credential belongs to the CNPG cluster, not to a tenant.
+kubectl -n platform-data get secret shared-cnpg-superuser \
+  -o jsonpath='{.data.password}' | base64 -d
+```
+
+Then, per database — `nutgraf-oranger-db` with `oranger`, `tenant-waypoint-db`
+with `waypoint`:
+
+```sql
+\set app 'tenant_nutgraf_oranger_user'
+\set old 'tenant_nutgraf_oranger_owner'
+
+SELECT current_setting('is_superuser');          -- must be "on"
+
+BEGIN;
+REASSIGN OWNED BY :"old" TO :"app";
+COMMIT;
+
+DROP OWNED BY :"old";
+
+-- The five public baseline tables only. Never graphile_worker.
+DO $$
+DECLARE t text; p record;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['users','sessions','identities','buckets','objects'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname='public' AND c.relname=t) THEN
+      FOR p IN SELECT polname FROM pg_policy pol
+                 JOIN pg_class c ON c.oid=pol.polrelid
+                 JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname='public' AND c.relname=t LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', p.polname, t);
+      END LOOP;
+      EXECUTE format('ALTER TABLE public.%I DISABLE ROW LEVEL SECURITY', t);
+    END IF;
+  END LOOP;
+END $$;
+
+-- Both must be 0, and the owner must be the app role.
+SELECT count(*) AS still_owned FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE c.relowner = (SELECT oid FROM pg_roles WHERE rolname = :'old');
+SELECT count(*) AS policies_left FROM pg_policy pol
+  JOIN pg_class c ON c.oid = pol.polrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public'
+   AND c.relname IN ('users','sessions','identities','buckets','objects');
+SELECT pg_get_userbyid(datdba) AS db_owner FROM pg_database
+ WHERE datname = current_database();
+```
+
+`graphile_worker`'s policies are not counted above and must not be touched: it has
+none, and its RLS is what protects the queue once the application owns it.
+
 ## What you do NOT need to do
 
 Nothing moves, and no data is copied. The tables stay exactly where they are with
