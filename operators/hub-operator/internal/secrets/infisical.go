@@ -1221,7 +1221,31 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 	// rather than each fleet hand-writing a file whose format nothing validates.
 	// Generated once under the same rule as everything else here: its later absence
 	// is a fault, because regenerating locks out a running cache's clients.
-	if cacheEnabled {
+	//
+	// SEEDED WHATEVER cacheEnabled SAYS, and the parameter is kept only to report
+	// the outcome. This was `if cacheEnabled`, and it disagreed with the other half
+	// of the platform: the AINativeSaaS composition renders the cache Deployment,
+	// Service, Certificate, NetworkPolicy and ExternalSecret for EVERY tenant. Its
+	// own comment claims they are "rendered only when the fleet declares
+	// spec.cache.enabled", but it is a classic Composition with no pipeline and no
+	// conditional function, so nothing gates them and nothing ever did.
+	//
+	// The two halves therefore contradicted each other, and the contradiction was
+	// not inert: a tenant with cache.enabled=false received a cache ExternalSecret
+	// naming a CACHE_PASSWORD the operator refused to write, so it failed
+	// SecretSyncedError forever and the cache Deployment never became ready. That
+	// is oranger's state on 2026-09-30, and it is the state of every future tenant
+	// that leaves the cache off.
+	//
+	// Seeding unconditionally is the cheap half of the fix and it is sound: the
+	// platform itself always asks for this credential, so writing it is not
+	// "seeding something nobody asked for". An unused password costs nothing.
+	//
+	// The other half -- actually gating those resources on spec.cache.enabled --
+	// needs the composition converted to a pipeline, which is a larger change than
+	// this file. Until then a tenant with the cache off gets a working cache it
+	// does not use, which is waste rather than breakage.
+	{
 		exists, err := c.SecretExists(ctx, tenantPath, InfisicalCachePasswordKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check Infisical for %s: %w", InfisicalCachePasswordKey, err)
@@ -1264,7 +1288,8 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 			if err := c.CreateSecret(ctx, tenantPath, InfisicalCachePasswordKey, value); err != nil {
 				return nil, fmt.Errorf("failed to write %s for tenant %s: %w", InfisicalCachePasswordKey, tenantId, err)
 			}
-			logger.Info("Seeded tenant cache credential", "path", tenantPath, "key", InfisicalCachePasswordKey)
+			logger.Info("Seeded tenant cache credential", "path", tenantPath,
+				"key", InfisicalCachePasswordKey, "cacheEnabled", cacheEnabled)
 			dbOutcome = EnsureCreated
 			cacheOutcome = EnsureCreated
 		}
@@ -1298,6 +1323,43 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		}
 	}
 
+	// Step 4b: the application's internal service token (ADR-057).
+	//
+	// PLATFORM-SEEDED, like the cookie key above and for the same reason: nobody
+	// chooses its value. The fleet's own declaration says so in as many words --
+	// "any long random value" -- and a secret whose value nobody chooses is
+	// plumbing, not configuration.
+	//
+	// It was supplied by hand, once per application, and the cost of that showed
+	// up exactly where a manual step always does. oranger's was never written, so
+	// both ExternalSecrets failed, so neither Secret was created, so bff-workload
+	// and sdk-workload sat in CreateContainerConfigError for a day naming a
+	// Kubernetes Secret rather than the Infisical key that was actually missing.
+	// Nothing in that chain says "a human forgot to run a command", and every new
+	// application would have met the same wall.
+	//
+	// Written on absence whatever the tenant's age. An absent token means neither
+	// workload has ever started holding one, so there is no live channel to break
+	// -- the same argument the cookie key makes. Once present it is never
+	// rewritten here: rotating it is a deliberate act that must restart both
+	// sides, and a reconcile must not do that to a running application.
+	internalTokenKey := InfisicalInternalTokenKey(appId)
+	exists, err := c.SecretExists(ctx, tenantPath, internalTokenKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check Infisical for %s: %w", internalTokenKey, err)
+	}
+	if !exists {
+		value, err := GenerateHexKey(32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate internal token for tenant %s: %w", tenantId, err)
+		}
+		if err := c.CreateSecret(ctx, tenantPath, internalTokenKey, value); err != nil {
+			return nil, fmt.Errorf("failed to write %s for tenant %s: %w", internalTokenKey, tenantId, err)
+		}
+		logger.Info("Seeded application internal service token", "path", tenantPath, "key", internalTokenKey)
+		dbOutcome = EnsureCreated
+	}
+
 	// Step 5: OAuth confidential client credentials (ADR-053).
 	//
 	// Reached whether or not step 2 generated anything, because a tenant
@@ -1326,6 +1388,27 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 // ExternalSecret templates both the ACL file and the connection URL from this one
 // value, so nothing downstream stores a second copy of it.
 const InfisicalCachePasswordKey = "CACHE_PASSWORD"
+
+// InfisicalInternalTokenKey names an application's internal service token: the
+// credential its BFF presents to its own SDK (ADR-057's forwarding rule).
+//
+// DERIVED FROM THE APPLICATION ID, and that derivation is the platform contract:
+// an application whose workloads want an internal token read
+// `<APPID>_INTERNAL_TOKEN`, and the platform seeds it. Both applications on this
+// platform already spell it that way -- ORANGER_INTERNAL_TOKEN,
+// WAYPOINT_INTERNAL_TOKEN -- so this names an existing convention rather than
+// imposing a new one, and a fleet that spells it differently is simply not served
+// by the platform and supplies its own.
+//
+// Not a tenant identifier in platform code (ADR-047): the appId is an input, and
+// this is a function of it. A constant here would give every application of every
+// customer the same key name in its own folder, which is fine, and the same VALUE
+// only if the folder were shared, which it is not -- but it would also stop the
+// key naming the application it belongs to, which is what makes a workload's env
+// readable.
+func InfisicalInternalTokenKey(appId string) string {
+	return oauthKeySegment(appId) + "_INTERNAL_TOKEN"
+}
 
 // InfisicalGatewayCookieSecretKey names the tenant gateway's session-cookie
 // encryption key.

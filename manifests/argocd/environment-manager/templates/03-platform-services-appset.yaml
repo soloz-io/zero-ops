@@ -781,6 +781,29 @@ spec:
       # archive - 1), and make cnpg-incarnation-check enforces that in CI. The
       # manifest describes what a NEW cluster is created from; an existing one
       # owns its own answer, which is precisely what ignoring means here.
+      #
+      # The five entries after externalClusters are a DIFFERENT problem with the
+      # same shape, and they are why this Application sat OutOfSync while every
+      # object in it was correct.
+      #
+      # CNPG writes them from its controller loop, not from a defaulting webhook
+      # and not from CRD defaults. That distinction decides everything here:
+      # ServerSideApply plus server-side diff absorbs a value admission adds,
+      # because a dry-run apply produces it too -- but a dry-run cannot predict a
+      # field the operator will write on its next reconcile. So the predicted
+      # object lacks them, the live object has them, and the comparison reports
+      # drift on every pass, forever.
+      #
+      # Verified rather than assumed, by rendering the chart at the deployed
+      # version and diffing against the live object: every declared field matched,
+      # including all fourteen postgresql.parameters and managed.roles, and the
+      # ONLY differences were these five plus top-level scalars that
+      # argocd-controller does not own (enablePDB, probes, replicationSlots,
+      # postgresUID/GID, the delays) and which SSA therefore already ignores.
+      #
+      # This is not a way of hiding real drift. Each one is a field the manifest
+      # never sets, so ignoring it cannot mask a change to anything declared --
+      # a change to a declared value still diffs, because it is not listed here.
       ignoreDifferences:
         - group: postgresql.cnpg.io
           kind: Cluster
@@ -788,6 +811,15 @@ spec:
           jsonPointers:
             - /spec/bootstrap
             - /spec/externalClusters
+            # backup.target defaults to prefer-standby.
+            - /spec/backup/target
+            # affinity.podAntiAffinityType defaults to preferred.
+            - /spec/affinity/podAntiAffinityType
+            # monitoring gains the operator's own default query set.
+            - /spec/monitoring/customQueriesConfigMap
+            - /spec/monitoring/disableDefaultQueries
+            # storage.resizeInUseVolumes defaults to true.
+            - /spec/storage/resizeInUseVolumes
 
       syncPolicy:
         automated:

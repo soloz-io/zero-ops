@@ -1,7 +1,18 @@
 # ADR-057: Tenant User Management
 
 **Date:** 2026-08-31
-**Status:** Accepted
+**Status:** Accepted — but the forwarding rule below is **scoped to a hop inside one
+application** and must not be used across an application boundary.
+**Amended:** 2026-09-30 after external security review of ADR-094/095. The
+shared-secret plus trusted-identity-header hop this ADR defines (bff -> that
+application's own sdk) carries email, roles and a **caller-asserted** tenant. That
+is acceptable within one application, where the caller is the same trust domain and
+a CiliumNetworkPolicy admits nothing else. It is **not** an acceptable
+cross-application trust model: tenant and caller identity must come from a
+validated token, not from a header the caller writes. The review's conclusion is
+that a cross-application hop is **replaced** with ADR-094's model as a deliberate
+change, never retrofitted onto these headers. See ADR-094 "External security
+review, 2026-09-30", requirements 4–7.
 
 ## Context
 

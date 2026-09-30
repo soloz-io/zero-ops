@@ -96,7 +96,24 @@ spec:
   # kustomization, so the TLS Secret was never created and the workload could not
   # start. Resources emitted together cannot develop that gap.
   #
-  # Rendered only when the fleet declares spec.cache.enabled.
+  # RENDERED FOR EVERY TENANT, whatever spec.cache.enabled says.
+  #
+  # This said "rendered only when the fleet declares spec.cache.enabled" until
+  # 2026-09-30. It never was: this is a classic Composition (mode Resources) with
+  # no pipeline and no conditional function, so there is nothing here that can
+  # skip a resource, and these five have always been emitted unconditionally.
+  #
+  # The false comment had a cost. The hub-operator seeded CACHE_PASSWORD only when
+  # cache.enabled was true, believing this claim -- so a tenant with the cache off
+  # got an ExternalSecret naming a password nothing would write, failed
+  # SecretSyncedError forever, and never started its cache Deployment. oranger sat
+  # in exactly that state. The operator now seeds the credential unconditionally,
+  # which makes the two halves agree.
+  #
+  # Gating these resources properly needs this Composition converted to a pipeline
+  # (function-go-templating or equivalent). Until then a tenant that wants no cache
+  # still gets one, and that is waste rather than breakage -- state it here rather
+  # than describe a gate that does not exist.
   # ---------------------------------------------------------------------------
   - name: cache-credential
     base:

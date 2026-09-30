@@ -8,6 +8,10 @@ Zitadel. Invariant 1's mechanism and the Context's security argument are correct
 in place; the decision stands on a narrower claim. Restructured the same day into
 the three bands above, because "ADR-094 is accepted" was becoming a sentence that
 covered a question it had not answered.
+**Amended:** 2026-09-30 after external security review — invariant 2 named the
+wrong client. The allowlist holds the caller's CONFIDENTIAL EXCHANGE client, not
+its public PKCE client; the correction and both reasons are in Part 2. Review
+disposition recorded below.
 **Builds on:** ADR-088 (which decided this shape and left it unbuilt)
 **Relates to:** ADR-047 (a fleet declares, the platform renders), ADR-050 (where identity is validated), ADR-053 (OAuth clients are fleet-declared), ADR-059 (no provider vocabulary in platform templates)
 
@@ -34,6 +38,108 @@ not the band being done. It is implemented now (`allowedAzp` in
 `zero-ops-auth`), and the rule this table is written under is that a band is
 ACCEPTED only when its controls exist in code, not when the objects they act on
 have been provisioned.
+
+### External security review, 2026-09-30
+
+**ARCHITECTURE APPROVED, with implementation gates** (second pass, same day). The
+authentication and data-boundary design is approved; Part 3 authorisation remains
+undecided and does **not** block that approval — it blocks any claim that
+cross-application *authorisation* is complete.
+
+The review established one thing this ADR had not written down: the *deployed*
+inter-service hop is not this design. oranger-bff reaches oranger-sdk over a shared
+secret plus trusted identity headers (ADR-057), which carries email, roles and a
+caller-asserted tenant. That is an older trust model, and the decision is:
+
+> **Do not retrofit this design onto the shared-secret/header hop. Replace that hop
+> as a deliberate architectural change.**
+
+The nine requirements, and where each now stands. Requirements 2–8 were not left
+as nine independent decisions: they follow from the security model already chosen,
+and the reviewer put them forward as one contract, which is approved as design.
+
+| | requirement | status |
+|---|---|---|
+| 1 | `OIDC_ALLOWED_AZP` holds the confidential exchange client | **DONE** — invariant 2a; resolver **and call-site** regression tests |
+| 2 | private application-to-application network path | **DESIGN APPROVED** — below |
+| 3 | waypoint's contract is access-token-only | **DESIGN APPROVED** — ADR-095 |
+| 4 | `consumer_app_id` ← validated `azp` | **DESIGN APPROVED** — invariant 2b |
+| 5 | `subject` ← validated `sub`, no user lookup | **DESIGN APPROVED** — invariant 2b |
+| 6 | tenant ← validated token, never a caller header | **DESIGN APPROVED** — invariant 2b |
+| 7 | no email or roles across the boundary | **DESIGN APPROVED** — below |
+| 8 | short-lived exchanged token | **DESIGN APPROVED** — ADR-095 |
+| 9 | Part 3 authorisation stays separate | **HOLDS** — see Part 3 |
+
+Design approved is not implemented. Nothing in 2–8 is built, and the invariants
+above are what an implementation is measured against.
+
+#### 2 — the network path is defence in depth, not the authentication
+
+A cross-application path is created explicitly, never by default:
+
+```
+oranger-sdk  --CiliumNetworkPolicy-->  waypoint-sdk
+```
+
+with no public hostname, no ingress from browser or user workloads, ingress
+restricted to the calling workload's identity, and both halves declared — the
+caller's egress and the receiver's ingress. It is stated in this ADR because the
+absence of a path is a property a reader can check, and because a stolen bearer
+token must not be sufficient from outside the cluster.
+
+It is **not** the authentication mechanism. The token is. A design that relied on
+the network for authentication would be one where any workload that got inside the
+namespace became the caller.
+
+#### 7 — what does NOT cross the boundary
+
+```
+crosses:         tenant_id, azp -> consumer_app_id, sub
+does NOT cross:  email, name, the caller's user id, the caller's roles
+```
+
+A receiver owning resources keyed by an opaque subject has no business need for a
+profile, and copying one across the boundary would make each receiver a partial
+directory of the caller's users that nothing keeps current. Adding a field to this
+list requires a demonstrated requirement, recorded here.
+
+The caller's roles are excluded for a second reason, which is requirement 9: they
+are the caller's authorisation model, and a receiver reading them would be
+answering "what may this user do here" with a fact about somewhere else.
+
+Item 9 is explicit: the authentication and data-boundary half is now well enough
+defined to keep designing, and the authorisation model must not be smuggled in with
+it. No application may declare a `backendDependency` and rely on roles until the
+Part 3 experiment has run.
+
+**What `backendDependencies` means, and what it does not.** It means: this
+application has a permitted application relationship with that one. It does **not**
+mean its users hold any permission there. A token minted under this design
+establishes four things and deliberately not a fifth:
+
+```
+WHO                    sub
+WHICH TENANT           tenant_id
+WHICH APPLICATION      azp -> consumer_app_id
+WHICH RESOURCE SERVER  aud
+-----------------------------------------------
+WHAT THIS USER MAY DO  not established (Part 3)
+```
+
+So `backendDependencies` must never become an authorisation scope, and the caller's
+roles must never be read as the receiver's permissions.
+
+The data boundary the review endorsed, and which items 4–7 exist to hold:
+
+```
+Zitadel   owns authentication identity
+oranger   owns oranger-specific user data
+waypoint  owns waypoint-specific resources, keyed by opaque Zitadel subject
+```
+
+waypoint never asks "who is `sub=abc123`". It knows that subject is authenticated,
+and that an authorised application is carrying the call. Tenant, `consumer_app_id`
+and subject are the whole contract.
 
 The three receiver invariants are stated inside the band each belongs to, and keep
 their numbers so earlier references resolve. Each is a thing a receiver must DO,
@@ -416,15 +522,58 @@ token silently, and the rule is: **on the browser-call path a missing `azp` is
 rejected**, never treated as a trusted service. Service-to-service on this platform
 authenticates separately and carries no user token (waypoint ADR-024).
 
-**The declaration stays at application level; the platform expands it to clients.**
-A fleet writes `backendDependencies: [waypoint]`, and the renderer resolves that to
-the set of client ids belonging to waypoint's project, which is what the receiver
-compares `azp` against. The alternative -- tenants declaring client ids -- pushes
-an issuer-allocated, rotating identifier into a tenant's repository, and a client
+**The declaration stays at application level; the platform expands it to one
+client.** A fleet writes `backendDependencies: [waypoint]`, and the platform
+publishes the CALLER's client id onto WAYPOINT's path, because the target is what
+enforces the check. The alternative -- tenants declaring client ids -- pushes an
+issuer-allocated, rotating identifier into a tenant's repository, and a client
 rotation would then silently break a dependency the tenant thought it had declared.
-So: **an appId -> appId dependency authorises every browser client of the calling
-application.** An application that needs finer granularity than that needs a second
-project, which is the unit this ADR makes cheap.
+
+**INVARIANT 2a (hard).** The downstream token's `azp` MUST be the confidential
+exchange client that performed the token exchange. `OIDC_ALLOWED_AZP` MUST contain
+that client id. Public/browser client ids MUST NOT be used for cross-application
+caller authorisation.
+
+**INVARIANT 2b (hard).** A receiver MUST derive consumer application, tenant and
+user subject exclusively from validated token claims. No caller-supplied identity
+header or request field participates in cross-application identity.
+
+```
+consumer_app_id = mapping(validated azp -> application)
+subject         = validated sub
+tenant_id       = validated tenant_id
+```
+
+and never from an HTTP request, and never by resolving `subject` against the
+calling application's user table.
+
+These two are stated as MUST because they are the two regressions this design has
+actually produced: 2a was implemented wrongly (below), and 2b is how the deployed
+ADR-057 hop works today, which is why that hop is replaced rather than extended.
+
+This corrects what this section said until 2026-09-30, which was that a dependency
+"authorises every browser client of the calling application". That sentence was
+wrong in both directions, and the implementation followed it:
+
+- **It would never match.** `createExchangeAccessToken` and `createExchangeJWT`
+  both pass `client.client.ClientID` -- the client that AUTHENTICATED the
+  exchange, not the one whose token was the subject -- into `CreateOIDCSession`.
+  An exchanged token therefore never carries the browser client's id, so every
+  genuine cross-application call would have been refused.
+- **Had it matched, it would have been too wide.** The public PKCE client is what
+  a browser authenticates as. Admitting it means any token obtained through the
+  caller's own login satisfies the target's allowlist -- including an ID token.
+  The allowlist exists to distinguish applications; a public client shared with
+  every browser session cannot do that.
+
+So the granularity is **one confidential client per calling application**, not
+"every client of that application". An application needing finer granularity than
+that needs a second project, which is the unit this ADR makes cheap.
+
+**Resolution is pending-not-approximate.** Where the caller's exchange client id
+is not yet known, the platform publishes NOTHING and waits for the next reconcile.
+A target admitting the wrong caller looks configured and is not, which is strictly
+worse than one admitting nobody: the latter fails closed.
 
 **Implemented** in `zero-ops-auth` as `JwtValidator({ allowedAzp: [...] })`.
 Three properties are deliberate and are covered by tests:

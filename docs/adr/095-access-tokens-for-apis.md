@@ -12,6 +12,10 @@ where a token crosses an application boundary; on the same-application path the
 gateway forwards its validated session token and ADR-094 invariant 2 (the `azp`
 allowlist) is what refuses a sibling's token. See "The exchange cannot serve a
 browser session".
+**Amended:** 2026-09-30 after external security review — the same-application
+ID-token exception is explicitly interim and does not extend to the
+cross-application contract, which is access-token-only. See "The cross-application
+contract is access-token-only".
 **Implements:** ADR-094 invariant 1, which sits in that ADR's **Part 1
 (same-application authorisation)**. This ADR decides the CREDENTIAL — what a
 receiver is handed and how it proves which kind of token it is. It does not
@@ -438,6 +442,85 @@ that the audience enforces anything.
   perform one.
 - Role-based authorisation is unaffected: roles are already asserted into access
   tokens on every app in every org, and `createExchangeJWT` asserts them too.
+
+## The cross-application contract is access-token-only
+
+**Decided 2026-09-30 by external security review** (ADR-094 requirement 3).
+
+The browser path's `rejectIdTokens: false` is an artifact of the constraint above:
+Zitadel's exchange cannot serve a gateway-mediated browser session, so that hop
+forwards the validated ID token and relies on the caller allowlist instead. That
+exception is **scoped to that hop and does not extend to the cross-application
+contract**, which is:
+
+```
+cross-application API  ->  access token only, rejectIdTokens = true
+```
+
+The reason is not purity. Carrying the exception forward would leave two meanings
+for "authenticated principal" on one box — an ID token under the browser/header
+model, an access token under the cross-application model — and a receiver would
+have to know which kind of caller it was facing in order to know which rules
+applied. That is the confusion invariant 1 exists to remove.
+
+So the ID-token path is **interim and inward-facing**, never the foundation for a
+new receiver. A cross-application receiver ships with `rejectIdTokens` left at its
+default.
+
+### The receiver's validation list, in full
+
+```
+Authorization: Bearer <JWT access token>
+```
+
+validated on: `iss`, signature, `exp`, `aud`, `azp`, `tenant_id`, `sub`.
+
+refused: an ID token · a missing `azp` · an `azp` not in the allowlist · a wrong
+audience · a wrong tenant · an expired token · an invalid signature or issuer · a
+missing subject.
+
+Each refusal is named distinctly. An operator told "token invalid" when the answer
+is "that application is not admitted here" goes looking in the wrong place, which is
+why `zero-ops-auth` carries `CALLER_NOT_ALLOWED` and `ID_TOKEN_PRESENTED` rather
+than one error.
+
+### Lifetime: minutes, not hours (ADR-094 requirement 8)
+
+The exchanged downstream token targets **5–15 minutes**, against 12h today — and
+12h is not a configured value but Zitadel's default, since nothing in this platform
+sets `AccessTokenLifetime` at all.
+
+The number is not the invariant. This is:
+
+> A downstream service credential representing a user's authority must not remain
+> usable for 12 hours by default.
+
+Refresh and re-authentication stay with the upstream application's session
+machinery. A receiver does not refresh anything; it accepts a valid token or
+refuses. Pushing renewal into receivers would give every one of them a credential
+and a reason to talk to the issuer.
+
+### Replay, stated rather than implied
+
+```
+attacker holding a valid token
+  ├── outside the cluster        -> refused by the network policy
+  └── inside a permitted context -> replayable until exp
+```
+
+That is ordinary bearer semantics and it is accepted explicitly. **Expiry limits
+the duration of replay; it does not prevent replay**, and this ADR does not claim
+otherwise. Sender-constrained tokens are not adopted until a threat model requires
+sender constraint.
+
+**Not a reason to add sender-constrained tokens.** A 12h bearer token is replayable
+until `exp`, bounded by the network policy, and that is inherent to bearer
+semantics. DPoP or mTLS would be a substantially more complex design and are not
+justified merely by replayability being possible; they need a threat model that
+requires sender constraint. The ordered controls are: authenticated user token,
+issuer and signature, audience, credentialed caller (`azp`), tenant binding, a
+short enough lifetime, a private network boundary, then authorisation at the
+receiver. Requirement 8 in ADR-094 is the lifetime, and it is open.
 
 ## Open
 

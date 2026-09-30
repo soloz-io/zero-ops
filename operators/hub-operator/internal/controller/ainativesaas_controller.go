@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -33,9 +34,32 @@ import (
 //     workload. ADR-003, ADR-019: scoped identity for runtime plugin resolution.
 //
 // Mirrors SpokePoolReconciler (ADR-003 Pattern A2b) for consistency.
+// TenantSecretStore is the part of the Infisical client this controller uses.
+//
+// An INTERFACE so the provisioning path can be tested. It was
+// `*secrets.InfisicalClient`, and the consequence was not abstract: the caller
+// allowlist was published with the wrong client id (ADR-094 invariant 2, external
+// review 2026-09-30) and no test could reach the call site that did it, because
+// reaching it meant a network. The resolver could be tested and was; the WIRING
+// could not, so the one line that held the defect was the one line uncovered.
+//
+// Narrow on purpose -- these five methods, not everything the concrete client can
+// do. A fake implements what the controller needs and nothing else, so the
+// interface does not become a second definition of the Infisical client that
+// drifts from the first.
+type TenantSecretStore interface {
+	GetSecret(ctx context.Context, secretPath, secretName string) (string, error)
+	SecretExists(ctx context.Context, secretPath, secretName string) (bool, error)
+	CreateSecret(ctx context.Context, secretPath, secretName, secretValue string) error
+	UpdateSecret(ctx context.Context, secretPath, secretName, secretValue string) error
+	EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId, appId string,
+		isFirstTime bool, oauthClients []secrets.OAuthClient,
+		cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*secrets.EnsureTenantCredentialsResult, error)
+}
+
 type AINativeSaaSReconciler struct {
 	client.Client
-	InfisicalClient *secrets.InfisicalClient
+	InfisicalClient TenantSecretStore
 
 	// IdentityClient asks the Tenant Identity Service to provision this tenant's
 	// identity resources. Nil when the environment does not provision them, which
@@ -346,20 +370,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						logger.Info("Backend dependencies waiting on the target's project",
 							"tenant", tenantId, "app", appId, "pending", pendingDeps)
 					}
-					if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
-						"OIDC_BACKEND_AUDIENCE_SCOPES", audienceScopesFor(deps)); err != nil {
-						logger.Error(err, "Could not publish this application's backend audience scopes",
-							"tenant", tenantId, "app", appId)
-					}
-					// The other half: each TARGET learns it must admit this
-					// caller. Published onto the target's own path, because it is
-					// the target that enforces it.
-					for _, d := range deps {
-						if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, identity.ClientID); err != nil {
-							logger.Error(err, "Could not publish the allowed caller onto the target",
-								"tenant", tenantId, "caller", appId, "target", d.AppID)
-						}
-					}
+					r.publishCrossApplicationTrust(ctx, logger, cellId, tenantId, appId, deps, identity.Clients)
 				}
 
 				// The audience the gateway's token exchange asks for (ADR-095).
@@ -584,6 +595,115 @@ func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellI
 
 // allowedAzpKey is where a receiver reads the callers it admits.
 const allowedAzpKey = "OIDC_ALLOWED_AZP"
+
+// publishCrossApplicationTrust renders one application's resolved backend
+// dependencies into the two places they must appear (ADR-094 Part 2).
+//
+// EXTRACTED FROM Reconcile so it can be tested. The external review of
+// 2026-09-30 asked for a regression test at the provisioning call site, not only
+// on the resolver, because the defect was the wiring: the resolver was never
+// wrong, the argument handed to it was. A call site reachable only through a full
+// reconcile is a call site no test names.
+//
+// Errors are logged rather than returned, as they were inline: each publish is
+// independent, and one target's folder being unavailable must not stop the others
+// from learning their callers.
+func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
+	ctx context.Context, logger logr.Logger, cellId, tenantId, appId string,
+	deps []resolvedDependency, clients []client2.DeclaredClient,
+) {
+	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
+		"OIDC_BACKEND_AUDIENCE_SCOPES", audienceScopesFor(deps)); err != nil {
+		logger.Error(err, "Could not publish this application's backend audience scopes",
+			"tenant", tenantId, "app", appId)
+	}
+
+	// The other half: each TARGET learns it must admit this caller. Published
+	// onto the target's own path, because it is the target that enforces it.
+	//
+	// The caller is named by its EXCHANGE client, which is what a receiver sees
+	// as `azp` -- see callerExchangeClientID for why the browser client is not
+	// merely wrong here but unsafe.
+	callerAzp := r.callerExchangeClientID(ctx, cellId, appId, clients)
+	if callerAzp == "" {
+		// Pending, not an error, and deliberately NOT a fallback to another
+		// client id. A target admitting the wrong caller looks configured and is
+		// not, which is worse than one that admits nobody yet: the next reconcile
+		// has the value, and until then the call fails closed.
+		logger.Info("Backend dependencies wait on this application's exchange client id",
+			"tenant", tenantId, "app", appId, "expected", gatewayExchangeClientName(appId))
+		return
+	}
+
+	for _, d := range deps {
+		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, callerAzp); err != nil {
+			logger.Error(err, "Could not publish the allowed caller onto the target",
+				"tenant", tenantId, "caller", appId, "target", d.AppID)
+		}
+	}
+}
+
+// callerExchangeClientID is the client id a receiver will actually see as `azp`
+// on a cross-application call from this application.
+//
+// THE EXCHANGE CLIENT, NOT THE BROWSER CLIENT. Zitadel stamps an exchanged
+// token with the client that AUTHENTICATED the exchange, not the one whose token
+// was the subject: createExchangeAccessToken and createExchangeJWT both pass
+// `client.client.ClientID` into CreateOIDCSession, and that becomes `client_id`
+// on the access token and `azp` on a JWT. The gateway authenticates the exchange
+// as <appId>-gateway-exchange, so that is the value a receiver matches.
+//
+// This used to be `identity.ClientID` -- the tenant's PUBLIC PKCE client, the one
+// a browser authenticates as. Two things were wrong with it, and they pull in
+// opposite directions:
+//
+//   - the receiver would refuse every genuine cross-application call, because
+//     no exchanged token ever carries the browser client's id; and
+//   - had it matched, it would have admitted the browser client itself, so any
+//     token obtained through the caller's own login -- an ID token included --
+//     would satisfy the target's allowlist. The allowlist exists to distinguish
+//     applications, and that value cannot do it.
+//
+// Resolved from the mint when this reconcile created the client, and from the
+// caller's own Infisical folder otherwise: the issuer discloses a generated
+// secret once, so a later reconcile carries no Clients entry, while the id
+// published at mint time persists. Returns "" when neither has it yet, which the
+// caller must treat as pending rather than publish something else.
+func (r *AINativeSaaSReconciler) callerExchangeClientID(
+	ctx context.Context, cellId, appId string, clients []client2.DeclaredClient,
+) string {
+	name := gatewayExchangeClientName(appId)
+	if id := exchangeClientIDFrom(clients, name); id != "" {
+		return id
+	}
+
+	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
+	if got, err := r.InfisicalClient.GetSecret(ctx, path, secrets.InfisicalOAuthClientIDKey(name)); err == nil {
+		return got
+	}
+	// The hub-operator's own key, for a client minted before the one above was
+	// the published name.
+	if got, err := r.InfisicalClient.GetSecret(ctx, path, "OIDC_EXCHANGE_CLIENT_ID"); err == nil {
+		return got
+	}
+	return ""
+}
+
+// exchangeClientIDFrom picks ONE client out of a mint response, by exact name.
+//
+// Exact, and never a "closest" match or a positional one. The slice holds every
+// confidential client the fleet declared alongside the exchange client the
+// platform appends, and returning the wrong element here is the whole defect
+// this guards: the value becomes a target's allowlist entry, so a near miss
+// admits an application nobody authorised.
+func exchangeClientIDFrom(clients []client2.DeclaredClient, name string) string {
+	for i := range clients {
+		if clients[i].Name == name {
+			return clients[i].ClientID
+		}
+	}
+	return ""
+}
 
 // backendDependenciesOf reads the applications this one may call (ADR-094 Part 2).
 func backendDependenciesOf(obj *unstructured.Unstructured) []string {
