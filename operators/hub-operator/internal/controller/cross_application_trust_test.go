@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -95,10 +96,12 @@ func TestTheTargetsAllowlistGetsTheCallersExchangeClient(t *testing.T) {
 	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
 		"nutgraf-01", "nutgraf", "oranger", deps, clients)
 
+	// A MAP entry, not a bare id: waypoint must be able to NAME its caller, or
+	// ADR-042's per-consumer record ownership has to take the name from the
+	// request, which invariant 2b forbids.
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
-	if got != orangerExchangeClientID {
-		t.Fatalf("waypoint's %s = %q; want oranger's exchange client %q",
-			allowedAzpKey, got, orangerExchangeClientID)
+	if want := orangerExchangeClientID + "=oranger"; got != want {
+		t.Fatalf("waypoint's %s = %q; want %q", allowedAzpKey, got, want)
 	}
 }
 
@@ -115,7 +118,7 @@ func TestTheTargetsAllowlistNeverGetsTheCallersBrowserClient(t *testing.T) {
 		"nutgraf-01", "nutgraf", "oranger", deps, clients)
 
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
-	if got == orangerBrowserClientID {
+	if strings.HasPrefix(got, orangerBrowserClientID+"=") || got == orangerBrowserClientID {
 		t.Fatal("published the PUBLIC PKCE client as the allowed caller: " +
 			"a browser-obtained token would satisfy waypoint's allowlist")
 	}
@@ -176,9 +179,9 @@ func TestTheExchangeClientIsReadFromInfisicalOnLaterReconciles(t *testing.T) {
 		"nutgraf-01", "nutgraf", "oranger", deps, nil /* no Clients this reconcile */)
 
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
-	if got != orangerExchangeClientID {
+	if want := orangerExchangeClientID + "=oranger"; got != want {
 		t.Fatalf("waypoint's %s = %q; want %q from the caller's published id",
-			allowedAzpKey, got, orangerExchangeClientID)
+			allowedAzpKey, got, want)
 	}
 }
 
@@ -198,7 +201,7 @@ func TestASecondCallerIsAddedNotSubstituted(t *testing.T) {
 	}
 
 	got := store.data[k(tenantPath("nutgraf-01", "waypoint"), allowedAzpKey)]
-	if want := "atlas-gateway-exchange@nutgraf oranger-gateway-exchange@nutgraf"; got != want {
+	if want := "atlas-gateway-exchange@nutgraf=atlas oranger-gateway-exchange@nutgraf=oranger"; got != want {
 		t.Fatalf("waypoint's %s = %q; want both callers, sorted: %q", allowedAzpKey, got, want)
 	}
 }

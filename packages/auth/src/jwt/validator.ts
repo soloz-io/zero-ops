@@ -82,6 +82,52 @@ export interface JwtValidatorOptions {
    * receiver is unreachable by any other application. Say so where you omit it.
    */
   allowedAzp?: string[];
+  /**
+   * The callers this receiver admits, AND what each one is called:
+   * `{ "<azp>": "<applicationId>" }`.
+   *
+   * A MAP where `allowedAzp` is a list, and the difference is not cosmetic. A
+   * list says a caller may enter; it does not say who entered. A receiver that
+   * owns records per consuming application — waypoint ADR-042 partitions chat
+   * sessions and runs by `consumer_app_id` — would then have to take the name
+   * from the request, which is precisely what ADR-094 invariant 2b forbids.
+   *
+   * Only the platform can supply this. It knows both halves when it renders the
+   * allowlist, and neither end can be trusted to assert it: the caller would be
+   * naming itself, and the receiver has nothing to derive it from.
+   *
+   * Set BOTH gate and name: a token whose `azp` is absent here is refused
+   * exactly as `allowedAzp` refuses, and one that passes arrives with
+   * `consumer_app_id` set on its claims. Supply this or `allowedAzp`, not both;
+   * if both are given this one decides, because it is the stricter statement.
+   *
+   * Build it from the platform's `OIDC_ALLOWED_AZP` with `parseAllowedCallers`.
+   */
+  allowedCallers?: Record<string, string>;
+}
+
+/**
+ * Read the platform's `OIDC_ALLOWED_AZP` into a caller map.
+ *
+ * The value is space- or comma-separated `<clientId>=<applicationId>` entries.
+ * An entry with no `=` is a caller admitted before the platform rendered names,
+ * and maps to `""` — admitted, unnamed. A receiver that needs the name must
+ * treat `""` as unusable rather than as a name, which is why this returns the
+ * empty string rather than dropping the entry: dropping it would silently
+ * REVOKE a caller during the upgrade that introduces names.
+ */
+export function parseAllowedCallers(value: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of (value ?? "").replace(/,/g, " ").split(/\s+/)) {
+    if (!entry) continue;
+    const eq = entry.indexOf("=");
+    if (eq === -1) {
+      out[entry] = "";
+      continue;
+    }
+    out[entry.slice(0, eq)] = entry.slice(eq + 1);
+  }
+  return out;
 }
 
 export class JwtValidator {
@@ -92,6 +138,7 @@ export class JwtValidator {
   private readonly requireTenantId: boolean;
   private readonly rejectIdTokens: boolean;
   private readonly allowedAzp: string[];
+  private readonly allowedCallers?: Record<string, string>;
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
@@ -100,6 +147,7 @@ export class JwtValidator {
     this.requireTenantId = opts.requireTenantId ?? true;
     this.rejectIdTokens = opts.rejectIdTokens ?? true;
     this.allowedAzp = opts.allowedAzp ?? [];
+    this.allowedCallers = opts.allowedCallers;
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
@@ -153,7 +201,24 @@ export class JwtValidator {
       // and not for whatever else happens to be wrong with it -- an operator
       // told MISSING_TENANT_ID would go looking at scopes when the answer is
       // that the caller should not be here at all.
-      if (this.allowedAzp.length > 0 && (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))) {
+      // The map decides where one is given: it is the stricter statement, and a
+      // receiver that supplied both meant the one that also names the caller.
+      if (this.allowedCallers !== undefined) {
+        const permitted = Object.keys(this.allowedCallers);
+        if (claims.azp === undefined || !(claims.azp in this.allowedCallers)) {
+          throw new CallerNotAllowedError(claims.azp, permitted);
+        }
+        // Set from the ALLOWLIST, never from the token. The token says which
+        // client asked for it; only the platform's map says which application
+        // that client belongs to, and a token cannot be allowed to assert its
+        // own application (ADR-094 invariant 2b).
+        //
+        // Empty when the entry predates names. Left undefined rather than "" so
+        // a receiver that partitions by it fails a lookup instead of writing
+        // records under an empty owner that every later caller would match.
+        const appId = this.allowedCallers[claims.azp];
+        claims.consumer_app_id = appId === "" ? undefined : appId;
+      } else if (this.allowedAzp.length > 0 && (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))) {
         throw new CallerNotAllowedError(claims.azp, this.allowedAzp);
       }
 

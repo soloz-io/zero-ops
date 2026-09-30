@@ -565,9 +565,29 @@ func orgBindingAmong(items []unstructured.Unstructured, tenantId, self string) (
 // target, each reconciled separately, so writing only this caller would remove
 // the others. Sorted and de-duplicated so a reconcile that changes nothing writes
 // nothing and the value does not churn.
-func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellId, tenantId string, target resolvedDependency, callerClientID string) error {
+//
+// A MAP, not a list: each entry is `<clientId>=<appId>`.
+//
+// A list says a caller may enter and does not say who it is, so a receiver that
+// needs to name its caller -- to own records per consuming application, as
+// waypoint ADR-042 does -- would have to take the name from the request. That is
+// exactly what ADR-094 invariant 2b forbids, and a list makes obeying it
+// impossible rather than merely difficult.
+//
+// The platform is the only party that can supply the mapping. It knows both
+// halves at this moment (the caller's appId and the client id it will present),
+// and neither the caller nor the receiver can be trusted to assert it: the caller
+// would be naming itself, and the receiver has nothing to derive it from.
+//
+// A bare `<clientId>` with no `=` is still read as admitted-but-unnamed, so a
+// value written before this change keeps working and a receiver that only checks
+// admission needs no update.
+func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellId, tenantId string, target resolvedDependency, callerClientID, callerAppID string) error {
 	if callerClientID == "" {
 		return fmt.Errorf("caller has no client id yet")
+	}
+	if callerAppID == "" {
+		return fmt.Errorf("caller has no application id")
 	}
 	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, target.AppID)
 
@@ -576,18 +596,25 @@ func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellI
 		existing = got
 	}
 
-	set := map[string]bool{}
+	// Keyed on the client id so re-running with a renamed application corrects the
+	// name in place rather than admitting the same client twice under two names.
+	callers := map[string]string{}
 	for _, v := range strings.Fields(strings.ReplaceAll(existing, ",", " ")) {
-		set[v] = true
+		id, app, _ := strings.Cut(v, "=")
+		callers[id] = app
 	}
-	if set[callerClientID] {
-		return nil // already admitted; do not rewrite
+	if app, ok := callers[callerClientID]; ok && app == callerAppID {
+		return nil // already admitted under this name; do not rewrite
 	}
-	set[callerClientID] = true
+	callers[callerClientID] = callerAppID
 
-	out := make([]string, 0, len(set))
-	for v := range set {
-		out = append(out, v)
+	out := make([]string, 0, len(callers))
+	for id, app := range callers {
+		if app == "" {
+			out = append(out, id) // preserve a pre-existing unnamed entry as it stands
+			continue
+		}
+		out = append(out, id+"="+app)
 	}
 	sort.Strings(out)
 	return r.publishTenantSecret(ctx, cellId, tenantId, target.AppID, allowedAzpKey, strings.Join(out, " "))
@@ -636,7 +663,7 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 	}
 
 	for _, d := range deps {
-		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, callerAzp); err != nil {
+		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, callerAzp, appId); err != nil {
 			logger.Error(err, "Could not publish the allowed caller onto the target",
 				"tenant", tenantId, "caller", appId, "target", d.AppID)
 		}

@@ -24,7 +24,7 @@ export type { JwksCacheOptions } from "./jwt/jwks-cache.js";
 export { JwksCache } from "./jwt/jwks-cache.js";
 
 export type { JwtValidatorOptions } from "./jwt/validator.js";
-export { JwtValidator } from "./jwt/validator.js";
+export { JwtValidator, parseAllowedCallers } from "./jwt/validator.js";
 
 // ─── Hono Middleware ───────────────────────────────────────────────
 export { authMiddleware, getPrincipal, PRINCIPAL_KEY } from "./middleware/hono.js";

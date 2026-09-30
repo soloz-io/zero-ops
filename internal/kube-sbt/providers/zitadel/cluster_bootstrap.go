@@ -77,6 +77,19 @@ type Bootstrap struct {
 	// ProjectID receives the application.
 	ProjectID string
 
+	// AccessTokenLifetime bounds how long an access token this instance issues
+	// stays usable (ADR-094 requirement 8).
+	//
+	// Set HERE rather than defaulted in the setter, because it is a security
+	// parameter and a default buried in an implementation file is a decision
+	// nobody made. Zero leaves the instance as it is, which is what an upgrade of
+	// an existing box does until someone chooses a value.
+	//
+	// Applied during bootstrap because this is the one moment the platform holds
+	// an instance-scoped credential: the borrowed token is revoked before Run
+	// returns, and no later reconcile has iam.write.
+	AccessTokenLifetime time.Duration
+
 	HTTP *http.Client
 }
 
@@ -107,6 +120,8 @@ func (b *Bootstrap) Run(ctx context.Context, appName string, redirectURIs []stri
 		return Result{}, err
 	}
 
+	var lifetimeErr error
+
 	defer func() {
 		// Revoked with a context of its own. The caller's may already be
 		// cancelled -- which is exactly when a token would otherwise survive.
@@ -123,7 +138,30 @@ func (b *Bootstrap) Run(ctx context.Context, appName string, redirectURIs []stri
 		}
 	}()
 
-	return b.register(ctx, appName, redirectURIs)
+	// Before the application, and NOT fatal on failure.
+	//
+	// Before, because the borrowed token is revoked when Run returns and this is
+	// the only instance-scoped credential the platform ever holds. Not fatal,
+	// because a box whose tokens live too long is a weaker box, while a box with
+	// no OIDC client at all does not work: refusing to register the cluster's
+	// client over a lifetime setting would trade the whole login for a hardening
+	// step. The error is returned only when registration also fails.
+	if b.AccessTokenLifetime > 0 {
+		if err := b.EnsureAccessTokenLifetime(ctx, b.AccessTokenLifetime); err != nil {
+			lifetimeErr = err
+		}
+	}
+
+	res, regErr := b.register(ctx, appName, redirectURIs)
+	if regErr != nil {
+		return res, regErr
+	}
+	if lifetimeErr != nil {
+		return res, fmt.Errorf("the cluster's OIDC client was registered but the instance "+
+			"access token lifetime was not set: %w.\n\n"+
+			"Tokens keep the issuer's default lifetime until this is applied", lifetimeErr)
+	}
+	return res, nil
 }
 
 func (b *Bootstrap) validate() error {

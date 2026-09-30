@@ -40,6 +40,19 @@ export interface TenantClaims {
    */
   azp?: string;
   /**
+   * The APPLICATION the calling client belongs to, resolved from the receiver's
+   * caller map (ADR-094 invariant 2b).
+   *
+   * Not a claim. No token carries it and none may: `azp` names a client, and
+   * only the platform knows which application the platform registered that
+   * client for. A receiver partitioning records per consuming application uses
+   * this and never a field from the request.
+   *
+   * Undefined when the validator was given no caller map, or when the map admits
+   * this caller without a name (an entry written before names existed).
+   */
+  consumer_app_id?: string;
+  /**
    * Platform-assigned groups (ADR-058).
    *
    * The auth-proxy injects this claim, and the API server matches it for
