@@ -827,7 +827,26 @@ spec:
         # Fixed here, not a value. A fleet able to set this would run an
         # arbitrary container inside its own namespace with the platform's
         # gateway identity.
-        image: cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29
+        # v1.5.0, and the upgrade is REQUIRED by the config above, not routine.
+        #
+        # v1.4.1 carries the OAuthTokenExchangeAuth struct but does not accept
+        # `oauthTokenExchange` in its LOCAL configuration: the variant is absent
+        # from types/local.rs, so the field is reachable only over xDS. A local
+        # config naming it fails to deserialise, and the whole backendAuth value
+        # is reported against the untagged enum that could not match it:
+        #
+        #   binds[0].listeners[0].routes[1].backends[0].policies:
+        #   data did not match any variant of untagged enum BackendAuthCompat
+        #
+        # which names neither the field nor the version. v1.5.0 adds the variant
+        # (types/local.rs, `#[serde(rename = "oauthTokenExchange")]`), and its own
+        # tests configure it in exactly the shape this chart renders.
+        #
+        # Pinned to the multi-arch INDEX digest, not to one platform's manifest.
+        # This box schedules onto both an on-prem worker and cloud nodes, and an
+        # arch-specific digest is a pod that runs on some nodes and reports
+        # ErrImagePull on others -- as a scheduling problem, not an image one.
+        image: cr.agentgateway.dev/agentgateway:v1.5.0@sha256:bf2f339ef326d32def2aaeb44b1b4549801293c19b89e764a4228667d97d9896
         args: ["-f", "/etc/agentgateway/config.yaml"]
         ports:
         - containerPort: 3000

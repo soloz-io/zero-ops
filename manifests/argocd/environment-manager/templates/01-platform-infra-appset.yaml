@@ -210,6 +210,39 @@ spec:
             helmValues: |
               # Kyverno configuration for hub cluster
               #
+              # platform-capi is not admitted to the admission path.
+              #
+              # resourceFilters is Kyverno's SKIP list, and the chart's
+              # "IncludeNamespaces" adds to it -- so including a namespace here
+              # means Kyverno does not process it. platform-ops is already on it,
+              # because it is Kyverno's own release namespace; platform-capi was
+              # simply never added.
+              #
+              # It belongs there for the same reason and for a sharper one. That
+              # namespace holds the CAPI bootstrap templates, and two of them are
+              # ~870 KB -- cilium-addon-template at 883 KB and cnpg-crds-template
+              # at 867 KB. Every write of those crossed the tunnel to the
+              # admission controller on the on-prem worker, synchronously, under
+              # failurePolicy=Fail with a 10s timeout, and intermittently came
+              # back "unexpected error when reading response body": a truncated
+              # response, not a slow one. The 3 KB template in the same
+              # Application never failed.
+              #
+              # That blocked four consecutive releases. Each presented as
+              # platform-spoke-bootstrap-templates sitting at ComparisonError,
+              # which reads as an ArgoCD fault and is not one.
+              #
+              # This is scope, not placement. Pinning the controller to the
+              # control plane was tried and MEASURED SLOWER (see the affinity note
+              # below): that node is the bottleneck, not the tunnel. What is wrong
+              # is that a fail-closed webhook matching every kind sees
+              # platform-owned CAPI templates at all -- there is no tenant in that
+              # namespace and no pod, so no policy here has anything to say about
+              # its contents.
+              config:
+                resourceFiltersIncludeNamespaces:
+                  - platform-capi
+              #
               # No replicaCount here. The chart has no such value -- it reads
               # admissionController.replicas (set below) -- so the `replicaCount: 3`
               # that sat here changed nothing while reading like it set the
