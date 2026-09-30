@@ -151,7 +151,20 @@ spec:
       cpu: "500m"
     limits:
       memory: "2Gi"
-      cpu: "2000m"
+      # CANONICAL FORM, and that is the whole reason it is not "2000m".
+      #
+      # 2000m and 2 are the same quantity, and Kubernetes serialises it as "2".
+      # The apply path stored the literal this file carried while the SERVER-SIDE
+      # DRY RUN -- which is how ArgoCD computes its diff -- returned the
+      # canonical form. So the desired object said "2" and the live object said
+      # "2000m" on every pass, and platform-spoke-catalog sat OutOfSync forever
+      # with its own last sync reporting "successfully synced (all tasks run)".
+      #
+      # Nothing was wrong with the cluster and nothing a sync could do would fix
+      # it: the two paths disagreed about spelling, not about value. Writing the
+      # form the server canonicalises to removes the disagreement rather than
+      # hiding it, which is why this is not an ignoreDifferences entry.
+      cpu: "2"
 
   affinity:
     enablePodAntiAffinity: true
