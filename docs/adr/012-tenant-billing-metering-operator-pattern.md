@@ -4,6 +4,10 @@
 **Status:** Accepted  
 **Authors:** Platform Engineering Team  
 
+*Amended by: ADR-098 (Metering and the Usage Ledger) — the catalog decision
+stands; the reconciler target and runtime backend move from OpenMeter to the
+metering catalog reconciler and the usage ledger.*
+
 ## Context
 
 The Zero-Ops platform requires a production-grade billing and metering system to support multi-tenant SaaS applications. The system must manage two distinct categories of data:

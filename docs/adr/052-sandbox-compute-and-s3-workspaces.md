@@ -23,6 +23,11 @@ contracts assume, the requirement that deployed artifacts pin exact versions
 rather than prose, and the two re-measurement obligations the upgrade carries.
 **Relates to:** ADR-005 (unified abstraction layers in Crossplane), ADR-011 (declarative over imperative), ADR-012 (billing/metering), ADR-014 (platform-owned stateful infrastructure), ADR-033 (fleet scale targets), ADR-034 (control-plane failure domains), ADR-036 (pluggable provider architecture), ADR-039 (ownership model), ADR-041 (controller responsibility matrix), ADR-043 (control plane authority), ADR-046 (placement classes, burst worker pool), ADR-047 (fleet tenant deployment contract), `crossplane-capi-ownership-pattern`
 
+*Amended by: ADR-098 (Metering and the Usage Ledger) — the metering sentence
+under Ownership ("already collected by the observability stack") and the Burst
+Compute Usage row's System of Record (OpenMeter → usage ledger) are replaced by
+ADR-098's collection prerequisite and ledger.*
+
 ---
 
 > **Amendment 2026-09-02b — Ephemeral compute is two mechanisms, not one.**
