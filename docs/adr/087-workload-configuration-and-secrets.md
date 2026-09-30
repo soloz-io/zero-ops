@@ -155,6 +155,50 @@ configuration to the store this ADR moved it out of -- lists what it would write
 before writing anything, and reports afterwards that the file it read is now a
 second copy that nothing rotates.
 
+### A value the platform requires, the platform must prove it delivers
+
+The values above are published by the platform and consumed by a workload, and
+between those two facts sits a step this ADR did not name: the application's own
+Helm chart wires each one, `valueFrom` by `valueFrom`, from the ConfigMap or
+ExternalSecret the platform rendered it into.
+
+That step lives in a different repository from the requirement it satisfies. The
+requirement is a `requirePlatformEnv([...])` list in `zero-ops-auth`; the
+delivery is a block in an application's `values.yaml`, copied from the onboarding
+guide when the application was first written and never revisited. Nothing
+compared the two.
+
+The consequence is a failure mode this ADR should have anticipated: **adding a
+required name is a breaking change to every application already deployed, and
+the platform has no way to know which ones it breaks.** When 0.15.0 added
+`OIDC_ORG_ID` to `browserSessionValidator` — so the tenant could be COMPARED
+rather than merely required (ADR-094 invariant 3) — every BFF became one upgrade
+away from a pod that would not start, and nothing said so. The runtime error is
+correct and well made: `PlatformConfigError` names every missing value at once.
+It simply arrives at pod start, on the box, after a release.
+
+**So the comparison is a release gate.** `scripts/validate/preflight/92-platform-env-is-delivered.py`
+reads each surface validator's required set from the source that declares it, and
+checks it against every application BFF chart checked out beside this repository.
+A name a validator requires and a chart does not wire is a hard failure here,
+where it costs a diff.
+
+It found one on its first run, before the application concerned had reported
+anything: waypoint's BFF chart wired neither `OIDC_CLIENT_ID` nor `OIDC_ORG_ID`.
+Nothing was failing, because waypoint was still on 0.14.0 — the failure was
+waiting for the upgrade the platform was about to ask it to make.
+
+It checks that a name is wired, not that the value behind it is right. A wrong
+value fails at the issuer, which is a failure that names itself.
+
+**This is a gate, not the design.** That each product team hand-copies the
+platform's own env into its own chart is the arrangement that makes the gate
+necessary, and it is the arrangement this ADR's ownership rules argue against:
+the platform owns these values, so a fleet that types them is a second producer
+of something it does not own. Closing that properly means the platform
+contributing the env block rather than documenting it. Until it does, the gate
+stands in for it and the duplication is at least checked.
+
 ### Alternatives considered
 
 **Encrypted values committed to git (SOPS or sealed secrets).** Makes rotation a
@@ -232,6 +276,12 @@ Extends ADR-084, which governs how a workload is deployed, to what it reads.
 
 Does not amend ADR-003. Infisical remains the System of Record for secret
 material and the ESO delivery path is unchanged.
+
+Adds a preflight gate, `92-platform-env-is-delivered`, comparing the env set each
+`zero-ops-auth` surface validator requires against the set each application BFF
+chart wires. The gate exists because the two live in different repositories; it
+is a check on the duplication this ADR's ownership rules say should not exist,
+not an endorsement of it.
 
 ## References
 

@@ -46,6 +46,20 @@ This is stated as a rule rather than left to judgement because the failure it pr
 
 Recording the provider alongside the subject is equally deliberate. Subjects are unique within an issuer, not across issuers, so a tenant federating a second provider must not allow one subject to resolve to a user established by another.
 
+### The provider name is `zitadel`, and it is not a free-text label
+
+The value stored in `identities.provider` names the issuer that actually issued the subject. On this platform that is Zitadel (ADR-060), and the constant lives in one place: `DEFAULT_PROVIDER` in `zero-ops-auth`.
+
+It said `"ory"` until 2026-09-30 — a default carried over from the identity provider that preceded Zitadel, on a fleet whose issuer had only ever been Zitadel. Nothing failed for as long as it was wrong, and that is the point worth recording: this value is only ever compared against itself. The library writes the name, looks the person up by the same name, and matches. A wrong name is perfectly self-consistent, produces no error, and is invisible to every test that exercises resolution. It was found by the oranger team reading a row, not by anything reporting it.
+
+**The stored value and the sent value move in the same change.** `identities` is `UNIQUE(provider, provider_user_id)` and resolution looks a person up by that pair, so changing the name the library sends without rewriting the stored rows makes every existing identity unreachable: the lookup matches nothing, `resolve_user` concludes the person is new, and inserts a **second** `users` row for someone who already has one. That insert succeeds. Nothing reports it, and the person's records stay behind the identifier they no longer resolve to.
+
+So the rename is one change with two halves — tenant baseline migration 8 rewrites every stored row, and `zero-ops-auth` 0.16.0 sends the new name.
+
+**The old name is refused, not aliased.** `resolve_user` raises on `provider = 'ory'`. Accepting both names for one issuer is exactly what creates the duplicate above, and it would do so during the rollout window in which some workloads are upgraded and some are not. A stale caller gets an error naming the version it must upgrade to; a rollout window measured in minutes is the right price for a duplicate that is permanent.
+
+This does not constrain genuine federation. A tenant that really does add a second issuer names it explicitly, which is the case the provider column exists for.
+
 ### A user is provisioned on first authenticated request
 
 A tenant-local user is created the first time an authenticated subject is seen, not by an administrative act in advance. The identity provider is the authority on who may authenticate; the tenant's database holds what that person owns. Requiring a separate provisioning step ahead of first use would place an administrative gate in front of authentication that the platform's own authorisation model does not otherwise impose.
@@ -354,6 +368,11 @@ Per ADR-039.
 ## Impact
 
 - **Extends the tenant baseline's role.** The baseline's user and identity tables become part of the platform's contract with tenants rather than unused scaffolding.
+- **Fixes the provider name in the baseline and the library together** (2026-09-30).
+  Tenant migration 8 rewrites every `identities.provider` from `ory` to `zitadel`;
+  `resolve_user` refuses the old name rather than aliasing it; `zero-ops-auth`
+  0.16.0 sends the new one. Migration 8 must land BEFORE any workload upgrades,
+  because the refusal takes effect the moment it applies.
 - **Supersedes ADR-010** (marked 2026-09-28). That decision predates ZITADEL,
   assumed PostgREST and Atlas, and provisioned users through an administrative API
   rather than on first authenticated request. It is retained for history only.
