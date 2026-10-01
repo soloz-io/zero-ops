@@ -340,9 +340,11 @@ capabilities:
       OpenMeter has been withdrawn: it required ClickHouse, Kafka and Svix for a
       capability the platform never deployed, which is a maintenance obligation
       out of all proportion to the box ADR-070 targets. The replacement is
-      decided by ADR-098: a spoke metering-agent journals usage events to a
-      local outbox and a Vector sidecar ships them as objects into the
-      platform's metering-events bucket; hub metering-ingest polls the bucket
-      and records them in Lago, whose light profile runs on the CNPG cluster
-      and Redis every hub already runs. Planned until the collection floor,
-      agent, shipper, ingest and engine ship -- see ADR-098.
+      decided by ADR-098: a spoke metering-agent commits usage events to a
+      single durable write-ahead log and a Vector sidecar ships them as
+      objects into the platform's metering-events bucket; hub
+      metering-ingest consumes the bucket behind a durable checkpoint and
+      records them in Lago, whose light profile runs on the platform
+      database's CNPG cluster and Redis every hub already runs. Planned
+      until the collection floor, agent, shipper, consumer and engine ship
+      -- see ADR-098.

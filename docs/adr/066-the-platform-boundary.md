@@ -9,10 +9,10 @@
 add.3's replacement sentence for `metering` ("the PostgreSQL implementation
 already written at `internal/kube-sbt/providers/metering`") is replaced by
 the ADR-098 design: Lago as the billing engine, sole usage record, with
-the agent's outbox shipped through a Vector sidecar into platform object
-storage and pulled by the hub. The capability stays
-`declared` / `planned` until that design ships; "what is outstanding is an
-ADR for it" is answered.*
+the agent's write-ahead log shipped through a Vector sidecar into platform
+object storage and consumed by the hub behind a durable checkpoint. The
+capability stays `declared` / `planned` until that design ships; "what is
+outstanding is an ADR for it" is answered.*
 
 > On-prem nodes are named as a selectable capability. The boundary this ADR draws
 > between the machinery every box runs and the capabilities a tenant selects is
