@@ -4,9 +4,9 @@
 **Status:** Accepted  
 **Authors:** Platform Engineering Team  
 
-*Amended by: ADR-098 (Metering and the Usage Ledger) — the catalog decision
-stands; the reconciler target and runtime backend move from OpenMeter to the
-metering catalog reconciler and the usage ledger.*
+*Amended by: ADR-098 (Metering Sources over Spoke Egress and Records in Lago) — the
+catalog decision stands; the reconciler target and runtime backend move from
+OpenMeter to the Lago API, whose events store becomes the usage record.*
 
 ## Context
 

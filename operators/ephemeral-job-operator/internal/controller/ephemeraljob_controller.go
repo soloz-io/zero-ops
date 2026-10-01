@@ -935,6 +935,45 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		Name: "tmp", MountPath: "/tmp",
 	})
 
+	// ── The pod-bound identity, on the WORKLOAD container only (ADR-052).
+	//
+	// Not on the sidecars, and that is the point of doing it here rather than in
+	// the shared loop below: the sidecars are auxiliary processes the platform
+	// supplies, and the agent-vault sidecar in particular proxies outbound calls
+	// for tenant-authored code. Handing it an identity that a receiver accepts
+	// would make the proxy a caller in its own right.
+	//
+	// The path is the PLATFORM's, not the fleet's. A tool reads it to find its
+	// token, so it is a contract between the platform and the application, and a
+	// fleet-supplied path would be a contract the fleet could change under its own
+	// tools. It is also why the mount is read-only: the kubelet rewrites the file
+	// in place on renewal and nothing in the pod should be writing there.
+	if it := ej.Spec.IdentityToken; it != nil {
+		exp := int64(identityTokenDefaultExpirySeconds)
+		if it.ExpirationSeconds != nil {
+			exp = *it.ExpirationSeconds
+		}
+		volumes = appendVolumeIfAbsent(volumes, corev1.Volume{
+			Name: identityTokenVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{{
+						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+							Audience:          it.Audience,
+							ExpirationSeconds: &exp,
+							Path:              identityTokenFileName,
+						},
+					}},
+				},
+			},
+		})
+		container.VolumeMounts = appendMountIfAbsent(container.VolumeMounts, corev1.VolumeMount{
+			Name:      identityTokenVolumeName,
+			MountPath: IdentityTokenMountPath,
+			ReadOnly:  true,
+		})
+	}
+
 	// Every container, not just the workload.
 	//
 	// The burst-compute ResourceQuota refuses a POD in which any container omits
@@ -1531,6 +1570,33 @@ func (r *EphemeralJobReconciler) deletePod(ctx context.Context, pod *corev1.Pod)
 		return err
 	}
 	return nil
+}
+
+// The identity token's location, owned by the PLATFORM.
+//
+// A tool inside the sandbox opens IdentityTokenPath to authenticate, so this is a
+// contract between the platform and every application that uses it -- which is
+// why it is a constant here and not a field on the spec. A fleet-supplied path
+// would be a contract the fleet could move under its own tools, and the failure
+// would be a tool that reads an empty file and sends no credential.
+const (
+	identityTokenVolumeName = "platform-identity-token"
+	identityTokenFileName   = "token"
+	// IdentityTokenMountPath is the directory; IdentityTokenPath is the file a
+	// tool reads. Under /var/run/secrets so it shares the convention of every
+	// other credential a kubelet projects, and on a tmpfs rather than a disk.
+	IdentityTokenMountPath = "/var/run/secrets/platform.soloz.io/identity"
+	IdentityTokenPath      = IdentityTokenMountPath + "/" + identityTokenFileName
+	// The API server refuses a projected token below 600s, so this is the floor
+	// and not a preference.
+	identityTokenDefaultExpirySeconds = 600
+)
+
+func appendVolumeIfAbsent(vs []corev1.Volume, v corev1.Volume) []corev1.Volume {
+	if hasVolume(vs, v.Name) {
+		return vs
+	}
+	return append(vs, v)
 }
 
 func hasVolume(vs []corev1.Volume, name string) bool {

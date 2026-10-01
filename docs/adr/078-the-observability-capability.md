@@ -6,10 +6,10 @@
 
 *Constrained by: ADR-065 (The Control Plane Ships Into the Box), ADR-066 (The Platform Boundary), ADR-069 (The Maintenance Promise), ADR-070 (The Minimum Supported Box), ADR-071 (How This Platform Differs from Kubefirst), ADR-077 (The Support Agent)*
 
-*Amended by: ADR-098 (Metering and the Usage Ledger) — add.1 §6's tenant
-series exclusion gains a metering carve-out: in-cluster container usage series
-for `tenant-*` namespaces are collected as accounting data. Off-cluster opt-in,
-tenant log policy and trace policy are unchanged.*
+*Amended by: ADR-098 (Metering Sources over Spoke Egress and Records in Lago) — add.1
+§6's tenant series exclusion gains a metering carve-out: in-cluster container
+usage series for `tenant-*` namespaces are collected as accounting data.
+Off-cluster opt-in, tenant log policy and trace policy are unchanged.*
 
 > Observability is a capability the platform ships, not a destination the tenant supplies. A box that collects telemetry and has nowhere to put it is not observable.
 

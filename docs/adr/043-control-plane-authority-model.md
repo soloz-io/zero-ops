@@ -33,7 +33,7 @@ This ADR defines the single authority for each domain. Where any other ADR appea
 | Spoke Lifecycle | Hub Operator | Spoke provisioning, teardown, and cross-cluster orchestration require Hub-level visibility that Spoke-local controllers lack. |
 | PKI Trust Anchors | CLI | Root CA and Intermediate CA establishment is a Day-0 operation with no Day-1 reconciliation requirement. |
 | Machine Identities | Hub Operator | Machine identity lifecycle (creation, scope, rotation) is a Spoke-level concern managed at the Hub. |
-| Observability | Observability Stack | Metrics, logs, and traces are collected by Alloy/OTel and stored in VictoriaMetrics/Loki/OpenMeter. No application controller owns telemetry. |
+| Observability | Observability Stack | Metrics, logs, and traces are collected by Alloy/OTel and stored in VictoriaMetrics/Loki. No application controller owns telemetry. |
 | Admission Policy | Kyverno | Kubernetes admission control requires a policy engine integrated with the API server. |
 | Workload Identity | cert-manager | Workload identity is provided by cert-manager-issued certificates. SPIRE was decommissioned (2026-08-13); SPIFFE-based workload identity is no longer used in the platform. |
 | Billing Catalog | Billing Operator | Pricing configuration carries legal and compliance weight requiring Git audit trail and declarative reconciliation. |

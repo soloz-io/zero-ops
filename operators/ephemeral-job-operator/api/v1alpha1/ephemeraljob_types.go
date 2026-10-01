@@ -120,6 +120,34 @@ type EphemeralJob struct {
 	Status EphemeralJobStatus `json:"status,omitempty"`
 }
 
+// IdentityToken requests a pod-bound, audience-scoped Kubernetes identity for
+// the workload container (ADR-052).
+type IdentityToken struct {
+	// Audience the token is minted for, and the only audience that will accept
+	// it. REQUIRED, and deliberately so: a token with no audience is accepted by
+	// the Kubernetes API server, which turns this field from an identity into a
+	// cluster credential inside a sandbox.
+	//
+	// The receiver MUST pass the same value to its TokenReview. A TokenReview
+	// with no audience validates the token against the API server's own
+	// audience, which an audience-bound token fails -- so a receiver that omits
+	// it rejects every caller, and one that omits it while the token was minted
+	// without an audience accepts anything the cluster issued.
+	// +kubebuilder:validation:MinLength=1
+	Audience string `json:"audience"`
+
+	// ExpirationSeconds is how long each minted token is valid. The kubelet
+	// renews it in place well before expiry, so this bounds the damage of a
+	// leaked token rather than the life of the pod.
+	//
+	// Defaults to 600 and may not be lower: the API server refuses a projected
+	// token below 600s, and a request for less would be a pod that never starts
+	// rather than a shorter-lived credential.
+	// +kubebuilder:validation:Minimum=600
+	// +optional
+	ExpirationSeconds *int64 `json:"expirationSeconds,omitempty"`
+}
+
 type EphemeralJobSpec struct {
 	// Image is the workload container image. It MUST be an immutable digest
 	// reference: the tenant ABI (kyverno-tenant-abi, rule 2) rejects mutable
@@ -135,6 +163,34 @@ type EphemeralJobSpec struct {
 	Args []string `json:"args,omitempty"`
 	// +optional
 	Env map[string]string `json:"env,omitempty"`
+
+	// IdentityToken mounts a pod-bound Kubernetes identity into the WORKLOAD
+	// container, so a sandbox can authenticate to a service without holding a
+	// shared secret.
+	//
+	// WHY A PROJECTED TOKEN AND NOT A CREDENTIAL IN Env
+	//
+	// Env above is a map of plain strings written into this object, so every
+	// value in it is stored in etcd and readable by anything that can read this
+	// resource (ADR-052 section 19.6). A sandbox runs tenant-authored agent code,
+	// so a shared secret handed to it is a secret that has left the platform's
+	// control: it can be exfiltrated, it does not expire, and revoking it revokes
+	// it for every sandbox at once.
+	//
+	// A projected service account token is none of those things. It is minted by
+	// the kubelet, never stored in this object, bound to an audience so it cannot
+	// be replayed against the Kubernetes API, bound to this POD so it stops
+	// working when the pod is deleted, and short-lived with automatic renewal.
+	//
+	// The receiver validates it with a TokenReview and reads the pod's identity
+	// out of the token, so the CALLER sends no identifier the receiver has to
+	// trust. That is the property Env can never have: a value in Env proves only
+	// that whoever holds it holds it.
+	//
+	// AutomountServiceAccountToken stays false. A projected volume is not the
+	// automount, and the automounted token is the one with no audience -- usable
+	// against the API server, which is exactly what must not be in a sandbox.
+	IdentityToken *IdentityToken `json:"identityToken,omitempty"`
 
 	// Resources is the workload's requested envelope, and it is what the
 	// submitter should state: only the submitter knows what its workload needs,

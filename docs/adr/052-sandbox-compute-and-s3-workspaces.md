@@ -23,10 +23,10 @@ contracts assume, the requirement that deployed artifacts pin exact versions
 rather than prose, and the two re-measurement obligations the upgrade carries.
 **Relates to:** ADR-005 (unified abstraction layers in Crossplane), ADR-011 (declarative over imperative), ADR-012 (billing/metering), ADR-014 (platform-owned stateful infrastructure), ADR-033 (fleet scale targets), ADR-034 (control-plane failure domains), ADR-036 (pluggable provider architecture), ADR-039 (ownership model), ADR-041 (controller responsibility matrix), ADR-043 (control plane authority), ADR-046 (placement classes, burst worker pool), ADR-047 (fleet tenant deployment contract), `crossplane-capi-ownership-pattern`
 
-*Amended by: ADR-098 (Metering and the Usage Ledger) — the metering sentence
-under Ownership ("already collected by the observability stack") and the Burst
-Compute Usage row's System of Record (OpenMeter → usage ledger) are replaced by
-ADR-098's collection prerequisite and ledger.*
+*Amended by: ADR-098 (Metering Sources over Spoke Egress and Records in Lago) — the
+metering sentence under Ownership and the Burst Compute Usage row's System of
+Record (OpenMeter → Lago events, the usage record) are replaced; both body
+edits are applied with this ADR.*
 
 ---
 
@@ -3055,7 +3055,7 @@ Registered against the ADR-039 matrix in its canonical seven-column form:
 | Ephemeral Job Request | Fleet workload | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Fleet workloads | Day-1+ |
 | Ephemeral VM (dev/hybrid) | ephemeral-vm-provisioner | Provider API (Hetzner) | ephemeral-vm-provisioner | ephemeral-vm-provisioner | Fleet workloads | Day-1+ |
 | Sandbox Workload Pod | ephemeral-job-operator | Kubernetes API (fleet namespace) | Fleet | ephemeral-job-operator | Chat runtime | Day-1+ |
-| Burst Compute Usage | Observability Stack | OpenMeter | Observability Stack | Alloy / OTel Collector | Billing, SRE | Day-1+ |
+| Burst Compute Usage | metering-agent (spoke) | Lago events (usage record) | Platform | metering-ingest | Billing, SRE | Day-1+ |
 | Sandbox Workspace S3 Backup (§14, §14.2) | ephemeral-job-operator, via the `workspace-sync` native sidecar | S3-compatible object storage | ephemeral-job-operator | ephemeral-job-operator | Sandbox pod — content-addressed objects + squashfs archive; FUSE restore on startup | Day-1+ |
 | Sandbox Workspace S3 Credential (§14) | ephemeral-job-operator | zero-ops Secret (Infisical/ESO) | ephemeral-job-operator | `workspace-sync` init container + native sidecar only — never the fleet's workload container | Day-1+ |
 | Kueue ClusterQueue / Quota (§15) | Platform | Git (`zero-ops`) | ArgoCD | Kueue | Fleets (fairness/admission scope) | Day-1+ |
@@ -3069,9 +3069,11 @@ own) and `Certificate` (fleet declares, cert-manager owns), and satisfies
 ADR-039 constraint 3: Lifecycle Owner and Reconciler are distinct on the request
 row.
 
-**Metering** derives from pod resource-seconds already collected by the
-observability stack and attributed by namespace. This covers both consumer APIs
-uniformly and adds no emission path to the job controller.
+**Metering** derives from container usage series collected under ADR-098's
+collection floor, coverage-gated by the spoke metering-agent and recorded as
+events in Lago — identity and the burst dimension come from the Kubernetes
+API and platform admission, never from the series. This covers both consumer
+APIs uniformly and adds no emission path to the job controller.
 
 ### Repository ownership
 

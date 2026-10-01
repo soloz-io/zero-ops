@@ -303,6 +303,7 @@ capabilities:
     declared_by:
       - 078-the-observability-capability.md
       - 083-cross-cluster-observability-federation.md
+      - 098-metering-sources-over-spoke-egress-and-records-in-lago.md
     components: [grafana-alloy, kube-state-metrics, node-exporter, victoriametrics-operator, victoriametrics, victoriametrics-alerts, victoria-logs, vmalert, grafana]
     note: >-
       ADR-078. `declared` rather than `supported`: the collection half ships and
@@ -331,13 +332,17 @@ capabilities:
     enable: metering.enabled
     lifecycle: declared
     status: planned
-    declared_by: [066-the-platform-boundary.md]
+    declared_by:
+      - 066-the-platform-boundary.md
+      - 098-metering-sources-over-spoke-egress-and-records-in-lago.md
     interacts_with: [database]
     note: >-
       OpenMeter has been withdrawn: it required ClickHouse, Kafka and Svix for a
       capability the platform never deployed, which is a maintenance obligation
-      out of all proportion to the box ADR-070 targets. The replacement is the
-      PostgreSQL-backed implementation already present at
-      internal/kube-sbt/providers/metering, on the CNPG cluster every box
-      already runs. Planned until that provider compiles and kube-sbt is wired
-      to it -- see the metering ADR.
+      out of all proportion to the box ADR-070 targets. The replacement is
+      decided by ADR-098: a spoke metering-agent journals usage events to a
+      local outbox and a Vector sidecar ships them as objects into the
+      platform's metering-events bucket; hub metering-ingest polls the bucket
+      and records them in Lago, whose light profile runs on the CNPG cluster
+      and Redis every hub already runs. Planned until the collection floor,
+      agent, shipper, ingest and engine ship -- see ADR-098.

@@ -5,6 +5,15 @@
 
 *Amended by: ADR-075 (On-Prem Nodes are a Capability, Not a Provider)*
 
+*Amended by: ADR-098 (Metering Sources over Spoke Egress and Records in Lago) —
+add.3's replacement sentence for `metering` ("the PostgreSQL implementation
+already written at `internal/kube-sbt/providers/metering`") is replaced by
+the ADR-098 design: Lago as the billing engine, sole usage record, with
+the agent's outbox shipped through a Vector sidecar into platform object
+storage and pulled by the hub. The capability stays
+`declared` / `planned` until that design ships; "what is outstanding is an
+ADR for it" is answered.*
+
 > On-prem nodes are named as a selectable capability. The boundary this ADR draws
 > between the machinery every box runs and the capabilities a tenant selects is
 > where that decision is made.
