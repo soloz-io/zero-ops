@@ -12,6 +12,6 @@ resources:
 # `kustomize edit set image`, or nothing rewrites it and the running image
 # drifts from what Git records.
 images:
-- digest: sha256:f6cc82c945fb871084e54d045c4d976e376ee1765c7f3cee19d4b2800ba04bb2
+- digest: sha256:2c2882a1d81e1327225bc451d8b611a646a6586945f0521689897df1c6b18960
   name: ephemeral-job-operator
   newName: ghcr.io/soloz-io/ephemeral-job-operator
