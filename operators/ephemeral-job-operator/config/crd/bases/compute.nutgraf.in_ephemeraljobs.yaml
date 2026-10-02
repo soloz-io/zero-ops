@@ -66,9 +66,24 @@ spec:
                 type: array
               callbackUrl:
                 description: |-
-                  CallbackURL is called by the result sidecar on terminal state. It MUST be
-                  in-cluster: a burst node is an ordinary node of this spoke (ADR-052 §0),
-                  so cluster DNS resolves and no egress exception is required.
+                  CallbackURL is where this workload's lifecycle events are posted. It MUST be
+                  in-cluster: a burst node is an ordinary node of this spoke (ADR-052 §0), so
+                  cluster DNS resolves and no egress exception is required.
+
+                  Posted by the OPERATOR, not by the result sidecar -- this said sidecar until
+                  2026-10-02 and was wrong.
+
+                  Job mode receives one event, the terminal one. Service mode receives two
+                  kinds: `Running` when the workload starts serving, again if its pod is
+                  replaced, and a terminal event when it ends.
+
+                  Not sent for cancellation or deletion. Both are caller-initiated, so the
+                  caller already knows, and a delete callback would need a finalizer -- which
+                  would make this operator a blocker on garbage collection.
+
+                  Delivery is at-least-once. `terminalEventId` is the deduplication key for
+                  each event, and `uid` identifies the incarnation: a caller that recycles a
+                  workload under one name must drop events carrying any other uid.
                 type: string
               cancelled:
                 description: |-

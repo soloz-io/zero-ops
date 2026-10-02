@@ -178,9 +178,19 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed, reason, msg)
 	}
 
-	// Service mode has no Job, no completion and no callback to fire. It is a
-	// different lifecycle over the SAME pod description, so it branches here
-	// rather than inside every step below.
+	// Service mode has no Job and no completion. It is a different lifecycle over
+	// the SAME pod description, so it branches here rather than inside every step
+	// below.
+	//
+	// IT DOES FIRE CALLBACKS, and this comment said otherwise until 2026-10-02.
+	// Service mode notifies the caller twice: once when the workload starts
+	// serving, and once when it ends -- pod failure, pod exit, the never-ready
+	// bound, idle reap or timeout. Both are supported contract (ADR-052 §16.2).
+	//
+	// What it does NOT notify is cancellation or deletion: `spec.cancelled` reaches
+	// a terminal phase through markTerminal, which fires nothing, and a deleted
+	// EphemeralJob is left to garbage collection. Both are caller-initiated, so the
+	// caller already knows.
 	if ej.Spec.Mode == computev1alpha1.ModeService {
 		return r.reconcileServiceMode(ctx, &ej)
 	}
@@ -600,6 +610,21 @@ func terminalEventID(ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Pha
 	return hex.EncodeToString(sum[:])[:32]
 }
 
+// readyEventID is the deduplication key for a "now serving" event.
+//
+// Keyed on the POD, not the request: a Service-mode workload whose pod is lost
+// gets a new one rather than a terminal state, and the receiver must be able to
+// tell the second Running from a redelivery of the first. Two incarnations have
+// two pod names, so they have two event ids.
+//
+// The uid is included so the key cannot collide with a previous EphemeralJob of
+// the same name, and the phase so it cannot collide with that incarnation's
+// terminal event.
+func readyEventID(ej *computev1alpha1.EphemeralJob, podName string) string {
+	sum := sha256.Sum256([]byte(string(ej.UID) + "|" + podName + "|ready"))
+	return hex.EncodeToString(sum[:])[:32]
+}
+
 func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
@@ -636,13 +661,45 @@ func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *EphemeralJobReconciler) fireCallback(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
 ) error {
+	return r.fireLifecycleCallback(ctx, ej, phase, exit,
+		computev1alpha1.ConditionCallbackDelivered, terminalEventID(ej, phase))
+}
+
+// fireLifecycleCallback posts one lifecycle event to Spec.CallbackURL.
+//
+// gate is the condition that makes this event fire ONCE. It is a parameter and
+// not a constant because the terminal event and the ready event must not share
+// one: a ready notification that set ConditionCallbackDelivered would suppress
+// the terminal callback, so a sandbox would report that it started and never
+// that it ended.
+//
+// eventID is the receiver's deduplication key for THIS event. Distinct per event
+// per incarnation, so a redelivered event from a previous incarnation cannot be
+// mistaken for this one's.
+// THE GATE IS PERSISTED IMMEDIATELY AFTER THE POST, and that ordering is the whole
+// of what makes an event fire once.
+//
+// A previous version deferred it to the caller's own status write later in the same
+// reconcile, on the reasoning that two writes in one pass is a second chance to lose
+// a conflict. The mechanism was real and the conclusion was backwards: when that
+// deferred write lost its race, the gate was never stored, the reconcile requeued,
+// and the event was POSTed again. Observed as two identical Running deliveries 11 ms
+// apart for one ready transition.
+//
+// A conflict on a LATER write is harmless once the gate is durable -- the next pass
+// sees it and sends nothing. A conflict on the gate write itself is not harmless and
+// is reported, because it means a duplicate is coming.
+func (r *EphemeralJobReconciler) fireLifecycleCallback(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
+	gate string, eventID string,
+) error {
 	l := log.FromContext(ctx)
 
 	// Optional by design: a job nobody is waiting on needs no callback.
 	if ej.Spec.CallbackURL == "" {
 		return nil
 	}
-	if meta_IsStatusConditionTrue(ej.Status.Conditions, computev1alpha1.ConditionCallbackDelivered) {
+	if meta_IsStatusConditionTrue(ej.Status.Conditions, gate) {
 		return nil
 	}
 
@@ -657,8 +714,24 @@ func (r *EphemeralJobReconciler) fireCallback(
 		// reconcile-driven duplicate but cannot close the crash window between
 		// the receiver committing and this operator persisting that condition.
 		// A receiver that ignores this field is unprotected against redelivery.
-		"terminalEventId": ej.Status.TerminalEventID,
+		// The receiver's deduplication key for THIS event (ADR-052 §16.2). Named
+		// terminalEventId for compatibility with receivers that already read it;
+		// it now carries ready events too, which are not terminal.
+		"terminalEventId": eventID,
 		"requestId":       ej.Spec.RequestID,
+		// WHICH INCARNATION. A caller may recycle a workload by deleting the
+		// EphemeralJob and creating another under the same name, so jobId is the
+		// same for both and cannot tell them apart. Without this, a redelivered
+		// terminal event from the previous incarnation arrives after the new one
+		// is serving and reads as the new one ending.
+		"uid": string(ej.UID),
+		// When the operator observed the event, not when the receiver read it.
+		// A receiver processing events out of order needs its own ordering, and
+		// redelivery makes arrival order no guide at all.
+		"timestamp": metav1.Now().UTC().Format(time.RFC3339),
+		// The workload's labels, so a receiver can route the event without
+		// holding a map from job name to whatever it cares about.
+		"labels": ej.Labels,
 	})
 	if err != nil {
 		// Unmarshallable payload is a programming error, not a transient one:
@@ -703,12 +776,20 @@ func (r *EphemeralJobReconciler) fireCallback(
 	}
 
 	meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
-		Type:               computev1alpha1.ConditionCallbackDelivered,
+		Type:               gate,
 		Status:             metav1.ConditionTrue,
 		Reason:             string(phase),
 		Message:            fmt.Sprintf("callback responded %d", resp.StatusCode),
 		ObservedGeneration: ej.Generation,
 	})
+	// Not deferred to the caller. See the note above: a deferred gate that loses a
+	// race re-sends the event.
+	//
+	// A failure here IS worth surfacing, unlike a conflict on the phase write below:
+	// it means this event will be sent again on the retry. At-least-once is what the
+	// contract promises (ADR-052 §16.2) and why the payload carries a per-event key,
+	// but a receiver that is not idempotent would act twice, so the operator says so
+	// rather than passing it over.
 	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
 }
 
@@ -1207,8 +1288,8 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 				"waiting %s for burst capacity, over the %s budget for this placement class: %s",
 				waited.Truncate(time.Second), r.ProvisioningBudget, cap.Message)
 		}
-		if err := r.Status().Update(ctx, ej); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+		if res, err := r.updateServiceStatus(ctx, ej); err != nil || res.Requeue {
+			return res, err
 		}
 		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
@@ -1261,16 +1342,52 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 			ej.Status.Message = "workload container is not ready"
 		}
 		ej.Status.PodName = pod.Name
-		if err := r.Status().Update(ctx, ej); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+		if res, err := r.updateServiceStatus(ctx, ej); err != nil || res.Requeue {
+			return res, err
 		}
 		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
+
+	// ── Serving. Tell the caller, once per POD (ADR-052 §16.2).
+	//
+	// Service mode has no completion, so without this a caller learns a sandbox
+	// exists only by polling it. The event fires on the transition to ready and
+	// not on every reconcile, which is what the gate condition is for.
+	//
+	// RESET WHEN THE POD CHANGED. A Service-mode workload whose pod is lost gets a
+	// replacement rather than a terminal state (see ensurePod), so the caller needs
+	// to hear that it is serving again -- a second Running, with its own event id,
+	// which a receiver reads as "replaced" rather than as a duplicate. Comparing
+	// against the recorded PodName is what detects that; the condition alone would
+	// stay true across the replacement and the caller would never be told.
+	if ej.Status.PodName != pod.Name {
+		meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+			Type:               computev1alpha1.ConditionReadyNotified,
+			Status:             metav1.ConditionFalse,
+			Reason:             "PodReplaced",
+			Message:            "a new pod is serving; the caller is told again",
+			ObservedGeneration: ej.Generation,
+		})
+	}
+	// PodName is recorded further down, with the rest of the status, so the
+	// comparison above reads the PREVIOUS incarnation's name -- which is the
+	// whole point of it.
 
 	// The idle clock starts only once the workload has actually served, so a
 	// slow start is not charged against the session's idle budget.
 	if ej.Status.LastActivityTime == nil {
 		ej.Status.LastActivityTime = &now
+	}
+
+	// Phase Running, not a terminal one: this says the workload is serving, and
+	// the caller will hear separately when it ends.
+	if err := r.fireLifecycleCallback(ctx, ej, computev1alpha1.PhaseRunning, nil,
+		computev1alpha1.ConditionReadyNotified, readyEventID(ej, pod.Name)); err != nil {
+		// Logged, not fatal. A caller that missed the ready event still receives
+		// the terminal one, and failing the reconcile here would stop the idle
+		// clock below from ever starting -- which holds a burst node open.
+		log.FromContext(ctx).Error(err, "ready callback failed",
+			"ephemeralJob", ej.Name, "pod", pod.Name)
 	}
 
 	idle := time.Since(ej.Status.LastActivityTime.Time)
@@ -1292,12 +1409,38 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	if ej.Spec.Service != nil {
 		ej.Status.ServiceName = serviceNameFor(ej)
 	}
-	if err := r.Status().Update(ctx, ej); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if res, err := r.updateServiceStatus(ctx, ej); err != nil || res.Requeue {
+		return res, err
 	}
 	// Wake when the idle budget could next expire, so a quiet sandbox is reaped
 	// promptly rather than at the next unrelated event.
 	return ctrl.Result{RequeueAfter: minDuration(budget-idle, defaultRequeue)}, nil
+}
+
+// updateServiceStatus writes the status and treats a lost race as a retry.
+//
+// A CONFLICT IS NOT A FAULT, and reporting it as one is misleading. This status
+// subresource has two writers: this controller, and the fleet's SDK marking
+// activity on the sandbox it owns. A lost race is the expected outcome of that and
+// is resolved by re-reading, which is what a requeue does. Returning it as an error
+// produced a "Reconciler error" line at the same instant as every Running callback
+// -- which reads as the callback having failed, and would mask a real error in the
+// same place.
+//
+// Nothing is lost: the next pass re-reads and rewrites. If the write that lost was
+// the one carrying ConditionReadyNotified, the event is re-POSTed on the retry,
+// which is at-least-once as promised (ADR-052 §16.2) and why the payload carries a
+// per-event key.
+func (r *EphemeralJobReconciler) updateServiceStatus(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob,
+) (ctrl.Result, error) {
+	if err := r.Status().Update(ctx, ej); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *EphemeralJobReconciler) ensurePod(

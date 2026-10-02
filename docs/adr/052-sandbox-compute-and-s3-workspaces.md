@@ -2381,6 +2381,41 @@ than an implementation detail of one path). Consequences, all MUST:
 - Idempotency is enforced at the CR, which is the durable record. A caller
   that never observes its own response still has exactly one work item.
 
+**16.2a Lifecycle notification is a contract, and Service mode has two events
+(2026-10-02).** Recorded because the code said the opposite and a fleet built
+against the comment rather than the behaviour.
+
+Job mode receives one event, the terminal one. **Service mode receives two kinds**:
+`Running` when the workload starts serving, and a terminal event when it ends —
+pod failure, pod exit, the never-ready bound, idle reap or timeout. Both are
+supported contract. The operator posts them; an earlier comment attributed the
+callback to the result sidecar and was wrong.
+
+`Running` fires once per POD, not once per workload. A Service-mode workload whose
+pod is lost gets a replacement rather than a terminal state (§8), so the caller is
+told it is serving again — a second `Running`, which a receiver reads as "replaced".
+Without that, a caller holding state about the previous pod would never learn it had
+gone, and the alternative — a terminal event on pod loss — would destroy sessions
+that a node restart currently rescues.
+
+**Cancellation and deletion notify nothing.** `spec.cancelled` reaches a terminal
+phase without a callback, and a deleted EphemeralJob is left to garbage collection.
+Both are caller-initiated, so the caller already knows, and reporting a deletion
+would require a finalizer — which would make this operator a blocker on garbage
+collection, on the teardown path. An out-of-band deletion is therefore unreported
+by design; a caller that needs to detect one compares what it holds against what
+exists.
+
+**The payload identifies the EVENT and the INCARNATION, and both are needed.** A
+caller may recycle a workload by deleting the EphemeralJob and creating another
+under the same name, so the job name identifies neither. The event key deduplicates
+repeats of one event. The `uid` separates incarnations — and it is not redundant: the
+terminal event key is derived from `requestId` when one is set, so a caller that
+derives `requestId` from the same session as the name produces IDENTICAL terminal
+keys for both incarnations. In that case `uid` is the only field that tells them
+apart, and a caller matching on name alone would end a live workload on a
+redelivered event from its predecessor.
+
 **16.2 Execution semantics: at-least-once throughout, with a stable
 idempotency key at every boundary.** The platform does not promise
 exactly-once *execution* — a node can die mid-run and the work is retried,

@@ -67,6 +67,20 @@ const (
 	// but it is a spurious error in someone's logs for a workflow that already
 	// resumed correctly.
 	ConditionCallbackDelivered = "CallbackDelivered"
+
+	// ConditionReadyNotified records that CallbackURL has been told the workload
+	// is serving (Service mode only).
+	//
+	// SEPARATE from ConditionCallbackDelivered, and it has to be. That condition
+	// is what makes the terminal callback fire once; a ready notification that
+	// set it would suppress the terminal callback entirely, so a sandbox would
+	// report that it started and never that it ended.
+	//
+	// Reset when the pod is replaced, which is what makes a second Running
+	// callback possible. A Service-mode workload whose pod is lost gets a new one
+	// rather than a terminal state, so the receiver needs to hear that it is
+	// serving again — see the comment on PodName.
+	ConditionReadyNotified = "ReadyNotified"
 )
 
 // Reasons for ConditionCapacity. These are the three outcomes ADR-052 §12
@@ -212,9 +226,24 @@ type EphemeralJobSpec struct {
 	// +optional
 	Output *OutputSpec `json:"output,omitempty"`
 
-	// CallbackURL is called by the result sidecar on terminal state. It MUST be
-	// in-cluster: a burst node is an ordinary node of this spoke (ADR-052 §0),
-	// so cluster DNS resolves and no egress exception is required.
+	// CallbackURL is where this workload's lifecycle events are posted. It MUST be
+	// in-cluster: a burst node is an ordinary node of this spoke (ADR-052 §0), so
+	// cluster DNS resolves and no egress exception is required.
+	//
+	// Posted by the OPERATOR, not by the result sidecar -- this said sidecar until
+	// 2026-10-02 and was wrong.
+	//
+	// Job mode receives one event, the terminal one. Service mode receives two
+	// kinds: `Running` when the workload starts serving, again if its pod is
+	// replaced, and a terminal event when it ends.
+	//
+	// Not sent for cancellation or deletion. Both are caller-initiated, so the
+	// caller already knows, and a delete callback would need a finalizer -- which
+	// would make this operator a blocker on garbage collection.
+	//
+	// Delivery is at-least-once. `terminalEventId` is the deduplication key for
+	// each event, and `uid` identifies the incarnation: a caller that recycles a
+	// workload under one name must drop events carrying any other uid.
 	// +optional
 	CallbackURL string `json:"callbackUrl,omitempty"`
 
