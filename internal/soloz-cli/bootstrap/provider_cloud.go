@@ -12,6 +12,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/binaries"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/capi"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
@@ -198,11 +199,24 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	clusterCfg.CiliumManifest = string(gatewayCRDs) + "\n---\n" +
 		string(ciliumRaw) + "\n---\n" + string(ciliumConfigOut)
 
+	// The escrow, for the at-rest encryption key (ADR-003 section 6, ADR-076).
+	//
+	// Constructed here and not inside the provisioner so the failure lands before the
+	// cluster is touched: an escrow that is absent or half-configured is a reason not
+	// to start, not something to discover after a control plane exists. ADR-076
+	// already requires one for a box to be built at all, so this adds no new input.
+	escrowClient, err := escrow.NewEscrowClient(ctx, "")
+	if err != nil {
+		return fmt.Errorf("the management cluster's at-rest encryption key needs an escrow "+
+			"to be kept in, and a box is not built without one (ADR-076): %w", err)
+	}
+
 	provisioner := &cluster.Provisioner{
-		Kubeconfig: cfg.BootstrapKubeconfig,
-		Context:    cfg.BootstrapContext,
-		Config:     clusterCfg,
-		Debug:      p.debug || cfg.Debug,
+		Kubeconfig:   cfg.BootstrapKubeconfig,
+		Context:      cfg.BootstrapContext,
+		Config:       clusterCfg,
+		Debug:        p.debug || cfg.Debug,
+		EscrowClient: escrowClient,
 	}
 
 	// Check if cluster already exists

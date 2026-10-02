@@ -3,6 +3,9 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
@@ -13,6 +16,7 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
 )
 
@@ -105,6 +109,16 @@ type Provisioner struct {
 	Context    string
 	Config     *Config
 	Debug      bool
+
+	// EscrowClient holds the at-rest encryption key outside the cluster it encrypts
+	// (ADR-003 section 6, ADR-076).
+	//
+	// Not optional. Provisioning REFUSES without it rather than skipping the key: a
+	// cluster that encrypts etcd with a key held nowhere else is worse off than one
+	// that does not encrypt it, because a lost control plane then takes every Secret
+	// and every backup of them. ADR-076 makes the same refusal for the secret
+	// store's master keys and the reasoning is unchanged here.
+	EscrowClient escrow.EscrowClient
 }
 
 func (p *Provisioner) kubectlArgs(args ...string) []string {
@@ -127,6 +141,14 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 		fmt.Println("[DEBUG] Provisioner.Provision() started")
 		fmt.Printf("[DEBUG] ClusterName: %s, Namespace: %s\n", p.Config.ClusterName, p.Config.Namespace)
 	}
+	// The at-rest encryption key, BEFORE the ClusterClass that references it
+	// (ADR-003 section 6). A control plane whose provider configuration Secret does
+	// not exist cannot start, so this is not an optional preparatory step: the
+	// cluster is created referencing a file that must already have a source.
+	if err := p.applyEncryptionConfig(ctx); err != nil {
+		return err
+	}
+
 	// Apply ClusterClass
 	if err := p.applyClusterClass(ctx); err != nil {
 		return err
@@ -143,6 +165,97 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 	}
 
 	// Don't wait here - CRS will handle CNI/CCM installation automatically
+	return nil
+}
+
+// applyEncryptionConfig creates the Secret the control plane reads its at-rest
+// encryption provider configuration from (ADR-003 section 6).
+//
+// RESTORE BEFORE GENERATE, and this is the only reason the key is escrowed.
+//
+// On a rebuild the escrow holds the key the previous cluster encrypted etcd with.
+// Generating a new one here produces a cluster that starts, works, and cannot read
+// a single Secret from a restored etcd — so the loss happens during the recovery,
+// which is the worst moment available for it.
+//
+// NO ESCROW, NO KEY. Generating without somewhere outside the cluster to keep it
+// produces a value that exists nowhere but inside the thing it decrypts; ADR-076
+// refuses that for the secret store's master keys and the reasoning is identical
+// here. The difference appears on the day the cluster is gone, and on that day the
+// key cannot be added retroactively.
+func (p *Provisioner) applyEncryptionConfig(ctx context.Context) error {
+	if p.EscrowClient == nil || p.Config.ClusterName == "" {
+		return fmt.Errorf("at-rest encryption key: no escrow configured, so the key would " +
+			"exist nowhere but inside the cluster it decrypts and an etcd restore could " +
+			"never be read (ADR-076)")
+	}
+
+	key, err := p.EscrowClient.RestoreArtifact(ctx, p.Config.ClusterName, escrow.ArtifactSecretEncryptionKey)
+	if err != nil {
+		// An unreadable escrow is not an absent one. Treating it as absent would mint
+		// a second key for a cluster that already has one.
+		return fmt.Errorf("at-rest encryption key: could not read the escrow: %w", err)
+	}
+
+	generated := false
+	if key == "" {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return fmt.Errorf("at-rest encryption key: %w", err)
+		}
+		key = hex.EncodeToString(raw)
+		generated = true
+	}
+
+	// 32 bytes is what the provider takes; a key of any other length is rejected by
+	// the API server at start, which reads as a malformed configuration rather than
+	// as a wrong key length.
+	rawKey, err := hex.DecodeString(key)
+	if err != nil || len(rawKey) != 32 {
+		return fmt.Errorf("at-rest encryption key: expected 32 hex-encoded bytes, got %d bytes (decode error: %v)",
+			len(rawKey), err)
+	}
+
+	tmplData, err := assets.ReadManifest("secrets/secret-encryption-config.yaml")
+	if err != nil {
+		return fmt.Errorf("at-rest encryption key: %w", err)
+	}
+	tmpl, err := template.New("enc-secret").Parse(string(tmplData))
+	if err != nil {
+		return fmt.Errorf("at-rest encryption key: %w", err)
+	}
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, map[string]string{
+		"Namespace":        p.Config.Namespace,
+		"EncryptionKeyB64": base64.StdEncoding.EncodeToString(rawKey),
+	}); err != nil {
+		return fmt.Errorf("at-rest encryption key: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
+	cmd.Stdin = bytes.NewReader(rendered.Bytes())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("at-rest encryption key: applying the provider configuration: %w\n%s", err, out)
+	}
+
+	// Escrowed AFTER the Secret exists, and only when this run generated it.
+	//
+	// After, because the escrow is the recovery copy of what the cluster uses: a copy
+	// of a key the cluster never received would decrypt nothing. Only when generated,
+	// because a restored key is already there and rewriting it is one more chance to
+	// write something different.
+	if generated {
+		if err := p.EscrowClient.BackupArtifact(ctx, p.Config.ClusterName, escrow.ArtifactSecretEncryptionKey, key); err != nil {
+			// Fatal. The cluster would come up encrypted with a key held nowhere else,
+			// which is worse than not encrypting it: a lost control plane would then
+			// take every Secret AND every backup of them.
+			return fmt.Errorf("at-rest encryption key: generated but could not be escrowed, "+
+				"so the cluster would encrypt etcd with a key that exists nowhere else: %w", err)
+		}
+		fmt.Println("[provision] at-rest encryption key generated and escrowed")
+	} else {
+		fmt.Println("[provision] at-rest encryption key restored from the escrow")
+	}
 	return nil
 }
 

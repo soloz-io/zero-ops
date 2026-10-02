@@ -1,8 +1,12 @@
 # Runbook: encrypting Kubernetes Secrets at rest
 
 **Applies to:** ADR-003 §6 (Protection at rest), ADR-076 (`secret-encryption-key`)
-**Status:** required once per cluster — the management cluster and every workload
-cluster. A cluster is not covered until step 6 has passed on it.
+**Status:** required once per cluster. A cluster is not covered until step 6 has
+passed on it.
+
+**This document covers WORKLOAD CLUSTERS only.** The management cluster is encrypted
+by a different mechanism and is not reachable from here — see "The management cluster"
+below before assuming the fleet is covered.
 **Also the rotation procedure.** A new key takes effect only for data written after
 it, so rotating is this document again from step 4.
 
@@ -149,6 +153,34 @@ unreadable**, which is why step 5 is run twice and why the fallback is removed l
 The finding is closed for this cluster when: the provider is active, step 5's counts
 match, `identity` is gone, and step 5 passed again afterwards. Note the date against
 the cluster; a cluster rebuilt from an older template is not covered.
+
+## The management cluster
+
+Step 1 differs for it; steps 2 to 7 are the same.
+
+It is created from a temporary bootstrap cluster and CAPI is then pivoted onto it, so
+it ends up managing itself. That gives three cases, and only the last needs anything
+special:
+
+| | where the provider configuration is read from | circular? |
+|---|---|---|
+| first build | the bootstrap cluster | no — different cluster |
+| node replacement | its own etcd, through a live API server that already holds the file on disk | no |
+| full rebuild | a new bootstrap cluster, with no previous cluster to read from | **the key must come from the escrow** |
+
+An earlier version of this runbook claimed the management cluster could not use this
+mechanism at all, on the reasoning that its configuration would live in the etcd it
+encrypts. That is wrong for the first two cases: the file is on disk once written, and
+a replacement node is provisioned by a control plane that is already running.
+
+The third case is the one that matters, and it is why the key is escrowed
+(ADR-076 `secret-encryption-key`). On a rebuild the CLI restores it rather than
+minting a new one — a new key against a restored etcd would leave every Secret in it
+undecryptable, with the loss happening during the recovery.
+
+Steps 3 to 7 apply unchanged, and the rewrite there is the more consequential of the
+two clusters: the management cluster holds the secret store's own credentials, the
+identity provider's, and every tenant's provisioning material.
 
 ## What this does not protect against
 
