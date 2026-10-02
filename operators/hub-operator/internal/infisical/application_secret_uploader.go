@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
 )
@@ -29,13 +30,26 @@ import (
 type ApplicationSecretUploader struct {
 	k8sClient         client.Client
 	uncachedK8sClient client.Client
+
+	// escrowClient and clusterID keep the values that cannot be regenerated
+	// outside the box (ADR-076). Nil escrow is not "skip the escrow": an entry
+	// declaring EscrowArtifact refuses to be generated without one, because a
+	// value that exists nowhere but inside the cluster it decrypts is the failure
+	// the escrow exists to prevent.
+	escrowClient escrow.EscrowClient
+	clusterID    string
 }
 
 // NewApplicationSecretUploader creates a new application secret uploader
-func NewApplicationSecretUploader(k8sClient, uncachedK8sClient client.Client) *ApplicationSecretUploader {
+func NewApplicationSecretUploader(
+	k8sClient, uncachedK8sClient client.Client,
+	escrowClient escrow.EscrowClient, clusterID string,
+) *ApplicationSecretUploader {
 	return &ApplicationSecretUploader{
 		k8sClient:         k8sClient,
 		uncachedK8sClient: uncachedK8sClient,
+		escrowClient:      escrowClient,
+		clusterID:         clusterID,
 	}
 }
 
@@ -76,6 +90,20 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	successCount := 0
 	skippedCount := 0
 	var failedKeys []string
+
+	// ESCROW FAILURES ARE TRACKED SEPARATELY, AND THAT IS NOT TIDINESS.
+	//
+	// The return below fails only when EVERY upload failed, so a single key that
+	// could not be escrowed was absorbed by the other four succeeding: the reconcile
+	// returned nil, the box ran, and a value that cannot be regenerated existed
+	// nowhere but inside the cluster it decrypts. Nothing reported it, and ADR-076
+	// is explicit that the gap cannot be closed retroactively -- the difference
+	// appears on the day the cluster is gone.
+	//
+	// So an escrowed entry failing is fatal on its own terms, however many others
+	// worked. There is no partial success available here: either the key is in the
+	// escrow or the box is one incident from total loss.
+	var escrowFailures []string
 
 	for _, secretDef := range ApplicationSecretMappings {
 		// Cell-scoped secrets belong to a spoke's own prefix, not the root. Writing
@@ -229,6 +257,21 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 			if current, found, err := infisicalClient.GetSecretValue(ctx, projectSlug, environmentSlug, secretPath, secretDef.PasswordKey); err != nil {
 				logger.Error(err, "Failed to read existing secret for validation; leaving it untouched", "key", secretDef.PasswordKey)
 			} else if found && !hexValueIsWellFormed(current, secretDef.HexBytes) {
+				if secretDef.EscrowArtifact != "" {
+					// NOT regenerated. For a rotatable secret, replacing a malformed
+					// value is a repair; for one that something was encrypted WITH it
+					// destroys everything it protected, and the damage is silent --
+					// the new value is well-formed and decrypts nothing.
+					//
+					// Reported and left alone. A malformed unrotatable key is a
+					// situation for a human with the escrow, not for a reconcile.
+					logger.Error(nil, "Escrowed secret is malformed and will NOT be regenerated; recover it from the escrow",
+						"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact,
+						"expectedChars", secretDef.HexBytes*2, "actualChars", len(current))
+					failedKeys = append(failedKeys, secretDef.PasswordKey)
+					escrowFailures = append(escrowFailures, secretDef.PasswordKey+" (malformed in store)")
+					continue
+				}
 				logger.Info("Existing secret is malformed for its consumer; regenerating",
 					"key", secretDef.PasswordKey, "expectedChars", secretDef.HexBytes*2, "actualChars", len(current))
 				passwordExists = false
@@ -243,12 +286,60 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 			continue
 		}
 
+		// ── Escrowed values: the escrow is consulted BEFORE generating.
+		//
+		// This is the only reason the escrow is worth having. A rebuilt box reaches
+		// here with an empty secret store, and generating would mint a NEW key --
+		// leaving the restored database encrypted under the old one, undecryptable,
+		// with the loss happening during the recovery.
+		var restored string
+		if secretDef.EscrowArtifact != "" {
+			if u.escrowClient == nil || u.clusterID == "" {
+				// Refused, not skipped. Generating here produces a value that exists
+				// nowhere but inside the cluster it decrypts (ADR-076).
+				logger.Error(nil, "Refusing to generate an escrowed secret with no escrow to keep it in",
+					"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact)
+				failedKeys = append(failedKeys, secretDef.PasswordKey)
+				escrowFailures = append(escrowFailures, secretDef.PasswordKey+" (no escrow)")
+				continue
+			}
+			got, err := u.escrowClient.RestoreArtifact(ctx, u.clusterID, secretDef.EscrowArtifact)
+			if err != nil {
+				// An unreadable escrow is not an absent one. Treating it as absent
+				// would generate a second key for a box that already has one.
+				logger.Error(err, "Could not read the escrow; leaving the secret alone",
+					"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact)
+				failedKeys = append(failedKeys, secretDef.PasswordKey)
+				escrowFailures = append(escrowFailures, secretDef.PasswordKey+" (escrow unreadable)")
+				continue
+			}
+			if got != "" {
+				if secretDef.HexBytes > 0 && !hexValueIsWellFormed(got, secretDef.HexBytes) {
+					// Validated on the way in. An escrowed value that cannot be used
+					// must fail here, naming the escrow, rather than at the consumer
+					// -- where the identity provider reports a length in bytes while
+					// measuring characters.
+					logger.Error(nil, "Escrowed value is malformed for its consumer",
+						"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact,
+						"expectedChars", secretDef.HexBytes*2, "actualChars", len(got))
+					failedKeys = append(failedKeys, secretDef.PasswordKey)
+					escrowFailures = append(escrowFailures, secretDef.PasswordKey+" (restored malformed)")
+					continue
+				}
+				restored = got
+				logger.Info("Restored an escrowed secret rather than generating one",
+					"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact)
+			}
+		}
+
 		// Password doesn't exist, generate and upload.
 		// Use 64 chars for system secrets (no username), 32 chars for database passwords.
 		// HexBytes overrides the alphabet entirely for consumers that hex-decode the
 		// value and require an exact key length.
 		var password string
-		if secretDef.HexBytes > 0 {
+		if restored != "" {
+			password = restored
+		} else if secretDef.HexBytes > 0 {
 			password, err = secrets.GenerateHexKey(secretDef.HexBytes)
 		} else {
 			length := 32
@@ -269,6 +360,29 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 			continue
 		}
 		logger.Info("Uploaded password to Infisical", "key", secretDef.PasswordKey)
+
+		// Escrowed AFTER the upload, and only when this reconcile generated it.
+		//
+		// After, because the escrow is the recovery copy of what the box uses: a
+		// backup of a value the box failed to store would be a key for data that
+		// was never encrypted with it.
+		//
+		// Only when generated, because a restored value is already in the escrow and
+		// re-writing it is one more chance to write something different.
+		if secretDef.EscrowArtifact != "" && restored == "" {
+			if err := u.escrowClient.BackupArtifact(ctx, u.clusterID, secretDef.EscrowArtifact, password); err != nil {
+				// Loud and counted as a failure. The secret is live in Infisical and
+				// the box works, so nothing breaks today -- which is exactly why this
+				// must not pass quietly: the gap appears on the day the cluster is
+				// gone (ADR-076).
+				logger.Error(err, "Generated an escrowed secret but could not escrow it; the box is one incident from losing it",
+					"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact)
+				failedKeys = append(failedKeys, secretDef.PasswordKey)
+				escrowFailures = append(escrowFailures, secretDef.PasswordKey+" (backup failed)")
+				continue
+			}
+			logger.Info("Escrowed a newly generated secret", "key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact)
+		}
 
 		// ---> NEW: Intercept Svix signing secret to generate and upload the JWT token <---
 		if secretDef.PasswordKey == "openmeter-svix-signing-secret" {
@@ -301,6 +415,14 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	}
 
 	logger.Info("Application secrets upload complete", "uploaded", successCount, "skipped", skippedCount, "total", len(ApplicationSecretMappings), "failed", len(failedKeys))
+
+	// Fatal on its own, before the all-or-nothing check below. An escrowed value is
+	// one the box cannot be rebuilt without, so "the other secrets worked" is not a
+	// reason to report success (ADR-076).
+	if len(escrowFailures) > 0 {
+		return fmt.Errorf("escrowed secrets could not be kept outside this cluster, so they exist "+
+			"nowhere but inside it and cannot be recovered if it is lost (ADR-076): %v", escrowFailures)
+	}
 
 	if successCount == 0 && len(ApplicationSecretMappings) > 0 {
 		return fmt.Errorf("all %d application secret uploads failed, failed keys: %v", len(ApplicationSecretMappings), failedKeys)

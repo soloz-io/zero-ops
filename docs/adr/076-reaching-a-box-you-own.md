@@ -207,6 +207,44 @@ would add a second cloud account, a second credential type and a second SDK to a
 platform that otherwise needs one cloud -- and ADR-070 measures the floor in exactly
 those terms.
 
+### What the escrow holds
+
+Normative. The escrow holds exactly these, each under `/hub-operator/<clusterID>`:
+
+| Artefact | What it is | Why it cannot be regenerated |
+|---|---|---|
+| `infisical-master-keys` | the secret store's encryption key and auth secret | they decrypt the secret store; without them every credential the box holds is lost |
+| `admin-kubeconfig` | the cluster's administrative credential | it is what remains when OIDC cannot be used, and a cluster nobody can enter cannot be repaired |
+| `zitadel-masterkey` | the identity provider's encryption key for data at rest | it encrypts every column the identity provider has written; a new one orphans all of them, so a restored database becomes undecryptable |
+| `secret-encryption-key` | the key the API server encrypts Secrets with at rest | etcd and every etcd backup are encrypted with it, so losing it loses the cluster's Secrets and every copy of them |
+
+**The test for membership is whether the value can be regenerated without loss.**
+A credential that can be rotated — a database password, a session cookie key — is
+not escrowed: losing it costs a rotation. A key that something was encrypted WITH is
+escrowed, because regenerating it destroys what it protected.
+
+Applied to the values the platform generates for a box, that test selects the three
+above and rejects the rest: the control-plane, centralised and identity database
+passwords are rotatable, and so is the API gateway's session cookie key.
+
+**This list is part of the decision and MUST be updated when the set changes.** It
+is the only enumeration of what a box can be rebuilt from; a value that belongs here
+and is absent is invisible until the day the cluster is gone, which is the same
+failure the escrow being mandatory exists to prevent. A preflight asserts the list
+and the implementation agree, so the omission is caught at build time rather than
+discovered during a recovery.
+
+**`zitadel-masterkey` was listed before it was implemented** (2026-10-02), and the
+preflight reported the difference until it closed. That ordering is the practice this
+list is meant to make possible: the list states what the escrow must hold, the
+difference between that and what it holds is work, and the gap is visible while the
+work is outstanding rather than after a recovery has failed.
+
+A box provisioned before that date generated its key with no escrow. The first
+reconcile after the change finds the key present in the box's own secret store, so
+nothing generates and nothing escrows — **the existing value must be escrowed once,
+by hand, and a box is not recoverable until it has been.**
+
 ### The escrow account is the tenant's
 
 The credentials reaching it are supplied with the tenant's others at scaffold time
@@ -413,6 +451,12 @@ the second is stated at scaffold time rather than discovered.
   values are part of it. No second path writes them.
 - No change to ADR-063 or ADR-064: nothing here travels with the bundle or moves
   with a version.
+- **Amends ADR-060 and ADR-003 (2026-10-02).** The identity provider's encryption
+  key for data at rest joins the escrow. It is generated once and never rotated,
+  so it meets this ADR's membership test, and until it is escrowed a box's identity
+  data cannot be recovered even when its secret store can. The live source is
+  unchanged: the box's own secret store serves it, and the escrow holds a recovery
+  copy, because a key read at startup must not depend on reaching another site.
 
 ## References
 

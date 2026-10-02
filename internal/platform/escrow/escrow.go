@@ -53,6 +53,36 @@ type EscrowClient interface {
 // repair.
 const ArtifactKubeconfig = "admin-kubeconfig"
 
+// ArtifactZitadelMasterkey is the identity provider's encryption key for data at
+// rest (ADR-076, "What the escrow holds").
+//
+// It qualifies by the membership test rather than by being important: it is
+// generated once and NEVER rotated, because it encrypts every column the identity
+// provider has written and a new one orphans all of them. So a box that loses its
+// secret store can restore the store from `infisical-master-keys` and still hold an
+// identity database nothing can decrypt.
+//
+// The live source is unchanged -- the box's own secret store serves it, because a
+// key read at startup must not depend on reaching another site. This is the
+// recovery copy.
+const ArtifactZitadelMasterkey = "zitadel-masterkey"
+
+// ArtifactSecretEncryptionKey is the key the API server encrypts Secrets with at
+// rest (ADR-003 section 6, ADR-076 "What the escrow holds").
+//
+// It qualifies by the same test as the others and for the starkest reason: etcd
+// holds Secret data encrypted with it, and every etcd BACKUP holds the same. Lose
+// the key and the cluster's Secrets are unreadable, and so is every backup taken
+// while it was in force -- there is no second copy to restore from, because the
+// backups are the second copy.
+//
+// Unlike the artefacts above it is also on the critical path: the API server reads
+// it on every Secret read, so the escrow is a recovery copy of a value that must
+// ALSO be present on the node. That is why it is delivered to the node from the
+// management cluster and escrowed from there, rather than fetched from the escrow
+// at runtime.
+const ArtifactSecretEncryptionKey = "secret-encryption-key"
+
 // MasterKeysBackup is what is escrowed. The field names are the ones the restore
 // path reads back, so changing one is a migration rather than a rename.
 type MasterKeysBackup struct {

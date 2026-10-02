@@ -1,5 +1,7 @@
 package infisical
 
+import "github.com/soloz-io/zero-ops/internal/platform/escrow"
+
 // ============================================================================
 // SECRET MAPPINGS REGISTRY
 // ============================================================================
@@ -344,6 +346,27 @@ type ApplicationSecretDefinition struct {
 	// Only used when KeyType != ""
 	Selector string
 
+	// EscrowArtifact, when non-empty, names the escrow artefact this value is kept
+	// under outside the box (ADR-076).
+	//
+	// Set for a value that CANNOT BE REGENERATED WITHOUT LOSS -- a key something
+	// was encrypted with, as opposed to a credential that can be rotated. That is
+	// the membership test ADR-076 states, and it is the whole of why this field
+	// exists: for a rotatable secret an escrow is redundant, and for an unrotatable
+	// one its absence is undetectable until a recovery.
+	//
+	// Setting it changes three things about how the value is handled:
+	//
+	//   generation      the escrow is consulted FIRST. A rebuilt box adopts the
+	//                   escrowed value instead of minting a new one, which is the
+	//                   only reason the escrow is worth having.
+	//   absence         generation is REFUSED when no escrow is reachable, rather
+	//                   than producing a value that exists nowhere else.
+	//   malformed       repair by regeneration is REFUSED. For a rotatable secret
+	//                   regenerating a malformed value is a fix; here it destroys
+	//                   what the value protected.
+	EscrowArtifact string
+
 	// CellScopedKey, when non-empty, ALSO produces this secret once per SpokePool at
 	// /spoke-pool/<cellId>/shared under this key name, with an independently
 	// generated value. The root entry is still uploaded — it is not diverted.
@@ -425,6 +448,31 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		HexBytes:    16,
 		Description: "Zitadel masterkey for encryption at rest",
+		// Escrowed because it is never rotated: see EscrowArtifact, and ADR-076's
+		// membership test. Without this the box's secret store is recoverable and
+		// its identity data is not.
+		EscrowArtifact: escrow.ArtifactZitadelMasterkey,
+	},
+	{
+		// The key the API server encrypts Secrets with at rest (ADR-003 §6).
+		//
+		// 32 bytes, because the secretbox provider takes a 32-byte key; the
+		// provider configuration carries it base64-encoded, and the encoding is
+		// applied where the configuration is assembled rather than stored here, so
+		// this value stays one thing rather than two representations of it.
+		//
+		// Generated once per box and NEVER rotated in place: rotating it is a
+		// rewrite of every Secret in the cluster, which is a procedure, not a
+		// reconcile (ADR-003 §6, "Rotation is the same operation as the initial
+		// migration").
+		UsernameKey: "",
+		PasswordKey: "hub-secret-encryption-key",
+		Username:    "",
+		HexBytes:    32,
+		Description: "API server at-rest encryption key for Kubernetes Secrets",
+		// Escrowed for the bluntest reason in the registry: etcd and every etcd
+		// backup are encrypted with it, so losing it loses both.
+		EscrowArtifact: escrow.ArtifactSecretEncryptionKey,
 	},
 	// AgentGateway's OIDC session cookie encryption key. It belongs here because
 	// it is a random value with no external source, so leaving it out of this

@@ -369,7 +369,7 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Upload application secrets directly to Infisical (without creating K8s secrets)
 	// ESO will create K8s secrets by syncing from Infisical
-	appSecretUploader := infisical.NewApplicationSecretUploader(r.Client, r.UncachedClient)
+	appSecretUploader := infisical.NewApplicationSecretUploader(r.Client, r.UncachedClient, escrowClient, clusterID)
 	if err := appSecretUploader.UploadApplicationSecrets(ctx); err != nil {
 		logger.Error(err, "Failed to upload application secrets, continuing...")
 	} else {

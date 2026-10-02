@@ -222,6 +222,242 @@ cell-scoped entries are SCREAMING_SNAKE, matching each consumer's ExternalSecret
 `CellScopedKey` in `secret_mappings.go` carries both spellings for this reason —
 it is not a duplicate.
 
+### 6. Protection at rest (Amendment 2026-10-02)
+
+```mermaid
+graph TB
+    subgraph SOR["System of Record"]
+        INF[("Infisical<br/>authoritative secret material<br/>hub")]
+    end
+
+    subgraph SPOKE["workload cluster"]
+        ESO["External Secrets Operator<br/>platform-owned reconciliation<br/>creationPolicy: Owner"]
+        KS["Kubernetes Secret<br/><b>delivery cache</b><br/>derived, rebuildable"]
+        POD["workload<br/>env var / volume"]
+        ETCD[("etcd<br/><b>encrypted at rest</b>")]
+    end
+
+    subgraph KEY["key custody — etcd"]
+        SB["secretbox<br/>key on the control-plane host<br/><i>current</i>"]
+        KMS["KMS v2 + external KEK<br/>key outside the cluster<br/><i>target, absent</i>"]
+    end
+
+    subgraph ESC["out-of-band custody — ADR-076"]
+        ESCROW[("escrow<br/>an Infisical the TENANT controls<br/>infisical-master-keys<br/>admin-kubeconfig<br/>zitadel-masterkey")]
+    end
+
+    INF -->|authenticated read| ESO
+    ESO -->|materialises| KS
+    KS --> POD
+    KS -.->|persisted by the API server| ETCD
+    SB -.->|encrypts| ETCD
+    KMS -.->|encrypts, when available| ETCD
+    INF -.->|root secrets, recovery copy| ESCROW
+
+    classDef gap stroke-dasharray: 5 5
+    class KMS gap
+```
+
+Added because a security audit asked a question this ADR could not answer.
+
+**The delivery model is retained. It is not the defect.** Infisical is the System of
+Record, ESO reconciles, Kubernetes Secrets are a delivery cache, workloads consume
+env vars and volumes.
+
+**What this ADR never said is that the delivery cache is unprotected.** A
+Kubernetes Secret is persisted by the API server into etcd, and on this fleet it is
+persisted in plaintext: no encryption provider is configured on any API server, and
+none is defined anywhere in the platform. Base64 is an encoding.
+
+The consequence is that etcd data, an etcd backup, or a control-plane disk snapshot
+discloses every tenant credential. On Hetzner spokes that includes provider-side
+volume snapshots.
+
+Stating that Kubernetes Secrets are a delivery cache rather than an authoritative
+store was true, and read as reassurance. A cache of live credentials requires the
+same protection as the store; what makes it a cache is that it can be rebuilt, not
+that its disclosure matters less.
+
+#### The control
+
+Kubernetes Secrets MUST be encrypted at rest.
+
+The encryption provider is `secretbox` as the current implementation and KMS v2
+with an externally managed key-encryption key as the target. The distinction is
+custody: `secretbox` keeps the key on the control-plane host, so it protects etcd
+data, backups and snapshots but not host compromise; KMS v2 keeps the key outside
+the cluster, which is the property host compromise requires.
+
+KMS v2 is not adopted yet because it requires a provider plugin on every
+control-plane node and this fleet's provider offers no managed KMS — making it a
+component the platform must operate, whose unavailability denies the API server the
+ability to decrypt Secrets. `secretbox` is therefore the current provider and not
+the endpoint; providers are ordered and migratable, so adopting it does not
+foreclose KMS v2.
+
+`aescbc` is rejected. Kubernetes classifies it as weak and does not recommend it,
+so adopting it would be a new design choice rather than an interim one.
+
+#### Why the existing out-of-band custody does not serve this
+
+The platform already keeps what a box cannot be rebuilt without outside the box:
+ADR-076's escrow, in an Infisical the tenant controls and the box does not host,
+mandatory, holding the secret store's master keys, the administrative credential and
+the identity provider's encryption key.
+
+That is external custody, and it is not a KMS for etcd. The difference is when the
+value is needed. An escrowed key is read during recovery — rarely, and by a person
+who has time. An encryption-provider key is read by the API server on **every**
+Secret read, so it must be reachable at all times from the cluster that is using it.
+
+Two consequences follow, and both are why the escrow does not extend to cover this:
+
+- the escrow lives deliberately where the box cannot reach it as a matter of course;
+  a key on the critical decrypt path must be the opposite of that;
+- the one KMS already in the box cannot serve it either. The secret store runs on
+  the hub, so a workload cluster's API server would depend on reaching another site
+  to decrypt a Secret — a failure of that link becomes a total outage of the
+  cluster, which is the dependency the two-site separation (ADR-046) exists to
+  avoid. It is also circular on the hub, where the secret store reads its own
+  database credential from a Secret.
+
+**A key on the critical decrypt path MUST NOT live across the hub/workload-cluster
+boundary.** Stated because the nearest available KMS is the one that violates it.
+
+#### Enabling the provider is not the whole control
+
+Encryption applies to subsequent writes. Enabling it leaves every existing Secret
+stored as it was, which is the failure mode where a control is enabled, reported as
+complete, and protects nothing already written.
+
+The transition is therefore: add the provider while retaining the identity fallback
+so existing Secrets remain readable; rewrite every Secret so each is re-encrypted
+on write; verify the stored representation in etcd directly; then remove the
+fallback. While the fallback remains, an unencrypted Secret is still readable and
+the control is partial.
+
+The API server argument is carried by the spoke ClusterClass, whose templates are
+immutable or effectively so (ADR-041), so this is a new control-plane template with a
+rollout rather than an edit.
+
+The procedure is `docs/runbooks/encrypt-secrets-at-rest.md`, and it is also the
+rotation procedure. Its verification reads the STORED form from etcd: an API read
+shows plaintext either way, because the API server decrypts on the way out, so
+`kubectl get secret` cannot distinguish an encrypted cluster from an unencrypted one.
+That distinction is why the step exists.
+
+#### What a KMS v2 adoption still has to decide
+
+Recorded because "KMS v2 is the target" reads as a plan and is not one. None of
+these has an answer, and each has to have one before a box adopts it.
+
+**A lost key-encryption key makes every etcd backup unreadable.** The backups hold
+data keys wrapped by it, so the key has the same property the escrow's membership
+test selects for — it cannot be regenerated without loss — while also sitting on the
+critical decrypt path, where the escrow deliberately does not reach. A box adopting
+KMS v2 therefore needs a key-recovery story BEFORE it adopts it, and the platform
+cannot supply one because it holds no key belonging to a tenant (ADR-065).
+
+Also open: what a cluster does when its KMS is unreachable, given the provider
+caches data keys and so degrades rather than failing cleanly; whether the plugin runs
+as a node-level static pod, which is the only placement that does not deadlock
+against the API server it serves; which plugins are supported and by whom; and
+whether each cluster carries its own key, since one key for the fleet reintroduces
+the cross-boundary dependency forbidden above.
+
+**Rotation is the same operation as the initial migration.** A new key takes effect
+only for data written after it, so a rotation that is to mean anything requires the
+same rewrite of every Secret. The migration procedure is therefore written as the
+rotation procedure, not as a one-off.
+
+#### Why the box's own secret store cannot be the KMS
+
+Assessed against the deployed version, and recorded so the question is not reopened
+from the product page.
+
+The secret store does offer a key-management service with named keys and
+encrypt/decrypt operations, and a hardware-backed root key. Three facts decide it
+anyway:
+
+- the service is reached over HTTP, while the Kubernetes provider interface is a
+  socket-local RPC plugin. Adoption therefore means the platform writing and
+  operating that plugin on every control-plane node, on the critical decrypt path
+  for every Secret read.
+- the hardware-backed root key and external key management are licensed features,
+  disabled by default. Without them the root key is held by the same box.
+- it is circular on the management cluster and cross-boundary for every workload
+  cluster, which the rule above forbids. The secret store reads its own database
+  credential from a Secret in the very store of data it would be protecting.
+
+**An instance OUTSIDE the box can serve it**, and that is the distinction worth
+keeping: the prohibition is on a key that lives in the cluster it protects or across
+the boundary from it, not on the product. A tenant running their own instance with a
+hardware-backed root key is a viable custodian, and the escrow already keeps that
+instance's own keys recoverable (ADR-076) — which closes the key-loss problem above
+for that case, and for no other.
+
+#### Access control
+
+Secret access is least-privilege and tenant-scoped, and the audit covers indirect
+access as well as read verbs. Audited 2026-10-02:
+
+- No fleet declares access to Secrets.
+- Authority to create a burst workload (ADR-052) is authority to author a pod
+  specification, and a pod specification may consume any Secret in its namespace.
+  Combined with read access to pod logs, a workload holding it can disclose every
+  Secret in its own namespace irrespective of its Secret rules.
+- That reachable set is the tenant's own, because burst workloads are namespaced
+  and are created in the namespace of the request. **Tenant isolation rests on
+  namespace scoping, not on Secret RBAC**, which is the property to defend and the
+  reason a cluster-scoped grant is the thing to scrutinise.
+- Fleet-declared RBAC rules are rendered without validation. A fleet may therefore
+  grant itself access to Secrets, or authority to mint ServiceAccount tokens,
+  within its own namespace. Bounded by the Role being namespaced; unbounded within
+  it, and not reported.
+
+#### Infisical Kubernetes Auth is not part of this control
+
+Replacing ESO's long-lived Infisical credential with a ServiceAccount identity is
+available in the OSS edition at the deployed version, and is nonetheless deferred
+for reasons of topology rather than licensing:
+
+- the OSS token-review mode requires a long-lived token-reviewer credential, so it
+  relocates a long-lived credential into the System of Record rather than removing
+  one;
+- it requires the Infisical workload to reach every workload cluster's token-review
+  endpoint, which the two-site separation (ADR-046) does not provide, and
+  connectivity established for other paths does not establish this one;
+- the mode that removes the reviewer credential is not in the OSS edition.
+
+It is evaluated separately as an authentication improvement. This control does not
+depend on it.
+
+#### Position
+
+Infisical remains the secret authority. ESO delivers credentials into Kubernetes
+Secrets. Kubernetes Secrets are encrypted at rest with KMS v2 where an external KMS
+is available and `secretbox` where it is not. Secret access is least-privilege and
+tenant-scoped, and tenant isolation rests on namespace scoping. The presence of
+Kubernetes Secrets in etcd is an accepted property of the delivery cache, protected
+by encryption at rest, access control, and encrypted backups.
+
+## Ownership
+
+Per ADR-039. This amendment introduces one resource class; the rest of this ADR
+defines the secret lifecycle and owns no resources beyond those below.
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Secret encryption configuration | Git | Platform | CAPI (ClusterClass) | kube-apiserver | Day-0 |
+| Secret encryption key (`secretbox`) | Control-plane host | Platform | CAPI (ClusterClass) | kube-apiserver | Day-0 |
+| Key-encryption key (KMS v2) | Customer's KMS | Customer | — | encryption provider | Day-0 |
+
+The key-encryption key is owned by the CUSTOMER, not the platform: ADR-065 holds
+that the platform keeps no credential belonging to a tenant, and ADR-076 applies the
+same rule to the escrow account. Its reconciler column is empty because no such key
+exists on any box today — KMS v2 is supported where a box has a KMS, and `secretbox`
+is what runs where one does not.
+
 ## Consequences
 
 ### Positive
@@ -236,15 +472,17 @@ it is not a duplicate.
 - The model is more abstract than the original pattern-based approach. Developers implementing secret flows must map their secret class to the five concerns rather than selecting a named pattern.
 - The dual-phase rotation pattern requires every database credential consumer to implement connection retry logic during the overlap period.
 
+## Impact
+
+This rewrite supersedes the original ADR-003 (ESO-Infisical Integration Pattern) and the `bootstrap-vs-application-secrets.md` document. Both are retained for historical reference but must not be treated as current architecture.
+
 ## References
 
 - ADR-039: Platform Ownership Model
+- ADR-065: The platform holds no credential belonging to a tenant
+- ADR-076: Reaching a box you own — the escrow, and what it holds
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-041: Controller Responsibility Matrix
 - ADR-024: Crossplane Password Rotation
 - ADR-030: Autonomous Credential Rotation Lifecycle
 - ADR-035: Enterprise PKI and Delegated Trust
-
-## Impact
-
-This rewrite supersedes the original ADR-003 (ESO-Infisical Integration Pattern) and the `bootstrap-vs-application-secrets.md` document. Both are retained for historical reference but must not be treated as current architecture.

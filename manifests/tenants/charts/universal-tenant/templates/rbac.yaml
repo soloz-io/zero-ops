@@ -1,4 +1,72 @@
 {{- if not .Values.deployXR }}
+{{- /*
+WHAT A FLEET MAY NOT GRANT ITSELF.
+
+`rules` below is rendered verbatim into a Role the platform creates, so whatever a
+fleet declares, the platform grants. That was unconstrained until 2026-10-02: a
+fleet could name `secrets` and read every credential ESO had delivered into its
+namespace, or `serviceaccounts/token` and mint a token for any ServiceAccount there
+-- including one the platform had granted a cluster-scoped capability to.
+
+Refused at RENDER time rather than reviewed, because the declaration lives in the
+fleet's own repository and a review that has to notice one line in a values file is
+a review that eventually does not. `fail` makes the chart unrenderable, so the
+declaration cannot reach a cluster; the preflight catches the same thing earlier,
+and neither is a substitute for the other -- one guards the producer, one guards the
+repository.
+
+Each entry below is an escalation path rather than merely broad privilege:
+
+  secrets               reads every credential the platform delivers to the
+                        namespace, which is the whole secret-delivery model (ADR-003)
+  serviceaccounts/token mints an identity for any ServiceAccount in the namespace,
+                        so a namespaced grant becomes whatever those hold
+  escalate              creates a Role with privileges the creator lacks, which is
+                        the one verb that defeats RBAC containment outright
+  bind                  binds an existing Role the creator could not have created
+  impersonate           acts as another subject, so every other limit is advisory
+  wildcards             grants what has not been decided, including resources that
+                        do not exist yet
+
+NOT LISTED, and deliberately: authority to create a workload. A pod specification
+may mount any Secret in its namespace, so that authority already implies reading
+them, and it cannot be withheld from a fleet that must run work. It is bounded by
+the namespace rather than removed -- which is why tenant isolation rests on
+namespace scoping (ADR-003 section 6) and why a CLUSTER-scoped grant is the thing to
+scrutinise.
+*/}}
+{{- range .Values.workloadRbac }}
+{{- $sa := .serviceAccount }}
+{{- range .rules }}
+  {{- $verbs := .verbs | default (list) }}
+  {{- $resources := .resources | default (list) }}
+  {{- range $resources }}
+    {{- if eq . "*" }}
+      {{- fail (printf "workloadRbac for %q declares resources: [\"*\"] — a wildcard grants what nobody decided, including resources that do not exist yet. Name them." $sa) }}
+    {{- end }}
+    {{- if eq . "secrets" }}
+      {{- fail (printf "workloadRbac for %q declares access to `secrets` — that reads every credential the platform delivers to this namespace (ADR-003). A workload receives its secrets as env vars and volumes; it does not read the API for them." $sa) }}
+    {{- end }}
+    {{- if eq . "serviceaccounts/token" }}
+      {{- fail (printf "workloadRbac for %q declares `serviceaccounts/token` — that mints an identity for any ServiceAccount in this namespace, so this grant becomes whatever those hold. A workload that needs a pod-bound identity gets one from the platform (ADR-052)." $sa) }}
+    {{- end }}
+  {{- end }}
+  {{- range $verbs }}
+    {{- if eq . "*" }}
+      {{- fail (printf "workloadRbac for %q declares verbs: [\"*\"] — name the verbs the workload uses." $sa) }}
+    {{- end }}
+    {{- if eq . "escalate" }}
+      {{- fail (printf "workloadRbac for %q declares the `escalate` verb — that creates Roles carrying privileges the creator does not hold, which defeats RBAC containment outright." $sa) }}
+    {{- end }}
+    {{- if eq . "bind" }}
+      {{- fail (printf "workloadRbac for %q declares the `bind` verb — that binds Roles the creator could not have created." $sa) }}
+    {{- end }}
+    {{- if eq . "impersonate" }}
+      {{- fail (printf "workloadRbac for %q declares the `impersonate` verb — acting as another subject makes every other limit on this workload advisory." $sa) }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
 {{- range .Values.workloadRbac }}
 # ADR-047 Tier 2: Platform-rendered namespaced RBAC for fleet workloads.
 # Rendered by the platform (not the fleet overlay) so tenant-workloads stays

@@ -6,5 +6,11 @@ kind: Kustomization
 # because kustomize forbids `../` resources across sibling cells.
 resources:
   - spokepool-clusterclass-v1.yaml
+  # The at-rest encryption provider configuration, assembled from the escrowed key
+  # (ADR-003 section 6). Beside the ClusterClass because the control-plane template
+  # reads the Secret it produces during bootstrap: a cluster created without it has
+  # a control plane that cannot start, so the two belong in one kustomization and
+  # neither is optional.
+  - secret-encryption-config-es.yaml
   - spoke-addons/ccm-addon-template.yaml
   - spoke-addons/csi-addon-template.yaml
