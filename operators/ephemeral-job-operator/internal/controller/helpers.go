@@ -46,9 +46,15 @@ func tenantFromNamespace(ns string) string {
 // DeadlineExceeded is reported as TimedOut rather than Failed. The distinction
 // is the submitter's: a job that ran out of time may be worth resubmitting with
 // a larger budget, and one that exited non-zero is not.
-func jobFinished(job *batchv1.Job) (bool, computev1alpha1.Phase, *int32) {
+// It also returns the CONDITION'S OWN WORDS. This used to discard them, so a caller
+// received status FAILED with an empty message and could not tell a bad input from an
+// infrastructure fault -- the one thing it needs in order to decide whether retrying
+// makes sense. The controller already phrased the reason for a human
+// ("BackoffLimitExceeded: Job has reached the specified backoff limit"); rephrasing it
+// here would lose the only thing it is good at.
+func jobFinished(job *batchv1.Job) (bool, computev1alpha1.Phase, *int32, string) {
 	if job == nil {
-		return false, "", nil
+		return false, "", nil, ""
 	}
 	for _, c := range job.Status.Conditions {
 		if c.Status != "True" {
@@ -56,15 +62,26 @@ func jobFinished(job *batchv1.Job) (bool, computev1alpha1.Phase, *int32) {
 		}
 		switch c.Type {
 		case batchv1.JobComplete:
-			return true, computev1alpha1.PhaseSucceeded, ptr(int32(0))
+			return true, computev1alpha1.PhaseSucceeded, ptr(int32(0)), conditionDetail(c)
 		case batchv1.JobFailed:
 			if c.Reason == "DeadlineExceeded" {
-				return true, computev1alpha1.PhaseTimedOut, nil
+				return true, computev1alpha1.PhaseTimedOut, nil, conditionDetail(c)
 			}
-			return true, computev1alpha1.PhaseFailed, nil
+			return true, computev1alpha1.PhaseFailed, nil, conditionDetail(c)
 		}
 	}
-	return false, "", nil
+	return false, "", nil, ""
+}
+
+func conditionDetail(c batchv1.JobCondition) string {
+	switch {
+	case c.Message == "":
+		return c.Reason
+	case c.Reason == "":
+		return c.Message
+	default:
+		return c.Reason + ": " + c.Message
+	}
 }
 
 // jobAdmissionRejected detects a Job whose pods the API server refuses to

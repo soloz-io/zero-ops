@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -84,10 +85,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// A typed clientset, for one thing only: reading a failed workload's log tail so
+	// the terminal callback can say WHY it failed. A log is a subresource request, so
+	// the manager's client cannot serve it.
+	//
+	// Not fatal if it cannot be built. The operator's whole job is unaffected; what is
+	// lost is the most specific line of a failure message, and refusing to start over
+	// that would trade every workload for one diagnostic.
+	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "no clientset: failure messages will omit the workload's log tail")
+		clientset = nil
+	}
+
 	if err := (&controller.EphemeralJobReconciler{
 		Client:             mgr.GetClient(),
 		Scheme:             mgr.GetScheme(),
 		ProvisioningBudget: provisioningBudget,
+		Clientset:          clientset,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "EphemeralJob")
 		os.Exit(1)

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,6 +45,11 @@ type EphemeralJobReconciler struct {
 	// when a job looks stuck.
 	APIReader client.Reader
 
+	// Clientset reads pod logs, which a controller-runtime client cannot: a log is a
+	// subresource request. Used only to explain a failure, so it is optional -- a nil
+	// one costs the log tail and nothing else.
+	Clientset kubernetes.Interface
+
 	// ProvisioningBudget is the p95 cold-start budget for the placement class
 	// (ADR-052 §11). A job that has been waiting for capacity longer than this
 	// is reported as such — but it is NOT deleted, because deletion during
@@ -67,6 +74,14 @@ const (
 
 	// The workload container's name, which readiness is judged on.
 	workloadContainerName = "workload"
+
+	// Bounds on the failure log tail. All three exist because this read happens
+	// inside Reconcile: the line and byte caps keep a verbose workload out of a
+	// status field, and the timeout keeps a slow read from stalling the work queue
+	// for every other job.
+	logTailLines   = 20
+	logTailBytes   = 2048
+	logTailTimeout = 5 * time.Second
 
 	// Where spec.input reaches the workload. The field is opaque to this
 	// operator: it is passed through verbatim, never read, never reshaped.
@@ -103,6 +118,11 @@ func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callback
 // +kubebuilder:rbac:groups=compute.nutgraf.in,resources=ephemeraljobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
+// Read-only, and only to explain a failure. The pod is deleted with its Job, so the
+// terminal callback is the last moment the workload's own output can be captured --
+// without this the message says FAILED and nothing else, and a caller cannot tell a
+// bad input from an infrastructure fault.
+// +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
 // Nodes, list only, and read UNCACHED (see APIReader). Needed to tell a pod
 // waiting for capacity from one whose selector no node can satisfy; without it
@@ -225,7 +245,21 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			computev1alpha1.ReasonQuotaRejected, fmt.Sprintf("%s: %s", reason, msg))
 	}
 
-	if done, phase, exit := jobFinished(job); done {
+	if done, phase, exit, detail := jobFinished(job); done {
+		// WHY IT FAILED, while the pod still exists to say so.
+		//
+		// The pod is deleted with the Job, so this is the only moment the reason is
+		// available anywhere: a caller investigating later finds neither the pod nor
+		// its logs. A failed render reported as FAILED with nothing after the colon
+		// is what this replaces.
+		if phase != computev1alpha1.PhaseSucceeded {
+			if d, code := r.failureDetail(ctx, job, detail); d != "" {
+				ej.Status.Message = d
+				if exit == nil {
+					exit = code
+				}
+			}
+		}
 		return ctrl.Result{}, r.markFinished(ctx, &ej, phase, exit)
 	}
 
@@ -1441,6 +1475,83 @@ func (r *EphemeralJobReconciler) updateServiceStatus(
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, nil
+}
+
+// failureDetail assembles why a Job-mode workload failed, from everything knowable
+// at the moment it failed and nothing that is not.
+//
+// Three sources, widening in specificity:
+//
+//	the Job's condition      why the controller gave up (BackoffLimitExceeded)
+//	the pod's termination    which container, which reason, which exit code
+//	the container's log tail what the workload itself said
+//
+// The log tail is the only one that separates a bad input from an infrastructure
+// fault, which is what a caller needs in order to decide whether a retry is worth
+// attempting. The first two describe the SHAPE of the failure; only the workload's
+// own output describes its cause.
+//
+// Every source is best-effort and absence is not an error: a detail that cannot be
+// read is worth less than the ones that can, and failing here would turn a workload
+// failure into a reconcile failure.
+func (r *EphemeralJobReconciler) failureDetail(
+	ctx context.Context, job *batchv1.Job, jobDetail string,
+) (string, *int32) {
+	parts := []string{}
+	if jobDetail != "" {
+		parts = append(parts, jobDetail)
+	}
+
+	pod, err := r.podForJob(ctx, job)
+	if err != nil || pod == nil {
+		return strings.Join(parts, "; "), nil
+	}
+	if m := podTerminationMessage(pod); m != "" && m != "pod failed" {
+		parts = append(parts, m)
+	}
+	exit := podExitCode(pod)
+	if exit != nil {
+		parts = append(parts, fmt.Sprintf("exit code %d", *exit))
+	}
+	if tail := r.containerLogTail(ctx, pod); tail != "" {
+		parts = append(parts, "last output: "+tail)
+	}
+	return strings.Join(parts, "; "), exit
+}
+
+// containerLogTail returns the end of the workload container's log.
+//
+// Needs a typed clientset: a log is a subresource request, not an object read, so the
+// controller-runtime client cannot serve it. A nil Clientset yields no tail rather
+// than no detail -- the operator runs without one under test, and a missing tail
+// degrades the message instead of failing the reconcile.
+//
+// Bounded three ways, because this runs inside Reconcile: a line cap, a byte cap and a
+// timeout. A workload that logged a gigabyte must not put that in a status field, and
+// a slow read must not stall the work queue for every other job.
+func (r *EphemeralJobReconciler) containerLogTail(ctx context.Context, pod *corev1.Pod) string {
+	if r.Clientset == nil {
+		return ""
+	}
+	lctx, cancel := context.WithTimeout(ctx, logTailTimeout)
+	defer cancel()
+
+	lines := int64(logTailLines)
+	stream, err := r.Clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+		Container: workloadContainerName,
+		TailLines: &lines,
+	}).Stream(lctx)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = stream.Close() }()
+
+	buf := make([]byte, logTailBytes)
+	n, _ := io.ReadFull(stream, buf)
+	if n == 0 {
+		return ""
+	}
+	return strings.TrimSpace(string(buf[:n]))
 }
 
 func (r *EphemeralJobReconciler) ensurePod(

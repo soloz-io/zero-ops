@@ -18,6 +18,7 @@ rules:
   - ""
   resources:
   - namespaces
+  - pods/log
   verbs:
   - get
 - apiGroups:
