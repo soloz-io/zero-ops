@@ -227,6 +227,12 @@ type workspaceSyncTarget struct {
 	// see sharedWorkspaceSyncPort.
 	port string
 
+	// readOnly makes THIS instance restore-only: no periodic backstop, no
+	// teardown snapshot, no retention pass. Per instance rather than per spec,
+	// because a session that writes its own workspace and only reads the shared
+	// one needs exactly one of the two silenced.
+	readOnly bool
+
 	// noArchive disables the squashfs fast path. Set for the shared instance,
 	// whose root sits inside the session workspace: a FUSE overlay there would
 	// nest inside a mount it does not own, and skipping it is what allows the
@@ -507,7 +513,11 @@ func workspaceSyncContainerFor(
 	if ws.CheckpointID != "" {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "CHECKPOINT_ID", Value: ws.CheckpointID})
 	}
-	if ws.ReadOnly {
+	// Either the whole spec is read-only, or this instance is. The per-instance
+	// flag is what lets a session write its own workspace while only reading the
+	// shared one -- the case in which checkpointing is not merely wasteful but
+	// overwrites another session's newer copy.
+	if ws.ReadOnly || target.readOnly {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
 	}
 	// ALWAYS, for every instance (§14.7).

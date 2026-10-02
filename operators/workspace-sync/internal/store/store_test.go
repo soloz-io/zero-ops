@@ -415,3 +415,73 @@ func TestStagingDirIsPerInstance(t *testing.T) {
 		t.Error("the session instance must keep the squashfs fast path")
 	}
 }
+
+// ── The unchanged-tree guard (ErrUnchanged) ──────────────────────────────────
+//
+// A shared workspace is read by sessions that write nothing, and every one of
+// them used to upload its whole copy as the newest checkpoint. A session holding
+// an older copy therefore overwrote a newer one, and retention pruned the newer
+// entry. oranger lost a brand brief that way on 2026-10-01.
+//
+// The digest is what decides it, so these cover what it must and must not
+// include. A digest that varies per save silently restores the old behaviour.
+
+func manifestWith(entries ...Entry) *Manifest {
+	return &Manifest{ID: "cp-1", Entries: entries}
+}
+
+func TestManifestDigestIgnoresEverythingThatChangesEverySave(t *testing.T) {
+	// id, timestamp, description and trigger differ on every checkpoint by
+	// construction. Including any of them makes every tree look changed and the
+	// guard never fires.
+	e := []Entry{{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 3}}
+	a := &Manifest{ID: "cp-1", Entries: e, Description: "first", Trigger: "periodic"}
+	b := &Manifest{ID: "cp-2", Entries: e, Description: "second", Trigger: "teardown"}
+
+	if manifestDigest(a) != manifestDigest(b) {
+		t.Fatal("digest changed with the manifest's own metadata; the guard would never fire")
+	}
+}
+
+func TestManifestDigestChangesWithContent(t *testing.T) {
+	base := manifestWith(Entry{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 3})
+
+	for _, tc := range []struct {
+		name string
+		m    *Manifest
+	}{
+		{"a changed file", manifestWith(Entry{Path: "a.txt", Hash: "h2", Mode: 0o644, Size: 3})},
+		{"a renamed file", manifestWith(Entry{Path: "b.txt", Hash: "h1", Mode: 0o644, Size: 3})},
+		{"a mode change", manifestWith(Entry{Path: "a.txt", Hash: "h1", Mode: 0o755, Size: 3})},
+		{"a size change", manifestWith(Entry{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 4})},
+		{"an added file", manifestWith(
+			Entry{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 3},
+			Entry{Path: "b.txt", Hash: "h2", Mode: 0o644, Size: 1},
+		)},
+		{"an emptied tree", manifestWith()},
+	} {
+		if manifestDigest(tc.m) == manifestDigest(base) {
+			t.Fatalf("%s produced the same digest; a real change would be skipped", tc.name)
+		}
+	}
+}
+
+func TestManifestDigestSeparatesEntriesUnambiguously(t *testing.T) {
+	// Without a delimiter, ("ab","c") and ("a","bc") hash alike — so a rename
+	// that shifts a character between path and hash would read as unchanged.
+	a := manifestWith(Entry{Path: "ab", Hash: "c", Mode: 0, Size: 0})
+	b := manifestWith(Entry{Path: "a", Hash: "bc", Mode: 0, Size: 0})
+	if manifestDigest(a) == manifestDigest(b) {
+		t.Fatal("digest is ambiguous across field boundaries")
+	}
+}
+
+func TestRestoredDigestIsTheBaselineAndEmptyMeansNoBaseline(t *testing.T) {
+	// A pod that restored nothing has no baseline, so its first checkpoint is
+	// genuinely new and must be written. Gating on the empty string is what keeps
+	// a fresh workspace saveable.
+	s := &Store{}
+	if s.restoredDigest != "" {
+		t.Fatal("a fresh Store claims a baseline it never observed")
+	}
+}

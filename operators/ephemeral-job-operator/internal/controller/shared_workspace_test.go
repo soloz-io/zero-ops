@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
@@ -205,5 +207,98 @@ func TestCheckpointIntervalIsOptInAndReachesBothInstances(t *testing.T) {
 	if shared["WORKSPACE_SYNC_INTERVAL_SECONDS"] != "120" {
 		t.Errorf("shared interval = %q, want 120 — app-scoped artifacts are lost the same way",
 			shared["WORKSPACE_SYNC_INTERVAL_SECONDS"])
+	}
+}
+
+// ── Shared workspace read-only (ADR-052 §14.3) ───────────────────────────────
+//
+// A session that writes its own workspace and only READS the shared one had no
+// way to say so: ReadOnly governs both instances. So the shared instance
+// checkpointed on every timer and at teardown, and a session holding an older
+// copy overwrote a newer one another session had written. oranger lost a brand
+// brief that way on 2026-10-01.
+
+func sharedReadOnlyEJ(sharedReadOnly, allReadOnly bool) *computev1alpha1.EphemeralJob {
+	return &computev1alpha1.EphemeralJob{
+		Spec: computev1alpha1.EphemeralJobSpec{
+			Image: "example.com/img@sha256:" + strings.Repeat("a", 64),
+			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{
+				WorkspaceID:             "session-1",
+				AppID:                   "app-1",
+				SharedWorkspaceID:       "globals",
+				SharedWorkspaceReadOnly: sharedReadOnly,
+				ReadOnly:                allReadOnly,
+			},
+		},
+	}
+}
+
+func syncContainers(spec corev1.PodSpec) (session, shared *corev1.Container) {
+	for i := range spec.InitContainers {
+		switch spec.InitContainers[i].Name {
+		case "workspace-sync":
+			session = &spec.InitContainers[i]
+		case "workspace-sync-shared":
+			shared = &spec.InitContainers[i]
+		}
+	}
+	return
+}
+
+// The whole point: one instance silenced, the other not.
+func TestSharedWorkspaceReadOnlyLeavesTheSessionWorkspaceWritable(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+
+	spec := r.buildPodSpec(context.Background(), sharedReadOnlyEJ(true, false), p,
+		corev1.Container{Name: "workload"})
+
+	session, shared := syncContainers(spec)
+	if session == nil || shared == nil {
+		t.Fatalf("expected both sync instances, got session=%v shared=%v", session != nil, shared != nil)
+	}
+	if v, ok := envMap(*shared)["WORKSPACE_READ_ONLY"]; !ok || v != "true" {
+		t.Fatalf("shared instance WORKSPACE_READ_ONLY = %q (set=%v), want true", v, ok)
+	}
+	// The session workspace is this sandbox's own. Silencing it too would lose
+	// the session's work, which is the opposite failure.
+	if _, ok := envMap(*session)["WORKSPACE_READ_ONLY"]; ok {
+		t.Fatal("session instance was made read-only by a SHARED-only setting")
+	}
+}
+
+// The existing spec-wide flag must keep governing both, so nothing that relied on
+// it changes behaviour.
+func TestSpecWideReadOnlyStillSilencesBothInstances(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+
+	spec := r.buildPodSpec(context.Background(), sharedReadOnlyEJ(false, true), p,
+		corev1.Container{Name: "workload"})
+
+	session, shared := syncContainers(spec)
+	for name, c := range map[string]*corev1.Container{"session": session, "shared": shared} {
+		if c == nil {
+			t.Fatalf("no %s instance", name)
+		}
+		if v, ok := envMap(*c)["WORKSPACE_READ_ONLY"]; !ok || v != "true" {
+			t.Fatalf("%s instance WORKSPACE_READ_ONLY = %q (set=%v), want true", name, v, ok)
+		}
+	}
+}
+
+// Default unchanged: both instances checkpoint, as every existing sandbox does.
+func TestNeitherInstanceIsReadOnlyByDefault(t *testing.T) {
+	r := &EphemeralJobReconciler{}
+	p, _ := ResolvePlacement("home")
+
+	spec := r.buildPodSpec(context.Background(), sharedReadOnlyEJ(false, false), p,
+		corev1.Container{Name: "workload"})
+
+	session, shared := syncContainers(spec)
+	for name, c := range map[string]*corev1.Container{"session": session, "shared": shared} {
+		if _, ok := envMap(*c)["WORKSPACE_READ_ONLY"]; ok {
+			t.Fatalf("%s instance is read-only without being asked", name)
+		}
 	}
 }

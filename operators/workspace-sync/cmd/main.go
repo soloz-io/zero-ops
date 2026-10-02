@@ -570,6 +570,14 @@ func runServe(root string) error {
 			return
 		}
 		m, err := snapshot(req.Name, req.Description, "on-demand")
+		if errors.Is(err, store.ErrUnchanged) {
+			// 200, not an error: the request was correct and the workspace is
+			// already represented by the checkpoint it was restored from. Writing
+			// one would move LATEST over a copy another session may have written
+			// since (see store.ErrUnchanged).
+			writeJSON(w, http.StatusOK, map[string]any{"checkpointId": "", "skipped": "unchanged"})
+			return
+		}
 		if errors.Is(err, store.ErrNothingToSave) {
 			// 200 with no id, like the not-configured case: the request was
 			// correct and there is simply nothing here yet. A 4xx would read as
@@ -782,7 +790,15 @@ func runServe(root string) error {
 		for {
 			select {
 			case <-t.C:
-				if _, err := snapshot("", "", "periodic"); err != nil && !errors.Is(err, store.ErrNotConfigured) {
+				_, err := snapshot("", "", "periodic")
+				switch {
+				case err == nil, errors.Is(err, store.ErrNotConfigured):
+				case errors.Is(err, store.ErrUnchanged), errors.Is(err, store.ErrNothingToSave):
+					// Not a failure and not worth a line every interval: a
+					// read-mostly session ticks like this for its whole life. The
+					// skip is the CORRECT outcome -- writing would move LATEST over
+					// another session's newer copy (store.ErrUnchanged).
+				default:
 					// Logged, not fatal: the backstop failing must not take the
 					// sandbox down with it. The on-demand path is the primary
 					// mechanism and is unaffected.
@@ -873,6 +889,8 @@ func runServe(root string) error {
 		switch {
 		case errors.Is(err, store.ErrNotConfigured):
 			log.Print("teardown checkpoint skipped — object storage not configured")
+		case errors.Is(err, store.ErrUnchanged):
+			log.Print("teardown checkpoint skipped — workspace unchanged since restore")
 		case errors.Is(err, store.ErrNothingToSave):
 			log.Print("teardown checkpoint skipped — workspace has no files to save")
 		case err != nil:

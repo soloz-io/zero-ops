@@ -904,6 +904,10 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 					staging:     workspaceStagingPath + "/" + sharedWorkspaceDirName,
 					port:        sharedWorkspaceSyncPort,
 					noArchive:   true,
+					// Restore-only when the fleet says this session only READS the
+					// shared tree. See SharedWorkspaceReadOnly for the data loss
+					// this exists to stop.
+					readOnly: ej.Spec.WorkspacePersistence.SharedWorkspaceReadOnly,
 				}))
 		}
 	}

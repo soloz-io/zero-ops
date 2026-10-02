@@ -77,12 +77,49 @@ var ErrNoArchive = errors.New("no squashfs archive for this workspace")
 // to build without being able to overwrite or evict the history it is reading.
 var ErrReadOnly = errors.New("workspace is read-only: refusing to write to object storage")
 
+// manifestDigest is a content digest of a manifest's entries.
+//
+// Over path, hash, mode and size -- everything that makes a restored tree
+// identical -- and NOT over the manifest id, timestamp, description or trigger,
+// which differ on every save by construction and would make every tree look
+// changed.
+//
+// Entries are sorted by path before this is called, so the digest is stable for
+// one tree whatever order the walk produced.
+func manifestDigest(m *Manifest) string {
+	h := sha256.New()
+	for _, e := range m.Entries {
+		fmt.Fprintf(h, "%s\x00%s\x00%d\x00%d\n", e.Path, e.Hash, e.Mode, e.Size)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // ErrNothingToSave means the workspace holds no files worth checkpointing.
 //
 // Distinct from a failure: the request was correct and the answer is "there is
 // nothing here yet". A caller should say so rather than reporting either a
 // successful save of nothing or an error.
 var ErrNothingToSave = errors.New("workspace has no files to save")
+
+// ErrUnchanged means the tree is byte-for-byte what was restored, so a checkpoint
+// would advance the LATEST pointer without recording anything new.
+//
+// WHY THIS IS A REFUSAL AND NOT AN OPTIMISATION
+//
+// Writing it is destructive on a SHARED workspace. Every sandbox mounting one
+// uploads its whole copy as the newest checkpoint on the periodic timer and at
+// teardown, so a session that restored an older copy and changed nothing still
+// becomes LATEST -- overwriting a newer copy another session wrote, and retention
+// then prunes the newer entry to stay inside the bound.
+//
+// Observed 2026-10-01: oranger wrote a brand brief to a shared workspace from one
+// session; video sessions of the same app only read it, and their unchanged
+// uploads replaced the brief with their own older copy until retention removed the
+// checkpoint that had it. Nothing recovered it -- a shared workspace's history
+// lives only in object storage (section 14.2).
+//
+// Saving object bytes is the side effect. Not moving the pointer is the point.
+var ErrUnchanged = errors.New("workspace is unchanged since restore")
 
 // Entry is one file in a manifest.
 type Entry struct {
@@ -118,6 +155,14 @@ type Store struct {
 	pinned    string
 	readOnly  bool
 	noArchive bool
+
+	// restoredDigest is the content digest of the manifest this workspace was
+	// restored from, or of the last checkpoint this process wrote.
+	//
+	// Held in memory only, and deliberately: it describes what THIS pod has
+	// observed, and a value shared between pods would let one session's idea of
+	// "unchanged" silence another's genuine change.
+	restoredDigest string
 
 	// Checkpoints retention must never evict, because a live deployment was
 	// built from them (§14.3). Supplied by the platform, since only it knows
@@ -492,6 +537,22 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		return nil, ErrNothingToSave
 	}
 
+	// Nothing changed since restore: refuse, rather than advancing LATEST over
+	// another session's newer copy. See ErrUnchanged.
+	//
+	// Compared on the MANIFEST, not on the object uploads. The content-addressed
+	// store already deduplicates bytes -- an unchanged tree logs "uploaded 0/4
+	// files, 4 deduped" and still wrote a manifest and still moved the pointer,
+	// which is exactly the loss this closes. The dedup counters were never the
+	// decision; the manifest is.
+	//
+	// Only when a digest is known. A pod that restored nothing has no baseline, so
+	// its first checkpoint is genuinely new and must be written.
+	digest := manifestDigest(m)
+	if s.restoredDigest != "" && digest == s.restoredDigest {
+		return nil, ErrUnchanged
+	}
+
 	body, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
@@ -504,6 +565,9 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	if err := s.setLatest(ctx, m.ID); err != nil {
 		return nil, err
 	}
+	// This pod's new baseline. Without it the next periodic tick would re-upload
+	// an unchanged tree, because the only digest it knew was the restored one.
+	s.restoredDigest = digest
 	tManifest := time.Since(tStart) - tObjects
 
 	// Create and upload the squashfs archive for O(1) restore (§14.2).
@@ -802,6 +866,17 @@ func (s *Store) GetManifest(ctx context.Context, id string) (*Manifest, error) {
 // does, and it is the difference between "restore failed" and a workspace that
 // silently contains something other than what was checkpointed.
 func (s *Store) Restore(ctx context.Context, root string, m *Manifest) error {
+	// The baseline for the unchanged check (see ErrUnchanged).
+	//
+	// Recorded BEFORE the files land, not after. Restore writes into a tree the
+	// workload may already be using, so a digest taken afterwards would include
+	// whatever it wrote in between and this session would then checkpoint a tree
+	// it believes it did not change.
+	//
+	// Entries arrive sorted -- the manifest is written sorted -- so this digest is
+	// directly comparable with the one computed at save time.
+	s.restoredDigest = manifestDigest(m)
+
 	for _, e := range m.Entries {
 		dest := filepath.Join(root, e.Path)
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {

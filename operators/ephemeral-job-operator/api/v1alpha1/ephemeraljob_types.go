@@ -591,6 +591,42 @@ type WorkspacePersistenceSpec struct {
 	// +optional
 	ReadOnly bool `json:"readOnly,omitempty"`
 
+	// SharedWorkspaceReadOnly makes the SHARED workspace restore-only, while the
+	// session workspace stays read-write.
+	//
+	// WHY ReadOnly ABOVE CANNOT SERVE THIS
+	//
+	// It governs both instances. A session that must write its own workspace and
+	// only read the shared one has no setting, so it checkpoints both -- and the
+	// shared one is where that is destructive.
+	//
+	// THE DATA LOSS THIS PREVENTS, OBSERVED 2026-10-01
+	//
+	// Every sandbox mounting a shared workspace uploads its whole copy as the
+	// newest checkpoint, on the periodic timer and at teardown, whether or not it
+	// changed anything. A sandbox that restored an older copy therefore overwrites
+	// a newer one written by a different session, and retention then prunes the
+	// newer entry to stay within the bound.
+	//
+	// oranger wrote a brand brief to a shared workspace from one session; video
+	// sessions of the same app only read it. Their uploads replaced the brief with
+	// their own older copy, and retention removed the checkpoint that had it. The
+	// brief was unrecoverable -- source history for a shared workspace lives only
+	// in object storage (section 14.2).
+	//
+	// oranger ADR-002 records last-writer-wins on this pointer as an open
+	// consequence, but assumed SIMULTANEOUS WRITERS. A reader that writes nothing
+	// triggers it just as well, which is why a reader needs a way to say so.
+	//
+	// Set, the shared instance mounts its checkpoint and stops: no periodic
+	// backstop, no teardown snapshot, no retention pass. The directory stays
+	// writable to the workload -- the overlay's upper layer is local scratch that
+	// dies with the pod -- so a tool that writes there is not broken, its writes
+	// simply do not become a checkpoint.
+	//
+	// +optional
+	SharedWorkspaceReadOnly bool `json:"sharedWorkspaceReadOnly,omitempty"`
+
 	// PinnedCheckpoints are exempt from retention however old they become
 	// (ADR-052 §14.3): a live deployment was built from them.
 	//
