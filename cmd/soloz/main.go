@@ -33,6 +33,7 @@ func main() {
 	rootCmd.AddCommand(newTenantCmd())
 	rootCmd.AddCommand(newBundleVersionCmd())
 	rootCmd.AddCommand(newEscrowCmd())
+	rootCmd.AddCommand(newEncryptionCmd())
 	rootCmd.AddCommand(newProposalCmd())
 	rootCmd.AddCommand(newSupportCmd())
 	rootCmd.AddCommand(newFleetCmd())

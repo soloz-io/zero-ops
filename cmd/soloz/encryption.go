@@ -1,0 +1,262 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
+	"os/exec"
+	"text/template"
+
+	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/platform/embedded"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
+	"github.com/spf13/cobra"
+)
+
+var (
+	encClusterName string
+	encNamespace   string
+	encKubeconfig  string
+	encContext     string
+	encClassFile   string
+	encDryRun      bool
+)
+
+// newEncryptionCmd adopts at-rest encryption of Kubernetes Secrets on a cluster
+// that already exists (ADR-003 §6).
+//
+// # WHY THIS COMMAND EXISTS
+//
+// The provider configuration and the control-plane template are Day-0 artefacts:
+// the provisioner creates the Secret and applies the ClusterClass while building a
+// cluster, and NOTHING reconciles either afterwards. Neither ClusterClass is synced
+// by ArgoCD -- they are applied from the CLI's embedded assets -- so a release does
+// not put the new template on a running cluster and a running cluster has no
+// provider configuration at all.
+//
+// That left every existing box unable to adopt the control the ADR requires, with a
+// runbook whose first step was to sync something nothing syncs. This is that step.
+//
+// It is deliberately not a reconciler. Adopting the template ROLLS THE CONTROL
+// PLANE, and the migration that follows rewrites every Secret in the cluster with a
+// verification step between each stage; a controller doing that unattended would be
+// a component able to take a cluster's Secrets with it if its idea of the current
+// key were ever wrong (ADR-100 takes the same position on rotation).
+func newEncryptionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "encryption",
+		Short: "Manage at-rest encryption of Kubernetes Secrets",
+	}
+	cmd.AddCommand(newEncryptionEnableCmd())
+	return cmd
+}
+
+func newEncryptionEnableCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "enable",
+		Short: "Put the at-rest encryption key and control-plane template on an existing cluster",
+		Long: `Deliver what at-rest encryption needs to a cluster that already exists.
+
+Two things are applied: the Secret the control plane reads its encryption provider
+configuration from, and the ClusterClass carrying the template that references it.
+Applying the template rolls the control plane, because an API server argument only
+takes effect on a process start.
+
+The key is restored from the escrow when one holds it and generated otherwise. A
+generated key is escrowed before anything is applied: a cluster encrypting etcd with
+a key held nowhere else is worse off than one not encrypting it, because losing the
+control plane then takes every Secret AND every backup of them.
+
+This is step 1 of docs/runbooks/encrypt-secrets-at-rest.md. The steps that follow --
+verify, rewrite every Secret, verify in etcd, remove the plaintext fallback, verify
+again -- are not performed here and are not optional.`,
+		RunE: runEncryptionEnable,
+	}
+	f := cmd.Flags()
+	f.StringVar(&encClusterName, "cluster", "", "cluster name; the escrow is scoped to it (required)")
+	f.StringVar(&encNamespace, "namespace", "platform-capi", "namespace the control plane reads the Secret from")
+	f.StringVar(&encKubeconfig, "kubeconfig", "", "kubeconfig to apply through")
+	f.StringVar(&encContext, "context", "", "kubeconfig context")
+	f.StringVar(&encClassFile, "class", "", fmt.Sprintf(
+		"ClusterClass asset to apply; %q for the management cluster (default), %q for a workload cluster",
+		defaultHubClass, defaultSpokeClass))
+	f.BoolVar(&encDryRun, "dry-run", false, "say what would be applied, change nothing")
+	_ = cmd.MarkFlagRequired("cluster")
+	return cmd
+}
+
+const (
+	// The management cluster's class, from the CLI's own assets.
+	defaultHubClass = "classes/hetzner-mgmt-ubuntu-v1.yaml"
+	// A workload cluster's class, from the platform manifests packaged for shipping.
+	defaultSpokeClass = "manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml"
+)
+
+// readClusterClass finds a ClusterClass in whichever embed holds it.
+//
+// Tries the CLI's assets first, then the packaged platform manifests, and reports
+// BOTH paths when neither has it — a "file not found" naming one tree is the error
+// that sends someone looking in the wrong place.
+// readEncryptionConfigTemplate is the provider configuration the control plane reads.
+// Named so a test can assert the provider ORDER without reaching into the command.
+func readEncryptionConfigTemplate() ([]byte, error) {
+	return assets.ReadManifest("secrets/secret-encryption-config.yaml")
+}
+
+func readClusterClass(path string) ([]byte, error) {
+	if b, err := assets.ReadManifest(path); err == nil {
+		return b, nil
+	}
+	if b, err := embedded.FS.ReadFile(path); err == nil {
+		return b, nil
+	}
+	return nil, fmt.Errorf("not found in the CLI assets (as manifests/%s) nor in the packaged "+
+		"platform manifests (as %s)", path, path)
+}
+
+func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// The escrow first, and the command refuses without one.
+	//
+	// ADR-076 requires a box to have an escrow at all, so this adds no new input;
+	// what it adds is the refusal. Generating a key with nowhere outside the cluster
+	// to keep it produces a value that exists only inside the thing it decrypts, and
+	// the gap cannot be closed after the cluster is gone.
+	store, err := escrow.NewEscrowClient(ctx, "")
+	if err != nil {
+		return fmt.Errorf("at-rest encryption needs an escrow to keep the key in, and a box is "+
+			"not built without one (ADR-076): %w", err)
+	}
+
+	key, err := store.RestoreArtifact(ctx, encClusterName, escrow.ArtifactSecretEncryptionKey)
+	if err != nil {
+		// Unreadable is not absent. Treating it as absent would mint a second key for
+		// a cluster that already has one, and the first thing that key would do is
+		// fail to decrypt everything already written.
+		return fmt.Errorf("reading the escrow for %q: %w", encClusterName, err)
+	}
+
+	generated := false
+	if key == "" {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return fmt.Errorf("generating the encryption key: %w", err)
+		}
+		key = hex.EncodeToString(raw)
+		generated = true
+		fmt.Printf("[encryption] no key in the escrow for %q; generating one\n", encClusterName)
+	} else {
+		fmt.Printf("[encryption] key restored from the escrow for %q\n", encClusterName)
+	}
+
+	rawKey, err := hex.DecodeString(key)
+	if err != nil || len(rawKey) != 32 {
+		return fmt.Errorf("the encryption key must be 32 hex-encoded bytes, got %d (decode error: %v); "+
+			"a key of any other length is refused by the API server at start", len(rawKey), err)
+	}
+
+	// Escrowed BEFORE anything is applied, and only when generated.
+	//
+	// Before, because the alternative is a cluster that comes up encrypted while the
+	// backup attempt is still outstanding. Only when generated, because a restored key
+	// is already there and rewriting it is one more chance to write something else.
+	if generated {
+		if encDryRun {
+			fmt.Println("[encryption] dry-run: would escrow the generated key")
+		} else if err := store.BackupArtifact(ctx, encClusterName, escrow.ArtifactSecretEncryptionKey, key); err != nil {
+			return fmt.Errorf("the key was generated but could not be escrowed, so nothing was "+
+				"applied: %w", err)
+		} else {
+			fmt.Println("[encryption] generated key escrowed")
+		}
+	}
+
+	tmplData, err := readEncryptionConfigTemplate()
+	if err != nil {
+		return fmt.Errorf("reading the provider configuration template: %w", err)
+	}
+	tmpl, err := template.New("enc").Parse(string(tmplData))
+	if err != nil {
+		return fmt.Errorf("parsing the provider configuration template: %w", err)
+	}
+	var secretOut bytes.Buffer
+	if err := tmpl.Execute(&secretOut, map[string]string{
+		"Namespace":        encNamespace,
+		"EncryptionKeyB64": base64.StdEncoding.EncodeToString(rawKey),
+	}); err != nil {
+		return fmt.Errorf("rendering the provider configuration: %w", err)
+	}
+
+	// THE TWO CLUSTERCLASSES LIVE IN DIFFERENT EMBEDS, and the command must reach
+	// both — the workload cluster is where this is adopted FIRST, because a failed
+	// control-plane roll there leaves the management plane up to repair it.
+	//
+	//   the management cluster's   internal/assets/manifests/classes/...
+	//   a workload cluster's       internal/platform/embedded/manifests/providers/...
+	//
+	// Two accessors rather than one because the two trees are embedded separately:
+	// the CLI's own assets, and the platform manifests packaged for shipping. A
+	// single read would silently miss whichever tree it did not look in.
+	classFile := encClassFile
+	if classFile == "" {
+		classFile = defaultHubClass
+	}
+	classOut, err := readClusterClass(classFile)
+	if err != nil {
+		return fmt.Errorf("reading the ClusterClass %q: %w", classFile, err)
+	}
+
+	// The Secret BEFORE the template that references it. A control plane whose
+	// provider configuration Secret does not exist cannot start, and the template is
+	// what makes a node ask for it.
+	stages := []struct {
+		what string
+		body []byte
+	}{
+		{fmt.Sprintf("provider configuration Secret in %s", encNamespace), secretOut.Bytes()},
+		{fmt.Sprintf("ClusterClass from %s", classFile), classOut},
+	}
+
+	for _, st := range stages {
+		if encDryRun {
+			fmt.Printf("[encryption] dry-run: would apply the %s\n", st.what)
+			continue
+		}
+		args := []string{"apply", "-f", "-"}
+		if encKubeconfig != "" {
+			args = append([]string{"--kubeconfig", encKubeconfig}, args...)
+		}
+		if encContext != "" {
+			args = append([]string{"--context", encContext}, args...)
+		}
+		c := exec.CommandContext(ctx, "kubectl", args...)
+		c.Stdin = bytes.NewReader(st.body)
+		out, err := c.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("applying the %s: %w\n%s", st.what, err, out)
+		}
+		fmt.Printf("[encryption] applied the %s\n", st.what)
+	}
+
+	if encDryRun {
+		return nil
+	}
+
+	fmt.Println()
+	fmt.Println("The control plane will roll to pick up the provider; an API server argument")
+	fmt.Println("only takes effect on a process start. Wait for every control-plane node to be")
+	fmt.Println("replaced and Ready, then continue from step 3 of")
+	fmt.Println("docs/runbooks/encrypt-secrets-at-rest.md.")
+	fmt.Println()
+	fmt.Println("Encryption applies to writes. Until step 4 has rewritten every existing Secret")
+	fmt.Println("and step 5 has confirmed it by reading etcd, this cluster is PARTIALLY covered")
+	fmt.Println("and the plaintext fallback is still in force.")
+	return nil
+}

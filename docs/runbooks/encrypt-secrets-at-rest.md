@@ -24,26 +24,73 @@ remains, a plaintext Secret is still readable and the control is partial.
 
 ## 0. Before you start
 
-The key is generated once per box by hub-operator and escrowed under ADR-076's
-`secret-encryption-key`, because etcd **and every etcd backup** are encrypted with
-it. Confirm it is escrowed before proceeding: a box that encrypts etcd with a key
-that exists nowhere else has traded disclosure for total loss.
+The escrow must be reachable. The key is the one value that cannot be regenerated —
+etcd **and every etcd backup** are encrypted with it — so a cluster encrypting with a
+key held nowhere else has traded disclosure for total loss (ADR-076
+`secret-encryption-key`).
+
+`soloz encryption enable` refuses outright without an escrow rather than generating a
+key with nowhere to put it, so this check is a courtesy, not a gate:
 
 ```bash
-# The key exists in the store, and the escrow holds a copy.
-kubectl -n platform-capi get externalsecret secret-encryption-config \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'; echo
-kubectl -n platform-capi get secret secret-encryption-config \
-  -o jsonpath='{.data.enc\.yaml}' | base64 -d | grep -c secretbox
+# All four or none. A partial set produces a client that authenticates and fails.
+env | grep -c '^INFISICAL_ESCROW_' ; echo "expect 4"
+
+# What the escrow already holds for this cluster. Empty is fine on a first run —
+# the key is generated and escrowed. A value means a previous cluster used it, and
+# that is the value the new control plane must use.
+soloz escrow --help >/dev/null && echo "escrow CLI available"
 ```
 
-Expect `True` and `1`. If the ExternalSecret is not Ready, **stop** — the next
-control-plane node to be created would fail to bootstrap on a missing file.
+Then confirm the cluster you are about to change is the one you mean, because this
+rolls its control plane:
+
+```bash
+kubectl --kubeconfig <path> config current-context
+kubectl --kubeconfig <path> get kubeadmcontrolplane -A
+```
+
+Do not continue on a cluster mid-rollout, or whose control-plane replicas are not all
+Ready. A roll started on top of a roll leaves members disagreeing about the write
+provider, and a Secret written by one may be unreadable by another.
 
 ## 1. Adopt the control-plane template
 
-The provider is an API server argument plus a file on every control-plane node, so
-it arrives with `spokepool-control-plane-v2`. Sync the provider base.
+**Not a sync.** Neither ClusterClass is reconciled by anything: both are applied from
+the CLI's embedded assets at Day-0, so a release puts the new template on no running
+cluster. An earlier version of this step said to sync the provider base, and nothing
+syncs it.
+
+```bash
+# a workload cluster FIRST — see "Which cluster first" below
+soloz encryption enable --cluster <cell> \
+  --class manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml \
+  --kubeconfig <path> --dry-run
+
+soloz encryption enable --cluster <cell> \
+  --class manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml \
+  --kubeconfig <path>
+```
+
+It restores the key from the escrow or generates and escrows one, applies the provider
+configuration Secret, then applies the ClusterClass. The Secret goes first, because a
+control plane whose Secret does not exist cannot start and the template is what makes a
+node ask for it.
+
+For the management cluster, omit `--class` — it defaults to that cluster's.
+
+## Which cluster first
+
+**A workload cluster, not the management cluster.**
+
+If rolling a workload cluster's control plane goes wrong, tenant workloads are affected
+and the management plane — CAPI, ArgoCD, the secret store, the identity provider — stays
+up to repair it. Rolling the management cluster first risks losing the thing that would
+repair it.
+
+It also proves the whole chain once on a cluster where being wrong is recoverable: key
+escrowed, Secret assembled, file on the node, provider active, encrypted prefix in etcd.
+Do the management cluster second, with the procedure already exercised.
 
 ## 2. Roll the control plane
 
