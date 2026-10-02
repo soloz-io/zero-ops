@@ -150,25 +150,36 @@ stops being the fleet's and becomes the platform's, and nothing crosses back:
                            │            │
   ── declares what ────────┼────────────┼── decides where ────────────────────
                            │            ▼
-                           │   Pod: unschedulable
+                           │   scheduler: any node that fits?
                            │            │
-                           │            │ demand, not a control loop     §3
-                           │            ▼
-                           │   cluster-autoscaler
-                           │     reads MachineDeployment bounds
-                           │     min 0 .. max N                          §2
-                           │            │
-  ── asks for capacity ────┼────────────┼── owns the count ───────────────────
-                           │            ▼
-                           │   MachineDeployment.replicas
-                           │            │
-                           │            ▼
-                           │   CAPI + provider → burst node joins spoke  §0
-                           │            │
-                           │            ▼
-                           │   Pod scheduled, bounded by ResourceQuota   §5
-                           │            │
-  ◄── terminal result ─────┼────────────┘
+                           │     ┌──────┴───────┐
+                           │   yes              no
+                           │     │               │
+                           │     ▼               │  the ONLY path that
+                           │  runs on an         │  costs a new node      §3
+                           │  existing node      │
+                           │  — no node made     ▼
+                           │            Pod: unschedulable
+                           │                     │
+                           │                     │ demand, not a loop    §3
+                           │                     ▼
+                           │            cluster-autoscaler
+                           │              reads MachineDeployment bounds
+                           │              min 0 .. max N                 §2
+                           │                     │
+  ── asks for capacity ────┼─────────────────────┼── owns the count ──────────
+                           │                     ▼
+                           │            MachineDeployment.replicas
+                           │                     │
+                           │                     ▼
+                           │            CAPI + provider → burst node     §0
+                           │              joins the spoke
+                           │                     │
+                           │                     ▼
+                           │            Pod scheduled, bounded by        §5
+                           │              ResourceQuota
+                           │                     │
+  ◄── terminal result ─────┼─────────────────────┘
       (callback)           │
 ```
 
@@ -306,6 +317,33 @@ Crossplane owns whether the pool exists and what shape it has. It does not own
 how many nodes are running right now.
 
 ### 3. Scaling is unschedulable demand, not a control loop we write
+
+**A node is created only when no existing node will do, and that is a cost
+decision.** Recorded here because the mechanism below is what delivers it and
+nothing said so.
+
+A burst pod is schedulable on an ORDINARY worker. Its selector names
+`workload-location` and the worker role; the burst taint is keyed on workload CLASS,
+not location, and ordinary workers are deliberately left untainted — tainting them by
+location would make every workload on a single-provider spoke unschedulable (§4). The
+toleration therefore ADDS tainted burst nodes to the set of places the pod may run. It
+does not restrict the pod to them.
+
+So the scheduler uses capacity that already exists and is already paid for, and a node
+is created only once it has tried every existing node and found room on none. That is
+what "unschedulable" means, and it is the only input the autoscaler acts on.
+
+**Every new node costs by the hour**, which makes this ordering a commercial property
+of the design rather than an implementation detail: a design in which burst work could
+only run on burst nodes would provision a machine for work an idle worker could have
+absorbed, and would do it every time. What prevents that is the selector and the taint
+being keyed on different things — and that is easy to undo by accident. Tainting
+ordinary workers, or narrowing the burst selector to the burst label, each silently
+converts this into pay-per-job with no error anywhere.
+
+The operator never requests capacity. It authors the pod and then OBSERVES: a pod that
+reaches `PodScheduled` is reported as scheduled, whatever node took it, and no node
+group is consulted. Capacity is assessed only once a pod is unschedulable.
 
 `cluster-autoscaler` with `--cloud-provider=clusterapi` scales the burst
 `MachineDeployment` from unschedulable pods, within the annotated bounds. It is

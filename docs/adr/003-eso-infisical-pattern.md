@@ -346,7 +346,27 @@ shows plaintext either way, because the API server decrypts on the way out, so
 `kubectl get secret` cannot distinguish an encrypted cluster from an unencrypted one.
 That distinction is why the step exists.
 
-#### What a KMS v2 adoption still has to decide
+#### What a KMS v2 adoption decides — now ADR-100
+
+The questions below were open when this section was written and are answered by
+ADR-100, which decides the architecture: one non-exportable key per cluster in an
+instance of the tenant's secret store OUTSIDE every box, a platform-owned
+rotation-aware node-local plugin, no rotation controller, no copy of the key anywhere,
+and the key store accepted into the cluster's availability boundary with a
+failure-injection test required rather than a documented expectation.
+
+`secretbox` remains the current provider and this section remains the control. ADR-100
+is the endpoint, and the two are ordered: the audit finding closes on `secretbox`, and
+adopting ADR-100 is a separate change with its own migration.
+
+One thing ADR-100 decides that is worth repeating here, because it is the one place
+this platform's own escrow rule does not apply: **the key is deliberately NOT
+escrowed.** Every other root secret is escrowed because it cannot be regenerated; a
+copy of this one outside the key store would be an offline decryption path for every
+backup taken while it was in force, which is the exposure encryption at rest exists to
+remove.
+
+#### What the earlier draft left open
 
 Recorded because "KMS v2 is the target" reads as a plan and is not one. None of
 these has an answer, and each has to have one before a box adopts it.
@@ -379,10 +399,11 @@ The secret store does offer a key-management service with named keys and
 encrypt/decrypt operations, and a hardware-backed root key. Three facts decide it
 anyway:
 
-- the service is reached over HTTP, while the Kubernetes provider interface is a
-  socket-local RPC plugin. Adoption therefore means the platform writing and
-  operating that plugin on every control-plane node, on the critical decrypt path
-  for every Secret read.
+- a VENDOR PLUGIN EXISTS and implements the current provider version, deploying as a
+  node-level static pod with a machine identity. An earlier draft of this section
+  claimed there was none and that the platform would have to write the whole bridge;
+  that was wrong. What the vendor plugin does not do is key rotation, which it states,
+  and that is the part the platform owns (ADR-100).
 - the hardware-backed root key and external key management are licensed features,
   disabled by default. Without them the root key is held by the same box.
 - it is circular on the management cluster and cross-boundary for every workload
@@ -481,6 +502,7 @@ This rewrite supersedes the original ADR-003 (ESO-Infisical Integration Pattern)
 - ADR-039: Platform Ownership Model
 - ADR-065: The platform holds no credential belonging to a tenant
 - ADR-076: Reaching a box you own — the escrow, and what it holds
+- ADR-100: The key that encrypts etcd lives outside the box
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-041: Controller Responsibility Matrix
 - ADR-024: Crossplane Password Rotation
