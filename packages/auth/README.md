@@ -195,6 +195,21 @@ new JwtValidator({
 await validator.validate(token: string): Promise<TenantClaims>
 ```
 
+#### A BFF: `bffAuth`
+
+```typescript
+import { bffAuth } from "zero-ops-auth";
+
+const auth = bffAuth({ appId: "shop", publicPaths: ["/api/v1/auth"] });
+app.get("/health", (c) => c.text("ok"));       // liveness: never depends on the issuer
+app.get("/health/ready", auth.readiness);      // readiness: 503 until the keys are held
+app.use("/api/*", auth.middleware);
+```
+
+It starts the validator, serves readiness, guards the mount, and on a local
+stack (`SHOP_ENV=local`, refused under `NODE_ENV=production`) gives every request
+a stand-in principal instead. The lifecycle below is what it does for you.
+
 #### Keeping the issuer's keys (required for a running service)
 
 A service calls `start()` once at boot and serves `status().ready` from its

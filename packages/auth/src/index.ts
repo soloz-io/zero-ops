@@ -81,6 +81,8 @@ export {
 export type { EnvSource } from "./platform/env.js";
 
 export { browserSessionValidator, consumerApiValidator } from "./platform/validators.js";
+export { bffAuth } from "./platform/bff-auth.js";
+export type { BffAuth, BffAuthOptions } from "./platform/bff-auth.js";
 export type { SurfaceValidatorOptions } from "./platform/validators.js";
 
 export {

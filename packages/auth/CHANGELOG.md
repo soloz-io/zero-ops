@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.20.0
+
+### Added
+
+- `bffAuth({ appId, validator?, publicPaths?, localPrincipal?, signal? })`: a BFF's
+  authentication in one call, replacing the ~40 lines each BFF wrote by hand.
+  - Creates one validator (default `browserSessionValidator()`) and starts it at
+    construction (ADR-022). No process signal handler is installed: the refresh
+    timers are unref'd, and a SIGTERM handler would stop Node exiting on the
+    signal. Pass `signal` to stop the refresh early.
+  - `auth.readiness`: 503 `auth-keys-unavailable` until the keys are held, 200 after.
+    Serve it on the READINESS probe path, never the liveness path.
+    `auth.ready()` gives the same fact to an app with readiness of its own.
+  - `auth.middleware`: `authMiddleware` for the mount, skipping `publicPaths`
+    (prefixes matched on segment boundaries).
+  - Local mode is `<APPID>_ENV=local` (e.g. `ORANGER_ENV=local`): every request
+    gets a stand-in principal (default `local-user`, tenant from
+    `LOCAL_TENANT_ID`, or `localPrincipal`, fixed or per request) and readiness is
+    always 200. **Refused at construction when `NODE_ENV=production`**, so a
+    deployed BFF that believes it is local does not start.
+
 ## 0.19.0
 
 Issuer key (JWKS) handling, after a Waypoint SDK pod refused three requests of
