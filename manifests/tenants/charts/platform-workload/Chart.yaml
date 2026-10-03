@@ -1,0 +1,16 @@
+# The platform's standard application workload (ADR-102), as a LIBRARY chart.
+#
+# An application's BFF or domain-service chart depends on this and renders
+# `{{ include "platform-workload.all" . }}`; it declares only what differs --
+# image, port, env, extra network rules, a migration command. The Argo Rollout
+# shape, probes, DNS settings, security context, labels and network-policy
+# conventions are rendered here, so a platform-wide fix reaches every app on the
+# next chart release instead of app by app.
+#
+# Published with the platform bundle (every directory under
+# manifests/tenants/charts is), at the bundle's version.
+apiVersion: v2
+name: platform-workload
+description: The platform's standard BFF / domain-service workload, rendered from values
+type: library
+version: 0.1.0
