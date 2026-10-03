@@ -142,6 +142,30 @@ spec:
     - ports:
       - port: "3000"
         protocol: TCP
+  # THE PLATFORM'S EPHEMERALJOB OPERATOR, delivering lifecycle callbacks (ADR-052).
+  #
+  # An EphemeralJob's spec.callbackUrl points at the SDK that created it, and
+  # the operator POSTs to it when the job is Running and when it finishes. The
+  # operator lives in platform-ops, so the own-namespace rule above does not
+  # cover it -- and this policy displaced the default-allow that did.
+  #
+  # Found 2026-10-03: every Running callback to waypoint's SDK timed out
+  # ("context deadline exceeded", retried every 20 s for an hour) because this
+  # policy dropped it, and a sandbox's client was never told it was ready. The
+  # same mistake as the 2026-09-30 one above, made for a caller outside the
+  # namespace.
+  #
+  # The operator by identity, not platform-ops as a whole, and on 3000 only.
+  # The callback path authenticates its own caller (a per-job token), so this
+  # is reachability, not trust.
+  - fromEndpoints:
+    - matchLabels:
+        app: ephemeral-job-operator
+        k8s:io.kubernetes.pod.namespace: platform-ops
+    toPorts:
+    - ports:
+      - port: "3000"
+        protocol: TCP
 {{- range $consumers }}
   - fromEndpoints:
     - matchLabels:
