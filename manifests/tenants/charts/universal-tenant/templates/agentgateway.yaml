@@ -69,6 +69,8 @@
        could point an unauthenticated public path at a service of its choosing. */ -}}
 {{- $sdk := printf "sdk-workload.%s.svc.cluster.local:3000" $ns }}
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
+{{- /* Validated in _helpers.tpl; empty renders no bind, route or port. */ -}}
+{{- $publicAssets := include "universal-tenant.publicAssetPaths" . | fromJsonArray }}
 {{- /* Derived only as a FALLBACK name; the real value arrives at runtime.
 
        ADR-053 derived <tenantId>-public-client, which holds only while the
@@ -344,6 +346,50 @@ data:
           # stays unreachable from outside.
           - path:
               pathPrefix: /v1/webhooks/
+{{- end }}
+{{- if $publicAssets }}
+    # A THIRD bind, for the static files a browser fetches without the user's
+    # session: a web app manifest, its icons, a service worker. Behind the login
+    # they get a redirect to the identity provider instead, and the browser
+    # refuses to install the app.
+    #
+    # Declared per application (gateway.publicAssets.paths) and absent unless
+    # declared. The same construction as the callback bind above: a separate
+    # port with no OIDC, which the public HTTPRoute selects for exactly these
+    # paths (tenant-public-tls). A route cannot exempt itself on :3000, because
+    # the OIDC policy runs at gateway phase, before route selection.
+    #
+    # What bounds it, each by construction rather than by review:
+    #   - one backend, this app's frontend, derived here and never named in values;
+    #   - EXACT path matches only, so a file added to the frontend later is not
+    #     public until someone declares it;
+    #   - GET and HEAD only; any other method matches no route and is refused;
+    #   - the chart refuses the app shell, /api, /internal, /v1, /oauth and the
+    #     probes, so the setting can only ever expose static files.
+    # These are files every signed-in browser already downloads; they carry no
+    # user, tenant or session data. Nothing about any other path changes.
+    - port: 3003
+      listeners:
+      # Not "app": the OIDC policy below targets that listener by name, and this
+      # one must stay outside it.
+      - name: public-assets
+        routes:
+        - name: {{ $t }}-public-assets
+          backends:
+          - host: {{ $frontend }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          {{- range $publicAssets }}
+          {{- $path := . }}
+          {{- range list "GET" "HEAD" }}
+          - path:
+              exact: {{ $path | quote }}
+            method: {{ . }}
+          {{- end }}
+          {{- end }}
 {{- end }}
     # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
@@ -952,6 +998,13 @@ spec:
   - name: webhook
     port: 3001
     targetPort: 3001
+{{- end }}
+{{- if $publicAssets }}
+  # The public static-asset bind. Reachable only via the platform HTTPRoute rule
+  # that selects this port for the declared paths, GET/HEAD (tenant-public-tls).
+  - name: public-assets
+    port: 3003
+    targetPort: 3003
 {{- end }}
   # The callback shim. Only /oauth/callback is routed here.
   - name: callback

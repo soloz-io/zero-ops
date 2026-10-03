@@ -175,3 +175,61 @@ ADR-090 did not cover.
 {{- include "universal-tenant.assertRoleBudget" . -}}
 tenant_{{ $t }}_{{ $a }}_user
 {{- end -}}
+
+{{- /*
+  The paths this application serves WITHOUT a login (gateway.publicAssets.paths),
+  validated, as a JSON list. Empty when none are declared.
+
+  For static files a browser fetches outside the user's session -- a web app
+  manifest and its icons, a service worker. The rules below are what keep the
+  setting to that:
+
+    - EXACT paths only: no wildcard, no regex, no query, no trailing slash, and
+      no character outside [A-Za-z0-9._~-] in a segment. A prefix would make
+      whatever is added under it later public by accident.
+    - never "/" or "/index.html" (the app shell), and nothing whose first
+      segment is api, internal, v1, oauth, health or healthz (case-insensitive):
+      those are the APIs, the webhook surface, the login flow and the probes.
+    - no "." or ".." segment, no duplicates, at most 32 paths (each renders two
+      Gateway API matches, GET and HEAD, and a rule holds at most 64).
+
+  The SAME rules are defined in universal-tenant and tenant-public-tls, because
+  both charts render from the one per-app values file and must refuse the same
+  input: the gateway bind and the public route that reaches it. preflight
+  101-public-assets checks the two still agree.
+*/ -}}
+{{- define "universal-tenant.publicAssetPaths" -}}
+{{- $paths := ((.Values.gateway).publicAssets).paths | default list -}}
+{{- if not (kindIs "slice" $paths) -}}
+{{- fail "gateway.publicAssets.paths must be a list of exact paths, e.g. [/manifest.json, /sw.js]" -}}
+{{- end -}}
+{{- if gt (len $paths) 32 -}}
+{{- fail (printf "gateway.publicAssets.paths declares %d paths; at most 32 are allowed" (len $paths)) -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $p := $paths -}}
+{{- if not (kindIs "string" $p) -}}
+{{- fail (printf "gateway.publicAssets.paths entry %v is not a string" $p) -}}
+{{- end -}}
+{{- if not (regexMatch "^(/[A-Za-z0-9._~-]+)+$" $p) -}}
+{{- fail (printf "gateway.publicAssets.paths entry %q is not an exact path: it must start with /, have no trailing slash, wildcard, query or regex, and use only [A-Za-z0-9._~-] in each segment" $p) -}}
+{{- end -}}
+{{- $segments := splitList "/" (trimPrefix "/" $p) -}}
+{{- range $s := $segments -}}
+{{- if or (eq $s ".") (eq $s "..") -}}
+{{- fail (printf "gateway.publicAssets.paths entry %q contains a %q segment" $p $s) -}}
+{{- end -}}
+{{- end -}}
+{{- if has (lower (first $segments)) (list "api" "internal" "v1" "oauth" "health" "healthz") -}}
+{{- fail (printf "gateway.publicAssets.paths entry %q is under /%s, which always requires a login" $p (first $segments)) -}}
+{{- end -}}
+{{- if eq (lower $p) "/index.html" -}}
+{{- fail "gateway.publicAssets.paths may not include /index.html: the app shell always requires a login" -}}
+{{- end -}}
+{{- if hasKey $seen $p -}}
+{{- fail (printf "gateway.publicAssets.paths lists %q more than once" $p) -}}
+{{- end -}}
+{{- $_ := set $seen $p true -}}
+{{- end -}}
+{{- toJson $paths -}}
+{{- end -}}

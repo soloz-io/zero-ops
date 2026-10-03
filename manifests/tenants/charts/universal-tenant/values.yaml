@@ -135,6 +135,20 @@ gateway:
   # the policy that is doing its job.
   webhooks:
     enabled: false
+  # Static files this application serves WITHOUT a login: browsers fetch a web
+  # app manifest, its icons and a service worker outside the user's session, so
+  # behind the login they get a redirect and refuse to install the app.
+  #
+  # EXACT paths, served GET/HEAD only, from this app's frontend through a
+  # separate OIDC-free bind (:3003). Every other path stays behind the login.
+  # Empty, the default: no bind and no route are rendered. The chart refuses
+  # anything that is not a plain exact path, the app shell, and anything under
+  # /api, /internal, /v1, /oauth, /health or /healthz (_helpers.tpl).
+  #
+  #   publicAssets:
+  #     paths: [/manifest.json, /sw.js, /favicon.svg, /logo192.png, /logo512.png]
+  publicAssets:
+    paths: []
   enabled: false
   # Hostnames this fleet answers on. The first is the browser-facing host and is
   # where the OAuth redirect returns; the rest are additional names for the same

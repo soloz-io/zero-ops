@@ -85,3 +85,7 @@ externalDnsTarget: ""
 gateway:
   webhooks:
     enabled: false
+  # Read from the same per-app values file as universal-tenant, which binds the
+  # gateway side; see its values.yaml.
+  publicAssets:
+    paths: []

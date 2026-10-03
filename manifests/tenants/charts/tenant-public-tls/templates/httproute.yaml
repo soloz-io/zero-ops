@@ -1,4 +1,5 @@
 {{- include "tenant-public-tls.requirements" . }}
+{{- $publicAssets := include "tenant-public-tls.publicAssetPaths" . | fromJsonArray }}
 {{- if .Values.public.hosts }}
 ---
 # Platform-owned per-tenant hostname route (ADR-051).
@@ -101,6 +102,40 @@ spec:
         - name: agentgateway-{{ .Values.appId }}
           namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3001
+{{- end }}
+{{- if $publicAssets }}
+    # The application's declared public static files (gateway.publicAssets),
+    # to the gateway's OIDC-free :3003 bind. Browsers fetch a web app manifest,
+    # its icons and its service worker without the user's session; behind the
+    # login they receive a redirect and refuse to install the app.
+    #
+    # EXACT paths, GET and HEAD only. Any other method on these paths matches
+    # the catch-all below and stays behind the login; any undeclared path does
+    # too. The gateway bind applies the same path and method matches, so neither
+    # layer alone decides what is public. The universal-tenant chart renders the
+    # bind and its Service port from the same declaration.
+    #
+    # Same HSTS header as the catch-all: these are loaded by a browser.
+    - matches:
+      {{- range $publicAssets }}
+      {{- $path := . }}
+      {{- range list "GET" "HEAD" }}
+        - path:
+            type: Exact
+            value: {{ $path | quote }}
+          method: {{ . }}
+      {{- end }}
+      {{- end }}
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000
+      backendRefs:
+        - name: agentgateway-{{ .Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" . }}
+          port: 3003
 {{- end }}
     - filters:
         # Tell the browser never to try plaintext for this host again. The
