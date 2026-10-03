@@ -172,9 +172,20 @@ describe("retry schedule", () => {
 
   it("a fleet failing together does not retry together (full jitter)", async () => {
     const s = await jwksServer([], "503");
+    // backoffMaxMs caps the background retry: at base, so every pause this
+    // records -- first attempt or a later one racing in before a slow first
+    // fetch settles -- is within [0, base].
     const fleet = Array.from(
       { length: 20 },
-      () => new JwksCache({ jwksUrl: s.url, ...FAST, fetchAttempts: 1, retryBaseMs: 1_000, retryMaxMs: 1_000 }),
+      () =>
+        new JwksCache({
+          jwksUrl: s.url,
+          ...FAST,
+          fetchAttempts: 1,
+          retryBaseMs: 1_000,
+          retryMaxMs: 1_000,
+          backoffMaxMs: 1_000,
+        }),
     );
     const delays = backgroundDelays();
     fleet.forEach((c) => c.start());
@@ -183,7 +194,7 @@ describe("retry schedule", () => {
     const first = delays.slice(0, 20);
     for (const d of first) {
       expect(d).toBeGreaterThanOrEqual(0);
-      expect(d).toBeLessThanOrEqual(1_000); // first failure: [0, base]
+      expect(d).toBeLessThanOrEqual(1_000); // capped at base: [0, base]
     }
     expect(new Set(first.map((d) => Math.round(d))).size).toBeGreaterThan(15);
     expect(Math.max(...first) - Math.min(...first)).toBeGreaterThan(300);
