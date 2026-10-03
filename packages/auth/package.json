@@ -1,6 +1,6 @@
 {
   "name": "zero-ops-auth",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "private": false,
   "type": "module",
   "main": "./dist/index.cjs",
@@ -26,6 +26,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "schema"
   ],
   "publishConfig": {
@@ -45,7 +46,7 @@
   },
   "dependencies": {
     "ioredis": "^5.11.1",
-    "jose": "^6.0.11"
+    "jose": "6.2.12"
   },
   "peerDependencies": {
     "hono": ">=4.0.0",

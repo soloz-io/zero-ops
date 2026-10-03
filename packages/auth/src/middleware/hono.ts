@@ -12,6 +12,12 @@ export interface AuthMiddlewareOptions {
   requiredScopes?: string[];
   /** Custom header to extract token from (default: "Authorization") */
   headerName?: string;
+  /**
+   * Where a JWKS failure's detail goes (URL, cause, attempts). Defaults to
+   * console.warn. The response carries only the code: that detail describes the
+   * service's own infrastructure and is not the caller's to read.
+   */
+  onDependencyError?: (err: unknown) => void;
 }
 
 /**
@@ -23,6 +29,12 @@ export interface AuthMiddlewareOptions {
  *   // c.get("principal") → AuthenticatedPrincipal
  */
 export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
+  const reportDependency =
+    opts.onDependencyError ??
+    ((err: unknown) => {
+      console.warn("[zero-ops-auth] JWKS unavailable:", err instanceof Error ? err.message : "unknown error");
+    });
+
   return async (c, next) => {
     const headerName = opts.headerName ?? "Authorization";
     const auth = c.req.header(headerName);
@@ -69,8 +81,16 @@ export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
       await next();
     } catch (err) {
       if (err instanceof AuthError) {
-        const status = err.code === "TOKEN_EXPIRED" ? 401 : 401;
-        return c.json({ error: "Unauthorized", code: err.code, message: err.message }, status);
+        // The keys could not be fetched: the token was never examined, so the
+        // caller is not at fault and must not be told its credential is bad.
+        if (err.code === "JWKS_FETCH_ERROR") {
+          reportDependency(err);
+          return c.json(
+            { error: "Service Unavailable", code: err.code, message: "Credentials cannot be verified right now" },
+            503,
+          );
+        }
+        return c.json({ error: "Unauthorized", code: err.code, message: err.message }, 401);
       }
       return c.json({ error: "Unauthorized", code: "TOKEN_INVALID" }, 401);
     }

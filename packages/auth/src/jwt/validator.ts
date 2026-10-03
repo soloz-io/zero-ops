@@ -1,5 +1,5 @@
 import * as jose from "jose";
-import { JwksCache } from "./jwks-cache.js";
+import { JwksCache, type JwksStatus } from "./jwks-cache.js";
 import { type TenantClaims, claimsFromPayload } from "./claims.js";
 import {
   TokenExpiredError,
@@ -164,8 +164,32 @@ export class JwtValidator {
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
+      algorithms: this.algorithms,
       ...opts.jwksCache,
     });
+  }
+
+  /**
+   * Keep the issuer's keys held until stop() or `signal` aborts (ADR-022). Call once
+   * at boot; report `status().ready` from the readiness probe. Never throws: an
+   * unreachable issuer leaves the service alive and unready until it returns.
+   */
+  start(options?: { signal?: AbortSignal }): void {
+    this.jwksCache.start(options);
+  }
+
+  stop(): void {
+    this.jwksCache.stop();
+  }
+
+  /** Whether tokens can be verified now, and why not. See JwksStatus. */
+  status(): JwksStatus {
+    return this.jwksCache.status();
+  }
+
+  /** One fetch of the keys, awaited. Rejects with JwksFetchError. Prefer `start()`. */
+  async warm(): Promise<void> {
+    await this.jwksCache.warm();
   }
 
   /**

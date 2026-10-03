@@ -195,6 +195,34 @@ new JwtValidator({
 await validator.validate(token: string): Promise<TenantClaims>
 ```
 
+#### Keeping the issuer's keys (required for a running service)
+
+A service calls `start()` once at boot and serves `status().ready` from its
+readiness probe (ADR-022, stable-but-not-ready):
+
+```typescript
+const shutdown = new AbortController();
+validator.start({ signal: shutdown.signal }); // never throws; retries with full jitter until the keys are held
+
+app.get("/health/ready", (c) => (validator.status().ready ? c.text("ok") : c.text("jwks unavailable", 503)));
+app.get("/health/live", (c) => c.text("ok"));                // never depends on the issuer
+process.on("SIGTERM", () => shutdown.abort());               // or validator.stop()
+```
+
+`status().ready` is true while a key set holding at least one usable public
+signing key was fetched less than `jwksCache.maxStaleMs` (15 min) ago. With
+`start()` running the keys refresh every `jwksCache.keyTtlMs` (5 min, ±10%).
+**Without `start()`**, keys are fetched on the first request and refetched only
+once older than `maxStaleMs` or when a token names an unknown `kid`.
+
+For ADR-022's metrics: increment `dependency_unavailable_total` from
+`jwksCache.onFetchFailure`, and export `dependency_status` from `status().ready`.
+
+A JWKS that cannot be fetched is a `JwksFetchError` (`JWKS_FETCH_ERROR`), which
+`authMiddleware` answers **503** with a generic message; the detail goes to
+`onDependencyError`. The JWKS URL must be `https:` (`http:` only for a loopback
+host, or with `jwksCache.allowInsecureHttp`).
+
 ### `authMiddleware`
 
 Hono middleware that extracts Bearer token, validates it, and sets principal on context.

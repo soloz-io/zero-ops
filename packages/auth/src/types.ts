@@ -66,10 +66,22 @@ export class TokenMissingError extends AuthError {
   }
 }
 
+/**
+ * The receiver could not obtain the issuer's keys. Nothing is known about the
+ * token, so this is the RECEIVER's failure, not the caller's: middleware answers
+ * it 503, never 401 (a 401 tells a client its credential is bad, and it is not).
+ *
+ * The message names the URL, the cause and the attempts. It is for the service's
+ * own logs; a response body carries only the code.
+ */
 export class JwksFetchError extends AuthError {
-  constructor(url: string, cause?: unknown) {
-    super({ code: "JWKS_FETCH_ERROR", message: `Failed to fetch JWKS from ${url}`, cause });
+  /** The upstream HTTP status, when there was one. */
+  readonly status?: number;
+
+  constructor(url: string, cause?: unknown, detail?: string, status?: number) {
+    super({ code: "JWKS_FETCH_ERROR", message: `Failed to fetch JWKS from ${url}${detail ? `: ${detail}` : ""}`, cause });
     this.name = "JwksFetchError";
+    this.status = status;
   }
 }
 

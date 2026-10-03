@@ -20,8 +20,8 @@ export {
 export type { TenantClaims } from "./jwt/claims.js";
 export { claimsFromPayload } from "./jwt/claims.js";
 
-export type { JwksCacheOptions } from "./jwt/jwks-cache.js";
-export { JwksCache } from "./jwt/jwks-cache.js";
+export type { JwksCacheOptions, JwksFetchFailure, JwksStatus } from "./jwt/jwks-cache.js";
+export { JwksCache, fullJitterDelay } from "./jwt/jwks-cache.js";
 
 export type { JwtValidatorOptions } from "./jwt/validator.js";
 export { JwtValidator, parseAllowedCallers } from "./jwt/validator.js";
