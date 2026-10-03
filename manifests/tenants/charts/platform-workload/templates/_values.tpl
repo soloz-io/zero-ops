@@ -67,6 +67,8 @@ migration:
   envFrom: []
   sqlFiles: ""
   podSecurityContext: {}
+  extraVolumes: []
+  extraVolumeMounts: []
   backoffLimit: 2
   activeDeadlineSeconds: 240
   resources:

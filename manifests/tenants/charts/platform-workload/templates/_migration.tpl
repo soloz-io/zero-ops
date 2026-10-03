@@ -26,6 +26,11 @@ workload.migration:
             schema matches the code that expects it)
   sqlFiles  optional glob in the APP chart (e.g. files/migrations/*.sql),
             mounted read-only at /migrations
+  extraVolumes / extraVolumeMounts
+            for what the command needs beyond tmp and migrations, e.g. a CA
+            bundle from a Secret for a client that verifies the server
+            certificate (NODE_EXTRA_CA_CERTS). Names `tmp` and `migrations`
+            are taken.
   env, envFrom, podSecurityContext, backoffLimit, activeDeadlineSeconds, resources
 */}}
 {{- define "platform-workload.migration" -}}
@@ -153,6 +158,9 @@ spec:
               mountPath: /migrations
               readOnly: true
             {{- end }}
+            {{- with $m.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml $m.resources | nindent 12 }}
       volumes:
@@ -162,6 +170,9 @@ spec:
         - name: migrations
           configMap:
             name: {{ $name }}s
+        {{- end }}
+        {{- with $m.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
 {{- end }}
 {{- end -}}

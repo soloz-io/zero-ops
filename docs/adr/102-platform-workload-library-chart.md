@@ -85,7 +85,9 @@ that needs one object rendered differently includes the individual pieces it kee
      for an Application that may already be Synced.
 
    Either way the pod has no ServiceAccount token and reaches only the shared
-   cluster's primary.
+   cluster's primary. `extraVolumes` / `extraVolumeMounts` add what the command
+   needs beyond `tmp` and `migrations`, such as the cluster's CA from Secret
+   `shared-cnpg-ca` for a client that verifies the server certificate.
 6. **Defaults live in the library's templates**, because a library chart's own
    values never reach the chart depending on it. Invalid configuration fails
    rendering: a missing `component`, `tenantId` or image, an unknown migration

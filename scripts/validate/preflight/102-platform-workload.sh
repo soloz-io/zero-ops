@@ -95,7 +95,9 @@ else:
           "W5 a network policy rendered with no rule declared (an empty ingress section default-denies)")
 
 # ── migrations ───────────────────────────────────────────────────────────────
-hook, err = render(with_(migration={"enabled": True, "command": ["migrate"], "sqlFiles": "files/migrations/*.sql"}),
+hook, err = render(with_(migration={"enabled": True, "command": ["migrate"], "sqlFiles": "files/migrations/*.sql",
+                                   "extraVolumes": [{"name": "pg-ca", "secret": {"secretName": "shared-cnpg-ca"}}],
+                                   "extraVolumeMounts": [{"name": "pg-ca", "mountPath": "/etc/ssl/postgres", "readOnly": True}]}),
                    sql="select 1;")
 if err:
     fails.append(f"W4 presync fixture failed: {err}")
@@ -106,8 +108,11 @@ else:
     check(job and wave(pol) == "-6" and wave(job) == "-5" and wave(get(hook, "ConfigMap")) == "-6"
           and ann.get("argocd.argoproj.io/hook") == "PreSync"
           and "HookFailed" not in ann.get("argocd.argoproj.io/hook-delete-policy", "")
-          and job["spec"]["template"]["spec"].get("automountServiceAccountToken") is False,
-          "W4 presync-hook: policy and SQL at -6, Job at -5, failed Jobs kept, no SA token",
+          and job["spec"]["template"]["spec"].get("automountServiceAccountToken") is False
+          and {"name": "pg-ca", "secret": {"secretName": "shared-cnpg-ca"}} in job["spec"]["template"]["spec"]["volumes"]
+          and any(m["name"] == "pg-ca" and m["mountPath"] == "/etc/ssl/postgres"
+                  for m in job["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]),
+          "W4 presync-hook: policy and SQL at -6, Job at -5, failed Jobs kept, no SA token, extra volumes mounted",
           f"W4 presync ordering wrong: policy={wave(pol)} job={wave(job)} annotations={ann}")
 names = []
 for sql in ("select 1;", "select 2;"):
