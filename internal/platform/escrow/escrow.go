@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -142,11 +143,72 @@ func escrowPath(clusterID string) string {
 // inside the thing it protects is unreachable exactly when it is needed, and this
 // refuses that configuration rather than appearing to work. Callers with no cluster
 // to compare against -- the CLI retrieving a copy -- pass "".
+// escrowValue reads one escrow setting from the environment, or from the checkout
+// that scaffolding wrote it into.
+//
+// # WHY A FILE AND NOT ONLY AN ENVIRONMENT VARIABLE
+//
+// Scaffolding writes these four to `k8-secrets/infisical/`, one file per setting,
+// each named exactly after its variable. Nothing read them. So every command needing
+// an escrow required four exports that the operator had already supplied once, and
+// the files sat there looking like configuration while being inert -- which is how
+// an operator ends up pasting a client secret into a shell on a regular basis.
+//
+// The environment still wins, because that is what an in-cluster caller has: the
+// operator runs with these projected from a Secret and no checkout to read. The file
+// is the fallback for a CLI run from the repository.
+//
+// Absent file, absent directory and unreadable file are all treated as "not set".
+// That is NOT swallowing an error: a missing value is reported by the all-or-nothing
+// check in the caller, which names every setting it could not find. Reporting a
+// read failure here instead would make a box with no checkout -- the normal case in
+// cluster -- fail on the absence of something it was never meant to have.
+func escrowValue(name string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	dir := escrowSecretsDir()
+	if dir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// escrowSecretsDir finds `k8-secrets/infisical` by walking up from the working
+// directory.
+//
+// Walked rather than assumed, because a CLI is run from wherever the operator
+// happens to be inside the checkout, and a path relative to the process would work
+// from the repository root and nowhere else. Bounded, so a process started outside
+// any checkout stops instead of climbing to the filesystem root.
+func escrowSecretsDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for i := 0; i < 8; i++ {
+		candidate := filepath.Join(dir, "k8-secrets", "infisical")
+		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
 func NewEscrowClient(ctx context.Context, inClusterURL string) (EscrowClient, error) {
-	url := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_URL"))
-	clientID := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_CLIENT_ID"))
-	clientSecret := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_CLIENT_SECRET"))
-	projectID := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_PROJECT_ID"))
+	url := escrowValue("INFISICAL_ESCROW_URL")
+	clientID := escrowValue("INFISICAL_ESCROW_CLIENT_ID")
+	clientSecret := escrowValue("INFISICAL_ESCROW_CLIENT_SECRET")
+	projectID := escrowValue("INFISICAL_ESCROW_PROJECT_ID")
 
 	if url == "" && clientID == "" && clientSecret == "" && projectID == "" {
 		return nil, fmt.Errorf("no escrow configured")

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,9 +42,64 @@ func TestEscrowRefusesTheBoxItProtects(t *testing.T) {
 	}
 }
 
+// isolateFromCheckout moves the test out of any checkout, so the escrow files
+// scaffolding wrote are not an input to it.
+//
+// Needed because escrowValue falls back to `k8-secrets/infisical/` when a setting is
+// absent from the environment, which is the point for an operator running the CLI and
+// a hazard here: a test clearing the environment would otherwise pick up the REAL
+// credentials of whoever ran it, pass for the wrong reason, and — worse — be one
+// mistake away from reaching the live escrow.
+func isolateFromCheckout(t *testing.T) {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+}
+
+// The checkout is a real source of settings, and a test must say which it is using.
+func TestSettingsComeFromTheCheckoutWhenTheEnvironmentIsSilent(t *testing.T) {
+	isolateFromCheckout(t)
+	withEnv(t, map[string]string{})
+
+	dir := filepath.Join(".", "k8-secrets", "infisical")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for name, value := range map[string]string{
+		"INFISICAL_ESCROW_URL":           "https://app.infisical.com\n",
+		"INFISICAL_ESCROW_PROJECT_ID":    "proj-1\n",
+		"INFISICAL_ESCROW_CLIENT_ID":     "cid-1\n",
+		"INFISICAL_ESCROW_CLIENT_SECRET": "sec-1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	// Trailing newlines are trimmed: a file written by a shell redirect has one, and
+	// a client id with a newline on the end authenticates as nobody.
+	if got := escrowValue("INFISICAL_ESCROW_CLIENT_ID"); got != "cid-1" {
+		t.Fatalf("read %q from the checkout, want %q", got, "cid-1")
+	}
+
+	// The environment still wins, because an in-cluster caller has that and no
+	// checkout at all.
+	withEnv(t, map[string]string{"INFISICAL_ESCROW_CLIENT_ID": "from-env"})
+	if got := escrowValue("INFISICAL_ESCROW_CLIENT_ID"); got != "from-env" {
+		t.Fatalf("the checkout overrode the environment: got %q", got)
+	}
+}
+
 // Complete or absent, never partial. A partial set produces a caller that attempts
 // a backup on every reconcile and fails — an escrow that appears to exist.
 func TestEscrowIsCompleteOrAbsent(t *testing.T) {
+	isolateFromCheckout(t)
 	withEnv(t, map[string]string{})
 	if _, err := NewEscrowClient(context.Background(), ""); err == nil ||
 		!strings.Contains(err.Error(), "no escrow configured") {
