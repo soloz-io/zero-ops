@@ -364,8 +364,12 @@ spec:
         files:
         # The encryption provider configuration. It carries the key inline, so it is
         # secret material and arrives from a Secret rather than from this file --
-        # assembled by secret-encryption-config-es.yaml from the key hub-operator
-        # generates and escrows (ADR-076 `secret-encryption-key`).
+        # written by `soloz encryption enable` (or the Day-0 provisioner) from the
+        # key held in the escrow for THIS cluster (ADR-076
+        # `secret-encryption-key`). Nothing reconciles it: a value that must not
+        # change under a running control plane has no business being reasserted on
+        # a timer, and the ExternalSecret that used to do so was a second writer
+        # for a per-cluster key (ADR-100).
         #
         # 0600 and root: it is the key to every Secret in the cluster, and the API
         # server reads it as root before any workload exists.

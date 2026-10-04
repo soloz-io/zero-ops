@@ -55,10 +55,22 @@ def adr_artefacts() -> dict:
     and the kubeconfig in prose elsewhere, and prose is not the list.
     """
     text = ADR.read_text()
-    start = text.index("### What the escrow holds")
-    end = text.index("### The escrow account is the tenant's", start)
+    # The section heading is matched, and a rename must FAIL rather than silently
+    # find nothing: this check is the only thing asserting the list and the code
+    # agree, so a parser that quietly matched an empty section would report green
+    # for a repository that no longer enumerates the escrow.
+    try:
+        start = text.index("### The recovery contract")
+        end = text.index("### The escrow account is the tenant's", start)
+    except ValueError:
+        print("BAD\tADR-076 no longer contains a '### The recovery contract' section; "
+              "the normative escrow list cannot be read")
+        return {}
     section = text[start:end]
 
+    # The first column, backticked. Rows whose artefact is not a single backticked
+    # token -- the "ordinary application secrets" row, which names a class rather
+    # than an artefact -- are not escrow artefacts and are skipped by this pattern.
     names = re.findall(r"^\|\s*`([a-z0-9-]+)`\s*\|", section, re.M)
     pending = set()
     for name in names:

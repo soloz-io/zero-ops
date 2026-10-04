@@ -39,6 +39,7 @@ func newEscrowCmd() *cobra.Command {
 		Short: "Manage this tenant's escrow",
 	}
 	cmd.AddCommand(newEscrowInitCmd())
+	cmd.AddCommand(newEscrowVerifyCmd())
 	return cmd
 }
 

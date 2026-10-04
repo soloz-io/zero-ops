@@ -453,27 +453,25 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		// its identity data is not.
 		EscrowArtifact: escrow.ArtifactZitadelMasterkey,
 	},
-	{
-		// The key the API server encrypts Secrets with at rest (ADR-003 §6).
-		//
-		// 32 bytes, because the secretbox provider takes a 32-byte key; the
-		// provider configuration carries it base64-encoded, and the encoding is
-		// applied where the configuration is assembled rather than stored here, so
-		// this value stays one thing rather than two representations of it.
-		//
-		// Generated once per box and NEVER rotated in place: rotating it is a
-		// rewrite of every Secret in the cluster, which is a procedure, not a
-		// reconcile (ADR-003 §6, "Rotation is the same operation as the initial
-		// migration").
-		UsernameKey: "",
-		PasswordKey: "hub-secret-encryption-key",
-		Username:    "",
-		HexBytes:    32,
-		Description: "API server at-rest encryption key for Kubernetes Secrets",
-		// Escrowed for the bluntest reason in the registry: etcd and every etcd
-		// backup are encrypted with it, so losing it loses both.
-		EscrowArtifact: escrow.ArtifactSecretEncryptionKey,
-	},
+	// The API server's at-rest encryption key is NOT in this registry, and that
+	// absence is a decision (2026-10-04).
+	//
+	// It was added here on 2026-10-02 and removed two days later without ever
+	// having encrypted anything, because it created a SECOND WRITER for a value
+	// that must have exactly one. This registry writes to the Infisical project
+	// ROOT -- one fleet-wide value for every cluster -- while ADR-100 decides the
+	// encryption key is PER CLUSTER, held in the escrow and scoped by cluster id.
+	// Both paths existed, neither knew about the other, and on this box they had
+	// already diverged to two different keys.
+	//
+	// Had a control plane rolled in that state, it would have encrypted with one
+	// key while the ExternalSecret reasserted the other, and everything written in
+	// between would have become unreadable at the next restart.
+	//
+	// The encryption key's lifecycle is therefore entirely outside this registry:
+	// the escrow is the recovery source, `soloz encryption enable` and the Day-0
+	// provisioner are the only writers, and there is no Infisical copy to disagree
+	// with them (ADR-003 section 6, ADR-100).
 	// AgentGateway's OIDC session cookie encryption key. It belongs here because
 	// it is a random value with no external source, so leaving it out of this
 	// registry made it the one cookie secret an operator had to seed by hand into

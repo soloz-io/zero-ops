@@ -190,7 +190,14 @@ Only now. While `identity` is in the list, a plaintext Secret is still readable,
 the control is partial and an incomplete step 4 is invisible.
 
 Remove the `identity` entry from the provider configuration in
-`secret-encryption-config-es.yaml`, sync, and roll the control plane again (step 2).
+the provider configuration and re-apply it, then roll the control plane again
+(step 2).
+
+The configuration is written by `soloz encryption enable` from
+`internal/assets/manifests/secrets/secret-encryption-config.yaml`, so removing the
+plaintext provider is an edit to that template followed by another `encryption
+enable`. Nothing reconciles the Secret, which is why this is an explicit step and
+not something that happens on a sync.
 
 Then re-run step 5. It must still match — **if any Secret was missed, it is now
 unreadable**, which is why step 5 is run twice and why the fallback is removed last.

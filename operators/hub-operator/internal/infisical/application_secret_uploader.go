@@ -8,6 +8,7 @@ package infisical
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	infisicalclient "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
@@ -279,7 +281,31 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 		}
 
 		if passwordExists {
-			// Password already exists in Infisical, skip generation
+			// EXISTS IS NOT THE SAME AS ESCROWED.
+			//
+			// This branch used to `continue` straight past the escrow below, which
+			// meant an escrowed value that already existed in Infisical was escrowed
+			// NEVER -- only a freshly generated one was. Every box provisioned before
+			// an entry gained an EscrowArtifact therefore kept a value that cannot be
+			// regenerated and exists in one place, and nothing reported it: the
+			// reconcile logged "skipping generation" and counted a success.
+			//
+			// ADR-076 recorded that as a caveat needing a manual step and provided
+			// none. This is the step.
+			//
+			// The EXISTING value is escrowed. It is never replaced to satisfy the
+			// escrow -- regenerating an unrotatable key to make a backup of it is the
+			// loss the backup exists to prevent.
+			if secretDef.EscrowArtifact != "" {
+				if err := u.escrowExistingValue(ctx, logger, infisicalClient,
+					projectSlug, environmentSlug, secretPath, secretDef); err != nil {
+					logger.Error(err, "Escrowed secret exists but could not be confirmed in the escrow",
+						"key", secretDef.PasswordKey, "artifact", secretDef.EscrowArtifact)
+					failedKeys = append(failedKeys, secretDef.PasswordKey)
+					escrowFailures = append(escrowFailures, secretDef.PasswordKey+" (existing value not escrowed)")
+					continue
+				}
+			}
 			logger.Info("Password already exists in Infisical, skipping generation", "key", secretDef.PasswordKey)
 			skippedCount++
 			successCount++ // Count as success (idempotent operation)
@@ -429,6 +455,70 @@ func (u *ApplicationSecretUploader) UploadApplicationSecrets(ctx context.Context
 	}
 
 	return nil
+}
+
+// escrowExistingValue makes sure a value that already exists in the secret store
+// also exists in the escrow, WITHOUT changing it.
+//
+// Idempotent and comparing, not blindly writing. Three outcomes:
+//
+//	escrow holds the same value   nothing to do
+//	escrow holds nothing          the existing value is escrowed
+//	escrow holds a DIFFERENT one  refused, loudly
+//
+// The third is the one worth having. Two different values for a key that cannot be
+// regenerated means two writers have owned it, and only one of them matches whatever
+// it encrypted. Choosing between them is not a reconcile's decision -- picking wrong
+// destroys exactly what the escrow exists to protect -- so it stops and names both
+// sides by fingerprint, never by value.
+func (u *ApplicationSecretUploader) escrowExistingValue(
+	ctx context.Context, logger logr.Logger, client *infisicalclient.InfisicalClient,
+	projectSlug, environmentSlug, secretPath string, def ApplicationSecretDefinition,
+) error {
+	if u.escrowClient == nil || u.clusterID == "" {
+		return fmt.Errorf("no escrow configured, so an unrotatable value that already exists " +
+			"cannot be confirmed as recoverable (ADR-076)")
+	}
+
+	current, found, err := client.GetSecretValue(ctx, projectSlug, environmentSlug, secretPath, def.PasswordKey)
+	if err != nil {
+		return fmt.Errorf("reading the existing value: %w", err)
+	}
+	if !found || current == "" {
+		// SecretExists said yes and the read says no. Not escrowing an empty value
+		// over a real one.
+		return fmt.Errorf("the store reports the secret exists but returned no value")
+	}
+
+	escrowed, err := u.escrowClient.RestoreArtifact(ctx, u.clusterID, def.EscrowArtifact)
+	if err != nil {
+		// Unreadable is not absent, and an absent-by-assumption escrow would be
+		// overwritten with whatever this box happens to hold.
+		return fmt.Errorf("reading the escrow: %w", err)
+	}
+
+	switch {
+	case escrowed == current:
+		return nil
+	case escrowed == "":
+		if err := u.escrowClient.BackupArtifact(ctx, u.clusterID, def.EscrowArtifact, current); err != nil {
+			return fmt.Errorf("escrowing the existing value: %w", err)
+		}
+		logger.Info("Escrowed a value that already existed; it was not regenerated",
+			"key", def.PasswordKey, "artifact", def.EscrowArtifact)
+		return nil
+	default:
+		return fmt.Errorf("the escrow holds a DIFFERENT value for %s than the secret store does "+
+			"(store %s, escrow %s); two writers have owned an unrotatable key and only one matches "+
+			"what it encrypted, so this must be reconciled by a human before anything relies on it",
+			def.EscrowArtifact, fingerprint(current), fingerprint(escrowed))
+	}
+}
+
+// fingerprint identifies a secret value in a log without disclosing it.
+func fingerprint(v string) string {
+	sum := sha256.Sum256([]byte(v))
+	return "sha256:" + hex.EncodeToString(sum[:])[:12]
 }
 
 // generateSvixJWT generates a signed JWT token required by Svix for API authentication

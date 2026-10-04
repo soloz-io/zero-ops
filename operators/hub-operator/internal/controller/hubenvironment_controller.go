@@ -5,6 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"strings"
 	"time"
 
@@ -56,6 +60,7 @@ type HubEnvironmentReconciler struct {
 //+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch
 //+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+//+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop
 // Requirement 9.3: Implement Reconcile() main entry point
@@ -967,6 +972,70 @@ func (r *HubEnvironmentReconciler) reconcileEscrow(ctx context.Context, store es
 		return fmt.Errorf("escrow the admin kubeconfig for %s: %w", clusterID, err)
 	}
 	logger.Info("admin kubeconfig escrowed", "clusterID", clusterID)
+
+	// EVERY CLUSTER THIS BOX MANAGES, not only the management cluster.
+	//
+	// ADR-076's recovery contract scopes `admin-kubeconfig` PER CLUSTER and requires
+	// it, because a catastrophic failure of this cluster or of the automation must
+	// not leave a workload cluster with no way in. Until 2026-10-04 only the line
+	// above ran, so every workload cluster had no break-glass credential anywhere --
+	// and nothing reported it, because the escrow was only ever asked about this one.
+	//
+	// Done here rather than in the SpokePool reconciler because every cluster's CAPI
+	// kubeconfig Secret lives in this cluster's platform-capi namespace, and so does
+	// the escrow client. Splitting it would put half the recovery contract in a
+	// reconciler that would have to be given both.
+	if err := r.escrowWorkloadKubeconfigs(ctx, logger, store, clusterID); err != nil {
+		return fmt.Errorf("escrow workload cluster kubeconfigs: %w", err)
+	}
+	return nil
+}
+
+// escrowWorkloadKubeconfigs escrows the admin kubeconfig of every cluster this box
+// manages except the management cluster, which the caller has already done.
+//
+// A cluster whose kubeconfig Secret does not exist yet is skipped rather than failed:
+// CAPI writes it once the control plane is reachable, so a cluster mid-provision has
+// none and the next reconcile catches it. A cluster whose escrow write FAILS is an
+// error, because that is the state the contract forbids.
+func (r *HubEnvironmentReconciler) escrowWorkloadKubeconfigs(
+	ctx context.Context, logger logr.Logger, store escrow.EscrowClient, hubClusterID string,
+) error {
+	// Unstructured, as this operator reads every other CAPI resource. A typed client
+	// would add the cluster-api module to this binary for one field read.
+	clusters := &unstructured.UnstructuredList{}
+	clusters.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "cluster.x-k8s.io", Version: "v1beta1", Kind: "ClusterList",
+	})
+	if err := r.List(ctx, clusters, client.InNamespace("platform-capi")); err != nil {
+		return fmt.Errorf("list clusters: %w", err)
+	}
+
+	var failed []string
+	for i := range clusters.Items {
+		name := clusters.Items[i].GetName()
+		if name == hubClusterID {
+			continue
+		}
+		if err := r.escrowKubeconfig(ctx, store, name); err != nil {
+			// Not yet written by CAPI is not a failure; anything else is.
+			if apierrors.IsNotFound(err) || strings.Contains(err.Error(), "not found") {
+				logger.Info("workload cluster has no kubeconfig secret yet; will escrow on a later pass",
+					"cluster", name)
+				continue
+			}
+			logger.Error(err, "could not escrow a workload cluster's admin kubeconfig",
+				"cluster", name)
+			failed = append(failed, name)
+			continue
+		}
+		logger.Info("admin kubeconfig escrowed", "clusterID", name)
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("clusters left with no break-glass credential in the escrow, "+
+			"which ADR-076's recovery contract requires: %v", failed)
+	}
 	return nil
 }
 

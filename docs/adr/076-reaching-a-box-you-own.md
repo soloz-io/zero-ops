@@ -207,16 +207,55 @@ would add a second cloud account, a second credential type and a second SDK to a
 platform that otherwise needs one cloud -- and ADR-070 measures the floor in exactly
 those terms.
 
-### What the escrow holds
+### The recovery contract
 
-Normative. The escrow holds exactly these, each under `/hub-operator/<clusterID>`:
+Normative. Each artefact below is held under `/hub-operator/<clusterID>`, and each row
+states its SCOPE, who holds AUTHORITY over its value, and whether recovery of the box
+requires it.
 
-| Artefact | What it is | Why it cannot be regenerated |
-|---|---|---|
-| `infisical-master-keys` | the secret store's encryption key and auth secret | they decrypt the secret store; without them every credential the box holds is lost |
-| `admin-kubeconfig` | the cluster's administrative credential | it is what remains when OIDC cannot be used, and a cluster nobody can enter cannot be repaired |
-| `zitadel-masterkey` | the identity provider's encryption key for data at rest | it encrypts every column the identity provider has written; a new one orphans all of them, so a restored database becomes undecryptable |
-| `secret-encryption-key` | the key the API server encrypts Secrets with at rest | etcd and every etcd backup are encrypted with it, so losing it loses the cluster's Secrets and every copy of them |
+| Artefact | Scope | Authority | Recovery | Normal use |
+|---|---|---|---|---|
+| `secret-encryption-key` | per cluster | the escrow, by the provisioning contract (ADR-003 §6, ADR-100) | **required** | read from the node's own file |
+| `admin-kubeconfig` | per cluster | the platform's cluster lifecycle | **required** | none — break-glass only |
+| `zitadel-masterkey` | hub | Infisical; the escrow holds a recovery copy | **required** | read from Infisical by the workload |
+| `infisical-master-keys` | hub | Infisical's own bootstrap; the escrow holds the only recoverable copy | **required** | read at the secret store's start |
+| ordinary application secrets | as ADR-003 declares | **Infisical** | per that system's own contract | delivered by ESO |
+
+**Authority is declared per artefact, never inferred.** The escrow is the recovery
+authority ONLY for an artefact whose row says so. It does not override ADR-003's rule
+that Infisical is the System of Record for secret material: for `zitadel-masterkey`
+the authoritative value is Infisical's and the escrow holds a copy, while for
+`secret-encryption-key` there is no Infisical copy at all and the escrow IS the
+source. Reading "the escrow is authoritative" as a general principle would invert
+ADR-003 for every ordinary secret, which is why this is a table and not a sentence.
+
+**Every cluster has an independent administrative recovery path.** `admin-kubeconfig`
+is scoped per cluster and required even where normal operations are mediated by the
+management cluster, because a catastrophic failure of that cluster or of the
+automation must not leave a cluster with no way in. It is not for routine access —
+day-to-day entry is each person's own identity through the identity provider — and
+escrowing it does not make a workload cluster routinely operator-accessible.
+
+There is no third state. An artefact is either required and escrowed, or explicitly
+not part of the recovery design with a tested alternative named here. "It is usually
+present on the node" is not a recovery contract: a node is what a recovery replaces.
+
+#### Why `zitadel-masterkey` is required, mechanically
+
+Stated because the consequence is larger than the name suggests, and was proven
+against the deployed release rather than assumed.
+
+The masterkey is a KEY-ENCRYPTION key. The identity provider stores its data
+encryption keys in its own database, encrypted with it, and decrypts them at start —
+`system.encryption_keys`, AES, failing with "unable to decrypt key". Those data keys
+are what protect OAuth client secrets, identity-provider configuration, signing keys
+and one-time-password material.
+
+So a box restored without it does not lose some columns. It recovers the database,
+recovers the secret store, and still holds no key for any of that material — because
+the one value that unlocks every data key was the one thing not kept. That is why it
+is required rather than advisable, and why restoring Infisical is not sufficient on
+its own.
 
 **The test for membership is whether the value can be regenerated without loss.**
 A credential that can be rotated — a database password, a session cookie key — is

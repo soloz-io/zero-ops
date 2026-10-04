@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -110,6 +111,29 @@ var _ = Describe("HubEnvironment Controller", func() {
 		// they decrypt. envtest configures no escrow, so the refusal is what this
 		// environment must produce.
 		It("refuses to generate master keys when there is no escrow", func() {
+			// ISOLATED FROM THE CHECKOUT, and this is load-bearing.
+			//
+			// The escrow settings are read from the environment and, failing that,
+			// from `k8-secrets/infisical/` in the checkout -- which is what lets an
+			// operator run the CLI without exporting four values. This test runs
+			// inside the checkout, so without this it finds the REAL escrow
+			// credentials of whoever ran it: the reconcile then succeeds, the
+			// assertion below fails, and a developer is one mistake from a test
+			// that writes to the live escrow.
+			//
+			// Chdir rather than clearing the environment, because the environment is
+			// not where the value comes from.
+			prevWd, err := os.Getwd()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(os.Chdir(GinkgoT().TempDir())).To(Succeed())
+			defer func() { Expect(os.Chdir(prevWd)).To(Succeed()) }()
+			for _, k := range []string{
+				"INFISICAL_ESCROW_URL", "INFISICAL_ESCROW_PROJECT_ID",
+				"INFISICAL_ESCROW_CLIENT_ID", "INFISICAL_ESCROW_CLIENT_SECRET",
+			} {
+				GinkgoT().Setenv(k, "")
+			}
+
 			By("Reconciling the created resource")
 			controllerReconciler := &HubEnvironmentReconciler{
 				Client: k8sClient,
@@ -120,7 +144,7 @@ var _ = Describe("HubEnvironment Controller", func() {
 				Scheme:         k8sClient.Scheme(),
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).To(HaveOccurred())
