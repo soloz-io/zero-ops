@@ -226,6 +226,7 @@ func (p *Provisioner) applyEncryptionConfig(ctx context.Context) error {
 	}
 	var rendered bytes.Buffer
 	if err := tmpl.Execute(&rendered, map[string]string{
+		"SecretName":       assets.EncryptionSecretName(p.Config.ClusterName),
 		"Namespace":        p.Config.Namespace,
 		"EncryptionKeyB64": base64.StdEncoding.EncodeToString(rawKey),
 	}); err != nil {

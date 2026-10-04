@@ -183,10 +183,82 @@ exist at platform bootstrap, because the tenant does not exist yet.
 ### Enforcement
 
 `scripts/validate/preflight/99-tenant-identifiers.sh` fails when a tenant
-identifier appears in a platform path outside the recorded baseline. The nine files
-above are the baseline: they warn rather than fail, so the rule is enforceable
-today and the debt stays visible, while any NEW leak — a tenth file, or a second
-tenant hardcoded the same way — fails before a cluster is built.
+identifier appears in a platform path. It was introduced with the nine files above
+baselined — warning rather than failing, so the rule was enforceable while the debt
+stayed visible, and any NEW leak failed before a cluster was built.
+
+**The baseline is now empty.** Every one of the nine was remediated (the last two
+on 2026-09-02, when AgentGateway moved to one instance per tenant configured from
+the fleet registry), so the check is unconditional and a single leak fails the
+build. What that made necessary is below: with nothing forgiven by name, the check
+had to be right about what a leak *is*.
+
+#### What the check counts, revised 2026-10-04
+
+The baseline is empty and the rule is unconditional. Reaching that required saying
+precisely what a leak is, because for a time the check both missed the worst case
+and failed on its own remedy.
+
+**It now names the tenant.** The list was `["waypoint", "oranger"]` — two
+APPLICATIONS (ADR-088 keeps those axes separate) — so a check called "tenant
+identifiers" could not see a tenant. `nutgraf` is on it now. The rule covers both
+axes, for one reason: the platform renders each parameterised, and naming either
+makes platform code depend on something that exists only after onboarding.
+
+**A test fixture is not a runtime dependency.** `*_test.go` is excluded. The
+failure this rule exists to prevent is an object that cannot resolve on a fresh hub
+— `waypoint-bff-client-secret` waiting on a key no tenant has produced. A table
+test naming `oranger` resolves nothing, waits for nothing, and ships in no binary.
+Counting it blocked thirteen files from the application-identity work
+(ADR-094/095/097) for naming their own subject, which teaches people to switch the
+check off.
+
+**Generated output is not authored code.** `config/crd/bases/` and
+`config/webhook/manifests.yaml` are controller-gen's. The API group they derive
+from lives in `api/*/groupversion_info.go`, which IS checked; failing the generated
+copies reports one decision three times and sends someone to edit a file that the
+next `make manifests` overwrites.
+
+**A parameterised literal is not a leak, and this is the substantive change.** A
+component's `templated-fields.yaml` is how a manifest carrying this box's names
+renders another box's at package time. That file necessarily spells the literal it
+replaces, and the manifest beside it necessarily contains it, or there would be
+nothing to substitute. Counting either reported the remediation as the defect, and
+the only way to satisfy the check was to delete the substitution — which is the
+leak. A literal declared `from:` is now subtracted from the files that declaration
+governs, scoped by directory. The question the check asks is whether a name is
+PARAMETERISED, not whether it appears.
+
+**Prose in a block comment is documentation.** `strip_comments` was line-based, so
+the continuation lines of a `{{- /* ... */ -}}` block — which on this platform
+carry pages of incident history naming `nutgraf-01` and `nutgraf-hub` — were read
+as code. Block comments are now tracked across lines. Writing down why something
+is the way it is should not cost a build failure.
+
+### Open: the platform's API group names the tenant
+
+**`nutgraf.in` is the API group of every platform CRD** — `ops.nutgraf.in`,
+`billing.nutgraf.in`, `compute.nutgraf.in`, `spokepools.nutgraf.in`,
+`tenantdatabases.nutgraf.in` — and the DNS domain every environment is served on.
+It appears 345 times across 130 platform files.
+
+This is a real leak and a worse one than anything the check above catches. The
+platform ships to a customer's own box, so a SOLOZ platform installed for another
+customer serves CRDs named after *this* tenant. It is not cosmetic: a customer
+reading `kubectl get spokepools.nutgraf.in` is reading someone else's tenant name
+in their own cluster's API surface.
+
+It is **excluded from the check rather than fixed**, deliberately and recorded
+here. Renaming an API group rewrites every CRD, every RBAC rule, every manifest
+that references one, and every object already stored in etcd under the old group,
+with no in-place upgrade path — objects must be read out under the old group and
+written back under the new one while both are served. That is a migration with its
+own decision to make, and it needs an ADR of its own.
+
+Matching it instead would fail 130 files on a rule nobody could satisfy that day,
+and a check in that state gets switched off — which loses the rule entirely,
+including the parts that do hold. The deferral is the price of keeping the rest
+enforceable; it is not an endorsement.
 
 ### Remediation (not yet done)
 

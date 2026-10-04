@@ -75,6 +75,18 @@ func optionalSecrets() []optionalSecret {
 			destination: true,
 		},
 		{
+			// The issuer's outbound mail (ADR-060 amendment): the owner's Resend
+			// SMTP URL, smtps://resend:<api-key>@smtp.resend.com:465. hub-operator
+			// uploads only its password, to /<tenant>-mgmt.
+			name: "zitadel-smtp", namespace: constants.NamespaceOps, dir: "smtp",
+			keys: map[string]string{
+				"resend": "ZITADEL_SMTP_URL",
+			},
+			secType:     corev1.SecretTypeOpaque,
+			what:        "the identity provider sending verification and password-reset mail",
+			destination: true,
+		},
+		{
 			// A tenant's own registry credential, not the platform's.
 			//
 			// The platform's images are public, so this looked cosmetic -- the

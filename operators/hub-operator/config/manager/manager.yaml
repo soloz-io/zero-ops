@@ -108,6 +108,16 @@ spec:
             configMapKeyRef:
               name: hub-bootstrap-config
               key: INFISICAL_SECRETS_PROJECT_SLUG
+        # The box's tenant id, for credentials that belong to the box owner and
+        # live in their /<tenant>-mgmt Infisical folder (the Zitadel SMTP
+        # password). Optional: a box without it uploads everything else, and
+        # each such credential fails by name in the operator log.
+        - name: TENANT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: hub-bootstrap-config
+              key: TENANT_ID
+              optional: true
         - name: INFISICAL_ENVIRONMENT_SLUG
           valueFrom:
             configMapKeyRef:

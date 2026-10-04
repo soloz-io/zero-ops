@@ -160,12 +160,28 @@ print(" ".join(sorted(got)))
 PYEOF
     names="$(printf '%s' "$out" | python3 "$script")"
     rm -f "$script"
-    # <tenant>-<app>-<workload>-secrets since ADR-088. The app segment is not
-    # decoration: two products of one customer each have a `bff`, and a name
-    # built from the tenant alone would be one object claimed by two workloads.
-    if [[ "$names" == "t-a-one-secrets t-a-two-secrets" ]]; then
+    # <app>-<workload>-secrets. The app segment is not decoration: two products
+    # of one customer each have a `bff`, and a name built from the tenant alone
+    # would be one object claimed by two workloads. The tenant segment was dropped
+    # in b6ee1dba (ADR-088, "only cluster-scoped names carry the scope"): the
+    # namespace, tenant-<tenant>-<app>, already carries it.
+    # COMPARED AFTER NORMALISING WHITESPACE, and the failure prints both sides
+    # delimited.
+    #
+    # On 2026-10-04 this failed with "rendered as: a-one-secrets a-two-secrets".
+    # The rendered names were RIGHT; the comparison still expected the pre-b6ee1dba
+    # "t-a-one-secrets t-a-two-secrets", and the old message printed only one side.
+    # Correcting the expected value fixed it; nothing invisible was involved. Both
+    # sides are now printed, delimited, so a stale expectation reads as one.
+    local want="a-one-secrets a-two-secrets"
+    local got_n want_n
+    got_n="$(printf '%s' "$names" | tr -d '\r' | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//')"
+    want_n="$want"
+    if [[ "$got_n" == "$want_n" ]]; then
         pass "two workloads' secrets render as two ExternalSecrets, not one"
     else
-        hard_fail "secrets for two workloads rendered as: ${names:-<none>} — ADR-087 requires one ExternalSecret per workload, because the object is atomic and its key set is the blast radius of any one key being wrong"
+        hard_fail "secrets for two workloads rendered as [${names:-<none>}] but ADR-087 expects [${want}] — one ExternalSecret per workload, because the object is atomic and its key set is the blast radius of any one key being wrong"
+        note "normalised: got [${got_n:-<none>}] want [${want_n}]"
+        note "bytes got:  $(printf '%s' "$names" | od -c | head -3 | tr '\n' ' ')"
     fi
 }

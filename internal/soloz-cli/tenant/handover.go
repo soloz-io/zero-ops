@@ -87,6 +87,9 @@ type Secrets struct {
 	GrafanaCloudLokiURL        string
 	GrafanaCloudLokiUser       string
 
+	// The issuer's outbound mail, as an SMTP URL (smtps://user:password@host:port).
+	ZitadelSMTPURL string
+
 	GHCRUsername string
 	GHCRToken    string
 }

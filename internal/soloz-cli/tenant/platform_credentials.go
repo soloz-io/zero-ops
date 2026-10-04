@@ -164,6 +164,15 @@ func platformCredentials() []platformCredential {
 			Field:      func(s *Secrets) *string { return &s.GrafanaCloudLokiUser },
 			Needed:     always,
 		},
+		{
+			// A destination: the issuer runs without it, and simply cannot send
+			// verification or password-reset mail.
+			Secret: "ZITADEL_SMTP_URL", Tier: tierDestination,
+			Capability: "the identity provider sending verification and password-reset mail",
+			Prompt:     "ZITADEL_SMTP_URL (smtps://resend:<api-key>@smtp.resend.com:465): ",
+			Field:      func(s *Secrets) *string { return &s.ZitadelSMTPURL },
+			Needed:     always,
+		},
 	}
 }
 

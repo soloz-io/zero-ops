@@ -168,6 +168,25 @@ encrypted, remove the plaintext provider, verify again. The verification reads t
 stored form: a read through the API server shows plaintext either way, because it
 decrypts on the way out.
 
+**The provider configuration arrives in two phases, as `secretbox` does, and for the
+same reason.** `encryption-provider-config` is what makes the API server require the
+configuration, and under KMS the requirement is stronger: the API server needs a
+plugin answering on a unix socket before it will serve. A phase that delivers the
+socket, the static pod and the configuration without the argument is a cluster that
+is healthy and unencrypted — inspectable, and recoverable by doing nothing. The
+argument follows once a replaced node has been inspected. ADR-003 §6 records the
+same split for `secretbox` (v3 then v4) and the runbook executes it.
+
+**This ADR inherits a working per-cluster delivery, and that was a prerequisite
+rather than an assumption.** One key per cluster (above) needs one delivery object
+per cluster, and a ClusterClass is shared by every cluster of its class — so a name
+written into a template is one object for all of them. `secretbox` shipped that
+defect and it was closed before this ADR was picked up: the Secret is
+`<cluster>-encryption-config`, rendered by a ClusterClass patch from
+`{{ .builtin.cluster.name }}`, with preflight 88 pinning the Go and CAPI halves of
+the name together. KMS replaces what the object CARRIES, not how one object per
+cluster reaches a control plane.
+
 ### The key store becomes part of the availability boundary
 
 This is the consequence that must be accepted explicitly rather than discovered.

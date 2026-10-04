@@ -9,7 +9,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: spokepool-control-plane-v2
+      name: spokepool-control-plane-v3
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -141,6 +141,52 @@ spec:
         path: /spec/template/spec/sshKeys/hcloud/0/name
         valueFrom:
           variable: hcloudSSHKeyName
+  # The at-rest encryption provider configuration, appended here rather than
+  # written into the control-plane template, because its Secret name has to carry
+  # THIS cluster's name.
+  #
+  # WHY A PATCH AND NOT A LITERAL. A ClusterClass is shared by every cluster of its
+  # class, so a Secret named in a template is one object serving all of them. v2
+  # named `secret-encryption-config` in platform-capi and that is exactly what
+  # happened: one key for N clusters, where the first rotation makes every other
+  # cluster's etcd undecryptable. The key is per cluster by ADR-100 and per cluster
+  # in the escrow by ADR-076, so its delivery object has to be per cluster too.
+  #
+  # WHY APPEND AND NOT REPLACE. A JSON patch that edits a file already in the list
+  # needs an index, `/files/0/contentFrom/secret/name`. Indices are positional: the
+  # day someone inserts a file above it, the patch rewrites that file's Secret
+  # reference instead and the enc.yaml entry keeps the shared name. Appending owns
+  # the whole entry and has no index to be wrong about.
+  #
+  # NOTHING RECONCILES THE SECRET ITSELF. It is written once by
+  # `soloz encryption enable` from the key in this cluster's escrow. A value that
+  # must not change under a running control plane has no business being reasserted
+  # on a timer, which is why the ExternalSecret that used to do it was removed.
+  - name: secretEncryptionConfig
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0600 and root: it is the key to every Secret in the cluster, and the API
+          # server reads it as root before any workload exists.
+          template: |
+            {
+              "path": "/etc/kubernetes/enc/enc.yaml",
+              "owner": "root",
+              "permissions": "0600",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-encryption-config",
+                  "key": "enc.yaml"
+                }
+              }
+            }
   variables:
   - name: region
     required: true
@@ -319,7 +365,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 # docs/runbooks/encrypt-secrets-at-rest.md.
 kind: KubeadmControlPlaneTemplate
 metadata:
-  name: spokepool-control-plane-v2
+  name: spokepool-control-plane-v3
   namespace: platform-capi
 spec:
   template:
@@ -332,11 +378,20 @@ spec:
           apiServer:
             extraArgs:
               cloud-provider: external
-              # Kubernetes Secrets are encrypted at rest (ADR-003 section 6).
-              # Without this the API server persists them to etcd in plaintext, and
-              # base64 is an encoding -- etcd data, backups and disk snapshots all
-              # disclose every credential on the box.
-              encryption-provider-config: /etc/kubernetes/enc/enc.yaml
+              # NO encryption-provider-config HERE, AND THAT IS v3's WHOLE POINT.
+              #
+              # The argument is what makes the API server REQUIRE the file: a path it
+              # cannot read is a control plane that does not start, and on a workload
+              # cluster that is a cluster nobody can log in to repair. v2 shipped the
+              # argument and the file together, so the first evidence that the file
+              # rendered correctly would have been an API server that came up -- or
+              # one that did not.
+              #
+              # So v3 delivers the mount and the file and nothing that reads them. A
+              # node that comes up with the file missing or misnamed is an ordinary
+              # healthy node, and `ls /etc/kubernetes/enc/` on it is the evidence.
+              # The argument arrives in v4, after that evidence exists, as a one-line
+              # change to this block (docs/runbooks/encrypt-secrets-at-rest.md).
             # The API server runs as a static pod, so a path outside the directories
             # kubeadm already mounts is invisible to it. Without this the process
             # fails to start on a file that exists on the node -- which reads as a
@@ -362,24 +417,20 @@ spec:
               cloud-provider: external
               node-labels: "instance.hetzner.cloud/provided-by=cloud"
         files:
-        # The encryption provider configuration. It carries the key inline, so it is
-        # secret material and arrives from a Secret rather than from this file --
-        # written by `soloz encryption enable` (or the Day-0 provisioner) from the
-        # key held in the escrow for THIS cluster (ADR-076
-        # `secret-encryption-key`). Nothing reconciles it: a value that must not
-        # change under a running control plane has no business being reasserted on
-        # a timer, and the ExternalSecret that used to do so was a second writer
-        # for a per-cluster key (ADR-100).
+        # THE ENCRYPTION PROVIDER CONFIGURATION IS NOT LISTED HERE. It is appended by
+        # the `secretEncryptionConfig` patch in the ClusterClass above, because its
+        # Secret name has to carry the cluster's name and a template is shared by
+        # every cluster of its class.
         #
-        # 0600 and root: it is the key to every Secret in the cluster, and the API
-        # server reads it as root before any workload exists.
-        - path: /etc/kubernetes/enc/enc.yaml
-          owner: root
-          permissions: "0600"
-          contentFrom:
-            secret:
-              name: secret-encryption-config
-              key: enc.yaml
+        # v2 named it `secret-encryption-config` right here, which is ONE Secret in
+        # platform-capi for N clusters -- so every spoke would have read the same
+        # key, and the first cluster to rotate would have made the others
+        # undecryptable. A per-cluster value cannot be delivered by a shared object,
+        # and a literal in a shared template is a shared object (ADR-100).
+        #
+        # It is appended rather than patched in place on purpose: a JSON patch into
+        # this list needs an index, and an index silently rewrites whatever file
+        # entry someone later inserts above it.
         - path: /etc/tailscale-authkey
           owner: root
           permissions: "0600"
@@ -415,21 +466,68 @@ spec:
           permissions: "0755"
           content: |
             #!/bin/sh
-            # Re-assert kubelet --node-ip = tailnet IPv4 and --node-labels.
+            # Re-assert kubelet --provider-id, --node-labels and --node-ip.
             # Idempotent. Survives kubeadm upgrade (which rewrites kubeadm-flags.env).
-            TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+            #
+            # ORDER IS LOAD-BEARING. Everything that does not need tailscale runs
+            # before anything that does, because the tailscale checks below exit 0.
+            # This script previously began with them, so on a node where tailscaled
+            # was slow or absent it set NOTHING and said so by succeeding.
             FLAGS=/var/lib/kubelet/kubeadm-flags.env
             [ -f "$FLAGS" ] || exit 0
+
+            # Self-assign providerID from Hetzner metadata.
+            #
+            # THIS BLOCK WAS MISSING FROM THIS TEMPLATE, and that is why a replacement
+            # spoke control-plane node never joined. Every worker template and the hub
+            # control-plane template carry it; this one did not, so the node came up
+            # with no .spec.providerID, CAPI -- which matches Machines to Nodes BY
+            # providerID -- left the Machine with an empty NODENAME, and the KCP roll
+            # stalled on NodeHealthy=False/NodeProvisioning with nothing naming the
+            # cause.
+            #
+            # Once --node-ip is a tailnet address the Hetzner CCM refuses to initialise
+            # the node: cloud-node-controller validates
+            # alpha.kubernetes.io/provided-node-ip against the addresses the cloud
+            # reports (ExternalIP 37.x, InternalIP 10.0.x) and fails with
+            #   provided node ip ... is not valid: failed to get node address from
+            #   cloud provider that matches ip: 100.x.x.x
+            # so it never writes the providerID itself. The instance id is
+            # authoritative and served by the node's own metadata service, so kubelet
+            # sets it directly and the CCM is off the critical path.
+            if ! grep -q '\-\-provider-id=' "$FLAGS"; then
+              ID="$(curl -fsS --max-time 5 http://169.254.169.254/hetzner/v1/metadata/instance-id 2>/dev/null)"
+              if [ -n "$ID" ]; then
+                sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--provider-id=hcloud:\/\/${ID} /g" "$FLAGS"
+              fi
+            fi
+
+            # Inject --node-labels if not already present. Also independent of
+            # tailscale, and also silently skipped while it sat below the gates.
+            #
+            # `|` IS THE DELIMITER, NOT `/`, AND THAT IS A BUG FIX. The label value
+            # contains a slash -- instance.hetzner.cloud/provided-by=cloud -- so with
+            # `s/.../.../g` the expression closed early and every copy of this line
+            # failed with `sed: bad option in substitution expression`. It had never
+            # worked, in any of the five templates carrying it, and nothing noticed
+            # because kubeadm also sets the label from kubeletExtraArgs at join time
+            # and sed's failure is not the script's exit status.
+            #
+            # Which is the whole reason the re-assertion exists: a kubeadm upgrade
+            # rewrites kubeadm-flags.env, and after one the label would have been
+            # gone with nothing to put it back.
+            if ! grep -q '\-\-node-labels=' "$FLAGS"; then
+              sed -i "s|KUBELET_KUBEADM_ARGS=\"|KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud |g" "$FLAGS"
+            fi
+
+            # --node-ip = tailnet IPv4. From here down tailscale is required, and its
+            # absence is not an error: kubelet keeps the address it already had.
+            TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
             [ -x "$TS_BIN" ] || exit 0
             TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
             [ -n "$TS_IP" ] || exit 0
-            # Inject --node-ip=<tailnet IP>
             sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
             sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
-            # Inject --node-labels if not already present
-            if ! grep -q '\-\-node-labels=' "$FLAGS"; then
-              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud /g" "$FLAGS"
-            fi
             exit 0
         - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
           owner: root
@@ -782,7 +880,7 @@ spec:
           sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
           # Inject --node-labels if not already present
           if ! grep -q '\-\-node-labels=' "$FLAGS"; then
-            sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud /g" "$FLAGS"
+            sed -i "s|KUBELET_KUBEADM_ARGS=\"|KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud |g" "$FLAGS"
           fi
           exit 0
       - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
@@ -936,7 +1034,7 @@ spec:
           sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
           # Inject --node-labels if not already present
           if ! grep -q '\-\-node-labels=' "$FLAGS"; then
-            sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud /g" "$FLAGS"
+            sed -i "s|KUBELET_KUBEADM_ARGS=\"|KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud |g" "$FLAGS"
           fi
           exit 0
       - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
@@ -1091,7 +1189,7 @@ spec:
           sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
           # Inject --node-labels if not already present
           if ! grep -q '\-\-node-labels=' "$FLAGS"; then
-            sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud /g" "$FLAGS"
+            sed -i "s|KUBELET_KUBEADM_ARGS=\"|KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud |g" "$FLAGS"
           fi
           exit 0
       - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
@@ -1265,7 +1363,7 @@ spec:
           sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
           # Inject --node-labels if not already present
           if ! grep -q '\-\-node-labels=' "$FLAGS"; then
-            sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud /g" "$FLAGS"
+            sed -i "s|KUBELET_KUBEADM_ARGS=\"|KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud |g" "$FLAGS"
           fi
           exit 0
       - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf

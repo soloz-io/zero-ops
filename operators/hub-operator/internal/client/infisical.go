@@ -196,6 +196,73 @@ func (c *InfisicalClient) CreateOrUpdateSecretRaw(ctx context.Context, projectSl
 	return c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
 }
 
+// EnsureFolderRaw creates folderPath, one segment at a time, in the project named
+// by its slug. Idempotent: a segment that already exists is not an error.
+//
+// The uploader needs it because a mapping may target a folder below "/" (the box
+// owner's /<tenant>-mgmt), and Infisical refuses to create a secret in a folder
+// that does not exist -- on a fresh box nothing else has made it.
+func (c *InfisicalClient) EnsureFolderRaw(ctx context.Context, projectSlug, environmentSlug, folderPath string) error {
+	if folderPath == "" || folderPath == "/" {
+		return nil
+	}
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	accumulated := ""
+	for _, segment := range strings.Split(strings.Trim(folderPath, "/"), "/") {
+		if segment == "" {
+			continue
+		}
+		accumulated = path.Join(accumulated, segment)
+		parent := path.Dir(accumulated)
+		if parent == "." {
+			parent = "/"
+		} else {
+			parent = "/" + parent
+		}
+
+		body, err := json.Marshal(map[string]interface{}{
+			"projectId":   workspaceId,
+			"environment": environmentSlug,
+			"path":        parent,
+			"name":        segment,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to marshal folder request for %s: %w", segment, err)
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+constant.APIEndpointFolders, bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("failed to create request for folder %s: %w", segment, err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.token)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to execute folder request for %s: %w", segment, err)
+		}
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		switch {
+		case resp.StatusCode == http.StatusConflict,
+			resp.StatusCode == http.StatusBadRequest && bytes.Contains(respBody, []byte("already exists")):
+			continue
+		case resp.StatusCode >= 500:
+			return fmt.Errorf("failed to create folder %s with status %d (transient)", segment, resp.StatusCode)
+		case resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated:
+			return fmt.Errorf("failed to create folder %s with status %d: %s", segment, resp.StatusCode, string(respBody))
+		}
+	}
+	return nil
+}
+
 // getWorkspaceIdFromSlug converts projectSlug to workspaceId
 func (c *InfisicalClient) getWorkspaceIdFromSlug(ctx context.Context, projectSlug string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/workspace", nil)

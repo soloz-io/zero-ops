@@ -39,7 +39,32 @@ type SecretMapping struct {
 	SourceKey       string // Key within the K8s secret
 	InfisicalKey    string // Key name in Infisical
 	Description     string // Human-readable description for logging
+
+	// InfisicalPath is the folder the key is written to. Empty means "/". It may
+	// contain TenantPlaceholder, replaced by this box's tenant id (TENANT_ID, from
+	// hub-bootstrap-config) -- for a credential that belongs to the box owner and
+	// so lives in their /<tenant>-mgmt folder, not at the project root.
+	InfisicalPath string
+
+	// Transform, when set, derives the uploaded value from the source value. For
+	// a credential the owner keeps in a richer form than its consumer reads, such
+	// as an SMTP URL whose password is the only secret part.
+	Transform ValueTransform
 }
+
+// TenantPlaceholder in an InfisicalPath is replaced by the box's tenant id.
+const TenantPlaceholder = "{tenant}"
+
+// ValueTransform derives the value uploaded to Infisical from the source value.
+type ValueTransform string
+
+const (
+	// TransformNone uploads the source value unchanged.
+	TransformNone ValueTransform = ""
+	// TransformURLPassword uploads the password component of a URL,
+	// e.g. smtps://user:<password>@smtp.example.com:465.
+	TransformURLPassword ValueTransform = "url-password"
+)
 
 // CLISecretMappings is the registry of CLI and Bootstrap secrets to upload to Infisical
 //
@@ -305,6 +330,26 @@ var CLISecretMappings = []SecretMapping{
 		SourceKey:       "pat",
 		InfisicalKey:    "hub-identity-service-token",
 		Description:     "Identity service credential for provisioning tenants at the issuer",
+	},
+
+	// ========================================================================
+	// ZITADEL SMTP PASSWORD (box owner's credential, ADR-060 amendment)
+	// ========================================================================
+	// The issuer sends verification and password-reset mail through the box
+	// owner's own sending service (Resend). Only the password is secret; host,
+	// user and sender are in the Zitadel values. The owner keeps the whole SMTP
+	// URL in k8-secrets/smtp/resend (or ZITADEL_SMTP_URL), hub-bootstrap step 6b
+	// turns it into this Secret, and the password component is uploaded to the
+	// owner's /<tenant>-mgmt folder, where zitadel-smtp-config reads it through
+	// the infisical-tenant-mgmt store.
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "zitadel-smtp",
+		SourceKey:       "resend",
+		InfisicalKey:    "zitadel_smtp_password",
+		InfisicalPath:   "/" + TenantPlaceholder + "-mgmt",
+		Transform:       TransformURLPassword,
+		Description:     "Zitadel SMTP password (Resend), from the owner's SMTP URL",
 	},
 }
 

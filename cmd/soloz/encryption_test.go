@@ -1,8 +1,11 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/soloz-io/zero-ops/internal/assets"
 )
 
 // The command exists because nothing reconciles at-rest encryption onto an existing
@@ -26,23 +29,73 @@ func TestBothClusterClassesAreReachable(t *testing.T) {
 	}
 }
 
-func TestBothClassesCarryTheEncryptionProvider(t *testing.T) {
-	// The whole point of applying a class here. A class without the argument rolls the
-	// control plane for nothing, which is the most expensive possible no-op.
+func TestBothClassesDeliverTheProviderConfigButDoNotYetRequireIt(t *testing.T) {
+	// THE v3 CONTRACT, AND THIS TEST IS WHERE IT IS RECORDED.
+	//
+	// At-rest encryption needs three things on a control-plane node: the key as a
+	// Secret, the file mounted into the API server's static pod, and the
+	// `encryption-provider-config` argument that makes the API server read it. The
+	// argument is the one that can break the cluster -- a path it cannot read is a
+	// control plane that does not start -- and it only takes effect when a node is
+	// replaced.
+	//
+	// v2 shipped all three at once, so the first evidence that the file had rendered
+	// correctly would have been an API server that came up, or one that did not. v3
+	// ships the mount and the file and NOTHING THAT READS THEM: a node that comes up
+	// with the file missing or misnamed is an ordinary healthy node, and `ls` on it is
+	// the evidence. The argument arrives in v4.
+	//
+	// So the argument's ABSENCE is asserted. When v4 lands, this test is the thing
+	// that has to be updated, which is the point: the phase change is deliberate and
+	// recorded here rather than discovered during a roll.
+	// See docs/runbooks/encrypt-secrets-at-rest.md.
+	argLine := regexp.MustCompile(`(?m)^\s*encryption-provider-config:\s*\S`)
+	mountLine := regexp.MustCompile(`(?m)^\s*mountPath:\s*/etc/kubernetes/enc\s*$`)
+	// The name the control plane READS. Built inside CAPI from the cluster's own name,
+	// because a ClusterClass is shared by every cluster of its class.
+	perCluster := `"name": "{{ .builtin.cluster.name }}` + assets.EncryptionSecretName("")
+
 	for _, path := range []string{defaultHubClass, defaultSpokeClass} {
 		body, err := readClusterClass(path)
 		if err != nil {
 			t.Fatalf("readClusterClass(%q): %v", path, err)
 		}
-		if !strings.Contains(string(body), "encryption-provider-config") {
-			t.Fatalf("%q carries no encryption-provider-config; applying it would roll the "+
-				"control plane and change nothing", path)
+		text := string(body)
+
+		if argLine.MatchString(text) {
+			t.Errorf("%q sets encryption-provider-config. v3 deliberately omits it so the file "+
+				"can be verified on a real node before the API server depends on it. If this is "+
+				"the v4 change, update this test and the runbook together", path)
 		}
-		// The file has to be mounted into the static pod, or the API server fails to
-		// start on a path that exists on the node.
-		if !strings.Contains(string(body), "secret-encryption-config") {
-			t.Fatalf("%q does not reference the provider configuration Secret", path)
+		if !mountLine.MatchString(text) {
+			t.Errorf("%q does not mount /etc/kubernetes/enc into the API server; it runs as a "+
+				"static pod and cannot see a path kubeadm does not mount", path)
 		}
+		if !strings.Contains(text, perCluster) {
+			t.Errorf("%q does not deliver the provider configuration under a per-cluster name "+
+				"(%s...); a Secret named literally in a ClusterClass is one object for every "+
+				"cluster of that class", path, perCluster)
+		}
+	}
+}
+
+func TestTheDay0TemplateTakesItsNameRatherThanSpellingOne(t *testing.T) {
+	// The other half of the same name. The Go side CREATES the Secret and the CAPI
+	// patch READS it, and the two are written in languages that cannot see each other
+	// -- so a disagreement produces a Secret under one name referenced under another,
+	// which CAPI reports as a node that never finishes bootstrapping rather than as a
+	// name it could not find.
+	body, err := readEncryptionConfigTemplate()
+	if err != nil {
+		t.Fatalf("readEncryptionConfigTemplate: %v", err)
+	}
+	if !strings.Contains(string(body), "name: {{ .SecretName }}") {
+		t.Fatal("the Day-0 Secret template spells a name instead of taking {{ .SecretName }}; " +
+			"a literal here is one object for every cluster the management plane builds")
+	}
+	if got := assets.EncryptionSecretName("nutgraf-01"); got != "nutgraf-01-encryption-config" {
+		t.Fatalf("EncryptionSecretName changed shape to %q; the ClusterClass patches build the "+
+			"same name from {{ .builtin.cluster.name }} and preflight 88 pins them together", got)
 	}
 }
 

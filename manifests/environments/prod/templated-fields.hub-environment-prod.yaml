@@ -48,5 +48,9 @@
       value: '{{ (.Values.global.infisical | default dict).organizationId }}'
     - path: [data, INFISICAL_PROJECT_ID]
       value: '{{ (.Values.global.infisical | default dict).projectId }}'
+    # The box's tenant id. hub-operator writes the owner's own credentials (the
+    # Zitadel SMTP password) to /<tenant>-mgmt, the folder ESO reads them from.
+    - path: [data, TENANT_ID]
+      value: '{{ .Values.global.tenantId }}'
     - path: [data, INFISICAL_SECRETS_PROJECT_ID]
       value: '{{ (.Values.global.infisical | default dict).secretsProjectId }}'

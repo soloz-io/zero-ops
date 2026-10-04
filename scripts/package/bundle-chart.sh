@@ -40,10 +40,49 @@ stage_bundle_chart "$SRC" "$CHART"
 # built from uncommitted edits is untraceable by construction: it is in a
 # registry, tenants can pull it, and no commit corresponds to it.
 #
-# Recorded rather than enforced. Refusing to publish from a dirty tree would
-# break the local release path this script exists to support (the whole point of
-# testing a release before committing it), so the dirty state is stamped instead
-# and shows up wherever the chart is inspected.
+# Recorded rather than enforced, FOR CHART CONTENT. Refusing to publish from a
+# dirty tree would break the local release path this script exists to support
+# (the whole point of testing a release before committing it), so the dirty state
+# is stamped instead and shows up wherever the chart is inspected.
+#
+# THAT IS ONLY SAFE FOR DIRT THE CHART ITSELF CARRIES, and "dirty" was one word
+# standing for two conditions:
+#
+#   manifests, and operators/*/config/   The chart content IS the dirty content.
+#                                        kustomize reads those paths from this
+#                                        tree, so the artefact is
+#                                        self-consistent. A stamp is the right
+#                                        answer and a local test is meaningful.
+#
+#   operator SOURCE (Go, Dockerfile,     The chart ships the dirty manifests, but
+#   go.mod, cmd/, internal/, api/)       the IMAGE is built by a per-component CI
+#                                        workflow from a COMMIT, which then
+#                                        commits the resolved digest back. There
+#                                        is no commit for uncommitted code, so no
+#                                        image was ever built and the pin still
+#                                        points at an older one. The artefact is
+#                                        internally inconsistent: new manifests,
+#                                        old binary.
+#
+# The second case cannot be stamped toward anything, and the warning's own advice
+# -- "fine for a local release test" -- is false for it, because the local test
+# exercises the old image. It is also invisible downstream: the chart renders, the
+# digest is valid, and every Application reaches Synced, because an old image is a
+# perfectly healthy image.
+#
+# It cost 0.1.16-rc.140: manager.yaml shipped a new TENANT_ID env var and the
+# binary that reads it was never built. The same class cost rc.30 and rc.31, which
+# is why publish.sh HARD-REFUSES a tree that is merely behind its upstream -- the
+# milder version of this, where the right image exists and the tree just is not
+# pointing at it. Refusing that while warning about this had the severities
+# inverted against the harm.
+#
+# So it is split: refuse on image content, stamp chart content.
+#
+# Scoped to operators/ as a whole and not to a list of operators that currently
+# ship. ephemeral-vm-provisioner and workspace-sync are not referenced by any
+# component today; an exemption list would quietly stop covering them on the day
+# they are, which is the day it matters.
 GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 GIT_DIRTY=false
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
@@ -52,11 +91,42 @@ fi
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Unstaged, staged and untracked, because all three produce an image that does not
+# exist. `config/` is excluded as chart content per the reasoning above.
+IMAGE_DIRT="$(
+    {
+        git diff --name-only -- operators 2>/dev/null
+        git diff --cached --name-only -- operators 2>/dev/null
+        git ls-files --others --exclude-standard -- operators 2>/dev/null
+    } | sort -u | grep -vE '^operators/[^/]+/config/' || true
+)"
+
+if [ -n "$IMAGE_DIRT" ]; then
+    echo "platform-bundle: REFUSING to build -- operator SOURCE is uncommitted." >&2
+    echo >&2
+    printf '%s\n' "$IMAGE_DIRT" | sed 's/^/    /' >&2
+    echo >&2
+    echo "  The chart would be built from this tree, but operator images are built by" >&2
+    echo "  CI from a COMMIT and the digest is committed back afterwards. Nothing has" >&2
+    echo "  built the code above, so the bundle would pin an OLDER image: new" >&2
+    echo "  manifests, old binary, every Application Synced and the change absent." >&2
+    echo "  That is what happened to 0.1.16-rc.140." >&2
+    echo >&2
+    echo "  Commit and push the operator changes, wait for the" >&2
+    echo "  'chore(<operator>): update image to <sha>' commit, then:" >&2
+    echo "    git pull --rebase && ./scripts/release.sh" >&2
+    echo >&2
+    echo "  Dirt in manifests/ or operators/*/config/ does NOT trigger this: the" >&2
+    echo "  chart carries that content itself, so it is stamped rather than refused." >&2
+    exit 1
+fi
+
 if [ "$GIT_DIRTY" = true ]; then
     echo "platform-bundle: WARNING -- built from a dirty working tree." >&2
     echo "  The artefact records commit ${GIT_SHA} plus uncommitted changes that" >&2
     echo "  nothing else captures. Fine for a local release test; commit before" >&2
     echo "  publishing a version anyone else will consume." >&2
+    echo "  Operator SOURCE is checked separately and refuses; this is chart content." >&2
 fi
 
 python3 - "$CHART/Chart.yaml" "$VERSION" "$GIT_SHA" "$GIT_DIRTY" "$GIT_BRANCH" "$BUILT_AT" <<'PY'

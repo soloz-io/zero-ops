@@ -188,6 +188,7 @@ func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
 	}
 	var secretOut bytes.Buffer
 	if err := tmpl.Execute(&secretOut, map[string]string{
+		"SecretName":       assets.EncryptionSecretName(encClusterName),
 		"Namespace":        encNamespace,
 		"EncryptionKeyB64": base64.StdEncoding.EncodeToString(rawKey),
 	}); err != nil {

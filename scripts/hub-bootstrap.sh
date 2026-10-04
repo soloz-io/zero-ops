@@ -1233,6 +1233,10 @@ step6_wait_infisical() {
 SEED_SPECS=(
     "s3|platform-ops/s3-object-storage|access-key-id=access-key-id=S3_ACCESS_KEY_ID,secret-access-key=secret-access-key=S3_SECRET_ACCESS_KEY"
     "grafana-cloud|platform-ops/grafana-cloud|api-key=api-key=GRAFANA_CLOUD_API_KEY,prometheus-url=prometheus-url=GRAFANA_CLOUD_PROMETHEUS_URL,prometheus-user=prometheus-user=GRAFANA_CLOUD_PROMETHEUS_USER,loki-url=loki-url=GRAFANA_CLOUD_LOKI_URL,loki-user=loki-user=GRAFANA_CLOUD_LOKI_USER"
+    # The issuer's outbound mail: the owner's Resend SMTP URL,
+    # smtps://resend:<api-key>@smtp.resend.com:465. hub-operator uploads only its
+    # password, to /<tenant>-mgmt, where zitadel-smtp-config reads it.
+    "smtp|platform-ops/zitadel-smtp|resend=resend=ZITADEL_SMTP_URL"
 )
 
 step6b_seed_external_credentials() {

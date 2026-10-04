@@ -31,7 +31,37 @@ PLATFORM = ["manifests/hub-core-services", "manifests/argocd", "manifests/spoke"
 # Tenant identifiers observed in this repo. There is no canonical local list —
 # tenants live in fleet-registry — so this enumerates the names that have actually
 # leaked. The rule is "no tenant names at all"; this is how it is detected.
-TENANTS = ["waypoint", "oranger"]
+#
+# `nutgraf` IS THE TENANT. `waypoint` and `oranger` are its APPLICATIONS (ADR-088
+# keeps those axes separate), and for a long time this list held only the two
+# application names -- so the check was called "tenant identifiers" while being
+# unable to see a single tenant name. The rule applies to both axes for the same
+# reason: the platform renders them parameterised, and naming either makes platform
+# code depend on something that exists only after onboarding.
+TENANTS = ["nutgraf", "waypoint", "oranger"]
+
+# `nutgraf.in` IS NOT COUNTED, AND THAT IS A DEFERRAL, NOT AN EXEMPTION.
+#
+# It appears 345 times, as two different things: the DNS domain every environment
+# is served on (api., auth., console., dev., stg.) and the API GROUP of every
+# platform CRD -- ops.nutgraf.in, billing.nutgraf.in, compute.nutgraf.in,
+# spokepools.nutgraf.in, tenantdatabases.nutgraf.in.
+#
+# The API groups are a real leak and a worse one than anything this check catches:
+# the platform ships to a customer's own box (BYOC), so a SOLOZ platform installed
+# for another customer would serve CRDs named after this tenant. But renaming an
+# API group rewrites every CRD, every RBAC rule, every manifest that references
+# one, and every object already stored in etcd under the old group. That is a
+# migration with its own decision to make, not something a validation script
+# should force by failing the build today.
+#
+# So it is excluded HERE and recorded as open. If it were simply matched, this
+# check would fail 130 files and be switched off, which is the outcome that loses
+# the rule entirely.
+# Both spellings: controller-gen derives webhook paths from the API group, so
+# `nutgraf.in` arrives as `nutgraf-in` in /mutate-nutgraf-in-v1alpha1-spokepool.
+# Same leak, same deferral; subtracting only the dotted form missed it.
+DOMAIN_SUFFIXES = ("nutgraf.in", "nutgraf-in")
 
 # Files that already violate the rule, recorded so the debt is visible and any NEW
 # leak still fails. Shrinks as the ADR-047 remediation lands.
@@ -94,13 +124,86 @@ def strip_comments(line, ext):
     return line
 
 
+def parameterised_literals(path):
+    """Literals the nearest templated-fields.yaml declares a substitution for.
+
+    THE MECHANISM MUST NOT BE PENALISED BY THE RULE IT IMPLEMENTS. A component's
+    templated-fields.yaml is how a manifest carrying this box's names renders
+    another box's at package time -- `from: /nutgraf-mgmt` /
+    `with: /{{ .Values.global.tenantId }}-mgmt`. That file necessarily SPELLS the
+    literal it replaces, and the manifest beside it necessarily contains it, or
+    there would be nothing to substitute.
+
+    Counting either one reports the remediation as the defect, and the only way to
+    satisfy the check would be to delete the substitution -- which is the leak.
+    So a literal declared here is subtracted from the files that file governs: the
+    question is whether a name is PARAMETERISED, not whether it appears.
+
+    Scoped to the directory tree the templated-fields.yaml sits in, walking up from
+    the file, because a declaration in one component says nothing about another's.
+    """
+    lits = set()
+    d = os.path.dirname(os.path.abspath(path))
+    root = os.path.abspath(".")
+    while d.startswith(root):
+        tf = os.path.join(d, "templated-fields.yaml")
+        if os.path.isfile(tf):
+            try:
+                with open(tf, errors="replace") as fh:
+                    for line in fh:
+                        m = re.match(r"\s*from:\s*(.+?)\s*$", line)
+                        if m:
+                            lits.add(m.group(1).strip("'\""))
+            except OSError:
+                pass
+        if d == root:
+            break
+        d = os.path.dirname(d)
+    # Longest first, so a shorter literal cannot eat the prefix of a longer one.
+    return sorted(lits, key=len, reverse=True)
+
+
 def count_code_hits(path):
     ext = os.path.splitext(path)[1]
+    params = parameterised_literals(path)
     n = 0
+    in_block = False
     try:
         with open(path, errors="replace") as fh:
             for line in fh:
-                n += len(re.findall(pattern, strip_comments(line, ext)))
+                # A BLOCK COMMENT SPANS LINES AND strip_comments DOES NOT.
+                # `{{- /* ... */ -}}` in a Helm .tpl carries pages of incident prose
+                # whose continuation lines have no marker of their own, so every
+                # cluster name written down in one was counted as code.
+                if in_block:
+                    end = line.find("*/")
+                    if end < 0:
+                        continue
+                    line = line[end + 2:]
+                    in_block = False
+                while True:
+                    start = line.find("/*")
+                    if start < 0:
+                        break
+                    end = line.find("*/", start + 2)
+                    if end < 0:
+                        line = line[:start]
+                        in_block = True
+                        break
+                    line = line[:start] + line[end + 2:]
+                code = strip_comments(line, ext)
+                # Remove the platform domain and API-group suffix before counting,
+                # so `ops.nutgraf.in` does not read as a tenant reference while a
+                # bare `nutgraf` still does. See DOMAIN_SUFFIX above for why this is
+                # deferred rather than exempt.
+                for suffix in DOMAIN_SUFFIXES:
+                    code = code.replace(suffix, "")
+                # A literal the component's own templated-fields.yaml declares a
+                # substitution FOR is parameterised at package time, which is the
+                # thing this rule asks for. See parameterised_literals.
+                for lit in params:
+                    code = code.replace(lit, "")
+                n += len(re.findall(pattern, code))
     except OSError:
         return 0
     return n
@@ -117,6 +220,26 @@ for root in PLATFORM:
             continue
         # Vendored or generated trees are not authored platform code.
         if "/vendor/" in f or "/reference-projects/" in f:
+            continue
+        # A TEST FIXTURE IS NOT A RUNTIME DEPENDENCY, and this rule is about
+        # runtime dependencies. The header's own example says why: the
+        # waypoint-bff-client-secret ExternalSecret "can never resolve" on a fresh
+        # hub because the key does not exist until that tenant onboards. A table
+        # test naming `oranger` has no such property -- it resolves nothing, waits
+        # for nothing, and ships in no binary. Counting it blocked 13 files from the
+        # application-identity work (ADR-094/095/097) for naming their own subject.
+        if f.endswith("_test.go"):
+            continue
+        # Generated by controller-gen from the Go types. The group lives in
+        # api/*/groupversion_info.go, which IS checked; failing the generated copy
+        # as well reports one decision twice and sends someone to edit an artefact
+        # that is overwritten on the next `make manifests`.
+        if "/config/crd/bases/" in f:
+            continue
+        # Also controller-gen output, from the same API group in `+kubebuilder`
+        # markers. Reporting it repeats the groupversion_info.go finding at a path
+        # that is overwritten on the next `make manifests`.
+        if f.endswith("/config/webhook/manifests.yaml"):
             continue
         n = count_code_hits(f)
         if n:

@@ -12,6 +12,25 @@ I WILL SHARE THE PROPOSAL WHEN YOU ARE READY.
 
 --------------------
 
+## Lead
+
+you have a team member who is ready to pick up the tasks as you instrcurt. you do the highlevel planning as a platform team lead. 
+
+your instructions must be very specific on the next set of tasks, expected result, delivery model and clear boundry gate byond with the memebr should not proceed or troubleshoot. 
+
+Troubleshootng and planning is ur job. execution is the the team members job. so provide clear next set of tasks for you to proceed further. The goal is to complete all pre requisite for ADR 100 and then pick it.
+
+## Member
+
+you role paly as a platform team member. you perform the tasks provided by platform lead. are you ready? thsi si te cluster u hav access to.. zero-ops/.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig...
+
+are you redy yo take instrcutrions from platform lead?
+
+zero-ops/docs/adr/100-kms-v2-for-secrets-at-rest.md
+zero-ops/docs/adr/076-reaching-a-box-you-own.md
+
+read and underatnd these ADRs before taking tasks.
+
 ### Others
 -------
 report back the current status update on changes made nd findings so that i can provide feedback.

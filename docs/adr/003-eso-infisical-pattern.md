@@ -340,8 +340,30 @@ The API server argument is carried by the spoke ClusterClass, whose templates ar
 immutable or effectively so (ADR-041), so this is a new control-plane template with a
 rollout rather than an edit.
 
-The procedure is `docs/runbooks/encrypt-secrets-at-rest.md`, and it is also the
-rotation procedure. Its verification reads the STORED form from etcd: an API read
+**The template is adopted in two phases, and that is a decision rather than an
+implementation detail.** `encryption-provider-config` is what makes the API server
+REQUIRE the file, and a path it cannot read is a control plane that does not start.
+The file arrives through a ClusterClass patch that renders its Secret name from
+`{{ .builtin.cluster.name }}` inside CAPI at topology-reconcile time, which cannot
+be verified anywhere but on a real node. Shipping the argument and the file together
+makes the first evidence of a correct render "the API server came up" — or did not,
+on the management cluster that every other cluster is repaired from.
+
+So **v3** delivers the mount and the file and nothing that reads them, and **v4**
+adds the argument once a replaced node has been inspected. Two rolls, and two
+releases, because `soloz encryption enable` applies the ClusterClass from the CLI's
+embedded assets.
+
+**The key is per cluster, so its delivery object is too.** The Secret is
+`<cluster>-encryption-config`. A ClusterClass is shared by every cluster of its
+class, so a name written literally into a template is one object serving all of them
+— which shipped briefly, and would have meant the first cluster to rotate left the
+others' etcd undecryptable by a key they still believed in. The name is built on the
+create side in Go and on the read side by the CAPI patch; preflight 88 pins the two
+together, because a disagreement is not reported as a missing Secret but as a node
+that never finishes bootstrapping.
+
+The procedure is `docs/runbooks/encrypt-secrets-at-rest.md`. Its verification reads the STORED form from etcd: an API read
 shows plaintext either way, because the API server decrypts on the way out, so
 `kubectl get secret` cannot distinguish an encrypted cluster from an unencrypted one.
 That distinction is why the step exists.
@@ -385,10 +407,22 @@ against the API server it serves; which plugins are supported and by whom; and
 whether each cluster carries its own key, since one key for the fleet reintroduces
 the cross-boundary dependency forbidden above.
 
-**Rotation is the same operation as the initial migration.** A new key takes effect
-only for data written after it, so a rotation that is to mean anything requires the
-same rewrite of every Secret. The migration procedure is therefore written as the
-rotation procedure, not as a one-off.
+**Rotation is NOT yet supported, and the earlier claim that it was is withdrawn.**
+This ADR said the migration procedure was also the rotation procedure, on the
+reasoning that a new key takes effect only for data written after it and so needs
+the same rewrite. The rewrite part is true; the conclusion was not.
+
+Rotating `secretbox` requires TWO keys present in the provider list at once — the
+new one first so writes use it, the old one second so everything already written
+still reads — then a roll, the rewrite, removal of the old key, and another roll.
+The provider configuration this platform renders carries exactly one key, so there
+is no state in which both are present, and replacing the single key is precisely the
+"new key against existing data" loss the escrow exists to prevent.
+
+Closing it needs a two-key template and a procedure of its own. It has not been
+built because ADR-100 changes the mechanism: under KMS v2 the key identifier is a
+version and rotation is the plugin's concern rather than a file's. Until one lands,
+**a cluster's key is set once** and a new key means a new cluster.
 
 #### Why the box's own secret store cannot be the KMS
 
