@@ -98,10 +98,30 @@ provider, and a Secret written by one may be unreadable by another.
 
 ## 1. Adopt the control-plane template (phase 1, v3)
 
-**Not a sync.** Neither ClusterClass is reconciled by anything: both are applied from
-the CLI's embedded assets at Day-0, so a release puts the new template on no running
-cluster. An earlier version of this step said to sync the provider base, and nothing
-syncs it.
+**THE CLASS ARRIVES BY SYNC. THE SECRET DOES NOT.** Get this the right way round,
+because two earlier versions of this step had it backwards in both directions.
+
+ArgoCD's `infrastructure-provider` ApplicationSet (boundary 03) syncs
+`manifests/providers/<provider>`, whose kustomization pulls in `base/` and with it
+`spokepool-clusterclass-v1.yaml`. So **publishing and promoting a bundle puts the new
+control-plane template on the box by itself** — 0.1.16-rc.142 is how
+`spokepool-control-plane-v3` arrived, with nobody running a command. Check before you
+apply anything:
+
+```bash
+kubectl --kubeconfig <HUB> -n platform-capi get clusterclass spokepool-v1 \
+  -o jsonpath='{.spec.controlPlane.ref.name}{"\n"}'
+```
+
+The **Secret** is the part nothing reconciles. It is deliberately absent from that
+kustomization because it carries key material, per cluster, sourced from the escrow
+(see the comment in `base/kustomization.yaml`). That is what the command below
+writes, and it is all it writes.
+
+**Run it against the MANAGEMENT cluster, including for a workload cluster.**
+`platform-capi` and every CAPI object live on the hub; `--cluster` names whose key it
+is, `--kubeconfig` says where CAPI lives. Pointing it at the spoke fails with
+`namespaces "platform-capi" not found`.
 
 Confirm first that the CLI you are about to run carries v3 and not the argument:
 
@@ -214,7 +234,9 @@ actually replaced.
 
 ## 4. Adopt the argument (phase 2, v4)
 
-One line, and it is the line that can break the cluster:
+**Written and in the tree as of 2026-10-05.** Both classes carry
+`spokepool-control-plane-v4` / `hetzner-mgmt-control-plane-v4` with the one line v3
+withheld:
 
 ```yaml
 apiServer:
@@ -222,15 +244,31 @@ apiServer:
     encryption-provider-config: /etc/kubernetes/enc/enc.yaml
 ```
 
-added to the control-plane template, under a **new template name** (`-v4`), because
-the spec of a template a Cluster references is immutable or effectively so — an edit
-the webhook rejects leaves ArgoCD wedged on a resource it can neither apply nor drop.
-Then release, so the CLI embeds it, and run `soloz encryption enable` again exactly
-as in step 1.
+A new template NAME, not an edit: the spec of a template a Cluster references is
+immutable or effectively so, and an edit the webhook rejects leaves ArgoCD wedged on a
+resource it can neither apply nor drop.
 
-`cmd/soloz/encryption_test.go` asserts the argument is ABSENT. That assertion is the
-recorded phase boundary: updating it is part of this step, deliberately, so the
-change cannot happen by accident.
+`cmd/soloz/encryption_test.go` used to assert the argument was ABSENT. Flipping that
+assertion was the recorded phase boundary, deliberately a code change so the boundary
+could not move by accident. It now requires the argument, the mount and the
+per-cluster Secret name together — the argument without the mount is an API server
+that cannot see a file that exists, and the argument without the Secret is a node that
+never finishes bootstrapping.
+
+**How it reaches each cluster differs, and this is where the two classes part ways:**
+
+| | delivery | what adopts v4 |
+|---|---|---|
+| workload cluster | `manifests/providers/<provider>`, synced by ArgoCD | **publishing and promoting a bundle**; the roll starts on sync |
+| management cluster | the CLI's embedded assets, synced by nothing | `soloz encryption enable --cluster <hub> --kubeconfig <HUB> --apply-class` |
+
+So a spoke adopts v4 by release. The hub's class is reconciled by nothing — it is
+applied once at Day-0 and never again — so `--apply-class` is the only way it ever
+changes, and its live state can differ from the repository with nothing reporting it.
+
+**Do the spoke first and finish step 6 on it before touching the hub.** A failed roll
+on a workload cluster leaves the management plane up to repair it; the reverse does
+not hold.
 
 ## 5. Roll the control plane (second roll)
 

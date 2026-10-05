@@ -29,30 +29,24 @@ func TestBothClusterClassesAreReachable(t *testing.T) {
 	}
 }
 
-func TestBothClassesDeliverTheProviderConfigButDoNotYetRequireIt(t *testing.T) {
-	// THE v3 CONTRACT, AND THIS TEST IS WHERE IT IS RECORDED.
+func TestBothClassesDeliverTheProviderConfigAndNowRequireIt(t *testing.T) {
+	// THE v4 CONTRACT. This test asserted the argument's ABSENCE until 2026-10-05,
+	// and flipping it is the recorded phase change -- deliberately a code change, so
+	// the boundary could not move by accident.
 	//
-	// At-rest encryption needs three things on a control-plane node: the key as a
-	// Secret, the file mounted into the API server's static pod, and the
-	// `encryption-provider-config` argument that makes the API server read it. The
-	// argument is the one that can break the cluster -- a path it cannot read is a
-	// control plane that does not start -- and it only takes effect when a node is
-	// replaced.
+	// What cleared it: the v3 roll on nutgraf-01 replaced the control-plane node, the
+	// node self-assigned providerID hcloud://168731792 with no manual patch, and
+	// /etc/kubernetes/enc/enc.yaml was present as root-owned 0600 listing secretbox
+	// (key1) before identity. The render was observed on a real replaced node before
+	// any API server was made to depend on it, which is what v3 existed to buy.
 	//
-	// v2 shipped all three at once, so the first evidence that the file had rendered
-	// correctly would have been an API server that came up, or one that did not. v3
-	// ships the mount and the file and NOTHING THAT READS THEM: a node that comes up
-	// with the file missing or misnamed is an ordinary healthy node, and `ls` on it is
-	// the evidence. The argument arrives in v4.
-	//
-	// So the argument's ABSENCE is asserted. When v4 lands, this test is the thing
-	// that has to be updated, which is the point: the phase change is deliberate and
-	// recorded here rather than discovered during a roll.
-	// See docs/runbooks/encrypt-secrets-at-rest.md.
-	argLine := regexp.MustCompile(`(?m)^\s*encryption-provider-config:\s*\S`)
+	// All three pieces are now required together, and that triple is the point: the
+	// argument without the mount is an API server that cannot see a file that exists;
+	// the argument without a per-cluster Secret is a node that never finishes
+	// bootstrapping; the mount and Secret without the argument is v3, which encrypts
+	// nothing.
+	argLine := regexp.MustCompile(`(?m)^\s*encryption-provider-config:\s*/etc/kubernetes/enc/enc\.yaml\s*$`)
 	mountLine := regexp.MustCompile(`(?m)^\s*mountPath:\s*/etc/kubernetes/enc\s*$`)
-	// The name the control plane READS. Built inside CAPI from the cluster's own name,
-	// because a ClusterClass is shared by every cluster of its class.
 	perCluster := `"name": "{{ .builtin.cluster.name }}` + assets.EncryptionSecretName("")
 
 	for _, path := range []string{defaultHubClass, defaultSpokeClass} {
@@ -62,14 +56,14 @@ func TestBothClassesDeliverTheProviderConfigButDoNotYetRequireIt(t *testing.T) {
 		}
 		text := string(body)
 
-		if argLine.MatchString(text) {
-			t.Errorf("%q sets encryption-provider-config. v3 deliberately omits it so the file "+
-				"can be verified on a real node before the API server depends on it. If this is "+
-				"the v4 change, update this test and the runbook together", path)
+		if !argLine.MatchString(text) {
+			t.Errorf("%q does not set encryption-provider-config, so adopting it rolls the "+
+				"control plane and encrypts nothing -- the most expensive possible no-op", path)
 		}
 		if !mountLine.MatchString(text) {
-			t.Errorf("%q does not mount /etc/kubernetes/enc into the API server; it runs as a "+
-				"static pod and cannot see a path kubeadm does not mount", path)
+			t.Errorf("%q does not mount /etc/kubernetes/enc into the API server. With the "+
+				"argument set and no mount, the API server fails to start on a file that "+
+				"EXISTS on the node, which reads as a missing file rather than a missing mount", path)
 		}
 		if !strings.Contains(text, perCluster) {
 			t.Errorf("%q does not deliver the provider configuration under a per-cluster name "+
@@ -147,5 +141,36 @@ func TestTheProviderConfigTemplateRendersBothProvidersInOrder(t *testing.T) {
 	}
 	if providers[1] != "identity" {
 		t.Fatalf("provider order is %v; the plaintext provider must be second so existing reads still succeed", providers)
+	}
+}
+
+func TestTheClusterClassIsNotAppliedByDefault(t *testing.T) {
+	// THE DEFECT THIS PINS. The command applied the ClusterClass unconditionally, on
+	// the belief that nothing reconciled it. ArgoCD's infrastructure-provider
+	// ApplicationSet syncs manifests/providers/<provider>, whose kustomization pulls
+	// in base/ and with it the spoke ClusterClass -- so promoting a bundle puts the
+	// class on the box, and 0.1.16-rc.142 did exactly that with nobody running this
+	// command.
+	//
+	// Applying it from here makes the CLI a second writer for a GitOps-owned object.
+	// Byte-identical content hides it; the day the two disagree, whoever ran last
+	// wins until the next sync, which reverts it and says nothing.
+	//
+	// Asserted on the FLAG's default rather than by running the command, because the
+	// apply path needs a cluster. The flag is the decision; --apply-class exists only
+	// for a Day-0 bootstrap cluster that has no ArgoCD yet.
+	cmd := newEncryptionCmd()
+	sub, _, err := cmd.Find([]string{"enable"})
+	if err != nil {
+		t.Fatalf("finding `enable`: %v", err)
+	}
+	f := sub.Flags().Lookup("apply-class")
+	if f == nil {
+		t.Fatal("--apply-class is gone; if applying the class became unconditional again, " +
+			"the CLI is a second writer for an object ArgoCD syncs")
+	}
+	if f.DefValue != "false" {
+		t.Fatalf("--apply-class defaults to %q, so the CLI applies a GitOps-owned "+
+			"ClusterClass unless told not to; it must be opt-in", f.DefValue)
 	}
 }

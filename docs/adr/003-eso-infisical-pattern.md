@@ -351,8 +351,15 @@ on the management cluster that every other cluster is repaired from.
 
 So **v3** delivers the mount and the file and nothing that reads them, and **v4**
 adds the argument once a replaced node has been inspected. Two rolls, and two
-releases, because `soloz encryption enable` applies the ClusterClass from the CLI's
-embedded assets.
+releases — the releases because the class is **synced**: ArgoCD's
+`infrastructure-provider` ApplicationSet carries `manifests/providers/<provider>`, so
+promoting a bundle is what puts a template on a cluster and begins the roll.
+
+The **key Secret** is the one piece outside that path, deliberately: it is per
+cluster and escrow-sourced, so it is written once by `soloz encryption enable` and
+reconciled by nothing. The split matters because it decides who the writer is — an
+earlier draft of this section had the class applied by the CLI, which would have made
+the CLI a second writer for a GitOps-owned object.
 
 **The key is per cluster, so its delivery object is too.** The Secret is
 `<cluster>-encryption-config`. A ClusterClass is shared by every cluster of its

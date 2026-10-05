@@ -15,14 +15,43 @@ stringData:
   ccm.yaml: |
     ---
     # Source: ccm-hetzner/templates/pdb.yaml
+    #
+    # DIVERGES FROM THE CHART OUTPUT ABOVE, DELIBERATELY: maxUnavailable: 1, not
+    # minAvailable: 1.
+    #
+    # The upstream chart ships `minAvailable: 1` beside `replicas: 1`, and that
+    # combination makes the pod PERMANENTLY UN-EVICTABLE. Evicting the only replica
+    # would take availability below minAvailable, so the eviction API refuses it with
+    # 429 forever. `kubectl drain` does not fail -- it retries, indefinitely.
+    #
+    # On a spoke that is exactly a control-plane roll that never finishes. Observed on
+    # nutgraf-01 on 2026-10-05: the v3 roll replaced the control-plane node correctly,
+    # the new node came up Ready and self-assigned its providerID, and then the OLD
+    # Machine sat in `Deleting` draining kube-system/ccm-ccm-hetzner with nothing to
+    # time out. The roll had already succeeded; it just could not finish.
+    #
+    # A single-replica controller has no availability for a PDB to protect. What a PDB
+    # is for is bounding SIMULTANEOUS disruption, and maxUnavailable: 1 expresses that
+    # without forbidding the one eviction a drain needs. With more than one replica it
+    # still protects; with one it permits exactly the single eviction.
+    #
+    # The CCM is a leader-elected reconciler, not a request path: it initialises Nodes
+    # and reconciles LoadBalancers. Seconds of unavailability while it reschedules cost
+    # nothing. A control plane that cannot be rolled costs every future change to it,
+    # including the v4 encryption argument (ADR-003 section 6).
+    #
+    # NOT RETROACTIVE. This ClusterResourceSet has no `strategy`, so it is CAPI's
+    # default ApplyOnce: the template is applied when a cluster is created and never
+    # again. Editing this file fixes every FUTURE spoke. An existing spoke keeps the
+    # old PDB and has to be corrected in place -- which is why the live patch on
+    # nutgraf-01 is a one-off and not a substitute for this change.
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
       name: ccm-ccm-hetzner
       namespace: kube-system
     spec:
-      minAvailable: 1
-      maxUnavailable:
+      maxUnavailable: 1
       selector:
         matchLabels:
           app.kubernetes.io/name: ccm-hetzner

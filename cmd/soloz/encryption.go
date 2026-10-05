@@ -22,6 +22,7 @@ var (
 	encKubeconfig  string
 	encContext     string
 	encClassFile   string
+	encApplyClass  bool
 	encDryRun      bool
 )
 
@@ -60,10 +61,38 @@ func newEncryptionEnableCmd() *cobra.Command {
 		Short: "Put the at-rest encryption key and control-plane template on an existing cluster",
 		Long: `Deliver what at-rest encryption needs to a cluster that already exists.
 
-Two things are applied: the Secret the control plane reads its encryption provider
-configuration from, and the ClusterClass carrying the template that references it.
-Applying the template rolls the control plane, because an API server argument only
-takes effect on a process start.
+ONE thing is applied: the Secret the control plane reads its encryption provider
+configuration from. It is per cluster, sourced from that cluster's escrow, and
+nothing reconciles it -- which is why this command exists.
+
+THE CLUSTERCLASS IS NOT APPLIED BY DEFAULT, AND THE TWO CLASSES DIFFER:
+
+  a WORKLOAD cluster's    manifests/providers/<provider>, synced by ArgoCD's
+                          infrastructure-provider ApplicationSet. Promoting a bundle
+                          puts it on the box. Applying it from here would make the
+                          CLI a second writer for a GitOps-owned object.
+
+  the MANAGEMENT cluster's  internal/assets/manifests/classes/, embedded in this
+                            binary and synced by NOTHING. It is applied once at Day-0
+                            and never reconciled, so --apply-class is the only way it
+                            ever changes -- and its live state can differ from the
+                            repository with nothing reporting it.
+
+So: no flag for a spoke, --apply-class for the hub.
+
+Adopting a new template ROLLS THE CONTROL PLANE -- each node is replaced, because
+the file and the mount are part of a node's bootstrap and nothing rewrites them in
+place. That roll is triggered by the sync, not by this command.
+
+RUN THIS AGAINST THE MANAGEMENT CLUSTER, for any cluster. The Secret lives in
+platform-capi beside the CAPI objects, which are on the hub even for a workload
+cluster -- --cluster names whose key it is, --kubeconfig says where CAPI lives.
+
+IT IS TWO PHASES. The template adopted here (v3) delivers the file and the mount and
+nothing that READS them, so a node that comes up with the file missing or misnamed is
+an ordinary healthy node you can inspect. The 'encryption-provider-config' argument --
+which makes the API server REQUIRE the file, and refuse to start without it -- arrives
+in v4, after a replaced node has been checked. Each phase is a separate roll.
 
 The key is restored from the escrow when one holds it and generated otherwise. A
 generated key is escrowed before anything is applied: a cluster encrypting etcd with
@@ -76,6 +105,10 @@ again -- are not performed here and are not optional.`,
 		RunE: runEncryptionEnable,
 	}
 	f := cmd.Flags()
+	f.BoolVar(&encApplyClass, "apply-class", false,
+		"also apply the ClusterClass. REQUIRED for the management cluster, whose class nothing "+
+			"syncs, and for a bootstrap cluster that has no ArgoCD yet. NOT needed for a workload "+
+			"cluster: ArgoCD's infrastructure-provider ApplicationSet already carries that class")
 	f.StringVar(&encClusterName, "cluster", "", "cluster name; the escrow is scoped to it (required)")
 	f.StringVar(&encNamespace, "namespace", "platform-capi", "namespace the control plane reads the Secret from")
 	f.StringVar(&encKubeconfig, "kubeconfig", "", "kubeconfig to apply through")
@@ -205,24 +238,52 @@ func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
 	// Two accessors rather than one because the two trees are embedded separately:
 	// the CLI's own assets, and the platform manifests packaged for shipping. A
 	// single read would silently miss whichever tree it did not look in.
-	classFile := encClassFile
-	if classFile == "" {
-		classFile = defaultHubClass
-	}
-	classOut, err := readClusterClass(classFile)
-	if err != nil {
-		return fmt.Errorf("reading the ClusterClass %q: %w", classFile, err)
-	}
-
-	// The Secret BEFORE the template that references it. A control plane whose
-	// provider configuration Secret does not exist cannot start, and the template is
-	// what makes a node ask for it.
+	// The Secret BEFORE anything that references it. A control plane whose provider
+	// configuration Secret does not exist cannot start -- and under v3 the Secret is
+	// what a node's bootstrap data is rendered FROM, so a missing one stalls the
+	// KubeadmConfig rather than the API server.
 	stages := []struct {
 		what string
 		body []byte
 	}{
 		{fmt.Sprintf("provider configuration Secret in %s", encNamespace), secretOut.Bytes()},
-		{fmt.Sprintf("ClusterClass from %s", classFile), classOut},
+	}
+
+	// THE CLUSTERCLASS IS NOT APPLIED BY DEFAULT, BECAUSE ARGOCD ALREADY OWNS IT.
+	//
+	// This command used to apply it unconditionally, on the belief that nothing
+	// reconciled it. That was wrong, and wrong in a way that took a failed task to
+	// surface: the `infrastructure-provider` ApplicationSet (boundary 03) syncs
+	// `manifests/providers/<provider>`, whose kustomization pulls in base/ and with
+	// it spokepool-clusterclass-v1.yaml. A published and promoted bundle therefore
+	// puts the class on the box by itself -- 0.1.16-rc.142 is how
+	// spokepool-control-plane-v3 arrived, with nobody running this command.
+	//
+	// Applying it from here makes the CLI a second writer for a GitOps-owned
+	// object. Harmless while the content is byte-identical, and exactly the kind of
+	// drift that is invisible until the two disagree: whoever ran this last wins
+	// until the next sync, and the sync is silent about having reverted it.
+	//
+	// So the only thing this command owns is the SECRET, which is deliberately not
+	// in that kustomization (it carries key material sourced from the escrow, per
+	// cluster; see the comment in base/kustomization.yaml).
+	//
+	// --apply-class remains for the one case with no ArgoCD to do it: the temporary
+	// bootstrap cluster at Day-0, before the management cluster and its
+	// ApplicationSets exist.
+	if encApplyClass {
+		classFile := encClassFile
+		if classFile == "" {
+			classFile = defaultHubClass
+		}
+		classOut, err := readClusterClass(classFile)
+		if err != nil {
+			return fmt.Errorf("reading the ClusterClass %q: %w", classFile, err)
+		}
+		stages = append(stages, struct {
+			what string
+			body []byte
+		}{fmt.Sprintf("ClusterClass from %s", classFile), classOut})
 	}
 
 	for _, st := range stages {

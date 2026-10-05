@@ -8,7 +8,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: hetzner-mgmt-control-plane-v3
+      name: hetzner-mgmt-control-plane-v4
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -386,7 +386,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 # material live: see docs/runbooks/encrypt-secrets-at-rest.md.
 kind: KubeadmControlPlaneTemplate
 metadata:
-  name: hetzner-mgmt-control-plane-v3
+  name: hetzner-mgmt-control-plane-v4
   namespace: platform-capi
 spec:
   template:
@@ -396,22 +396,26 @@ spec:
           apiServer:
             extraArgs:
               cloud-provider: external
-              # NO encryption-provider-config HERE, AND THAT IS v3's WHOLE POINT.
+              # Kubernetes Secrets are encrypted at rest (ADR-003 section 6).
               #
-              # The argument is what makes the API server REQUIRE the file, and a path
-              # it cannot read is a control plane that does not start. On THIS cluster
-              # that is the management plane: the thing every other cluster is
-              # repaired from. v2 shipped the argument and the file together, so the
-              # first evidence the file had rendered correctly would have been an API
-              # server that came up — or one that did not.
+              # THIS IS THE LINE v3 DELIBERATELY WITHHELD, and on this cluster it is
+              # the riskiest line in the file: it makes the API server REQUIRE
+              # /etc/kubernetes/enc/enc.yaml, and a management plane that does not
+              # start is the thing every other cluster is repaired from.
               #
-              # v3 delivers the mount and the file and nothing that reads them. The
-              # argument arrives in v4, after a real node has been inspected, as a
-              # one-line change to this block
-              # (docs/runbooks/encrypt-secrets-at-rest.md).
+              # The spoke cleared the v3 gate first, on 2026-10-05, which is the whole
+              # reason this is acceptable here: the render was observed on a real
+              # replaced node before any API server depended on it.
               #
-              # The hub goes SECOND, after the spoke. A failed roll on a workload
+              # THE HUB STILL GOES SECOND. Roll the spoke to v4 and confirm encrypted
+              # writes in etcd BEFORE adopting this class. A failed roll on a workload
               # cluster leaves this cluster up to repair it; the reverse does not hold.
+              #
+              # And unlike the spoke's, THIS class is synced by nothing -- it lives in
+              # the CLI's embedded assets and reaches a cluster only through
+              # `soloz encryption enable --apply-class`. Promoting a bundle does not
+              # adopt it.
+              encryption-provider-config: /etc/kubernetes/enc/enc.yaml
               oidc-issuer-url: https://auth.dev.nutgraf.in
               oidc-client-id: d32a30f0-f2b1-4a11-b3e9-d1e0aec4af6d
               oidc-username-claim: email

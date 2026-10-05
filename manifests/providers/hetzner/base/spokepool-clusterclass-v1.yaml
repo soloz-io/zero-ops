@@ -9,7 +9,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: spokepool-control-plane-v3
+      name: spokepool-control-plane-v4
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -365,7 +365,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 # docs/runbooks/encrypt-secrets-at-rest.md.
 kind: KubeadmControlPlaneTemplate
 metadata:
-  name: spokepool-control-plane-v3
+  name: spokepool-control-plane-v4
   namespace: platform-capi
 spec:
   template:
@@ -378,20 +378,24 @@ spec:
           apiServer:
             extraArgs:
               cloud-provider: external
-              # NO encryption-provider-config HERE, AND THAT IS v3's WHOLE POINT.
+              # Kubernetes Secrets are encrypted at rest (ADR-003 section 6).
               #
-              # The argument is what makes the API server REQUIRE the file: a path it
-              # cannot read is a control plane that does not start, and on a workload
-              # cluster that is a cluster nobody can log in to repair. v2 shipped the
-              # argument and the file together, so the first evidence that the file
-              # rendered correctly would have been an API server that came up -- or
-              # one that did not.
+              # THIS IS THE LINE v3 DELIBERATELY WITHHELD. It makes the API server
+              # REQUIRE /etc/kubernetes/enc/enc.yaml: a path it cannot read is a
+              # control plane that does not start. v3 shipped the file and the mount
+              # and nothing that read them, so a wrong render was an ordinary healthy
+              # node instead of a dead API server.
               #
-              # So v3 delivers the mount and the file and nothing that reads them. A
-              # node that comes up with the file missing or misnamed is an ordinary
-              # healthy node, and `ls /etc/kubernetes/enc/` on it is the evidence.
-              # The argument arrives in v4, after that evidence exists, as a one-line
-              # change to this block (docs/runbooks/encrypt-secrets-at-rest.md).
+              # That gate was cleared on nutgraf-01 on 2026-10-05: the v3 roll replaced
+              # the control-plane node, the node self-assigned its providerID, and
+              # /etc/kubernetes/enc/enc.yaml was on it as root-owned 0600, listing
+              # secretbox before identity. The render is proven, so the argument can
+              # depend on it.
+              #
+              # Without it the API server persists Secrets to etcd in plaintext, and
+              # base64 is an encoding -- etcd data, backups and disk snapshots all
+              # disclose every credential on the box.
+              encryption-provider-config: /etc/kubernetes/enc/enc.yaml
             # The API server runs as a static pod, so a path outside the directories
             # kubeadm already mounts is invisible to it. Without this the process
             # fails to start on a file that exists on the node -- which reads as a
