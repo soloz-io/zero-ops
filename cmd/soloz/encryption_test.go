@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
 )
@@ -106,41 +108,82 @@ func TestAMissingClassNamesBothTreesItLookedIn(t *testing.T) {
 	}
 }
 
-func TestTheProviderConfigTemplateRendersBothProvidersInOrder(t *testing.T) {
-	// secretbox first so every WRITE is encrypted; the plaintext provider second so
-	// existing reads still succeed. Reversed, nothing is ever encrypted and the
-	// cluster looks configured.
+// providersOf returns the provider list of a RENDERED configuration, in order.
+//
+// Rendered, not raw. The template now makes the plaintext provider conditional, and a
+// raw-text scan cannot tell a provider that is present from one behind a `{{ if }}`
+// that is false -- it would report `identity` for both settings of the flag and the
+// one assertion that matters would never fail.
+//
+// Comments are stripped, because the header explains WHY the plaintext provider is
+// retained and a naive search finds the word "identity" above the providers and
+// reports an order that is not the file's. That is what the first version of this
+// test did.
+func providersOf(t *testing.T, noFallback bool) []string {
+	t.Helper()
 	body, err := readEncryptionConfigTemplate()
 	if err != nil {
 		t.Fatalf("reading the template: %v", err)
 	}
-
-	// Comments are stripped first. The header explains WHY the plaintext provider is
-	// retained, so a raw string search finds the word "identity" above the providers
-	// and reports an order that is not the file's — which is what the first version of
-	// this test did.
+	tmpl, err := template.New("enc").Parse(string(body))
+	if err != nil {
+		t.Fatalf("parsing the template: %v", err)
+	}
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, map[string]any{
+		"SecretName":          "c-encryption-config",
+		"Namespace":           "platform-capi",
+		"EncryptionKeyB64":    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"NoPlaintextFallback": noFallback,
+	}); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
 	var providers []string
-	for _, line := range strings.Split(string(body), "\n") {
-		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "#") {
+	for _, line := range strings.Split(out.String(), "\n") {
+		tl := strings.TrimSpace(line)
+		if strings.HasPrefix(tl, "#") {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(t, "- secretbox:"):
+		case strings.HasPrefix(tl, "- secretbox:"):
 			providers = append(providers, "secretbox")
-		case strings.HasPrefix(t, "- identity:"):
+		case strings.HasPrefix(tl, "- identity:"):
 			providers = append(providers, "identity")
 		}
 	}
+	return providers
+}
 
-	if len(providers) != 2 {
-		t.Fatalf("expected exactly two providers, got %v", providers)
+func TestByDefaultBothProvidersRenderInOrder(t *testing.T) {
+	// secretbox first so every WRITE is encrypted; the plaintext provider second so
+	// existing reads still succeed. Reversed, nothing is ever encrypted and the
+	// cluster looks configured.
+	got := providersOf(t, false)
+	want := []string{"secretbox", "identity"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("default provider order is %v, want %v -- secretbox must be FIRST or writes "+
+			"are never encrypted, and the plaintext provider must be second or existing reads "+
+			"fail", got, want)
 	}
-	if providers[0] != "secretbox" {
-		t.Fatalf("provider order is %v; secretbox must be FIRST or writes are never encrypted", providers)
+}
+
+func TestTheFallbackIsDroppedONLYWhenAsked(t *testing.T) {
+	// THE IRREVERSIBLE ONE. While identity is in the list, a Secret this migration
+	// missed is still readable and the control is merely partial. Once it is gone that
+	// same Secret is UNREADABLE, and re-adding the fallback cannot decrypt what was
+	// never encrypted -- so this is behind an explicit flag, and the default must stay
+	// the safe direction.
+	got := providersOf(t, true)
+	if len(got) != 1 || got[0] != "secretbox" {
+		t.Fatalf("with --no-plaintext-fallback the providers are %v, want [secretbox]; a "+
+			"plaintext provider surviving that flag means step 9 of the runbook silently does "+
+			"nothing and the control stays partial while reported complete", got)
 	}
-	if providers[1] != "identity" {
-		t.Fatalf("provider order is %v; the plaintext provider must be second so existing reads still succeed", providers)
+
+	// And the default must not be the dangerous one, which is the whole point.
+	if d := providersOf(t, false); len(d) != 2 {
+		t.Fatalf("without the flag the providers are %v; dropping the fallback by default would "+
+			"make every adoption of encryption a data-loss risk on an existing cluster", d)
 	}
 }
 

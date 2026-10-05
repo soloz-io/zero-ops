@@ -30,6 +30,13 @@ key identifier is a version and rotation is the plugin's concern, not a file's.
 Until one of those lands, **the key for a cluster is set once** and a new key means
 a new cluster.
 
+**The concrete path, when it is wanted:** a two-key provider configuration plus
+`--encryption-provider-config-automatic-reload=true` on the API server. Without that
+flag the API server reads the file once at start, which is why every change here costs
+a control-plane roll; with it, a rotation becomes "rewrite the Secret, rewrite every
+Secret, drop the old key" and no node is replaced. It is not set today, and turning it
+on is itself a template change and a roll.
+
 ## Why enabling it is not finishing it
 
 Encryption applies to subsequent writes. Turning the provider on leaves every
@@ -348,7 +355,7 @@ kubectl -n kube-system exec etcd-$NODE -- sh -c '
      --cert /etc/kubernetes/pki/etcd/server.crt
      --key /etc/kubernetes/pki/etcd/server.key"
   total=0; enc=0
-  for k in $(etcdctl $C get /registry/secrets --prefix --keys-only); do
+  for k in $(etcdctl $C get /registry/secrets/ --prefix --keys-only); do
     [ -n "$k" ] || continue
     total=$((total+1))
     case "$(etcdctl $C get "$k")" in
@@ -386,31 +393,100 @@ as a step in the procedure for protecting them. Nothing leaves the node here.
 **No `grep` or `tr` inside the pod either.** The etcd image is minimal and what it
 ships is not guaranteed; `etcdctl` plus shell builtins is.
 
+**THE TRAILING SLASH ON `/registry/secrets/` IS LOAD-BEARING.** Without it the prefix
+also matches every other etcd key beginning with that string, and on this platform
+that includes `/registry/secrets.crossplane.io/storeconfigs/default` — a Crossplane
+CRD, not a core Secret. It reported `total=88 encrypted=87` with one eternal
+`PLAINTEXT` line, so step 8 could never pass and step 9 would be blocked forever by
+an object that is correctly not encrypted.
+
 An earlier version of this step had `etcdctl ...` with the certificate flags elided,
 which is not a command anyone can run.
 
 ## 9. Remove the `identity` fallback
 
-Only now. While `identity` is in the list, a plaintext Secret is still readable, so
-the control is partial and an incomplete step 7 is invisible.
+Only now, and **only after step 8 showed `total` equal to `enc` with no `PLAINTEXT`
+lines**. While `identity` is in the list a missed Secret is still readable and the
+control is merely partial; once it is gone that same Secret is **unreadable**, and
+putting the fallback back cannot decrypt what was never encrypted. This step is not
+reversible by re-running it.
 
-Remove the `identity` entry from the provider configuration in
-the provider configuration and re-apply it, then roll the control plane again
-(step 5). That is a THIRD roll, and it is not optional.
+```bash
+./bin/soloz encryption enable --cluster <cell> --kubeconfig <HUB> \
+  --no-plaintext-fallback
+```
 
-The configuration is written by `soloz encryption enable` from
-`internal/assets/manifests/secrets/secret-encryption-config.yaml`, so removing the
-plaintext provider is an edit to that template followed by another `encryption
-enable`. Nothing reconciles the Secret, which is why this is an explicit step and
-not something that happens on a sync.
+It restores the same key from the escrow and re-renders the Secret with `secretbox`
+alone. It prints what it is about to do, because the consequence is not undoable:
 
-Then re-run step 8. It must still match — **if any Secret was missed, it is now
-unreadable**, which is why step 8 is run twice and why the fallback is removed last.
+```
+[encryption] rendering WITHOUT the identity provider; any Secret still in plaintext
+             will become unreadable once the control plane rolls
+```
+
+**It is a flag and not an edit, deliberately.** This used to say "edit
+`internal/assets/manifests/secrets/secret-encryption-config.yaml` and re-run", which
+changes the template for every cluster the CLI will ever render — including a cluster
+part-way through step 7, where dropping the fallback loses data. The template renders
+the fallback by DEFAULT and omits it only when asked, so the dangerous direction needs
+saying out loud. The caller knows which cluster it is on; the template does not.
+
+Nothing reconciles the Secret, which is why this is an explicit step and not something
+that happens on a sync.
+
+**Then roll the control plane again** — the API server reads the provider
+configuration once at start, and nothing re-reads it
+(`--encryption-provider-config-automatic-reload` is not set; see the rotation note
+near the top). Until that roll completes, the API server is still using the
+configuration it started with, fallback included.
+
+#### Triggering it, and why it is not urgent
+
+**Nothing rolls by itself here.** Only the Secret changed, and CAPI has nothing to
+reconcile for a Secret — the ClusterClass is untouched. That is a gap in this
+procedure and it is stated rather than papered over.
+
+**Do not force it by deleting the Machine or the node.** On a single-replica control
+plane that removes the only API server before a replacement exists, which is the one
+thing the surge-based roll is careful never to do.
+
+The options, honestly:
+
+| | |
+|---|---|
+| let it ride with the next control-plane template change | no extra roll, no risk; the Secret is already correct and the next roll for any reason picks it up |
+| `KubeadmControlPlane.spec.rolloutAfter` | CAPI's own mechanism, but on a **topology-managed** cluster the topology controller owns that object, and whether it preserves a hand-set field on CAPI v1.10 is unverified here. Guessing wrong is either a no-op or a fight with a controller |
+| a no-op template rename purely to force a roll | works, and spends a control-plane replacement on a version bump that changes nothing |
+
+**The first is the recommendation, because the pending roll is hygiene and not an
+open hole.** With step 8 showing every Secret encrypted, `identity` is a READ
+fallback with nothing left to read: it never fires. `secretbox` is first, so every
+write is encrypted regardless. The only way plaintext reappears is an etcd restore
+from a pre-encryption backup — which is precisely the case where the fallback is what
+you want.
+
+So the substantive security outcome is reached at step 8. Removing the fallback is
+defence in depth, and the honest state to record is below.
+
+Then re-run step 8. It must still show `total` equal to `enc` — **if any Secret was
+missed it is now unreadable**, which is why step 8 is run twice and why the fallback
+is removed last.
 
 ## 10. Record it
 
-The finding is closed for this cluster when: the provider is active, step 8's counts
-match, `identity` is gone, and step 8 passed again afterwards. Note the date against
+There are TWO states worth recording separately, because conflating them either
+overclaims or undersells what was done:
+
+| state | reached when | what it means |
+|---|---|---|
+| **encrypted and verified** | the provider is active and step 8 shows `total` equal to `enc` | every credential in this cluster's etcd is ciphertext. This is the audit finding's substance |
+| **fallback removed and verified** | `identity` is gone from the running configuration and step 8 passes again after that roll | a plaintext object could not be read even if one appeared |
+
+The first is the security outcome. The second is defence in depth and may legitimately
+wait for the next control-plane roll rather than buying one.
+
+Record the date of each against the cluster, and record them as different things. A
+cluster rebuilt from an older template is not covered by either. Note the date against
 the cluster; a cluster rebuilt from an older template is not covered.
 
 ## The management cluster
@@ -447,3 +523,15 @@ identity provider's, and every tenant's provisioning material.
 It protects etcd data, etcd backups and disk snapshots. It does **not** protect
 against compromise of a control-plane node — that is what KMS v2 with an external
 key is for, and ADR-003 §6 records what adopting it would still have to decide.
+
+**ONLY `core/v1` SECRETS ARE ENCRYPTED.** The provider configuration names
+`resources: [secrets]`, which is that one resource and nothing else. A CUSTOM
+RESOURCE holding sensitive material is stored in plaintext, and the counts in step 8
+will not mention it — they are scoped to `/registry/secrets/` precisely so unrelated
+resources do not read as failures.
+
+That is a real limit and it is reached on this platform: `secrets.crossplane.io`
+StoreConfigs sit beside the core Secrets in etcd and are not covered. Covering a CRD
+means naming it explicitly, as `storeconfigs.secrets.crossplane.io`, which is a
+decision about that resource rather than a default — so it is recorded here as known
+and not done, instead of being implied by "Secrets are encrypted at rest".

@@ -39,7 +39,14 @@ data:
   enable-gateway-api: 'true'
   enable-gateway-api-secrets-sync: 'true'
   enable-gateway-api-proxy-protocol: 'false'
-  enable-gateway-api-app-protocol: 'false'
+  # Honour a backend Service's appProtocol (GEP-1911). Without it the Gateway's
+  # Envoy speaks HTTP/1.1 to every backend, whatever the Service declares, so a
+  # gRPC backend (zitadel: appProtocol kubernetes.io/h2c) receives the native
+  # gRPC that Envoy's grpc_web filter produces over HTTP/1.1, does not treat it
+  # as gRPC, and answers it as REST: 404 with no gRPC trailers. Browsers then
+  # report "[Unknown] missing trailer" from the Zitadel console (2026-10-05).
+  # Only Services that declare an appProtocol are affected.
+  enable-gateway-api-app-protocol: 'true'
   enable-gateway-api-alpn: 'false'
   gateway-api-xff-num-trusted-hops: '0'
   gateway-api-service-externaltrafficpolicy: Cluster

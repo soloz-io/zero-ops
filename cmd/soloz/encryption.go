@@ -23,6 +23,7 @@ var (
 	encContext     string
 	encClassFile   string
 	encApplyClass  bool
+	encNoFallback  bool
 	encDryRun      bool
 )
 
@@ -105,6 +106,10 @@ again -- are not performed here and are not optional.`,
 		RunE: runEncryptionEnable,
 	}
 	f := cmd.Flags()
+	f.BoolVar(&encNoFallback, "no-plaintext-fallback", false,
+		"render the provider configuration WITHOUT the identity provider. Only after every "+
+			"Secret has been rewritten and verified encrypted in etcd (runbook step 8): any "+
+			"Secret still in plaintext becomes UNREADABLE")
 	f.BoolVar(&encApplyClass, "apply-class", false,
 		"also apply the ClusterClass. REQUIRED for the management cluster, whose class nothing "+
 			"syncs, and for a bootstrap cluster that has no ArgoCD yet. NOT needed for a workload "+
@@ -220,10 +225,18 @@ func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("parsing the provider configuration template: %w", err)
 	}
 	var secretOut bytes.Buffer
-	if err := tmpl.Execute(&secretOut, map[string]string{
-		"SecretName":       assets.EncryptionSecretName(encClusterName),
-		"Namespace":        encNamespace,
-		"EncryptionKeyB64": base64.StdEncoding.EncodeToString(rawKey),
+	if encNoFallback {
+		// Said out loud, because the consequence is not reversible by re-running this
+		// command: a Secret that was missed is unreadable from the next roll onward,
+		// and re-adding the fallback cannot decrypt what was never encrypted.
+		fmt.Println("[encryption] rendering WITHOUT the identity provider; any Secret still in " +
+			"plaintext will become unreadable once the control plane rolls")
+	}
+	if err := tmpl.Execute(&secretOut, map[string]any{
+		"SecretName":          assets.EncryptionSecretName(encClusterName),
+		"Namespace":           encNamespace,
+		"EncryptionKeyB64":    base64.StdEncoding.EncodeToString(rawKey),
+		"NoPlaintextFallback": encNoFallback,
 	}); err != nil {
 		return fmt.Errorf("rendering the provider configuration: %w", err)
 	}
@@ -312,13 +325,39 @@ func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("The control plane will roll to pick up the provider; an API server argument")
-	fmt.Println("only takes effect on a process start. Wait for every control-plane node to be")
-	fmt.Println("replaced and Ready, then continue from step 3 of")
-	fmt.Println("docs/runbooks/encrypt-secrets-at-rest.md.")
+	// WHAT HAPPENS NEXT DEPENDS ON WHAT WAS ACTUALLY APPLIED, and this used to claim
+	// one thing unconditionally.
+	//
+	// It said "The control plane will roll to pick up the provider" after every run.
+	// That is only true when the CLASS changed; this command's default applies the
+	// SECRET alone, and CAPI has nothing to roll for a Secret. It also pointed at
+	// "step 3 / step 4 / step 5" of a runbook that has since been restructured to ten
+	// steps, and it told the operator "the plaintext fallback is still in force" on
+	// the very run whose purpose was removing it. Three statements, all wrong at the
+	// moment they were read, in the middle of a procedure.
 	fmt.Println()
-	fmt.Println("Encryption applies to writes. Until step 4 has rewritten every existing Secret")
-	fmt.Println("and step 5 has confirmed it by reading etcd, this cluster is PARTIALLY covered")
-	fmt.Println("and the plaintext fallback is still in force.")
+	if encApplyClass {
+		fmt.Println("The ClusterClass changed, so THE CONTROL PLANE WILL ROLL. An API server")
+		fmt.Println("argument only takes effect on a process start. Wait for every control-plane")
+		fmt.Println("node to be replaced and Ready before continuing.")
+	} else {
+		fmt.Println("ONLY THE SECRET CHANGED, SO NOTHING ROLLS BY ITSELF. The API server reads")
+		fmt.Println("this configuration once at start and nothing re-reads it")
+		fmt.Println("(--encryption-provider-config-automatic-reload is not set), so the running")
+		fmt.Println("control plane is still using the configuration it started with.")
+	}
+	fmt.Println()
+	if encNoFallback {
+		fmt.Println("The plaintext fallback is gone from the configuration, and it takes effect")
+		fmt.Println("on the next control-plane roll -- not now. Re-run runbook step 8 after that")
+		fmt.Println("roll: if any Secret was missed it is UNREADABLE from that point, which is")
+		fmt.Println("why step 8 is run on both sides of this change.")
+	} else {
+		fmt.Println("Encryption applies to WRITES. Until step 7 has rewritten every existing")
+		fmt.Println("Secret and step 8 has confirmed it by reading etcd, this cluster is")
+		fmt.Println("PARTIALLY covered and the plaintext fallback is still in force.")
+	}
+	fmt.Println()
+	fmt.Println("Procedure: docs/runbooks/encrypt-secrets-at-rest.md")
 	return nil
 }
