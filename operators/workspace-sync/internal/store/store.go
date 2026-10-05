@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -296,13 +297,47 @@ func FromEnv() (Config, error) {
 	return c, nil
 }
 
+// Bounds on every object-storage call.
+//
+// minio-go's defaults are a 1-minute response-header timeout per attempt and 10
+// attempts, every timeout retryable. One stalled call therefore held a save --
+// and the snapshot lock every on-demand /checkpoint waits on -- for 8m33s while
+// the endpoint answered other requests in about a second (2026-10-05). The
+// bounds below make a stalled attempt fail fast, retry it a few times, and give
+// up on the call, so a save fails in about a minute instead of hanging.
+const (
+	// attemptHeaderTimeout: a request whose response headers have not arrived
+	// in this long is abandoned and retried. Healthy calls answer in ~1s.
+	attemptHeaderTimeout = 15 * time.Second
+	// attemptDialTimeout: opening a connection.
+	attemptDialTimeout = 10 * time.Second
+	// callRetries: attempts per call, retries included.
+	callRetries = 3
+	// callBaseBudget: the whole call, all attempts, for a small object. Larger
+	// bodies get callPerMiB more per MiB, so a legitimately big upload is not
+	// cut short by a bound meant for stalls.
+	callBaseBudget = 60 * time.Second
+	callPerMiB     = time.Second
+	// slowCall: a call at least this slow is logged, so the next stall names
+	// the call and the object instead of appearing only as a long total.
+	slowCall = 5 * time.Second
+)
+
 func New(cfg Config) (*Store, error) {
 	ep := strings.TrimPrefix(strings.TrimPrefix(cfg.Endpoint, "https://"), "http://")
 	secure := !strings.HasPrefix(cfg.Endpoint, "http://")
+	tr, err := minio.DefaultTransport(secure)
+	if err != nil {
+		return nil, fmt.Errorf("object store transport: %w", err)
+	}
+	tr.ResponseHeaderTimeout = attemptHeaderTimeout
+	tr.DialContext = (&net.Dialer{Timeout: attemptDialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	c, err := minio.New(ep, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: secure,
-		Region: cfg.Region,
+		Creds:      credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure:     secure,
+		Region:     cfg.Region,
+		Transport:  tr,
+		MaxRetries: callRetries,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("object store client: %w", err)
@@ -444,6 +479,9 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	// archive rather than of those files. Attributing the cost needs the
 	// phases separated, so they are.
 	tStart := time.Now()
+	// Logged at the START as well as the end: a save that stalls was invisible
+	// until it finished, so the 8m33s one left no line for eight minutes.
+	log.Printf("checkpoint %s starting (trigger=%s)", m.ID, trigger)
 	var uploadedFiles, dedupedFiles int
 	var uploadedBytes int64
 
@@ -557,9 +595,12 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.c.PutObject(ctx, s.bucket, s.manifestKey(m.ID),
-		strings.NewReader(string(body)), int64(len(body)),
-		minio.PutObjectOptions{ContentType: "application/json"}); err != nil {
+	if err := s.call(ctx, "put-manifest", s.manifestKey(m.ID), int64(len(body)), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.manifestKey(m.ID),
+			strings.NewReader(string(body)), int64(len(body)),
+			minio.PutObjectOptions{ContentType: "application/json"})
+		return err
+	}); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
 	if err := s.setLatest(ctx, m.ID); err != nil {
@@ -716,14 +757,12 @@ func (s *Store) Prune(ctx context.Context) error {
 	ids, doomed := planRetention(all, s.keep, s.pinnedCheckpoints)
 	if len(doomed) > 0 {
 		for _, id := range doomed {
-			if err := s.c.RemoveObject(ctx, s.bucket, s.manifestKey(id),
-				minio.RemoveObjectOptions{}); err != nil {
+			if err := s.remove(ctx, s.manifestKey(id)); err != nil {
 				return fmt.Errorf("remove manifest %s: %w", id, err)
 			}
 			// The archive may legitimately be absent — archive creation is
 			// best-effort — so a failure here is not fatal to the prune.
-			if err := s.c.RemoveObject(ctx, s.bucket, s.checkpointArchiveKey(id),
-				minio.RemoveObjectOptions{}); err != nil {
+			if err := s.remove(ctx, s.checkpointArchiveKey(id)); err != nil {
 				log.Printf("retention: could not remove archive for %s: %v", id, err)
 			}
 		}
@@ -759,7 +798,7 @@ func (s *Store) Prune(ctx context.Context) error {
 		if _, ok := live[hash]; ok {
 			continue
 		}
-		if err := s.c.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err := s.remove(ctx, obj.Key); err != nil {
 			return fmt.Errorf("remove object %s: %w", hash, err)
 		}
 		removed++
@@ -779,7 +818,10 @@ func (s *Store) Prune(ctx context.Context) error {
 // the cost of a checkpoint from the cost of its dedup.
 func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) (bool, error) {
 	key := s.objectKey(hash)
-	if _, err := s.c.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{}); err == nil {
+	if err := s.call(ctx, "stat-object", key, 0, func(ctx context.Context) error {
+		_, err := s.c.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+		return err
+	}); err == nil {
 		return false, nil
 	}
 	f, err := os.Open(path)
@@ -787,7 +829,10 @@ func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) 
 		return false, err
 	}
 	defer f.Close()
-	if _, err := s.c.PutObject(ctx, s.bucket, key, f, size, minio.PutObjectOptions{}); err != nil {
+	if err := s.call(ctx, "put-object", key, size, func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, key, f, size, minio.PutObjectOptions{})
+		return err
+	}); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -796,8 +841,11 @@ func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) 
 const latestPointer = "/checkpoints/LATEST"
 
 func (s *Store) setLatest(ctx context.Context, id string) error {
-	_, err := s.c.PutObject(ctx, s.bucket, s.prefix+latestPointer,
-		strings.NewReader(id), int64(len(id)), minio.PutObjectOptions{ContentType: "text/plain"})
+	err := s.call(ctx, "put-latest", s.prefix+latestPointer, int64(len(id)), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.prefix+latestPointer,
+			strings.NewReader(id), int64(len(id)), minio.PutObjectOptions{ContentType: "text/plain"})
+		return err
+	})
 	return err
 }
 
@@ -970,9 +1018,11 @@ func (s *Store) UploadArchive(ctx context.Context, archivePath string) error {
 		return fmt.Errorf("open archive: %w", err)
 	}
 	defer f.Close()
-	_, err = s.c.PutObject(ctx, s.bucket, s.archiveKey(), f, info.Size(),
-		minio.PutObjectOptions{ContentType: "application/x-squashfs"})
-	return err
+	return s.call(ctx, "put-archive", s.archiveKey(), info.Size(), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.archiveKey(), f, info.Size(),
+			minio.PutObjectOptions{ContentType: "application/x-squashfs"})
+		return err
+	})
 }
 
 // UploadCheckpointArchive uploads a squashfs archive for a specific checkpoint,
@@ -987,9 +1037,11 @@ func (s *Store) UploadCheckpointArchive(ctx context.Context, checkpointID, archi
 		return fmt.Errorf("open archive: %w", err)
 	}
 	defer f.Close()
-	_, err = s.c.PutObject(ctx, s.bucket, s.checkpointArchiveKey(checkpointID), f, info.Size(),
-		minio.PutObjectOptions{ContentType: "application/x-squashfs"})
-	return err
+	return s.call(ctx, "put-checkpoint-archive", s.checkpointArchiveKey(checkpointID), info.Size(), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.checkpointArchiveKey(checkpointID), f, info.Size(),
+			minio.PutObjectOptions{ContentType: "application/x-squashfs"})
+		return err
+	})
 }
 
 // DownloadArchive downloads the squashfs archive from S3 to archivePath.
@@ -1127,4 +1179,41 @@ func toSet(items []string) map[string]struct{} {
 		set[i] = struct{}{}
 	}
 	return set
+}
+
+// callBudget is the bound on one storage call, all attempts included: a base
+// for the round trips plus time in proportion to the body.
+func callBudget(size int64) time.Duration {
+	return callBaseBudget + time.Duration(size/(1<<20))*callPerMiB
+}
+
+// call runs one object-storage operation under its own deadline, and logs it
+// when it is slow or fails -- by operation and object, so a stall is named
+// where it happens rather than inferred from a long total. Only for calls that
+// complete inside fn: a lazy GetObject would be cancelled with its stream.
+func (s *Store) call(ctx context.Context, op, key string, size int64, fn func(context.Context) error) error {
+	cctx, cancel := context.WithTimeout(ctx, callBudget(size))
+	defer cancel()
+	start := time.Now()
+	err := fn(cctx)
+	d := time.Since(start).Round(time.Millisecond)
+	switch {
+	case err != nil && !isNotFound(err):
+		log.Printf("storage %s %s failed after %s: %v", op, key, d, err)
+	case d >= slowCall:
+		log.Printf("storage %s %s slow: %s", op, key, d)
+	}
+	return err
+}
+
+func (s *Store) remove(ctx context.Context, key string) error {
+	return s.call(ctx, "remove", key, 0, func(ctx context.Context) error {
+		return s.c.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+	})
+}
+
+// isNotFound: a StatObject miss is how dedup learns an object must be uploaded,
+// so it is the expected answer for every new file, not a failure worth a line.
+func isNotFound(err error) bool {
+	return minio.ToErrorResponse(err).Code == "NoSuchKey"
 }

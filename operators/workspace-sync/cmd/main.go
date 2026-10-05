@@ -517,32 +517,106 @@ func runServe(root string) error {
 	// serialises the snapshots themselves. That serialisation is the point as
 	// much as the field is: two concurrent walks of the same tree would upload
 	// interleaved views of it and race to claim the same parent.
+	//
+	// A one-slot semaphore, not a sync.Mutex, because a waiter must be able to
+	// give up. With a mutex an on-demand /checkpoint queued silently behind a
+	// stalled periodic save -- 8m33s on 2026-10-05 -- and its caller timed out
+	// with no answer; the shutdown save waited the same way, outside its budget.
+	// A waiter now stops at its own bound and is told what holds the slot.
 	var (
-		mu   sync.Mutex
-		last string
+		slot     = make(chan struct{}, 1)
+		stateMu  sync.Mutex // guards the fields below
+		last     string
+		current  *saveState // the save holding the slot, if any
+		lastDone *saveState // the most recent save to finish
 	)
 
-	snapshotCtx := func(ctx context.Context, name, desc, trigger string) (*store.Manifest, error) {
+	// acquire takes the slot, waiting at most `wait` (negative: until ctx ends).
+	acquire := func(ctx context.Context, wait time.Duration) error {
+		var timeout <-chan time.Time
+		if wait >= 0 {
+			t := time.NewTimer(wait)
+			defer t.Stop()
+			timeout = t.C
+		}
+		select {
+		case slot <- struct{}{}:
+			return nil
+		case <-timeout:
+			return errSaveInProgress
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %v", errSaveInProgress, ctx.Err())
+		}
+	}
+	release := func() { <-slot }
+
+	// busy describes the slot's holder and the last finished save, for a caller
+	// that could not get it.
+	busy := func() map[string]any {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		out := map[string]any{"error": "a save is in progress; retry when it completes"}
+		if current != nil {
+			out["inProgress"] = current.view()
+		}
+		if lastDone != nil {
+			out["lastCompleted"] = lastDone.view()
+		}
+		return out
+	}
+
+	snapshotCtx := func(ctx context.Context, name, desc, trigger string, wait time.Duration) (*store.Manifest, error) {
 		if s == nil {
 			return nil, store.ErrNotConfigured
 		}
-		mu.Lock()
-		defer mu.Unlock()
-		m, err := s.Snapshot(ctx, root, name, desc, trigger, last)
-		if err != nil {
+		if err := acquire(ctx, wait); err != nil {
 			return nil, err
 		}
-		last = m.ID
-		return m, nil
+		defer release()
+
+		stateMu.Lock()
+		current = &saveState{Trigger: trigger, Since: time.Now()}
+		parent := last
+		stateMu.Unlock()
+
+		m, err := s.Snapshot(ctx, root, name, desc, trigger, parent)
+
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		done := *current
+		done.Finished = time.Now()
+		switch {
+		case err == nil:
+			last = m.ID
+			done.CheckpointID, done.Outcome = m.ID, "saved"
+		case errors.Is(err, store.ErrUnchanged), errors.Is(err, store.ErrNothingToSave):
+			done.Outcome = "skipped"
+		default:
+			done.Outcome = "failed"
+		}
+		current, lastDone = nil, &done
+		return m, err
 	}
 
 	// The ordinary path: a generous ceiling, since a first checkpoint of a
-	// large workspace is genuinely slow and nothing is waiting on it. The
-	// shutdown path passes its own, much shorter budget instead.
-	snapshot := func(name, desc, trigger string) (*store.Manifest, error) {
+	// large workspace is genuinely slow and nothing is waiting on it. Each
+	// storage call inside it is bounded separately (store.callBudget), so the
+	// ceiling is reached only by a save that is making progress. The shutdown
+	// path passes its own, much shorter budget instead.
+	snapshot := func(name, desc, trigger string, wait time.Duration) (*store.Manifest, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		return snapshotCtx(ctx, name, desc, trigger)
+		return snapshotCtx(ctx, name, desc, trigger, wait)
+	}
+
+	// How long an on-demand /checkpoint waits for a save already in progress
+	// before answering 503 with what is in progress. Below the 120s tool
+	// timeout that calls it, so the caller gets an answer rather than a timeout.
+	checkpointWait := 60 * time.Second
+	if v := os.Getenv("WORKSPACE_SYNC_CHECKPOINT_WAIT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			checkpointWait = time.Duration(n) * time.Second
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -569,7 +643,21 @@ func runServe(root string) error {
 			})
 			return
 		}
-		m, err := snapshot(req.Name, req.Description, "on-demand")
+		wait := checkpointWait
+		if v := r.URL.Query().Get("wait"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 300 {
+				wait = time.Duration(n) * time.Second
+			}
+		}
+		m, err := snapshot(req.Name, req.Description, "on-demand", wait)
+		if errors.Is(err, errSaveInProgress) {
+			// 503 with what holds the slot, not a hung request: the caller can
+			// retry when the in-progress save completes, and sees which save it
+			// was waiting on.
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, busy())
+			return
+		}
 		if errors.Is(err, store.ErrUnchanged) {
 			// 200, not an error: the request was correct and the workspace is
 			// already represented by the checkpoint it was restored from. Writing
@@ -616,7 +704,12 @@ func runServe(root string) error {
 			})
 			return
 		}
-		m, err := snapshot("", "", "teardown")
+		m, err := snapshot("", "", "teardown", checkpointWait)
+		if errors.Is(err, errSaveInProgress) {
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, busy())
+			return
+		}
 		if errors.Is(err, store.ErrNotConfigured) {
 			writeJSON(w, http.StatusOK, map[string]any{"skipped": "not-configured"})
 			return
@@ -673,11 +766,15 @@ func runServe(root string) error {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
-		mu.Lock()
-		defer mu.Unlock()
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
+
+		if err := acquire(ctx, checkpointWait); err != nil {
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, busy())
+			return
+		}
+		defer release()
 
 		// Resolve the target first, so a bad id is a 404 BEFORE anything is
 		// unmounted. Rejecting after teardown would leave the workspace in
@@ -724,7 +821,9 @@ func runServe(root string) error {
 
 		// Lineage: work resumed after an undo descends from the checkpoint it
 		// was restored to, not from whatever was checkpointed last.
+		stateMu.Lock()
 		last = target
+		stateMu.Unlock()
 		log.Printf("restored to checkpoint %s (%d files)", target, len(m.Entries))
 		writeJSON(w, http.StatusOK, map[string]any{"restored": true, "checkpoint": target})
 	})
@@ -790,9 +889,11 @@ func runServe(root string) error {
 		for {
 			select {
 			case <-t.C:
-				_, err := snapshot("", "", "periodic")
+				// wait 0: a save already running (an on-demand one) covers this
+				// tick, so the backstop skips rather than queueing behind it.
+				_, err := snapshot("", "", "periodic", 0)
 				switch {
-				case err == nil, errors.Is(err, store.ErrNotConfigured):
+				case err == nil, errors.Is(err, store.ErrNotConfigured), errors.Is(err, errSaveInProgress):
 				case errors.Is(err, store.ErrUnchanged), errors.Is(err, store.ErrNothingToSave):
 					// Not a failure and not worth a line every interval: a
 					// read-mostly session ticks like this for its whole life. The
@@ -885,7 +986,8 @@ func runServe(root string) error {
 			return
 		}
 
-		m, err := snapshotCtx(ctx, "", "", "teardown")
+		// Waits for an in-progress save only within its own budget.
+		m, err := snapshotCtx(ctx, "", "", "teardown", -1)
 		switch {
 		case errors.Is(err, store.ErrNotConfigured):
 			log.Print("teardown checkpoint skipped — object storage not configured")
@@ -930,4 +1032,30 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// errSaveInProgress: the snapshot slot was not free within the caller's wait.
+var errSaveInProgress = errors.New("a save is in progress")
+
+// saveState is one save, as reported to a caller that found the slot taken.
+type saveState struct {
+	Trigger      string
+	Since        time.Time
+	Finished     time.Time
+	Outcome      string
+	CheckpointID string
+}
+
+func (st *saveState) view() map[string]any {
+	v := map[string]any{"trigger": st.Trigger, "since": st.Since.UTC().Format(time.RFC3339)}
+	if st.Finished.IsZero() {
+		v["elapsedSeconds"] = int(time.Since(st.Since).Seconds())
+	} else {
+		v["finished"] = st.Finished.UTC().Format(time.RFC3339)
+		v["outcome"] = st.Outcome
+		if st.CheckpointID != "" {
+			v["checkpointId"] = st.CheckpointID
+		}
+	}
+	return v
 }

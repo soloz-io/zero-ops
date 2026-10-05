@@ -334,27 +334,60 @@ Secret cannot be rewritten this way and must be recreated to become encrypted.
 Not a sample. The point of the rewrite is that nothing is left behind, and a sample
 cannot show that.
 
+This counts both and NAMES anything still in plaintext, which a pair of counts
+cannot. A difference tells you how many credentials the audit finding still covers;
+only the key tells you which.
+
 ```bash
 NODE=$(kubectl get nodes -l node-role.kubernetes.io/control-plane \
   -o jsonpath='{.items[0].metadata.name}')
-kubectl -n kube-system exec etcd-$NODE -- \
-  sh -c 'ETCDCTL_API=3 etcdctl \
-    --cacert /etc/kubernetes/pki/etcd/ca.crt \
-    --cert /etc/kubernetes/pki/etcd/server.crt \
-    --key /etc/kubernetes/pki/etcd/server.key \
-    get /registry/secrets --prefix --keys-only' | grep -c .
+
+kubectl -n kube-system exec etcd-$NODE -- sh -c '
+  export ETCDCTL_API=3
+  C="--cacert /etc/kubernetes/pki/etcd/ca.crt
+     --cert /etc/kubernetes/pki/etcd/server.crt
+     --key /etc/kubernetes/pki/etcd/server.key"
+  total=0; enc=0
+  for k in $(etcdctl $C get /registry/secrets --prefix --keys-only); do
+    [ -n "$k" ] || continue
+    total=$((total+1))
+    case "$(etcdctl $C get "$k")" in
+      *k8s:enc:secretbox:v1:key1:*) enc=$((enc+1)) ;;
+      *) echo "PLAINTEXT $k" ;;
+    esac
+  done
+  echo "total=$total encrypted=$enc"
+'
 ```
 
-then, for the count of ENCRYPTED ones:
+**Expect `total` to equal `enc` and no `PLAINTEXT` lines.**
 
-```bash
-kubectl -n kube-system exec etcd-$NODE -- \
-  sh -c 'ETCDCTL_API=3 etcdctl ... get /registry/secrets --prefix' \
-  | grep -c 'k8s:enc:secretbox:v1:key1:'
-```
+Three things about that command are deliberate, because the obvious version of it
+lies:
 
-The two counts must match. A difference is the number of Secrets still in plaintext,
-and each one is a credential the audit finding still covers.
+**`case`, not `grep -c`.** Two earlier versions of this step piped etcd's output
+through `grep -c 'k8s:enc:secretbox:v1:key1:'`. Secret values are CIPHERTEXT, so the
+stream carries NUL bytes, and grep's behaviour on binary input is implementation
+dependent. Measured on three encrypted records:
+
+    BSD grep (macOS, where this step is actually run)   no output at all, exit 1
+    busybox grep (alpine)                               3, exit 0
+
+So the count is not portable, and on the machine this procedure is run from it
+produces NOTHING rather than a number — which in a comparison against the total
+reads as "no Secrets are encrypted" on a cluster where all of them are. `case` is a
+shell builtin doing a glob on a string: command substitution drops the NULs and the
+ASCII prefix survives, which is all that is being looked for.
+
+**The loop runs INSIDE the pod.** Dumping `get --prefix` to the machine you are
+sitting at would write every Secret still in plaintext to a local file, in the clear,
+as a step in the procedure for protecting them. Nothing leaves the node here.
+
+**No `grep` or `tr` inside the pod either.** The etcd image is minimal and what it
+ships is not guaranteed; `etcdctl` plus shell builtins is.
+
+An earlier version of this step had `etcdctl ...` with the certificate flags elided,
+which is not a command anyone can run.
 
 ## 9. Remove the `identity` fallback
 

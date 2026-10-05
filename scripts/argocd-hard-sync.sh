@@ -89,6 +89,46 @@ kc()         { kubectl -n "$ARGOCD_NS" "$@"; }
 app_exists() { kc get application "$1" >/dev/null 2>&1; }
 app_field()  { kc get application "$1" -o jsonpath="{$2}" 2>/dev/null; }
 
+# capi_roll_in_flight reports whether a control plane is being replaced right now.
+#
+# WHY THE SUMMARY NEEDS THIS. Adopting a new control-plane template is a legitimate
+# thing for a promotion to do, and it REPLACES the API server that the affected
+# cluster's own Applications are applied to. While that is happening those
+# Applications cannot sync, so they trip WAIT_TIMEOUT and this script called the
+# promotion FAILED -- "Nothing below this line shipped reliably", about a release that
+# had shipped and was converging normally.
+#
+# That happened on 0.1.16-rc.143: the bundle carried spokepool-control-plane-v4, the
+# spoke's control-plane node was mid-replacement, platform-spoke-catalog-nutgraf-01
+# timed out at 300s, and minutes later it was Synced and Healthy at rc.143 with zero
+# unsynced resources. Nothing was wrong and the script said everything was.
+#
+# A false FAILED is worse than a slow one. It sends someone to repair a healthy box,
+# and -- because this script is the thing that is trusted to know -- it teaches people
+# to read the failure line as noise.
+#
+# UPDATED != REPLICAS or UNAVAILABLE > 0 is CAPI's own statement that a KCP is not yet
+# on its current template. Read from the management cluster, which is reachable even
+# while a workload cluster's API server is being replaced -- which is the whole reason
+# the check can be made at all.
+capi_roll_in_flight() {
+  local out
+  out="$(kubectl -n platform-capi get kubeadmcontrolplane \
+           -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.replicas}{"\t"}{.status.updatedReplicas}{"\t"}{.status.unavailableReplicas}{"\n"}{end}' \
+         2>/dev/null)" || return 1
+  [ -n "$out" ] || return 1
+  local name reps upd unavail found=1
+  while IFS=$'\t' read -r name reps upd unavail; do
+    [ -n "$name" ] || continue
+    : "${upd:=0}" "${unavail:=0}" "${reps:=0}"
+    if [ "${upd:-0}" != "${reps:-0}" ] || [ "${unavail:-0}" != "0" ]; then
+      echo "   ${name}: replicas=${reps} updated=${upd} unavailable=${unavail}"
+      found=0
+    fi
+  done <<< "$out"
+  return $found
+}
+
 hard_refresh() {
   kc annotate application "$1" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
   echo "   hard refresh requested"
@@ -189,9 +229,31 @@ summarise() {
     echo "Now verify what actually SHIPPED, not just that ArgoCD is green."
     return 0
   fi
+  # A control-plane roll in flight explains a timeout without being a failure, and
+  # saying so is the difference between "repair this" and "wait and re-check".
+  local rolling
+  rolling="$(capi_roll_in_flight)" && {
+    echo "NOT CONVERGED YET  ${#FAILURES[@]} Application(s) have not reached Synced:"
+    for f in "${FAILURES[@]}"; do echo "  - ${f}"; done
+    echo
+    echo "A CONTROL PLANE IS BEING REPLACED RIGHT NOW:"
+    printf '%s\n' "$rolling"
+    echo
+    echo "Adopting a new control-plane template replaces the API server that the"
+    echo "affected cluster's own Applications are applied to, so they cannot sync"
+    echo "until it settles. A roll takes longer than WAIT_TIMEOUT=${WAIT_TIMEOUT}s."
+    echo
+    echo "This is NOT a failed promotion. The version is published and promoted, and"
+    echo "the box is converging. Wait for updated to equal replicas above, then re-run"
+    echo "the sync. Do NOT re-publish, and do not repair anything yet."
+    echo "If it is still unconverged once the roll has settled, THEN it is a failure."
+    return 1
+  }
+
   echo "FAILED  ${#FAILURES[@]} Application(s) did not converge:"
   for f in "${FAILURES[@]}"; do echo "  - ${f}"; done
   echo
+  echo "No control plane is mid-roll, so waiting is not the answer."
   echo "This is a FAILED promotion. Nothing below this line shipped reliably --"
   echo "do not treat the box as running the new version until these are resolved."
   return 1
