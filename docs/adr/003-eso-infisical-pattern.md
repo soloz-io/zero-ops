@@ -366,7 +366,7 @@ the CLI a second writer for a GitOps-owned object.
 class, so a name written literally into a template is one object serving all of them
 — which shipped briefly, and would have meant the first cluster to rotate left the
 others' etcd undecryptable by a key they still believed in. The name is built on the
-create side in Go and on the read side by the CAPI patch; preflight 88 pins the two
+create side in Go and on the read side by the CAPI patch; preflight 003-encryption-secret-is-per-cluster pins the two
 together, because a disagreement is not reported as a missing Secret but as a node
 that never finishes bootstrapping.
 

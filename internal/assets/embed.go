@@ -30,7 +30,7 @@ func ReadCatalog(path string) ([]byte, error) {
 // inside CAPI at topology-reconcile time. A mismatch between the Go half and the
 // CAPI half produces a control-plane node referencing a Secret that does not exist,
 // and CAPI reports that as a bootstrap that never completes rather than as a name it
-// could not find. Preflight 88 asserts the two halves agree.
+// could not find. Preflight 003-encryption-secret-is-per-cluster asserts the two halves agree.
 //
 // The key is per cluster because ADR-100 decides it is and the escrow holds it under
 // the cluster's id (ADR-076). An earlier version named one flat Secret for every

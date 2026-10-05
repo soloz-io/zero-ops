@@ -71,6 +71,42 @@ rolls the control plane. Each also needs a release: `soloz encryption enable` ap
 the ClusterClass from the CLI's own embedded assets, so the CLI binary has to carry
 the phase you are applying.
 
+## Reading the configuration back: fingerprints, never the value
+
+At several points below it is tempting to `kubectl get secret <cluster>-encryption-config
+-o yaml` and look. **The `secret:` field in that object is the key to every Secret in
+the cluster**, and anything it is pasted into keeps it: a terminal scrollback, a
+transcript, a ticket, a chat message, a CI log.
+
+It happened on 2026-10-05. `nutgraf-01`'s key was read back in full while verifying
+step 9 and ended up in a session transcript. The key alone is useless without an etcd
+snapshot of that cluster, but anyone holding both reads every credential in it — and
+**rotation is not supported** (see the note above), so there is no procedure that
+replaces a key without making the existing etcd undecryptable. An exposed key is
+therefore not a thing that gets fixed; it gets lived with, or the cluster gets rebuilt.
+
+So compare fingerprints:
+
+```bash
+# Does the cluster's Secret hold the key the escrow holds? Neither is printed.
+kubectl --kubeconfig <HUB> -n platform-capi get secret <cluster>-encryption-config \
+  -o jsonpath='{.data.enc\.yaml}' | base64 -d | shasum -a 256
+```
+
+and to check the PROVIDERS without the key, read the structure and not the value:
+
+```bash
+kubectl --kubeconfig <HUB> -n platform-capi get secret <cluster>-encryption-config \
+  -o jsonpath='{.data.enc\.yaml}' | base64 -d | grep -E 'secretbox|identity|- name:'
+```
+
+`soloz escrow verify` prints `sha256:` fingerprints only, for the same reason, and is
+the right way to ask whether the escrow and the cluster agree.
+
+On the HUB this matters more than anywhere: its etcd holds the secret store's own
+credentials, the identity provider's signing keys, and every tenant's provisioning
+material.
+
 ## 0. Before you start
 
 The escrow must be reachable. The key is the one value that cannot be regenerated —
@@ -163,7 +199,7 @@ one flat `secret-encryption-config` in `platform-capi` for every cluster of a cl
 which is one key for all of them — and the first cluster to rotate would have left the
 others' etcd undecryptable by a key they still believed in. The name is built by
 `assets.EncryptionSecretName` on the create side and by the ClusterClass's
-`secretEncryptionConfig` patch on the read side; preflight 88 pins the two together,
+`secretEncryptionConfig` patch on the read side; preflight 003-encryption-secret-is-per-cluster pins the two together,
 because a disagreement is not reported as a missing Secret, it is a node that never
 finishes bootstrapping.
 
@@ -193,7 +229,7 @@ Nodes by `.spec.providerID` and nothing else, so a node that is Ready and servin
 traffic but carries none is, to CAPI, a Machine that never joined: empty `NODENAME`,
 and a roll that waits reporting `NodeHealthy=False/NodeProvisioning` — which names a
 provisioning step rather than a missing field. The spoke control-plane template
-omitted the injection block until v3 for exactly this reason. Preflight 87 now fails
+omitted the injection block until v3 for exactly this reason. Preflight 046-node-bootstrap-invariants now fails
 a template that ships `dynamic-node-ip.sh` without it.
 
 ```bash
@@ -486,7 +522,23 @@ The first is the security outcome. The second is defence in depth and may legiti
 wait for the next control-plane roll rather than buying one.
 
 Record the date of each against the cluster, and record them as different things. A
-cluster rebuilt from an older template is not covered by either. Note the date against
+cluster rebuilt from an older template is not covered by either.
+
+### Fleet state
+
+| cluster | encrypted and verified | fallback removed and verified |
+|---|---|---|
+| `nutgraf-01` (spoke) | **2026-10-05** — `total=87 encrypted=87` | config written without `identity`; **pending a roll** |
+| `nutgraf-hub` | **2026-10-05** — `total=118 encrypted=118` | not started; the fallback is still in force |
+
+Both clusters took `v4` on 2026-10-05 and both reached every-Secret-encrypted the same
+day. The spoke's fallback removal is written into its Secret and takes effect on its
+next control-plane roll; the hub's has not been started, and must not be until its
+step 8 has been re-run after any further rewrite.
+
+Neither pending removal is an open hole. With every Secret encrypted, `identity` is a
+READ fallback with nothing left to read, and `secretbox` is first so every write is
+encrypted regardless. See "Triggering it, and why it is not urgent" above. Note the date against
 the cluster; a cluster rebuilt from an older template is not covered.
 
 ## The management cluster

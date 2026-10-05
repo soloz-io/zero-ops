@@ -183,7 +183,7 @@ per cluster, and a ClusterClass is shared by every cluster of its class — so a
 written into a template is one object for all of them. `secretbox` shipped that
 defect and it was closed before this ADR was picked up: the Secret is
 `<cluster>-encryption-config`, rendered by a ClusterClass patch from
-`{{ .builtin.cluster.name }}`, with preflight 88 pinning the Go and CAPI halves of
+`{{ .builtin.cluster.name }}`, with preflight 003-encryption-secret-is-per-cluster pinning the Go and CAPI halves of
 the name together. KMS replaces what the object CARRIES, not how one object per
 cluster reaches a control plane.
 
@@ -295,6 +295,45 @@ this platform exists to remove (ADR-069).
   store, so the strongest form of this is not available to every tenant.
 - The key is deliberately NOT escrowed, so the tenant's own key-store continuity is
   the recovery story. A tenant who loses it loses their backups with it.
+
+## Implementation status (2026-10-05)
+
+The decision's load-bearing half is built. What is not built is stated, because the
+gap being visible is the point.
+
+**Built, in `operators/kms-plugin/` — its own Go module.** It pins `k8s.io/kms` to
+`v0.31.6`, the version the control plane runs. Pinning it in the platform's shared
+module instead dragged `k8s.io/apiserver` from v0.35.0 to v0.31.6 and
+`controller-runtime` from v0.23.3 to v0.19.7 — every other operator downgraded so this
+one could be correct, which is why four of the five operators here are already separate
+modules.
+
+| | |
+|---|---|
+| `internal/keyid` | the composite `<cluster>/<key>/v<n>` identifier. Derived from the cluster, the key and the version and **from nothing else** — no clock, no hostname, no pid, no counter exists in the struct to be read from. Refuses a key containing the separator, so the encoding is injective, and refuses version 0, which means the active version was never read |
+| `internal/active` | the single snapshot both paths read, and the only place it changes. Enforces monotonic versions, refuses a version that has **ever** been active before, and refuses a key that changes identity underneath the plugin |
+| `internal/service` | KMS v2 `Status`, `Encrypt`, `Decrypt`. Both status and wrap read one snapshot; `Decrypt` takes the version from the object's own annotation so data wrapped under earlier versions keeps unwrapping |
+| `cmd` | the unix-socket gRPC server and the refresh loop, which is the only caller of the key store off the request path |
+
+Both acceptance criteria are pinned by tests, including one that asserts the vendor
+plugin's exact defect is absent: a rotation in the store changes the reported
+identifier, and re-observing the same version does not. The tests run under `-race`,
+because the wrap path runs on every Secret write.
+
+**Not built: the key store client.** `keystore.Store` is an interface with no
+implementation, and `keystore.FromEnv` **refuses to start**. That is deliberate and not
+a stub: an in-memory key would *work* — the plugin would start, the API server would
+accept it, Secrets would encrypt and decrypt, and the key protecting the cluster would
+live in the plugin's heap. Strictly worse than `secretbox` and indistinguishable from
+success. A provider the API server depends on must not be startable in a state that
+only looks right.
+
+**Not built: the control-plane template.** The Impact below requires one, and it is
+deliberately not written yet: `nutgraf-hub` has a v4 rollout in flight, blocked on
+Hetzner placement capacity. Introducing a v5 template while a roll is pending abandons
+it mid-flight. The template follows once both clusters are settled on v4 and the
+`secretbox` migration is complete on each — which is the ordering this ADR's own
+"Migration is part of adoption" asks for.
 
 ## Impact
 

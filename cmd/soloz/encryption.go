@@ -113,7 +113,8 @@ again -- are not performed here and are not optional.`,
 	f.BoolVar(&encApplyClass, "apply-class", false,
 		"also apply the ClusterClass. REQUIRED for the management cluster, whose class nothing "+
 			"syncs, and for a bootstrap cluster that has no ArgoCD yet. NOT needed for a workload "+
-			"cluster: ArgoCD's infrastructure-provider ApplicationSet already carries that class")
+			"cluster: ArgoCD's infrastructure-provider ApplicationSet already carries that class. "+
+			"NOTE: this replaces the WHOLE class, not the encryption parts of it")
 	f.StringVar(&encClusterName, "cluster", "", "cluster name; the escrow is scoped to it (required)")
 	f.StringVar(&encNamespace, "namespace", "platform-capi", "namespace the control plane reads the Secret from")
 	f.StringVar(&encKubeconfig, "kubeconfig", "", "kubeconfig to apply through")
@@ -285,6 +286,23 @@ func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
 	// bootstrap cluster at Day-0, before the management cluster and its
 	// ApplicationSets exist.
 	if encApplyClass {
+		// IT ADOPTS THE WHOLE CLASS, NOT THE ENCRYPTION PART OF IT.
+		//
+		// Said out loud because the management cluster's class is reconciled by nothing:
+		// it is applied at Day-0 and then diverges from the repository for as long as
+		// nobody runs this. On 2026-10-05 the hub's live class still referenced
+		// `hetzner-mgmt-control-plane` -- an unversioned template from sixteen days
+		// earlier -- and one `--apply-class` moved it to v4, which carries every change
+		// made to the control-plane spec in between, not just the encryption argument.
+		//
+		// The roll that follows applies all of them. That is the correct end state and
+		// it is not what the flag's name suggests, so the operator is told before it
+		// happens rather than after.
+		fmt.Println("[encryption] --apply-class replaces the ENTIRE ClusterClass, not only the")
+		fmt.Println("             encryption parts. If this cluster's class has not been applied")
+		fmt.Println("             for a while, the roll that follows adopts everything that")
+		fmt.Println("             changed in between. Diff the live control-plane template against")
+		fmt.Println("             the new one first if you do not know what that includes.")
 		classFile := encClassFile
 		if classFile == "" {
 			classFile = defaultHubClass

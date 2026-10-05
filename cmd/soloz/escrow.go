@@ -40,6 +40,7 @@ func newEscrowCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newEscrowInitCmd())
 	cmd.AddCommand(newEscrowVerifyCmd())
+	cmd.AddCommand(newEscrowVerifyRecoveryCmd())
 	return cmd
 }
 

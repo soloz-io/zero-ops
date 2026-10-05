@@ -16,7 +16,7 @@ validate_node_bootstrap_invariants() {
     section "Node templates self-assign providerID"
 
     local out
-    out=$(cd "$VALIDATE_ROOT" && python3 "$VALIDATE_DIR/preflight/87-node-bootstrap-invariants.py") || true
+    out=$(cd "$VALIDATE_ROOT" && python3 "$VALIDATE_DIR/preflight/046-node-bootstrap-invariants.py") || true
 
     if [[ -z "$out" ]]; then
         hard_fail "node bootstrap check produced no output"

@@ -432,3 +432,81 @@ Check enable-local-redirect-policy in cilium-config and the CiliumLocalRedirectP
 in kube-system; with the flag off the policy is accepted and inert.${unclaimed}"
     fi
 }
+
+# ──────────────────────────────────────────────────────────────────────────
+# every PodDisruptionBudget permits an eviction
+# ──────────────────────────────────────────────────────────────────────────
+# A PDB whose allowedDisruptions is 0 and stays 0 makes its pods UN-EVICTABLE: the
+# eviction API refuses with 429, and `kubectl drain` does not fail on that -- it
+# retries, indefinitely. The symptom is not an error but a node that never finishes
+# draining, which on a control plane is a roll that cannot complete.
+#
+# It has now cost two rolls. The upstream ccm-hetzner chart ships `minAvailable: 1`
+# beside `replicas: 1`, which can never permit an eviction, and it was rendered
+# verbatim into the CCM ClusterResourceSet addon. On nutgraf-01 (2026-10-05) a
+# control-plane roll replaced the node correctly and the OLD Machine then sat in
+# Deleting, draining kube-system/ccm-ccm-hetzner with nothing to time out. The hub hit
+# the identical wall hours later, and on the hub the stall left TWO control-plane nodes
+# live with different encryption providers -- a Secret written through one unreadable
+# through the other.
+#
+# WHY THIS EXISTS AS WELL AS preflight/046-pdb-permits-eviction. The static check reads
+# the manifests and is now clean, but a ClusterResourceSet has no `strategy` and so
+# defaults to ApplyOnce: addon content is applied when a cluster is CREATED and never
+# again. Every cluster built before the manifest was fixed still carries the old PDB,
+# and no amount of fixing the repository changes that. Only a live check sees it -- and
+# it sees it BEFORE a roll is attempted rather than from inside a drain that will not
+# end.
+#
+# allowedDisruptions is read from status rather than computed from the spec, because
+# the API server already does that arithmetic against the pods that actually exist.
+validate_pdb_permits_eviction() {
+    section "Every PodDisruptionBudget permits an eviction (ADR-046)"
+
+    local rows
+    rows=$(kc get poddisruptionbudgets -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.status.disruptionsAllowed}{"\t"}{.status.currentHealthy}{"\t"}{.status.desiredHealthy}{"\t"}{.status.expectedPods}{"\n"}{end}' 2>/dev/null) || {
+        hard_fail "could not list PodDisruptionBudgets"
+        return 0
+    }
+
+    if [[ -z "$rows" ]]; then
+        pass "no PodDisruptionBudget on this cluster"
+        return 0
+    fi
+
+    local ns name allowed healthy desired expected total=0 blocked=0
+    while IFS=$'\t' read -r ns name allowed healthy desired expected; do
+        [[ -z "$name" ]] && continue
+        total=$((total + 1))
+        : "${allowed:=0}" "${healthy:=0}" "${desired:=0}" "${expected:=0}"
+
+        [[ "${allowed}" -ne 0 ]] && continue
+
+        # A PDB selecting NO pods, or one the controller has not evaluated yet, has an
+        # all-zero status -- and reads as "0 allowed, 0 healthy, 0 expected", which the
+        # test below would call un-evictable. It is neither: there is nothing to evict.
+        # A freshly created PDB is in this state for a moment, and a false hard failure
+        # on an ordinary object is how a check earns a reputation for noise and stops
+        # being read.
+        if [[ "${expected}" -eq 0 ]]; then
+            note "PDB ${ns}/${name} selects no pods or has not been evaluated yet (empty status) -- nothing to evict, nothing to judge"
+            continue
+        fi
+
+        # 0 allowed with everything healthy is the un-evictable case: the budget is
+        # already satisfied and still refuses, so waiting changes nothing. 0 allowed
+        # while a pod is genuinely unhealthy is the PDB doing its job, and it clears
+        # on its own -- reporting that as a failure would make this check noise during
+        # every ordinary rollout.
+        if [[ "${healthy}" -ge "${desired}" && "${expected}" -le "${desired}" ]]; then
+            blocked=$((blocked + 1))
+            hard_fail "PDB ${ns}/${name} allows 0 disruptions with ${healthy}/${expected} healthy and desiredHealthy=${desired} -- no pod can ever be evicted, so draining a node that carries one never finishes and a control-plane roll cannot complete. Use maxUnavailable instead of minAvailable, or raise replicas above desiredHealthy"
+        else
+            warn "PDB ${ns}/${name} allows 0 disruptions, but only ${healthy}/${expected} pods are healthy (desiredHealthy=${desired}) -- that is the budget working, and it should clear once the pods recover"
+        fi
+    done <<< "$rows"
+
+    if [[ "${blocked}" -eq 0 ]]; then
+        pass "${total} PodDisruptionBudget(s) permit an eviction or are transiently constrained"
+    fi
+}

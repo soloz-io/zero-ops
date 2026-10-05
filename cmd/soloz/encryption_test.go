@@ -91,7 +91,7 @@ func TestTheDay0TemplateTakesItsNameRatherThanSpellingOne(t *testing.T) {
 	}
 	if got := assets.EncryptionSecretName("nutgraf-01"); got != "nutgraf-01-encryption-config" {
 		t.Fatalf("EncryptionSecretName changed shape to %q; the ClusterClass patches build the "+
-			"same name from {{ .builtin.cluster.name }} and preflight 88 pins them together", got)
+			"same name from {{ .builtin.cluster.name }} and preflight 003-encryption-secret-is-per-cluster pins them together", got)
 	}
 }
 

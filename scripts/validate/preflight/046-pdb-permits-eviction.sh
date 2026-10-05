@@ -16,7 +16,7 @@ validate_pdb_permits_eviction() {
     section "Every PodDisruptionBudget permits at least one eviction"
 
     local out
-    out=$(cd "$VALIDATE_ROOT" && python3 "$VALIDATE_DIR/preflight/89-pdb-permits-eviction.py") || true
+    out=$(cd "$VALIDATE_ROOT" && python3 "$VALIDATE_DIR/preflight/046-pdb-permits-eviction.py") || true
 
     if [[ -z "$out" ]]; then
         hard_fail "PDB eviction check produced no output"

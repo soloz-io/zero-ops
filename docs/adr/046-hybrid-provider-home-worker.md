@@ -2716,6 +2716,54 @@ what the agents are waiting for. This is not specific to this flag either: it is
 the shape of any Cilium feature whose enablement introduces a CRD.
 
 
+### 35. An addon fix never reaches a cluster that already exists (2026-10-05)
+
+The CCM addon shipped the upstream chart's PodDisruptionBudget verbatim:
+`minAvailable: 1` beside `replicas: 1`, which can **never** permit an eviction. The
+eviction API refuses with 429, and `kubectl drain` does not fail on that — it retries,
+indefinitely. So the symptom is not an error but a node that never finishes draining,
+and on a control plane that is a roll that cannot complete.
+
+It cost two rolls in one day. `nutgraf-01` replaced its control-plane node correctly
+and the OLD Machine then sat in `Deleting`, draining `kube-system/ccm-ccm-hetzner`
+with nothing to time out. The hub hit the identical wall hours later — and there it
+was worse: the stall left **two control-plane nodes live with different encryption
+providers**, so a Secret written through the new one was unreadable through the old,
+on the cluster holding the secret store's and the identity provider's own credentials.
+
+`spoke-addons/ccm-addon-template.yaml` now carries `maxUnavailable: 1`. A
+single-replica controller has no availability for a PDB to protect; what a PDB is for
+is bounding *simultaneous* disruption, which `maxUnavailable` expresses without
+forbidding the one eviction a drain needs.
+
+**THE GAP THAT REMAINS, AND IT IS NOT THE PDB.** Both clusters had to be patched by
+hand, because the `ClusterResourceSet` carrying these addons has no `strategy` and so
+defaults to **`ApplyOnce`**: addon content is applied when a cluster is CREATED and
+never again. **Fixing an addon manifest therefore changes nothing for any cluster that
+already exists**, and that is true of every addon here — CCM, CSI, Cilium — not just
+this PDB.
+
+`strategy: Reconcile` would close it, and is deliberately not adopted here:
+
+- it makes the CRS re-assert every addon's full content, reverting anything edited
+  in-cluster. Whether any such edit is load-bearing today is not knowable from this
+  repository, and finding out by overwriting it is the wrong order;
+- `spec.strategy` may be immutable on an existing ClusterResourceSet, in which case
+  closing the gap means deleting and recreating the CRS on a live fleet — a different
+  and much larger operation than editing a field.
+
+So the gap is recorded rather than quietly fixed, and the mitigation is to make it
+VISIBLE instead: `validate_pdb_permits_eviction` in
+`scripts/validate/cluster/046-hybrid-provider.sh` reads live PDBs and fails one that
+can never permit an eviction, before a roll is attempted rather than from inside a
+drain that will not end. Its static counterpart,
+`preflight/046-pdb-permits-eviction.py`, reads the manifests — and had to learn to
+parse resources embedded in a Secret's `stringData`, because that is how a
+ClusterResourceSet ships them and why `kind: PodDisruptionBudget` appeared nowhere a
+document-level scan would look.
+
+Choosing a CRS strategy for the fleet is its own decision and wants its own ADR.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.

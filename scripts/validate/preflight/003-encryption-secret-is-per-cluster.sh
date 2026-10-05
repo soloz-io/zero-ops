@@ -16,7 +16,7 @@ validate_encryption_secret_is_per_cluster() {
     section "The encryption Secret is per cluster, and both halves agree on its name"
 
     local out
-    out=$(cd "$VALIDATE_ROOT" && python3 "$VALIDATE_DIR/preflight/88-encryption-secret-is-per-cluster.py") || true
+    out=$(cd "$VALIDATE_ROOT" && python3 "$VALIDATE_DIR/preflight/003-encryption-secret-is-per-cluster.py") || true
 
     if [[ -z "$out" ]]; then
         hard_fail "encryption secret check produced no output"
