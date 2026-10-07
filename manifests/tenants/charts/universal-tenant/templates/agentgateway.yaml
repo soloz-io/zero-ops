@@ -71,6 +71,8 @@
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
 {{- /* Validated in _helpers.tpl; empty renders no bind, route or port. */ -}}
 {{- $publicAssets := include "universal-tenant.publicAssetPaths" . | fromJsonArray }}
+{{- /* Validated in _helpers.tpl (ADR-103); empty renders no bind, route or port. */ -}}
+{{- $publicRoutes := include "universal-tenant.publicRoutes" . | fromJsonArray }}
 {{- /* Derived only as a FALLBACK name; the real value arrives at runtime.
 
        ADR-053 derived <tenantId>-public-client, which holds only while the
@@ -390,6 +392,63 @@ data:
             method: {{ . }}
           {{- end }}
           {{- end }}
+{{- end }}
+{{- if $publicRoutes }}
+    # A FOURTH bind (ADR-103): login-free DYNAMIC routes to this app's BFF, for a
+    # page served to anyone holding an unguessable link -- a shared session at
+    # /share/<token>. publicAssets cannot express it: that is exact static paths
+    # to the frontend, and a share is one path per token, answered by the BFF.
+    #
+    # What bounds it, each by construction:
+    #   - one backend, this app's BFF, derived here and never named in values;
+    #   - each route is ONE declared prefix plus ONE fixed-shape token segment,
+    #     matched by a regex built in _helpers.tpl, never taken from values, so
+    #     /share/<token>/anything and /share/../api match nothing;
+    #   - GET and HEAD only;
+    #   - the visitor's Cookie and Authorization are stripped, and any Set-Cookie
+    #     from the BFF is dropped, so no session crosses this bind either way;
+    #   - noindex, no-referrer and private caching are set HERE, so a share page
+    #     cannot forget them and the token does not leak through a Referer;
+    #   - a token-bucket rate limit per route.
+    # The token is the only credential. The BFF must look it up and refuse any it
+    # did not mint; the gateway proves only that the path has the right shape.
+    - port: 3004
+      listeners:
+      # Not "app": the OIDC policy below targets that listener by name.
+      - name: public-routes
+        routes:
+        {{- range $publicRoutes }}
+        {{- $regex := .regex }}
+        - name: {{ $t }}-public{{ .prefix | replace "/" "-" }}
+          backends:
+          - host: {{ $bff }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          {{- range list "GET" "HEAD" }}
+          - path:
+              regex: {{ $regex | quote }}
+            method: {{ . }}
+          {{- end }}
+          policies:
+            localRateLimit:
+            - maxTokens: 60
+              tokensPerFill: 20
+              fillInterval: 1s
+              type: requests
+            transformations:
+              request:
+                remove: [cookie, authorization]
+              response:
+                remove: [set-cookie]
+                set:
+                  # CEL expressions, so string literals carry their own quotes.
+                  x-robots-tag: '"noindex, nofollow"'
+                  referrer-policy: '"no-referrer"'
+                  cache-control: '"private, no-store"'
+        {{- end }}
 {{- end }}
     # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
@@ -998,6 +1057,13 @@ spec:
   - name: webhook
     port: 3001
     targetPort: 3001
+{{- end }}
+{{- if $publicRoutes }}
+  # The public dynamic-route bind (ADR-103). Reachable only via the platform
+  # HTTPRoute rule that selects this port for the declared prefixes, GET/HEAD.
+  - name: public-routes
+    port: 3004
+    targetPort: 3004
 {{- end }}
 {{- if $publicAssets }}
   # The public static-asset bind. Reachable only via the platform HTTPRoute rule

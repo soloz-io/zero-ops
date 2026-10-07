@@ -1,5 +1,6 @@
 {{- include "tenant-public-tls.requirements" . }}
 {{- $publicAssets := include "tenant-public-tls.publicAssetPaths" . | fromJsonArray }}
+{{- $publicRoutes := include "tenant-public-tls.publicRoutes" . | fromJsonArray }}
 {{- if .Values.public.hosts }}
 ---
 # Platform-owned per-tenant hostname route (ADR-051).
@@ -136,6 +137,43 @@ spec:
         - name: agentgateway-{{ .Values.appId }}
           namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3003
+{{- end }}
+{{- range $publicRoutes }}
+    # A declared login-free dynamic route (ADR-103), e.g. a shared session, to
+    # the gateway's OIDC-free :3004 bind. Here: the prefix, GET/HEAD only. The
+    # bind then admits only the exact token shape (^<prefix>/[A-Za-z0-9]{N}$,
+    # built by the chart), so the prefix match here is not what makes a path
+    # public; anything else under it is refused there. Regex path matching is
+    # not core Gateway API, which is why the exact shape is enforced at the bind.
+    #
+    # Cookies and Authorization are stripped in both directions here as well as
+    # at the bind, so either layer alone keeps a session from crossing.
+    - matches:
+      {{- $prefix := .prefix }}
+      {{- range list "GET" "HEAD" }}
+        - path:
+            type: PathPrefix
+            value: {{ printf "%s/" $prefix | quote }}
+          method: {{ . }}
+      {{- end }}
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: [Cookie, Authorization]
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000
+              - name: X-Robots-Tag
+                value: noindex, nofollow
+              - name: Referrer-Policy
+                value: no-referrer
+            remove: [Set-Cookie]
+      backendRefs:
+        - name: agentgateway-{{ $.Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" $ }}
+          port: 3004
 {{- end }}
     - filters:
         # Tell the browser never to try plaintext for this host again. The

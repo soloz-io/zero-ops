@@ -149,6 +149,17 @@ gateway:
   #     paths: [/manifest.json, /sw.js, /favicon.svg, /logo192.png, /logo512.png]
   publicAssets:
     paths: []
+  # Login-free DYNAMIC routes (ADR-103): one prefix segment plus one fixed-shape
+  # token segment, e.g. a shared session at /share/<22 base62 chars>, served by
+  # this app's BFF through a separate OIDC-free bind (:3004), GET/HEAD only,
+  # rate-limited, with noindex / no-referrer / no-cookie headers set by the
+  # gateway. The token is the only credential: the BFF must look it up and
+  # refuse anything it did not mint. Empty, the default: nothing is rendered.
+  #
+  #   publicRoutes:
+  #     - prefix: /share
+  #       tokenLength: 22
+  publicRoutes: []
   enabled: false
   # Hostnames this fleet answers on. The first is the browser-facing host and is
   # where the OAuth redirect returns; the rest are additional names for the same
