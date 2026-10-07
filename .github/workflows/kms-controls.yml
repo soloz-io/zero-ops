@@ -1,0 +1,190 @@
+# The carrier for ADR-100's KMS and federation controls.
+#
+# WHY CI AND NOT A CronJob ON A CLUSTER. The thing that detects drift in a cluster's
+# encryption controls must not depend on that cluster. A CronJob on the hub checking the
+# hub's own key fails exactly when the hub is the problem — and the hub's key is the one
+# protecting every tenant's credentials. CI runs outside every cluster, reads the reviewed
+# Git state because it IS the repository, reaches GCP, and fails visibly.
+#
+# The platform's own monitoring (VictoriaMetrics) runs ON the hub, so it cannot be the
+# carrier for the hub without the same circularity.
+#
+# WHAT THIS DOES AND DOES NOT DO. It OBSERVES. ADR-100's boundary: detection and alerting
+# may read Cloud KMS and Workload Identity Federation state and must never mutate a key,
+# an IAM policy, a JWKS or an encryption configuration. `soloz kms check` issues only GET
+# requests and a test asserts it.
+#
+# It is also NOT the admission control. A bad provisioning is blocked by
+# `soloz kms trust-anchor` refusing the control-plane transition, which is a stronger
+# property than alerting after the fact. This is the safety net for drift AFTER
+# deployment.
+name: kms-controls
+
+on:
+  schedule:
+    # Hourly. The interval is NOT derived from a signing-key rotation policy, because this
+    # platform does not have one yet — kubeadm does not rotate a service-account signing
+    # key on any schedule, and what actually replaces it is a cluster rebuild. So the
+    # staleness window this closes is "between a rebuild and somebody noticing", and an
+    # hour is a holding value until ADR-100's maximum-staleness bound is set from a real
+    # policy. It is recorded as a guess rather than presented as a decision.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      cluster:
+        description: Cluster to check
+        required: false
+        default: nutgraf-hub
+
+permissions:
+  contents: read
+  # For Workload Identity Federation: GitHub mints an OIDC token, GCP exchanges it. No
+  # service-account key is stored, which is the same prohibition ADR-100 places on the
+  # plugin and on every other component here.
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      # fail-fast false: one cluster's alarm must not hide another's. Every cluster is
+      # reported in the same run.
+      fail-fast: false
+      matrix:
+        cluster: [nutgraf-hub, nutgraf-01]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # UNCONFIGURED IS A FAILURE, NOT A SKIP.
+      #
+      # A workflow that quietly did nothing because a secret was absent is the exact shape
+      # this ADR keeps finding: a control that reports healthy because it never ran. If
+      # the federation is not wired yet, this job is red, and red is correct — the control
+      # does not exist.
+      - name: The carrier is configured, and the alarm has a named owner
+        run: |
+          missing=""
+          [ -n "${{ vars.KMS_WIF_PROVIDER }}" ] || missing="$missing KMS_WIF_PROVIDER"
+          [ -n "${{ vars.KMS_CHECK_SERVICE_ACCOUNT }}" ] || missing="$missing KMS_CHECK_SERVICE_ACCOUNT"
+          # THE OWNER AND THE ROUTE ARE REQUIRED, not optional extras.
+          #
+          # An alarm with no named owner is an alarm somebody assumes somebody else saw.
+          # ADR-100 assigns these to Platform Security / Control-Plane on-call, and the
+          # job refuses to run as a "control" without them: a green workflow that pages
+          # nobody is the same lie as a check that never ran.
+          [ -n "${{ vars.KMS_ALARM_OWNER }}" ] || missing="$missing KMS_ALARM_OWNER"
+          [ -n "${{ secrets.KMS_INCIDENT_WEBHOOK }}" ] || missing="$missing KMS_INCIDENT_WEBHOOK"
+          if [ -n "$missing" ]; then
+            echo "::error::the KMS control carrier is not configured:$missing"
+            echo "This job is failing because the control does not exist, not because a key is wrong."
+            exit 1
+          fi
+
+      - uses: google-github-actions/auth@v2
+        with:
+          # Federation, not a key. The identity this assumes holds cloudkms.cryptoKeys.get
+          # and the IAM read needed to inspect a provider — and nothing that can mutate
+          # either, so a compromised runner cannot change what it is checking.
+          workload_identity_provider: ${{ vars.KMS_WIF_PROVIDER }}
+          service_account: ${{ vars.KMS_CHECK_SERVICE_ACCOUNT }}
+
+      - name: Check ${{ matrix.cluster }}
+        id: check
+        run: |
+          set +e
+          go run ./cmd/soloz kms check \
+            --cluster "${{ matrix.cluster }}" \
+            --format json > report.json
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          cat report.json
+
+      # ALWAYS, so a delivery failure is visible rather than skipped alongside the check.
+      - name: Publish the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kms-report-${{ matrix.cluster }}
+          path: report.json
+          if-no-files-found: error
+
+      # THE DELIVERY STEP, AND ITS OWN FAILURE MUST FAIL THE JOB.
+      #
+      # The scenario this exists for: detector works -> alert backend silently broken ->
+      # security control appears healthy. So the summary is written unconditionally, and
+      # the exit mapping below runs after it.
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## KMS controls — ${{ matrix.cluster }}"
+            echo '```json'
+            cat report.json 2>/dev/null || echo '{"error":"no report was produced"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # TWO FAILURE CLASSES, ROUTED AT DIFFERENT SEVERITIES.
+      #
+      # Both are operational failures and neither may be silent, but they are not the same
+      # incident and must not read as one:
+      #
+      #   exit 1  a SECURITY / CONFIGURATION alarm. Something about the key or an identity
+      #           is wrong. Encryption keeps working; a human must correct state.
+      #   exit 2  a MONITORING failure. The control could not determine anything, so the
+      #           key may be perfectly fine and the CHECK is broken. Paging security for a
+      #           500 from an IAM API teaches people the alarm is unreliable; ignoring it
+      #           lets a dead checker masquerade as health.
+      - name: Route the result
+        if: always()
+        env:
+          WEBHOOK: ${{ secrets.KMS_INCIDENT_WEBHOOK }}
+          OWNER: ${{ vars.KMS_ALARM_OWNER }}
+        run: |
+          code="${{ steps.check.outputs.exit }}"
+          cluster="${{ matrix.cluster }}"
+          case "$code" in
+            0) echo "healthy, or notices only — nothing routed"; exit 0 ;;
+            1) severity="critical"
+               class="kms-security-alarm"
+               summary="KMS configuration drift on ${cluster}: desired and authoritative state differ. Cluster encryption remains operational; manual platform-security remediation required." ;;
+            2) severity="warning"
+               class="kms-observation-failure"
+               summary="KMS controls could not be evaluated for ${cluster}. This is NOT a passing result: the key may be correct and the CHECK is broken. Treat the control as down until it reports again." ;;
+            *) severity="warning"
+               class="kms-carrier-failure"
+               summary="The KMS check produced no exit status for ${cluster}, so the control's own delivery is broken." ;;
+          esac
+
+          echo "::error::${summary}"
+
+          # DELIVERY, AND ITS OWN FAILURE FAILS THE JOB.
+          #
+          # The scenario this exists for: detector works, alert backend silently broken,
+          # security control appears healthy. `--fail-with-body` makes a non-2xx a
+          # non-zero exit, and `set -e` is already on, so a dead destination is a red run
+          # rather than a logged curl error nobody reads.
+          #
+          # The payload is deliberately generic — severity, class, owner, cluster and the
+          # full report — so the destination can be a paging provider's events API, a
+          # receiver, or a relay, without this workflow choosing one.
+          jq -n \
+            --arg severity "$severity" \
+            --arg class "$class" \
+            --arg owner "$OWNER" \
+            --arg cluster "$cluster" \
+            --arg summary "$summary" \
+            --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --slurpfile report report.json \
+            '{severity:$severity, class:$class, owner:$owner, cluster:$cluster,
+              summary:$summary, runUrl:$run, report:$report[0]}' > payload.json
+
+          curl --fail-with-body --silent --show-error \
+               --max-time 30 --retry 3 --retry-connrefused \
+               -H 'Content-Type: application/json' \
+               --data @payload.json "$WEBHOOK"
+
+          # Non-zero AFTER delivery, so the run is red and the page has already left.
+          exit 1

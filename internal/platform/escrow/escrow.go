@@ -84,6 +84,20 @@ const ArtifactZitadelMasterkey = "zitadel-masterkey"
 // at runtime.
 const ArtifactSecretEncryptionKey = "secret-encryption-key"
 
+// ArtifactSecretEncryptionKeyPrevious is the OUTGOING key during a rotation.
+//
+// It exists for one window: between staging a rotation and verifying that every Secret
+// has been rewritten under the new key. In that window etcd holds objects under BOTH
+// generations, so a cluster that loses its control plane needs BOTH to be recovered --
+// and escrowing only the new one would make the window unrecoverable, which is the
+// exact failure ADR-076 exists to prevent, introduced by the procedure meant to
+// improve security.
+//
+// Outside a rotation it is absent, and that is why the recovery contract in ADR-076
+// lists it as conditional rather than required: its presence means a rotation is in
+// flight, not that something is missing.
+const ArtifactSecretEncryptionKeyPrevious = "secret-encryption-key-previous"
+
 // MasterKeysBackup is what is escrowed. The field names are the ones the restore
 // path reads back, so changing one is a migration rather than a rename.
 type MasterKeysBackup struct {

@@ -1,0 +1,115 @@
+# The hub's at-rest encryption key, held to desired state.
+#
+# READ manifests/hub-core-services/crossplane/kms/README.md before changing anything
+# here: the management policies are the decision, not boilerplate.
+#
+# SUBSTITUTION. CLUSTER_NAME_VALUE, GCP_PROJECT_ID_VALUE and KMS_LOCATION_VALUE are
+# replaced per box the same way the encryption Secret's name is. The key id is
+# etcd-kek-<cluster>, derived in ONE place (kms.KeyIDFor) so the CLI that creates it and
+# the reconciler that holds it cannot disagree — two derivations would provision a cluster
+# against one key and reconcile another, and the second would be created empty, so nothing
+# would fail until a restore.
+---
+apiVersion: kms.gcp.upbound.io/v1beta2
+kind: KeyRing
+metadata:
+  name: soloz-etcd
+  annotations:
+    # The ring already exists; `soloz kms init` created it at bootstrap. Observe only:
+    # a key ring can never be deleted in GCP, so there is nothing to reconcile beyond
+    # confirming it is there.
+    crossplane.io/external-name: soloz-etcd
+spec:
+  managementPolicies: ["Observe"]
+  deletionPolicy: Orphan
+  forProvider:
+    location: KMS_LOCATION_VALUE
+    project: GCP_PROJECT_ID_VALUE
+  providerConfigRef:
+    name: gcp-provider
+---
+apiVersion: kms.gcp.upbound.io/v1beta2
+kind: CryptoKey
+metadata:
+  name: etcd-kek-CLUSTER_NAME_VALUE
+  annotations:
+    crossplane.io/external-name: etcd-kek-CLUSTER_NAME_VALUE
+    # THE VERSION FLOOR: the highest primary CryptoKeyVersion ever recorded for this key.
+    #
+    # It lives here, beside the desired configuration, because this file is the reviewed
+    # one. Advancing it is a commit somebody approves; that is the whole control. A floor
+    # kept in a gitignored directory, or advanced automatically by the tool that reads it,
+    # would be a record that agrees with whatever it finds.
+    #
+    # `soloz kms drift` compares it against the live primary version:
+    #
+    #   live == floor   nothing happened
+    #   live >  floor   a rotation landed and nobody recorded it. Reported, with the line
+    #                   to commit. Not a failure: rotation is supposed to happen
+    #   live <  floor   REACTIVATION. The primary moved BACKWARDS onto material that was
+    #                   retired, which the KMS v2 interface forbids because the identifier
+    #                   for it has already been used. Hard failure
+    #
+    # This is the durable half of the no-reactivation rule. The plugin cannot hold it --
+    # its memory does not survive a restart, and ADR-100 Amendment 2 records why that
+    # guard was removed rather than repaired. Git does survive, and a regression becomes a
+    # diff somebody has to approve.
+    kms.soloz.io/primary-version-floor: "1"
+spec:
+  # OBSERVE ONLY. Not Create, not Update, not Delete.
+  #
+  # This was "Observe, Update, LateInitialize" earlier the same day, and narrowing it is
+  # the decision rather than an oversight.
+  #
+  # Create is impossible: Crossplane cannot create the key the cluster it runs in depends
+  # on — the hub's API server cannot decrypt until the plugin reaches this key. Bootstrap
+  # creates it; this adopts it.
+  #
+  # Delete is forbidden, with deletionPolicy Orphan, because removing this object from Git
+  # must not schedule key destruction. A destroyed version makes every backup taken under
+  # it unreadable, which ADR-100 calls the same loss as losing the key.
+  #
+  # UPDATE IS DROPPED FOR THE REASON THE KEY'S IAM POLICY IS OBSERVE-ONLY. To update, the
+  # reconciler needs cloudkms.cryptoKeys.update on the key that encrypts this cluster's
+  # etcd — held by a workload running INSIDE that cluster. It cannot decrypt anything, but
+  # it can change the rotation period and the destroy-scheduled window, which are two of
+  # the three things standing between a mistake and unreadable backups. Compromising the
+  # hub should not also hand over the controls on the key protecting the hub.
+  #
+  # What this costs, stated rather than glossed: Git holds the desired state and the
+  # reconciler holds the ALARM, not the pen. Remediation is a deliberate `soloz kms` action
+  # by an operator credential from outside the cluster. The alarm itself — comparing
+  # status.atProvider against this spec — is NOT built; it is the drift control still open
+  # under ADR-100's condition 6.
+  #
+  # SPOKE KEYS ARE DIFFERENT and are not here. The hub creates a spoke's key before the
+  # spoke exists, and a hub that can administer a spoke's key is not the same exposure as
+  # a cluster that can administer its own.
+  managementPolicies: ["Observe"]
+  deletionPolicy: Orphan
+  forProvider:
+    keyRingSelector:
+      matchControllerRef: true
+    # 90 days. The same cryptoperiod the secretbox path uses and the same value
+    # `soloz kms init` sets — assets.EncryptionRotationWindow is the single definition,
+    # and a second spelling of a cryptoperiod is a second policy.
+    #
+    # Under Observe-only this is the EXPECTED value a drift check compares against, not a
+    # value Crossplane will write. It is still the right place for it: the expectation
+    # belongs in Git whether or not the reconciler is allowed to enforce it.
+    #
+    # THIS FIELD IS WHY THE NO-REACTIVATION RULE HOLDS. Its own schema description:
+    # "Every time this period passes, generate a new CryptoKeyVersion and set it as the
+    # primary." Forward-only by construction. There is no field on this resource that
+    # assigns a primary version, so reactivating retired material is not expressible in
+    # desired state at all — it is not forbidden by a check that can lapse.
+    rotationPeriod: 7776000s
+    # Thirty days pending before a destroy takes effect. The only thing between a
+    # mistaken destroy and unreadable backups.
+    destroyScheduledDuration: 2592000s
+    purpose: ENCRYPT_DECRYPT
+    versionTemplate:
+      - algorithm: GOOGLE_SYMMETRIC_ENCRYPTION
+        protectionLevel: SOFTWARE
+  providerConfigRef:
+    name: gcp-provider

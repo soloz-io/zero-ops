@@ -1,0 +1,67 @@
+# The disposable control plane for Gate 1.
+#
+# PRODUCTION-SHAPED, which is the whole point and not a figure of speech. The stanza
+# under kubeadmConfigPatches below is a `ClusterConfiguration` with
+# `apiServer.extraArgs` and `apiServer.extraVolumes` -- THE SAME FIELDS, WITH THE SAME
+# NAMES, that KubeadmControlPlaneTemplate carries in both ClusterClasses. So what this
+# exercises is the configuration v5 will ship, not a translation of it.
+#
+# Three more things are identical to a real node rather than analogous:
+#   - static pods are read from /etc/kubernetes/manifests by kubelet with no API server
+#     involved, which is the only ordering that terminates;
+#   - hostPath mounts into the API server's static pod behave the same way;
+#   - the API server's DEK cache behaves the same way, which is what makes the restart
+#     test meaningful.
+#
+# What it does NOT exercise is CAPI delivery. See the runbook.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kms-gate1
+nodes:
+  - role: control-plane
+    extraMounts:
+      # The provider configuration, the plugin's static pod, and the credential. On a
+      # CAPI node these three arrive as `files` entries in the control-plane template;
+      # here they are bind-mounted to the same paths, so the node sees what production
+      # would. Mounted as FILES, not directories: mounting /etc/kubernetes/manifests
+      # would hide the static pods kubeadm writes into it.
+      #
+      # GATE1_DIR IS SUBSTITUTED WITH AN ABSOLUTE PATH BY run.sh, and that is a bug
+      # fix. These were `./enc.yaml` and so on, and a bind source that does not resolve
+      # is not an error to Docker -- it CREATES A DIRECTORY at that path. So
+      # /etc/kubernetes/enc/enc.yaml became a directory, the API server could not read
+      # its provider configuration, credentials.json was a directory too so the plugin
+      # exited before its first login, and the symptom was "API server never became
+      # ready" with no request ever reaching the key store.
+      - hostPath: GATE1_DIR/enc.yaml
+        containerPath: /etc/kubernetes/enc/enc.yaml
+        readOnly: true
+      - hostPath: GATE1_DIR/static-pod.rendered.yaml
+        containerPath: /etc/kubernetes/manifests/kms-plugin.yaml
+        readOnly: true
+      - hostPath: GATE1_DIR/credentials.json
+        containerPath: /etc/kubernetes/kms/credentials.json
+        readOnly: true
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        encryption-provider-config: /etc/kubernetes/enc/enc.yaml
+      extraVolumes:
+        # The provider configuration itself. The API server is a static pod, so a path
+        # outside the directories kubeadm already mounts is invisible to it -- the same
+        # reason the secretbox rollout needed this.
+        - name: enc
+          hostPath: /etc/kubernetes/enc
+          mountPath: /etc/kubernetes/enc
+          readOnly: true
+          pathType: DirectoryOrCreate
+        # The socket the plugin serves on. NOT readOnly: the API server opens a
+        # connection, and a read-only mount of the directory is fine for that, but the
+        # directory must exist -- DirectoryOrCreate, with the initContainer then fixing
+        # its ownership so the non-root plugin can bind.
+        - name: kms-socket
+          hostPath: /var/run/kms
+          mountPath: /var/run/kms
+          pathType: DirectoryOrCreate

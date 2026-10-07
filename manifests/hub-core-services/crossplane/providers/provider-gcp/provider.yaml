@@ -1,0 +1,49 @@
+# The Google Cloud providers ADR-100's declarative delivery rests on.
+#
+# NOT YET IN providers/kustomization.yaml, DELIBERATELY. This directory is synced by
+# ArgoCD (manifests/argocd/components/01/platform-crossplane-providers.yaml), and
+# kustomize reads only what the kustomization lists — so these files are inert until
+# someone adds them on purpose. Installing a provider is a change to a running hub and
+# wants its own decision, not a side effect of a file appearing.
+#
+# What still has to be settled before that line is added is at the bottom of this file.
+#
+# ── THE VERSION IS LOAD-BEARING, AND :v1 IS THE WRONG ANSWER ────────────────
+#
+# Verified 2026-10-06 by extracting the packages and inspecting the CRDs:
+#
+#   provider-gcp-iam:v1       WorkloadIdentityPoolProvider supports aws, oidc, saml.
+#                             `x509` is ABSENT. The whole federation design is
+#                             inexpressible on this line.
+#   provider-gcp-iam:v2.0.0+  `x509` present.
+#   provider-gcp-iam:v3.0.5   `x509` present and inspected field by field, which is
+#                             why that is the pin.
+#
+# A platform that pinned :v1 would have concluded the declarative story does not exist.
+# It does; the package line matters.
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-kms
+spec:
+  # Carries CryptoKey and KeyRing. Verified (ADR-100, T24): spec.forProvider exposes
+  # rotationPeriod and destroyScheduledDuration, and exposes NO field that assigns a
+  # primary version — which is what makes reactivating retired key material
+  # inexpressible in desired state rather than merely forbidden.
+  package: xpkg.upbound.io/upbound/provider-gcp-kms:v3.0.5
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-iam
+spec:
+  # Carries WorkloadIdentityPool and WorkloadIdentityPoolProvider. Verified (T27):
+  # spec.forProvider.x509.trustStore.trustAnchors[].pemCertificate exists on
+  # iam.gcp.upbound.io/v1beta2, attributeMapping is a map[string]string, and the trust
+  # store is NOT ForceNew — only the pool and provider IDs are immutable.
+  #
+  # That last property is why a hub rebuild can re-upload a new cluster CA in place:
+  # the provider keeps its ID, so the audience URI in every node's credential
+  # configuration stays valid and the CAPI template does not have to be regenerated.
+  package: xpkg.upbound.io/upbound/provider-gcp-iam:v3.0.5

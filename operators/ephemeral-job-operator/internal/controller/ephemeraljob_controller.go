@@ -1720,7 +1720,20 @@ func podExitCode(p *corev1.Pod) *int32 {
 	return nil
 }
 
+// podTerminationMessage is why the pod failed, in the workload's own words when
+// it gave any. A container that writes its reason to its termination message
+// (/dev/termination-log) has said exactly what went wrong -- "1.4 s of speech;
+// at least 3 s is needed" -- and that is the job's failure, the same as a RunPod
+// handler's returned error. Only without one does the kubelet's reason
+// ("Error", "OOMKilled") stand in.
 func podTerminationMessage(p *corev1.Pod) string {
+	for i := range p.Status.ContainerStatuses {
+		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil && t.ExitCode != 0 {
+			if m := strings.TrimSpace(t.Message); m != "" {
+				return m
+			}
+		}
+	}
 	for i := range p.Status.ContainerStatuses {
 		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil && t.Reason != "" {
 			return fmt.Sprintf("container %s terminated: %s", p.Status.ContainerStatuses[i].Name, t.Reason)

@@ -216,6 +216,7 @@ requires it.
 | Artefact | Scope | Authority | Recovery | Normal use |
 |---|---|---|---|---|
 | `secret-encryption-key` | per cluster | the escrow, by the provisioning contract (ADR-003 §6, ADR-100) | **required** | read from the node's own file |
+| `secret-encryption-key-previous` | per cluster, **only during a rotation** | the escrow, for the length of the rotation | **required while present** | read from the node's own file as the second provider |
 | `admin-kubeconfig` | per cluster | the platform's cluster lifecycle | **required** | none — break-glass only |
 | `zitadel-masterkey` | hub | Infisical; the escrow holds a recovery copy | **required** | read from Infisical by the workload |
 | `infisical-master-keys` | hub | Infisical's own bootstrap; the escrow holds the only recoverable copy | **required** | read at the secret store's start |
@@ -225,6 +226,45 @@ requires it.
 authority ONLY for an artefact whose row says so. It does not override ADR-003's rule
 that Infisical is the System of Record for secret material: for `zitadel-masterkey`
 the authoritative value is Infisical's and the escrow holds a copy, while for
+#### Cloud KMS keys are not escrow artefacts
+
+**A Cloud KMS encryption key is never an escrow artefact, and exporting or duplicating
+one into the escrow is prohibited.** ADR-100 moves each cluster's etcd
+key-encryption key to Google Cloud KMS, where it is non-exportable by construction.
+
+That is not an oversight in the table below — it is the point. A copy of that key
+outside Cloud KMS would be an offline decryption path for every etcd backup taken
+while it was in force, which is precisely the exposure moving it out of the box
+removes. Recovery of an encrypted cluster therefore depends on the **continuity of the
+external KMS authority**, not on anything this escrow holds.
+
+The escrow's scope is unchanged: it holds secret VALUES that cannot be regenerated —
+the Zitadel masterkey, Infisical's master keys, admin kubeconfigs. Those have a
+different custody model from a cryptographic key, and conflating the two would mean
+either a second secret store or a key copied into the first.
+
+`secret-encryption-key` and `secret-encryption-key-previous` below are the
+**`secretbox`** keys, which do live here because that provider keeps its key on the
+node and the escrow is the only copy. They become irrelevant for any cluster that
+moves to Cloud KMS, and are removed from that cluster's contract when it does.
+
+#### The one conditional row, and why it is not a third state
+
+Every other artefact here is present or the box is broken. `secret-encryption-key-previous`
+is present only between staging a rotation and verifying it, and absent otherwise —
+which looks like the "usually present" hedge the no-third-state rule above forbids.
+
+It is not, because its presence is not a matter of luck or history: **it means a
+rotation is in flight**, and its absence means one is not. During that window etcd
+holds objects sealed under BOTH generations, so recovering the cluster needs both keys;
+once every Secret has been rewritten and verified under the new key, the old one
+recovers nothing and is no longer part of the contract.
+
+So the row reads "required while present" rather than "required" or "optional". An
+operator finding it in the escrow has learned something true about the cluster: someone
+started a rotation and has not finished it. `soloz encryption rotate` writes it, and
+`--finalize` is the step after which it stops mattering.
+
 `secret-encryption-key` there is no Infisical copy at all and the escrow IS the
 source. Reading "the escrow is authoritative" as a general principle would invert
 ADR-003 for every ordinary secret, which is why this is a table and not a sentence.

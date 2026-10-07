@@ -1,0 +1,125 @@
+# The Workload Identity Federation resources, held to desired state.
+#
+# READ manifests/hub-core-services/crossplane/kms/README.md first. These carry the same
+# management policies as the key and for a sharper reason.
+#
+# ── WHY OBSERVE-ONLY, WHEN "RE-UPLOAD THE TRUST ANCHOR" IS A REBUILD STEP ───
+#
+# It would be convenient for the reconciler to own the trust anchor: a rebuild replaces the
+# cluster CA, and a reconciler with Update could put the new one in place automatically.
+#
+# That convenience is the attack. **Whoever can write the trust anchor can become the
+# plugin.** Point it at a CA you control, sign a certificate with the subject the attribute
+# mapping expects, and you hold an identity with encrypt and decrypt on the key protecting
+# that cluster's etcd. It is a worse grant than `cryptoKeys.update`, which only changes the
+# key's configuration — this one hands over the ability to use it.
+#
+# So the trust anchor is established at bootstrap by `soloz kms`, verified by
+# `soloz kms trust-anchor`, re-uploaded during a rebuild by an operator credential from
+# OUTSIDE the cluster, and observed here. Git records what it should be; the reconciler
+# raises the alarm; a human makes the change. Same shape as the key, one level more
+# consequential.
+#
+# ── TWO PROVIDERS, BECAUSE TWO IDENTITIES CANNOT SHARE ONE ──────────────────
+#
+#   control-plane   X.509. The KMS plugin, which is a static pod and must answer BEFORE
+#                   the API server can serve — so it cannot obtain a projected
+#                   ServiceAccount token from the thing it is a prerequisite for.
+#
+#   workloads       OIDC. The Crossplane provider, which is an ordinary Deployment and can
+#                   use the standard Kubernetes identity mechanism. Its JWKS is UPLOADED
+#                   (`oidc.jwksJson`), so Google never fetches a discovery document and
+#                   the cluster needs no public endpoint — verified in
+#                   google.golang.org/api@v0.287.1 iam/v1: "If not set, the jwks_uri from
+#                   the discovery document ... will be used."
+#
+# Using the standard mechanism where the workload can, and the specialised bootstrap
+# identity only for the component that genuinely cannot.
+#
+# SUBSTITUTION: CLUSTER_NAME_VALUE, GCP_PROJECT_ID_VALUE and OIDC_ISSUER_VALUE are replaced
+# per box, as the encryption Secret's name is.
+---
+apiVersion: iam.gcp.upbound.io/v1beta1
+kind: WorkloadIdentityPool
+metadata:
+  name: soloz-CLUSTER_NAME_VALUE
+  annotations:
+    crossplane.io/external-name: soloz-CLUSTER_NAME_VALUE
+spec:
+  # A pool cannot be hard-deleted in GCP — it is soft-deleted for 30 days and the ID
+  # cannot be reused before then. Observing it is therefore the whole job.
+  managementPolicies: ["Observe"]
+  deletionPolicy: Orphan
+  forProvider:
+    workloadIdentityPoolId: soloz-CLUSTER_NAME_VALUE
+    project: GCP_PROJECT_ID_VALUE
+    displayName: CLUSTER_NAME_VALUE control plane and platform workloads
+  providerConfigRef:
+    name: gcp-provider
+---
+apiVersion: iam.gcp.upbound.io/v1beta2
+kind: WorkloadIdentityPoolProvider
+metadata:
+  name: CLUSTER_NAME_VALUE-control-plane
+  annotations:
+    crossplane.io/external-name: control-plane
+spec:
+  # OBSERVE ONLY. See the header: Update here is the ability to become the plugin.
+  managementPolicies: ["Observe"]
+  deletionPolicy: Orphan
+  forProvider:
+    workloadIdentityPoolIdRef:
+      name: soloz-CLUSTER_NAME_VALUE
+    workloadIdentityPoolProviderId: control-plane
+    project: GCP_PROJECT_ID_VALUE
+    # google.subject from the certificate's common name, which the initContainer sets to
+    # kms-plugin.<cluster>. The CA already separates clusters — a certificate from cluster
+    # B does not validate against cluster A's provider — so this is belt and braces and it
+    # makes an audit log readable.
+    attributeMapping:
+      google.subject: assertion.subject.dn.cn
+    x509:
+      trustStore:
+        trustAnchors:
+          # THE CLUSTER'S OWN CA, and this value is NOT reconciled from here. It is
+          # established at bootstrap and re-uploaded during a rebuild by an operator
+          # credential; what Git holds is the EXPECTATION that `soloz kms check` compares
+          # the live provider against.
+          - pemCertificate: CLUSTER_CA_PEM_VALUE
+  providerConfigRef:
+    name: gcp-provider
+---
+apiVersion: iam.gcp.upbound.io/v1beta2
+kind: WorkloadIdentityPoolProvider
+metadata:
+  name: CLUSTER_NAME_VALUE-workloads
+  annotations:
+    crossplane.io/external-name: workloads
+spec:
+  managementPolicies: ["Observe"]
+  deletionPolicy: Orphan
+  forProvider:
+    workloadIdentityPoolIdRef:
+      name: soloz-CLUSTER_NAME_VALUE
+    workloadIdentityPoolProviderId: workloads
+    project: GCP_PROJECT_ID_VALUE
+    attributeMapping:
+      # system:serviceaccount:<namespace>:<name> from the projected token, with the
+      # namespace and name kept as separate attributes so an IAM condition can bind one
+      # ServiceAccount rather than every workload in the cluster.
+      google.subject: assertion.sub
+      attribute.namespace: assertion["kubernetes.io"]["serviceaccount"]["namespace"]
+      attribute.serviceaccount: assertion["kubernetes.io"]["serviceaccount"]["name"]
+    oidc:
+      # Required even when the JWKS is uploaded: Google does not FETCH this, but the
+      # token's `iss` claim must match it.
+      issuerUri: OIDC_ISSUER_VALUE
+      allowedAudiences:
+        - https://kubernetes.default.svc
+      # UPLOADED, WHICH IS WHAT REMOVES THE PUBLIC-ENDPOINT REQUIREMENT — and what makes
+      # this a lifecycle rather than a setting. The copy goes stale when the cluster
+      # replaces its signing key, and a stale copy fails every token while the cluster
+      # looks healthy. `soloz kms jwks` re-uploads; `soloz kms check` detects.
+      jwksJson: CLUSTER_JWKS_VALUE
+  providerConfigRef:
+    name: gcp-provider

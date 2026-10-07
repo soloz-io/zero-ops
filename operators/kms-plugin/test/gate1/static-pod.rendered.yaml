@@ -1,0 +1,225 @@
+# The KMS v2 plugin, as a STATIC POD.
+#
+# This file is the content that v5's control-plane template will write to
+# /etc/kubernetes/manifests/kms-plugin.yaml on every control-plane node, and it is the
+# file Gate 1 places by hand (docs/runbooks/kms-v2-gate-1-integration.md). One source,
+# so the gate exercises the shape production ships rather than a translation of it.
+#
+# WHY A STATIC POD AND NOT A DEPLOYMENT, restated here because the file is read on its
+# own: the API server cannot decrypt anything in etcd until this plugin answers, so a
+# workload the API server has to schedule in order to start is a deadlock — the
+# scheduler needs the API server, the API server needs the plugin, the plugin needs the
+# scheduler. kubelet starts a static pod from a file on disk with no API server
+# involved, which is the only ordering that terminates.
+#
+# CONSEQUENCES OF THAT CHOICE, which are real and are priced in ADR-100:
+#
+#   - No Deployment, so no rolling update. kubelet restarts the pod when this FILE
+#     changes, and nothing changes files on a running node: CAPI writes them at
+#     bootstrap only. So changing the image means a new control-plane template and a
+#     roll on every cluster.
+#   - No Service, no ServiceAccount, no RBAC. It talks to the API server over a unix
+#     socket as a provider, not as a client, and it needs no Kubernetes permission at
+#     all. An operator image that needed none is unusual and is the correct shape here.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kms-plugin
+  namespace: kube-system
+  labels:
+    component: kms-plugin
+    tier: control-plane
+spec:
+  # The node's network, because the plugin reaches an external key store over HTTPS and
+  # a static pod starts before any CNI exists. A pod network that is not yet programmed
+  # is a plugin that cannot authenticate, on the path the API server waits on.
+  hostNetwork: true
+  # dnsPolicy: Default IS REQUIRED, NOT A TEST ACCOMMODATION.
+  #
+  # The default for a pod is ClusterFirst, which resolves through CoreDNS. This plugin
+  # must reach an external key store over HTTPS *before the API server serves*, which
+  # is before CNI is programmed and long before CoreDNS has a single endpoint. A
+  # ClusterFirst resolver at that moment points at a Service that does not exist yet.
+  #
+  # Default means "use the node's /etc/resolv.conf", which is the only resolver that
+  # exists at this point in a node's life. The symptom of getting it wrong is the
+  # plugin failing to resolve the key store's hostname, which surfaces as an API server
+  # that never becomes ready -- with nothing naming DNS.
+  dnsPolicy: Default
+  priorityClassName: system-node-critical
+  # Nothing here tolerates being rescheduled; it belongs to this node.
+  restartPolicy: Always
+  securityContext:
+    # Set per CONTAINER rather than pod-wide, because the initContainer must be root to
+    # chown and the plugin must not be. A pod-level runAsNonRoot would make the
+    # initContainer unschedulable.
+    seccompProfile:
+      type: RuntimeDefault
+  # THE SOCKET DIRECTORY IS PREPARED BY AN initContainer, NOT BY A preKubeadmCommand.
+  #
+  # The plugin runs as 65532 and must bind a unix socket in a hostPath. kubelet creates
+  # a hostPath directory root-owned and 0755, so a non-root process cannot bind in it.
+  #
+  # An earlier design put `install -d -o 65532 -g 65532 -m 0700 /var/run/kms` in the
+  # control-plane template's preKubeadmCommands. That works and it splits one
+  # requirement across two files: a pod that cannot start without a directory, and a
+  # directory created somewhere the pod spec does not mention. Forget the command and
+  # the failure reads as a socket problem rather than an ownership one.
+  #
+  # Doing it here makes the pod self-contained, which also means it behaves identically
+  # on a CAPI-provisioned node and in the disposable kind cluster Gate 1 uses -- the
+  # "production-shaped" property that gate exists to get.
+  #
+  # This container is the only root in the pod, it runs once, and it has no network.
+  initContainers:
+    - name: prepare-socket-dir
+      image: kms-plugin:gate1
+      command:
+        - /kms-plugin
+        - --prepare-socket-dir=/var/run/kms
+        - --socket-dir-uid=65532
+      securityContext:
+        # root, because chown requires it. CHOWN alone rather than ALL capabilities:
+        # the only privileged thing it does is change one directory's owner.
+        runAsUser: 0
+        runAsGroup: 0
+        runAsNonRoot: false
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+          add: ["CHOWN"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 10m
+          memory: 16Mi
+      volumeMounts:
+        - name: socket
+          mountPath: /var/run/kms
+  containers:
+    - name: kms-plugin
+      # PINNED BY DIGEST, written by the build (.github/workflows/kms-plugin.yml).
+      # A tag would let the node resolve a different binary on a restart than the one
+      # that was tested, on the component the API server cannot start without.
+      image: kms-plugin:gate1
+      imagePullPolicy: Never
+      args:
+        - --socket=/var/run/kms/soloz-kms.sock
+        # Substituted per cluster, the same way the encryption Secret's name is.
+        #
+        # It is the DEFAULT KEY-ID SUFFIX. The reported key_id is the Cloud KMS
+        # CryptoKeyVersion resource name with this appended after a ":", which does two
+        # things: two clusters configured against one key do not report the same
+        # identifier for different encryption state, and changing the suffix is how a
+        # key version that was active before can be put back into service without
+        # reusing an identifier — which the KMS v2 interface forbids. Pass --key-suffix
+        # to override it; ADR-100 documents when that is required.
+        - --cluster=kms-gate1
+        # THE GOOGLE CREDENTIAL CONFIGURATION, which is not a key.
+        #
+        # It cannot be a Kubernetes Secret: the plugin must authenticate before the
+        # API server can read one (ADR-100). It is a Workload Identity Federation
+        # credential CONFIGURATION, which names an external identity source rather
+        # than carrying key material — the property that makes mounting it acceptable
+        # where a long-lived service-account key would not be. ADR-100 prohibits the
+        # latter outright.
+        #
+        # Which external identity backs this file on a static pod is a Gate 3
+        # question. A static pod cannot consume a projected Kubernetes ServiceAccount
+        # token, so the usual workload-identity path is unavailable; X.509 federation
+        # is the leading candidate and its certificate lifecycle is unproven here.
+        #
+        # An earlier draft pulled a credential into env with `valueFrom.fileKeyRef`.
+        # That field is KEP-4440, ALPHA IN KUBERNETES 1.33, and this control plane runs
+        # 1.31.6 — kubelet would have rejected the pod or started it with no credential.
+        # The plugin reads the path itself and depends on no Kubernetes feature at all.
+        - --google-credentials=/etc/kubernetes/kms/credentials.json
+      env:
+        # The key's resource name is configuration, not a secret, so it is visible in
+        # the pod spec where it can be audited.
+        #
+        # KMS_CRYPTO_KEY IS THE PARENT CryptoKey, never a cryptoKeyVersions/N path, and
+        # the reason is narrower than an earlier version of this comment claimed.
+        #
+        # That comment said encrypting against the parent is what lets Cloud KMS select
+        # the primary and report it, and that naming a version would make a rotation
+        # invisible. The second half was wrong: the plugin reads CryptoKey.Primary
+        # itself and then encrypts against THAT EXACT VERSION, so rotation is still
+        # followed. Naming the version is in fact required — changing a primary is
+        # eventually consistent, and against the parent the status path and the encrypt
+        # path can resolve different versions, which the API server treats as an
+        # unhealthy provider.
+        #
+        # What remains true is that the CONFIGURED value must be the parent, because
+        # reading CryptoKey.Primary is the only way the plugin learns a rotation
+        # happened at all. The plugin refuses a version path here.
+        - name: KMS_CRYPTO_KEY
+          value: projects/gate1/locations/global/keyRings/gate1/cryptoKeys/gate1-key
+        - name: KMS_INSECURE_TEST_ENDPOINT
+          value: kms-gate1-keystore:8200
+      resources:
+        # EQUAL REQUESTS AND LIMITS, FOR GUARANTEED QoS.
+        #
+        # An earlier version of this file set 25m/200m and 64Mi/128Mi while the comment
+        # beside it claimed they were equal. They were not, so the pod was BURSTABLE and
+        # the comment was false about its own manifest. Stated plainly because the
+        # wrong claim is the kind that is read during an incident.
+        #
+        # Guaranteed is what is wanted here, and the reason is eviction ORDER: kubelet
+        # reclaims BestEffort first, then Burstable, and Guaranteed last. This process
+        # is on the API server's encryption path -- while it is gone, no Secret can be
+        # decrypted that is not already cached -- so it should be the last thing on the
+        # node to be reclaimed, not the middle.
+        #
+        # ON THE THROTTLING QUESTION, which is the real cost of a hard CPU limit:
+        # kubeadm gives the API server itself requests-only for exactly that reason. It
+        # is accepted here because this plugin is I/O-bound, not CPU-bound -- it wraps
+        # 32-byte keys and makes one HTTPS call per cache miss, so even the decrypt
+        # storm when the API server restarts with a cold DEK cache is time spent
+        # WAITING on the key store. 200m is far above that, and Gate 1 measures it
+        # rather than assuming (docs/runbooks/kms-v2-gate-1-integration.md).
+        #
+        # priorityClassName: system-node-critical above is the other half: priority
+        # protects it from preemption, QoS from reclaim. Neither substitutes for the
+        # other.
+        requests:
+          cpu: 200m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        # TIGHTLY SCOPED, both of them. The socket directory is the only thing this
+        # plugin writes, and the credential directory is the only thing it reads.
+        # Neither is a parent of anything else: mounting /etc/kubernetes or /var/run
+        # would give a process that can request unwrapping of every DEK a view of the
+        # control plane's entire PKI.
+        - name: socket
+          mountPath: /var/run/kms
+        - name: credential
+          mountPath: /etc/kubernetes/kms
+          readOnly: true
+  volumes:
+    - name: socket
+      hostPath:
+        # DirectoryOrCreate is correct now: kubelet creates it root-owned and 0755, and
+        # the initContainer above then makes it 0700 owned by 65532. Requiring it to
+        # pre-exist would reintroduce the dependency on a preKubeadmCommand that the
+        # initContainer exists to remove.
+        path: /var/run/kms
+        type: DirectoryOrCreate
+    - name: credential
+      hostPath:
+        path: /etc/kubernetes/kms
+        type: Directory

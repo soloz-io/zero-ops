@@ -115,8 +115,13 @@ func runEscrowVerify(cmd *cobra.Command, _ []string) error {
 			fmt.Printf("  MISSING  %-24s %s — this cluster cannot be rebuilt without it\n", r.artifact, r.what)
 			missing++
 		default:
-			sum := sha256.Sum256([]byte(v))
-			fmt.Printf("  present  %-24s sha256:%s  (%d bytes)\n", r.artifact, hex.EncodeToString(sum[:])[:12], len(v))
+			// keyFingerprint reduces base64, hex and raw to the same digest, so this
+			// is comparable with what `soloz encryption rotate` prints for the live
+			// configuration. It was sha256 of the stored string, which for an
+			// encryption key is the HEX encoding -- and the configuration holds BASE64,
+			// so the two never matched and the comparison this command tells you to make
+			// could not be made.
+			fmt.Printf("  present  %-24s %s  (%d bytes)\n", r.artifact, keyFingerprint([]byte(v)), len(v))
 		}
 	}
 

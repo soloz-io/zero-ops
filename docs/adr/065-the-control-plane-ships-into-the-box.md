@@ -155,6 +155,72 @@ tell. Under the original design the platform would have known. That is a real
 loss of signal, and it is the reason ADR-067's export is the evidence a
 maintenance obligation rests on rather than the proposal record.
 
+## Amendment 2 (2026-10-06) — platform-owned cryptographic infrastructure, and what that costs
+
+ADR-100 moves the key that encrypts a cluster's etcd to Google Cloud KMS, held in a
+**platform-owned** project. That is a change to this ADR's boundary and it is amended
+here explicitly rather than reinterpreted, because the alternative is a document that
+says one thing while the fleet does another.
+
+### The rule, restated
+
+> **The platform does not hold customer application credentials, nor credentials to
+> customer-managed infrastructure. The platform MAY operate platform-owned security
+> infrastructure, including cryptographic keys that protect platform-managed
+> control-plane data at rest.**
+
+"Cloud credentials never leave the box" above is unchanged and still governs the
+credentials that *provision* a tenant's clusters: those remain the tenant's, held by
+the tenant's control plane, illegible to the platform. What changes is that one
+platform-operated cryptographic service now sits inside the boot path of a box.
+
+### The consequence, stated plainly
+
+> **As KMS authority, the platform is technically capable of decrypting a customer's
+> Kubernetes control-plane data.**
+
+That sentence is the amendment. The KEK is not an ordinary application credential —
+it is never exported, the platform never sees plaintext Secrets, and a KMS call is
+audited — but it unwraps the data encryption keys that protect every Secret in that
+cluster's etcd. Anyone holding KMS authority plus an etcd snapshot holds the cluster's
+secrets. Calling the key "infrastructure" does not change that, and this ADR will not
+use the word to avoid saying it.
+
+Three further consequences follow and none of them were true before:
+
+- **A box no longer starts without a platform-operated service.** ADR-100's Gate 1
+  established that writes survive a brief KMS outage from cached material while cold
+  reads fail; an API server restart during an outage cannot serve Secrets at all. The
+  independence this ADR was written to establish is therefore partial: a shipped
+  control plane runs on its own until it restarts.
+- **Platform GCP availability, quota and billing become tenant-facing.** A suspended
+  platform billing account is a fleet that cannot restart.
+- **The trust argument changes shape.** This ADR's case against a multi-tenant control
+  plane was that it would concentrate "every tenant's identity, secret material, cloud
+  credentials and reconciliation authority" at one point. A platform KMS project
+  holding every cluster's KEK is a concentration of one of those four. It is narrower
+  than what was rejected, and it is not nothing.
+
+### The open question this creates: the OSS and BYOC path
+
+**The platform is OSS and ships to a customer's own box.** A self-hoster who installs
+it has no access to the platform's GCP project, so "platform-owned KMS" cannot be the
+only answer — it is the answer for clusters the platform is accountable for, which is
+what a subscription buys (ADR-067).
+
+That leaves a self-hosted install needing one of:
+
+- **`secretbox`**, which is what both clusters run today and is proven — the KEK then
+  lives on the control-plane host, which is the limitation ADR-003 §6 records;
+- **their own KMS**, pointing the plugin at a project they own, which is the
+  tenant-owned model and the "substantially larger design" rejected for the managed
+  path;
+- **no encryption at rest**, which is not acceptable as a default.
+
+Not decided here. The first is the honest default for a self-hoster and requires no
+new work, since the provider configuration is already per cluster. Recording it so the
+OSS story is not silently assumed to be the managed one.
+
 ## References
 
 - ADR-031: Tenant Secret Isolation and Identity Topology

@@ -102,3 +102,7 @@ support-agent
 .state
 # macOS directory metadata; swept in by a directory pathspec on 2026-09-28
 .DS_Store
+
+# Build artifact: `go build -o keystore-stub ./test/gate1/keystore-stub` drops a host
+# binary next to the module. The gate builds the stub inside a container.
+/operators/kms-plugin/keystore-stub

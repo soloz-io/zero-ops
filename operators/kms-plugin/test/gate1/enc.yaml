@@ -1,0 +1,26 @@
+# The KMS v2 provider configuration Gate 1 runs with.
+#
+# `kms` FIRST so every WRITE goes through the plugin; `identity` SECOND so the
+# Secrets kubeadm itself wrote during bootstrap -- before the plugin existed -- stay
+# readable. Same ordering, and the same reason, as the secretbox configuration in
+# ADR-003 section 6: the fallback is removed only after every Secret has been
+# rewritten and verified.
+#
+# `apiVersion: v2` and `name: soloz-kms` make the stored prefix
+# `k8s:enc:kms:v2:soloz-kms:` -- which is what Gate 1 reads out of etcd. A successful
+# `kubectl get secret` proves nothing, because `identity` is still in the list.
+#
+# `cachesize` is deliberately absent: it is not valid for a v2 provider, and the DEK
+# cache the API server keeps is exactly what makes the restart test necessary.
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - kms:
+          apiVersion: v2
+          name: soloz-kms
+          endpoint: unix:///var/run/kms/soloz-kms.sock
+          timeout: 3s
+      - identity: {}

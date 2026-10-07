@@ -112,3 +112,44 @@ func TestLogTailIsBounded(t *testing.T) {
 		t.Fatal("an unbounded log read stalls the work queue for every other job")
 	}
 }
+
+func terminatedPod(containers ...corev1.ContainerStatus) *corev1.Pod {
+	return &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodFailed, ContainerStatuses: containers}}
+}
+
+func terminated(name string, exit int32, reason, message string) corev1.ContainerStatus {
+	return corev1.ContainerStatus{Name: name, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+		ExitCode: exit, Reason: reason, Message: message,
+	}}}
+}
+
+// The workload said why it failed; that is the job's failure, not the kubelet's
+// "Error". It is what reaches the person and the agent that started the job.
+func TestAFailedWorkloadsOwnMessageIsTheFailure(t *testing.T) {
+	pod := terminatedPod(
+		terminated("agent-vault", 0, "Completed", ""),
+		terminated("workload", 1, "Error", "1.4 s of speech in 5.0 s of audio; at least 3 s is needed\n"),
+	)
+	if got := podTerminationMessage(pod); got != "1.4 s of speech in 5.0 s of audio; at least 3 s is needed" {
+		t.Fatalf("got %q, want the workload's own message", got)
+	}
+}
+
+// A workload that wrote nothing still fails with the kubelet's reason.
+func TestWithoutAMessageTheKubeletsReasonStands(t *testing.T) {
+	pod := terminatedPod(terminated("workload", 137, "OOMKilled", ""))
+	if got := podTerminationMessage(pod); got != "container workload terminated: OOMKilled" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A container that exited cleanly is not why the pod failed, whatever it wrote.
+func TestASuccessfulContainersMessageIsNotTheFailure(t *testing.T) {
+	pod := terminatedPod(
+		terminated("agent-vault", 0, "Completed", "shutting down"),
+		terminated("workload", 1, "Error", ""),
+	)
+	if got := podTerminationMessage(pod); strings.Contains(got, "shutting down") {
+		t.Fatalf("got %q: a clean exit's message reported as the failure", got)
+	}
+}

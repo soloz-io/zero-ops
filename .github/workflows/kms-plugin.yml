@@ -1,0 +1,112 @@
+name: kms-plugin
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - operators/kms-plugin/**
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # TESTS BEFORE THE IMAGE, which the other operator workflows do not do.
+      #
+      # Not a style preference. This binary is in the API server's start path: a
+      # control plane cannot decrypt etcd until it answers, so an image that ships
+      # broken is a cluster that does not start, and the roll that delivers it is the
+      # roll that has to be undone. -race because the wrap path runs on every Secret
+      # write.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operators/kms-plugin/go.mod
+          cache-dependency-path: operators/kms-plugin/go.sum
+
+      - name: Test
+        working-directory: operators/kms-plugin
+        run: go test ./... -race
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: arun-soloz
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: operators/kms-plugin
+          # amd64 only, matching every other component: Hetzner control planes and the
+          # Flatcar home-lab workers are all x86. This Dockerfile DOES cross-compile
+          # (--platform=$BUILDPLATFORM on the builder stage), so adding arm64 later is
+          # a one-line change rather than a QEMU emulation problem.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/soloz-io/kms-plugin:${{ github.sha }}
+            ghcr.io/soloz-io/kms-plugin:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # provenance: false MATCHES THE FLEET, and is worth stating rather than
+          # copying. With provenance enabled, buildx publishes an attestation manifest
+          # and `steps.build.outputs.digest` then refers to a manifest INDEX rather
+          # than the image — which is the value committed below and consumed as an
+          # image reference. Turning it on is therefore a fleet-wide change to what a
+          # pinned digest means, not a per-component flag, and it belongs in one
+          # decision across all components rather than starting here.
+          provenance: false
+
+      - name: Pull latest remote changes
+        run: git pull --rebase
+
+      # THE DIGEST GOES INTO A FILE, NOT A KUSTOMIZATION, AND THAT IS THE DIFFERENCE
+      # FROM EVERY OTHER OPERATOR HERE.
+      #
+      # The others are Deployments whose image is set with `kustomize edit set image`.
+      # This one is a STATIC POD: its manifest is a file that a control-plane template
+      # writes to /etc/kubernetes/manifests on every node, so the digest has to reach
+      # that template's content.
+      #
+      # It is written to deploy/static-pod.yaml, which is the single source both the
+      # ClusterClass template and the Gate 1 environment read. Propagating it into the
+      # ClusterClass is NOT done here, deliberately: a KubeadmControlPlaneTemplate's
+      # spec is immutable, so changing the embedded image means a new template name and
+      # a control-plane roll on every cluster. That is a release decision, not
+      # something a push to this directory should trigger.
+      - name: Pin the digest in the static-pod manifest
+        working-directory: operators/kms-plugin
+        run: |
+          python3 - "${{ steps.build.outputs.digest }}" <<'PY'
+          import re, sys, pathlib
+          digest = sys.argv[1]
+          if not digest.startswith("sha256:"):
+              sys.exit(f"refusing to pin {digest!r}: not a sha256 digest")
+          p = pathlib.Path("deploy/static-pod.yaml")
+          t = p.read_text()
+          new, n = re.subn(
+              r"image: ghcr\.io/soloz-io/kms-plugin@sha256:[0-9a-f]{64}",
+              f"image: ghcr.io/soloz-io/kms-plugin@{digest}",
+              t,
+          )
+          # Refused rather than appended. A manifest whose image line stopped matching
+          # would otherwise be published unpinned, with the workflow reporting success.
+          if n != 1:
+              sys.exit(f"expected exactly one pinned image line, replaced {n}")
+          p.write_text(new)
+          PY
+
+      - name: Commit and push image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operators/kms-plugin/deploy/static-pod.yaml
+          git commit -m "chore(kms-plugin): update image to ${{ github.sha }}" || exit 0
+          git push

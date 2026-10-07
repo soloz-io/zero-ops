@@ -53,6 +53,7 @@ func newEncryptionCmd() *cobra.Command {
 		Short: "Manage at-rest encryption of Kubernetes Secrets",
 	}
 	cmd.AddCommand(newEncryptionEnableCmd())
+	cmd.AddCommand(newEncryptionRotateCmd())
 	return cmd
 }
 
@@ -234,9 +235,13 @@ func runEncryptionEnable(cmd *cobra.Command, _ []string) error {
 			"plaintext will become unreadable once the control plane rolls")
 	}
 	if err := tmpl.Execute(&secretOut, map[string]any{
-		"SecretName":          assets.EncryptionSecretName(encClusterName),
-		"Namespace":           encNamespace,
-		"EncryptionKeyB64":    base64.StdEncoding.EncodeToString(rawKey),
+		"SecretName": assets.EncryptionSecretName(encClusterName),
+		"Namespace":  encNamespace,
+		// Generation 1, and no fallback key. `enable` is the FIRST adoption; a
+		// rotation is `soloz encryption rotate`, which is a staged procedure because
+		// the previous key has to survive until the rewrite is verified.
+		"PrimaryKeyName":      assets.EncryptionKeyName(1),
+		"PrimaryKeyB64":       base64.StdEncoding.EncodeToString(rawKey),
 		"NoPlaintextFallback": encNoFallback,
 	}); err != nil {
 		return fmt.Errorf("rendering the provider configuration: %w", err)

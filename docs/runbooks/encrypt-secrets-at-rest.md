@@ -80,18 +80,43 @@ transcript, a ticket, a chat message, a CI log.
 
 It happened on 2026-10-05. `nutgraf-01`'s key was read back in full while verifying
 step 9 and ended up in a session transcript. The key alone is useless without an etcd
-snapshot of that cluster, but anyone holding both reads every credential in it — and
-**rotation is not supported** (see the note above), so there is no procedure that
-replaces a key without making the existing etcd undecryptable. An exposed key is
-therefore not a thing that gets fixed; it gets lived with, or the cluster gets rebuilt.
+snapshot of that cluster, but anyone holding both reads every credential in it.
+
+> **CORRECTION, 2026-10-07.** This paragraph used to end *"rotation is not supported …
+> an exposed key is not a thing that gets fixed; it gets lived with, or the cluster gets
+> rebuilt."* **That is no longer true and following it would be wrong.**
+> `soloz encryption rotate` performs a staged two-key rotation: the new key becomes the
+> write key while the previous one is RETAINED for reads, so nothing becomes unreadable,
+> and the old key is removed only after every Secret is verified rewritten. A disclosed
+> key is now an incident with a procedure, and ADR-100 classes it as one — it is replaced
+> now, not at the next cadence window.
+>
+> The sentence survived because the two-key path was built after this runbook was
+> written. An operator reading the old text while holding a disclosed key would have
+> concluded the only remedy was rebuilding the cluster.
 
 So compare fingerprints:
 
 ```bash
 # Does the cluster's Secret hold the key the escrow holds? Neither is printed.
-kubectl --kubeconfig <HUB> -n platform-capi get secret <cluster>-encryption-config \
-  -o jsonpath='{.data.enc\.yaml}' | base64 -d | shasum -a 256
+soloz escrow verify     --cluster <cluster> --workload   # what the escrow holds
+soloz encryption rotate --cluster <cluster> --dry-run    # what the cluster uses
 ```
+
+The two `sha256:` values for the same generation **must match**.
+
+> **These were not comparable until 2026-10-07**, and the failure is worth knowing because
+> it recurs whenever a digest is taken of an encoding rather than a value. The escrow
+> stores the key hex-encoded, the provider configuration holds it base64-encoded, and a
+> freshly generated key is raw bytes — three representations of the same 32 bytes, three
+> different digests, none of them equal. The commands invited a comparison that could not
+> succeed, and a mismatch reads as *the escrow holds the wrong key*: the one conclusion
+> that would stop a rotation that needed to happen.
+>
+> Both now reduce to the raw key before hashing. **A digest of the YAML document is still
+> not comparable to either** — `shasum` of `enc.yaml`, which this runbook used to suggest,
+> changes whenever the file's formatting or its second key does, so it answers a different
+> question than the one being asked.
 
 and to check the PROVIDERS without the key, read the structure and not the value:
 
@@ -106,6 +131,43 @@ the right way to ask whether the escrow and the cluster agree.
 On the HUB this matters more than anywhere: its etcd holds the secret store's own
 credentials, the identity provider's signing keys, and every tenant's provisioning
 material.
+
+## What a disclosed key actually exposes — and what it does not
+
+Get this wrong in either direction and the remediation is wrong. It was got wrong once, on
+`nutgraf-01`'s rotation: eleven CloudNativePG base backups were classed as confidentially
+compromised. They were not, and the thing that *was* exposed was not on the list.
+
+**The key decrypts Kubernetes Secrets in etcd. Nothing else.**
+
+| | compromised by the key? | why |
+|---|---|---|
+| **etcd snapshots** taken while the key was in force | **YES** | this is the matching half. Key plus snapshot reads every Secret in the cluster |
+| **control-plane disk or volume snapshots** | **YES** | they contain etcd's data directory |
+| **CloudNativePG base backups and WAL** | **NO** | they hold PostgreSQL pages, written by Postgres to object storage. `secretbox` never touched them, and the key does not decrypt a single byte of them |
+| **application backups generally** | **NO**, for the same reason | unless the application itself stored the disclosed material |
+
+**But there is a transitive path, and it is the one that actually needs closing.** An
+attacker with the key and an etcd snapshot reads every Secret — including the object-store
+credentials for the backup bucket. They cannot decrypt a CNPG backup with the key; they can
+**fetch** it with the credentials the key exposed.
+
+That changes the remediation completely:
+
+| conclusion | action it leads to | correct? |
+|---|---|---|
+| "the CNPG backups are compromised" | re-take the backups | **no** — the old ones are still readable by anyone holding the credentials |
+| "the credentials reachable from a compromised etcd snapshot are exposed" | **rotate every credential the etcd snapshot contained**, starting with object-store access | **yes** — this is what closes it |
+
+So after a key disclosure, enumerate what the etcd snapshots held, not what the backup
+system contains. The list is every Secret in the cluster at that time: object-store keys,
+registry pull credentials, database passwords, the secret store's own machine identity,
+webhook tokens. Rewriting Secrets under a new key does **not** rotate any of them — it only
+stops *future* snapshots from disclosing them.
+
+**Rotating the encryption key is therefore the first step of the response and not the
+whole of it.** The rotation closes the window; it does not un-disclose what was already
+readable.
 
 ## 0. Before you start
 
@@ -352,6 +414,20 @@ kubectl -n default delete secret enc-probe
 This is what actually encrypts the data already there. Each Secret is read and
 written back unchanged, so the write goes through `secretbox`.
 
+**First, find the Secrets this cannot rewrite.** `kubectl replace` FAILS on a Secret with
+`immutable: true`, and the failure is quiet in a bulk pipe: the object stays sealed under
+the previous key, step 8's count catches it, and anyone treating a small non-zero count as
+"close enough" then makes those objects permanently unreadable at the finalize step.
+
+```bash
+kubectl --kubeconfig <SPOKE> get secrets -A -o json \
+  | jq -r '.items[] | select(.immutable == true) | "\(.metadata.namespace)/\(.metadata.name)"'
+```
+
+Empty output is the pass. Anything listed must be **deleted and recreated**, not replaced,
+and that is a change to whatever owns it — so it is a decision before the rotation, not a
+surprise during it.
+
 ```bash
 kubectl get secrets --all-namespaces -o json \
   | kubectl replace -f -
@@ -390,20 +466,67 @@ kubectl -n kube-system exec etcd-$NODE -- sh -c '
   C="--cacert /etc/kubernetes/pki/etcd/ca.crt
      --cert /etc/kubernetes/pki/etcd/server.crt
      --key /etc/kubernetes/pki/etcd/server.key"
-  total=0; enc=0
-  for k in $(etcdctl $C get /registry/secrets/ --prefix --keys-only); do
-    [ -n "$k" ] || continue
+
+  # ENUMERATE FIRST, AND REFUSE TO PROCEED IF THAT FAILED.
+  #
+  # This is the difference between "no ciphertext exists" and "verification could not
+  # run", and collapsing the two is how this step reports a catastrophe about a healthy
+  # cluster. See below.
+  KEYS="$(etcdctl $C get /registry/secrets/ --prefix --keys-only)" || {
+    echo "ERROR could not list Secrets in etcd"; exit 2; }
+  KEYS="$(echo "$KEYS" | grep .)" || {
+    echo "ERROR etcd returned no Secret keys at all, which no live cluster does"; exit 2; }
+
+  total=0; enc=0; plain=0
+  for k in $KEYS; do
     total=$((total+1))
-    case "$(etcdctl $C get "$k")" in
+    V="$(etcdctl $C get "$k")" || { echo "ERROR could not read $k"; exit 2; }
+    case "$V" in
       *k8s:enc:secretbox:v1:key1:*) enc=$((enc+1)) ;;
-      *) echo "PLAINTEXT $k" ;;
+      *) plain=$((plain+1)); echo "PLAINTEXT $k" ;;
     esac
   done
-  echo "total=$total encrypted=$enc"
+
+  echo "total=$total encrypted=$enc plaintext=$plain"
+  # EXIT CODES ARE DISTINCT, so anything wrapping this cannot read FAIL as success.
+  # An earlier draft printed FAIL and exited 0, which means a script around it would
+  # treat plaintext Secrets as a pass -- the same collapse as ERROR into 0 encrypted,
+  # one level up.
+  if [ "$total" -gt 0 ] && [ "$plain" -eq 0 ]; then echo PASS; exit 0; fi
+  echo FAIL; exit 1
 '
+echo "verifier exit: $?"   # 0 PASS, 1 FAIL, 2 ERROR
 ```
 
-**Expect `total` to equal `enc` and no `PLAINTEXT` lines.**
+**Expect `PASS`, `total` equal to `enc`, `plaintext=0`, and exit 0.**
+
+#### Three outcomes, and ERROR is never 0 encrypted
+
+| | means |
+|---|---|
+| `PASS` | ciphertext found for every Secret, carrying the expected prefix |
+| `FAIL`, exit 1 | at least one Secret is plaintext or in an unexpected encoding — each named |
+| `ERROR`, exit 2 | **verification could not inspect etcd.** Says nothing about the data |
+
+The exit codes are distinct for the same reason the outcomes are: automation that wraps
+this must not be able to read `FAIL` as success, which an earlier draft permitted by
+printing `FAIL` and exiting 0.
+
+**This distinction is the whole reason the block above is shaped the way it is**, and it
+was learned the hard way: three separate attempts at this verification each returned an
+empty string, and an empty string in the old version read as `total=0 encrypted=0` — a
+catastrophic claim about clusters that were fully encrypted.
+
+| what went wrong | what it looked like |
+|---|---|
+| `etcdctl` run on the node, where it does not exist | `0 encrypted` |
+| `sh -c` against an etcd image with no shell | `0 encrypted` |
+| binary piped through BSD `grep -c` / `tr` | `0 encrypted` |
+
+A verification step whose failure mode is an empty result **will report the absence of
+the thing it cannot measure.** That matters most during a Kubernetes upgrade, when the
+etcd image changes underneath this command — so the enumeration is checked before any
+counting begins, and a read failure aborts rather than counting as plaintext.
 
 Three things about that command are deliberate, because the obvious version of it
 lies:
@@ -428,6 +551,52 @@ as a step in the procedure for protecting them. Nothing leaves the node here.
 
 **No `grep` or `tr` inside the pod either.** The etcd image is minimal and what it
 ships is not guaranteed; `etcdctl` plus shell builtins is.
+
+#### It depends on `sh` in the etcd image, and that will not always be there
+
+The loop above is `sh -c`, so it needs a shell in the etcd container. **On Kubernetes
+1.31.6 — what both clusters run — there is one, and this is how 87/87 and 118/118 were
+verified.** Newer etcd images are distroless and have none. Seen on 2026-10-05 in the
+ADR-100 gate environment, whose kind node ships a later etcd:
+
+```
+exec: "sh": executable file not found in $PATH
+```
+
+**That failure is dangerous because of its shape.** `kubectl exec` returns nothing, the
+command substitution is empty, and the step reports `total=0 encrypted=0` — or, with
+the earlier phrasing, "etcd does not hold the prefix" — about a cluster that is fully
+encrypted. It reads as a catastrophic finding rather than a missing binary, during the
+procedure whose whole purpose is deciding whether credentials are protected.
+
+**It will break here when the Kubernetes upgrade in ADR-052 §20 lands.** When it does,
+drive the loop from the HOST instead, which needs no shell in the pod — one exec for
+the key list, one per key:
+
+```bash
+E="kubectl -n kube-system exec etcd-$NODE -- etcdctl
+   --cacert /etc/kubernetes/pki/etcd/ca.crt
+   --cert /etc/kubernetes/pki/etcd/server.crt
+   --key /etc/kubernetes/pki/etcd/server.key"
+total=0; enc=0
+for k in $($E get /registry/secrets/ --prefix --keys-only | grep .); do
+  total=$((total+1))
+  if $E get "$k" | LC_ALL=C grep -aq 'k8s:enc:secretbox:v1:key1:'; then
+    enc=$((enc+1))
+  else
+    echo "PLAINTEXT $k"
+  fi
+done
+echo "total=$total encrypted=$enc"
+```
+
+Slower — one round trip per Secret — and it moves the ciphertext across the API server
+rather than keeping it on the node, so prefer the in-pod loop while a shell exists.
+`LC_ALL=C` is required on the host side: BSD `grep` and `tr` abort with `Illegal byte
+sequence` on ciphertext, which is another empty result that reads as a finding.
+
+`ETCDCTL_API=3` is omitted above because setting it needs the shell this fallback
+exists to avoid, and etcdctl v3.5+ defaults to the v3 API anyway.
 
 **THE TRAILING SLASH ON `/registry/secrets/` IS LOAD-BEARING.** Without it the prefix
 also matches every other etcd key beginning with that string, and on this platform
@@ -491,11 +660,22 @@ The options, honestly:
 | | |
 |---|---|
 | let it ride with the next control-plane template change | no extra roll, no risk; the Secret is already correct and the next roll for any reason picks it up |
-| `KubeadmControlPlane.spec.rolloutAfter` | CAPI's own mechanism, but on a **topology-managed** cluster the topology controller owns that object, and whether it preserves a hand-set field on CAPI v1.10 is unverified here. Guessing wrong is either a no-op or a fight with a controller |
+| `KubeadmControlPlane.spec.rolloutAfter` | **VERIFIED 2026-10-07, and now the recommendation for a deliberate roll.** It was recorded here as unverified on a topology-managed cluster; it was then used twice on `nutgraf-01` — once for each stage of the key rotation — and the topology controller preserved the hand-set field both times. A surge roll followed in each case and the API server stayed available throughout. `kubectl -n platform-capi patch kcp <name> --type=merge -p '{"spec":{"rolloutAfter":"<RFC3339 now>"}}'` |
 | a no-op template rename purely to force a roll | works, and spends a control-plane replacement on a version bump that changes nothing |
 
-**The first is the recommendation, because the pending roll is hygiene and not an
-open hole.** With step 8 showing every Secret encrypted, `identity` is a READ
+> **The recommendation changed on 2026-10-07.** "Let it ride" was the advice while
+> `rolloutAfter` was unverified. It is verified now, so a deliberate roll is available and
+> should be used when the roll matters — which it does for a key rotation, because
+> `identity` cannot be removed until the new configuration is actually on a node.
+>
+> One observation from both rolls, recorded because it will recur: each left a **stale
+> `Node` object** for the replaced machine, and the `KubeadmControlPlane` reported
+> `EtcdClusterHealthy: False` until it was deleted. The Machine was gone and the Node was
+> not. Deleting the stale Node restored health and the roll completed. That is not part of
+> the rotation and it blocks it, so check for it before concluding a roll has stalled.
+
+**For an incidental configuration change the first is still reasonable, because a pending
+roll is hygiene and not an open hole.** With step 8 showing every Secret encrypted, `identity` is a READ
 fallback with nothing left to read: it never fires. `secretbox` is first, so every
 write is encrypted regardless. The only way plaintext reappears is an etcd restore
 from a pre-encryption backup — which is precisely the case where the fallback is what

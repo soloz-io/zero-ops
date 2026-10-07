@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/nacl/secretbox"
@@ -90,6 +92,33 @@ const secretboxPrefix = "k8s:enc:secretbox:v1:key1:"
 func fingerprint(b []byte) string {
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])[:12]
+}
+
+// keyFingerprint fingerprints KEY MATERIAL, always from its raw bytes.
+//
+// THE WHOLE POINT OF PRINTING A FINGERPRINT IS COMPARING TWO OF THEM, and that stopped
+// being possible because the same 32 bytes reach different commands in different
+// encodings. `soloz escrow verify` read the escrow's hex string, `rotate` read the
+// configuration's base64, and `rotate` fingerprinted a freshly generated key from its raw
+// bytes -- three representations, three different digests, one key.
+//
+// Found when an operator compared the escrow against the live configuration before a
+// rotation and the values disagreed. Nothing was wrong with the key; the comparison the
+// tooling invites was meaningless, which is worse than printing nothing: it reads as
+// evidence that the escrow holds the wrong key, on the one procedure where believing that
+// would stop a rotation that needed to happen.
+//
+// Accepts base64, hex, or raw, and reduces all three to the same digest. A value that is
+// none of those is fingerprinted as-is rather than refused -- this is a diagnostic, and an
+// artefact that is not key material still deserves a stable digest.
+func keyFingerprint(v []byte) string {
+	if raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(v))); err == nil && len(raw) == 32 {
+		return fingerprint(raw)
+	}
+	if raw, err := hex.DecodeString(strings.TrimSpace(string(v))); err == nil && len(raw) == 32 {
+		return fingerprint(raw)
+	}
+	return fingerprint(v)
 }
 
 func runEscrowVerifyRecovery(ctx context.Context, cluster, fromFile string, expectKind bool) error {

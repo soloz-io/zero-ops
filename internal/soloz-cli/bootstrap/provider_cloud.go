@@ -103,6 +103,10 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// box, not of the cloud underneath it.
 	clusterCfg.OIDCIssuerURL = cfg.OIDCIssuerURL
 	clusterCfg.OIDCClientID = cfg.OIDCClientID
+	// At-rest encryption is a property of the box, not of the cloud underneath it:
+	// a Hetzner box and a hybrid box encrypt etcd the same way.
+	clusterCfg.Encryption = cfg.Encryption
+	clusterCfg.KMS = cfg.KMS
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
 	//

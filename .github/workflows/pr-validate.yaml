@@ -76,6 +76,17 @@ jobs:
       # image pinning, placement classes, external-dns args and the rest stopped
       # being checked anywhere. `run.sh preflight` needs no cluster -- it reads
       # this repository -- so CI is where it belongs.
+      # PyYAML, because one preflight parses manifests and CI did not have it.
+      #
+      # 100-kms-identifier-is-deterministic.py is the only thing asserting the KMS
+      # plugin's static pod is Guaranteed QoS, non-root, digest-pinned and mounting
+      # hostPath leaves rather than parents. Without PyYAML it skipped that half and
+      # still printed OK, so the job was green while four checks never ran. The script
+      # now treats a missing PyYAML as a FINDING when CI is set and a skip otherwise;
+      # this line is the other half of that fix.
+      - name: Python dependencies for the static checks
+        run: pip install pyyaml
+
       - name: Static preflight invariants
         run: ENVIRONMENT=dev bash scripts/validate/run.sh preflight
 

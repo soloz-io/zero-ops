@@ -133,7 +133,8 @@ func providersOf(t *testing.T, noFallback bool) []string {
 	if err := tmpl.Execute(&out, map[string]any{
 		"SecretName":          "c-encryption-config",
 		"Namespace":           "platform-capi",
-		"EncryptionKeyB64":    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"PrimaryKeyName":      assets.EncryptionKeyName(1),
+		"PrimaryKeyB64":       "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		"NoPlaintextFallback": noFallback,
 	}); err != nil {
 		t.Fatalf("rendering: %v", err)
