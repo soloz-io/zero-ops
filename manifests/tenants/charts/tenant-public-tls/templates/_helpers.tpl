@@ -105,3 +105,70 @@ tenant-{{ .Values.tenantId }}-{{ .Values.appId }}
 {{- end -}}
 {{- toJson $paths -}}
 {{- end -}}
+
+{{- /*
+  The application's login-free DYNAMIC routes (gateway.publicRoutes, ADR-103),
+  validated, as a JSON list of {prefix, tokenLength, regex}. Empty when none.
+
+  For a page the app serves to anyone holding an unguessable link -- a shared
+  session -- which publicAssets cannot express: that is exact static paths to
+  the frontend, and a share is one path per token, answered by the BFF.
+
+  Each entry is ONE prefix segment plus ONE fixed-shape token segment, and the
+  regex is built here, never taken from values:
+
+      ^/<prefix>/[A-Za-z0-9]{<tokenLength>}$
+
+    - prefix: a single lowercase segment ([a-z][a-z0-9-]*, at most 32), never
+      api, internal, v1, oauth, health, healthz, ui, assets or static, and never
+      the first segment of a gateway.publicAssets path;
+    - tokenLength: 16..64 base62 characters (default 22, about 131 bits). The
+      token is the only credential, so its shape is the platform's floor;
+    - at most 4 entries, no duplicate prefixes.
+
+  The SAME rules are defined in universal-tenant and tenant-public-tls: the bind
+  and the public route that reaches it render from one values file and must
+  refuse the same input. preflight 103-public-routes checks they agree.
+*/ -}}
+{{- define "tenant-public-tls.publicRoutes" -}}
+{{- $routes := ((.Values.gateway).publicRoutes) | default list -}}
+{{- if not (kindIs "slice" $routes) -}}
+{{- fail "gateway.publicRoutes must be a list, e.g. [{prefix: /share, tokenLength: 22}]" -}}
+{{- end -}}
+{{- if gt (len $routes) 4 -}}
+{{- fail (printf "gateway.publicRoutes declares %d routes; at most 4 are allowed" (len $routes)) -}}
+{{- end -}}
+{{- $assetFirst := dict -}}
+{{- range $p := (((.Values.gateway).publicAssets).paths | default list) -}}
+{{- if kindIs "string" $p -}}{{- $_ := set $assetFirst (lower (first (splitList "/" (trimPrefix "/" $p)))) true -}}{{- end -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- $out := list -}}
+{{- range $r := $routes -}}
+{{- if not (kindIs "map" $r) -}}
+{{- fail (printf "gateway.publicRoutes entry %v must be a map with prefix and optional tokenLength" $r) -}}
+{{- end -}}
+{{- $prefix := $r.prefix | default "" -}}
+{{- if not (regexMatch "^/[a-z][a-z0-9-]{0,31}$" $prefix) -}}
+{{- fail (printf "gateway.publicRoutes prefix %q must be one lowercase path segment, e.g. /share" $prefix) -}}
+{{- end -}}
+{{- $seg := trimPrefix "/" $prefix -}}
+{{- if has $seg (list "api" "internal" "v1" "oauth" "health" "healthz" "ui" "assets" "static") -}}
+{{- fail (printf "gateway.publicRoutes prefix %q is reserved and always requires a login" $prefix) -}}
+{{- end -}}
+{{- if hasKey $assetFirst $seg -}}
+{{- fail (printf "gateway.publicRoutes prefix %q collides with a gateway.publicAssets path" $prefix) -}}
+{{- end -}}
+{{- if hasKey $seen $seg -}}
+{{- fail (printf "gateway.publicRoutes lists prefix %q more than once" $prefix) -}}
+{{- end -}}
+{{- $_ := set $seen $seg true -}}
+{{- $len := $r.tokenLength | default 22 -}}
+{{- $numeric := or (kindIs "float64" $len) (kindIs "int" $len) (kindIs "int64" $len) -}}
+{{- if or (not $numeric) (and $numeric (or (ne (float64 (int $len)) (float64 $len)) (lt (int $len) 16) (gt (int $len) 64))) -}}
+{{- fail (printf "gateway.publicRoutes tokenLength %v for %q must be an integer in [16, 64]" $len $prefix) -}}
+{{- end -}}
+{{- $out = append $out (dict "prefix" $prefix "tokenLength" (int $len) "regex" (printf "^%s/[A-Za-z0-9]{%d}$" $prefix (int $len))) -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end -}}
