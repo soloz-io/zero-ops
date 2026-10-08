@@ -326,11 +326,34 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		ej.Status.Message = cap.Message
 		return ctrl.Result{}, r.markFinished(ctx, &ej, computev1alpha1.PhaseFailed, nil)
 
-	case cap.Terminal:
-		r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
-		l.Info("burst capacity unavailable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
-
 	default:
+		if ej.Spec.CapacityWaitSeconds != nil && *ej.Spec.CapacityWaitSeconds > 0 {
+			if waited := time.Since(ej.CreationTimestamp.Time); waited > time.Duration(*ej.Spec.CapacityWaitSeconds)*time.Second {
+				l.Info("capacity wait deadline exceeded", "ephemeralJob", req.NamespacedName, "waited", waited)
+				policy := metav1.DeletePropagationBackground
+				if err := r.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: &policy}); err != nil &&
+					!apierrors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+				ej.Status.Message = fmt.Sprintf("capacity wait deadline exceeded: waiting %s for capacity, over %ds limit: %s",
+					waited.Truncate(time.Second), *ej.Spec.CapacityWaitSeconds, cap.Message)
+				meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+					Type:               computev1alpha1.ConditionCapacity,
+					Status:             metav1.ConditionFalse,
+					Reason:             computev1alpha1.ReasonCapacityTimeout,
+					Message:            ej.Status.Message,
+					ObservedGeneration: ej.Generation,
+				})
+				return ctrl.Result{}, r.markFinishedWithReason(ctx, &ej, computev1alpha1.PhaseTimedOut, computev1alpha1.ReasonCapacityTimeout, nil)
+			}
+		}
+
+		if cap.Terminal {
+			r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
+			l.Info("burst capacity unavailable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
+			break
+		}
+
 		r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
 		// A container that cannot start looks identical to capacity that has not
 		// arrived: both sit in Provisioning. Reported first, because it is the
@@ -575,6 +598,12 @@ func (r *EphemeralJobReconciler) setPhase(ej *computev1alpha1.EphemeralJob, phas
 func (r *EphemeralJobReconciler) markFinished(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
 ) error {
+	return r.markFinishedWithReason(ctx, ej, phase, string(phase), exit)
+}
+
+func (r *EphemeralJobReconciler) markFinishedWithReason(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, reason string, exit *int32,
+) error {
 	now := metav1.Now()
 	ej.Status.Phase = phase
 	ej.Status.CompletionTime = &now
@@ -590,7 +619,7 @@ func (r *EphemeralJobReconciler) markFinished(
 	meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
 		Type:               computev1alpha1.ConditionComplete,
 		Status:             status,
-		Reason:             string(phase),
+		Reason:             reason,
 		Message:            ej.Status.Message,
 		ObservedGeneration: ej.Generation,
 	})
@@ -657,6 +686,16 @@ func terminalEventID(ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Pha
 func readyEventID(ej *computev1alpha1.EphemeralJob, podName string) string {
 	sum := sha256.Sum256([]byte(string(ej.UID) + "|" + podName + "|ready"))
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+func callbackReason(ej *computev1alpha1.EphemeralJob) string {
+	if c := meta_FindStatusCondition(ej.Status.Conditions, computev1alpha1.ConditionCapacity); c != nil && c.Reason == computev1alpha1.ReasonCapacityTimeout {
+		return c.Reason
+	}
+	if c := meta_FindStatusCondition(ej.Status.Conditions, computev1alpha1.ConditionComplete); c != nil && c.Reason != "" {
+		return c.Reason
+	}
+	return ""
 }
 
 func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -737,7 +776,7 @@ func (r *EphemeralJobReconciler) fireLifecycleCallback(
 		return nil
 	}
 
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"jobId":    ej.Name,
 		"status":   string(phase),
 		"exitCode": exit,
@@ -766,7 +805,11 @@ func (r *EphemeralJobReconciler) fireLifecycleCallback(
 		// The workload's labels, so a receiver can route the event without
 		// holding a map from job name to whatever it cares about.
 		"labels": ej.Labels,
-	})
+	}
+	if reason := callbackReason(ej); reason != "" {
+		payload["reason"] = reason
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		// Unmarshallable payload is a programming error, not a transient one:
 		// retrying cannot fix it, and blocking the TTL on it would leak the CR.
@@ -1315,7 +1358,52 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 		return ctrl.Result{}, err
 	}
 
+	// The absolute bound, checked before anything a client can influence.
+	//
+	// Everything below is refreshable or conditional; this is not. Burst
+	// capacity bills per node-hour, and a workload whose end depends on a
+	// cooperative client has no end at all.
+	if ej.Spec.MaxLifetimeSeconds > 0 {
+		if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
+			l.Info("reaping workload at its lifetime bound", "ephemeralJob", ej.Name, "lived", lived.Truncate(time.Second))
+			if err := r.deletePod(ctx, pod); err != nil {
+				return ctrl.Result{}, err
+			}
+			ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime", ej.Spec.MaxLifetimeSeconds)
+			if meta_FindStatusCondition(ej.Status.Conditions, computev1alpha1.ConditionCapacity) == nil {
+				meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+					Type:               computev1alpha1.ConditionCapacity,
+					Status:             metav1.ConditionFalse,
+					Reason:             cap.Reason,
+					Message:            cap.Message,
+					ObservedGeneration: ej.Generation,
+				})
+			}
+			return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
+		}
+	}
+
 	if !cap.Ready {
+		if ej.Spec.CapacityWaitSeconds != nil && *ej.Spec.CapacityWaitSeconds > 0 {
+			if waited := time.Since(ej.CreationTimestamp.Time); waited > time.Duration(*ej.Spec.CapacityWaitSeconds)*time.Second {
+				l.Info("capacity wait deadline exceeded", "ephemeralJob", ej.Name, "waited", waited)
+				if err := r.deletePod(ctx, pod); err != nil {
+					return ctrl.Result{}, err
+				}
+				ej.Status.Message = fmt.Sprintf(
+					"capacity wait deadline exceeded: waiting %s for capacity, over %ds limit: %s",
+					waited.Truncate(time.Second), *ej.Spec.CapacityWaitSeconds, cap.Message)
+				meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+					Type:               computev1alpha1.ConditionCapacity,
+					Status:             metav1.ConditionFalse,
+					Reason:             computev1alpha1.ReasonCapacityTimeout,
+					Message:            ej.Status.Message,
+					ObservedGeneration: ej.Generation,
+				})
+				return ctrl.Result{}, r.markFinishedWithReason(ctx, ej, computev1alpha1.PhaseTimedOut, computev1alpha1.ReasonCapacityTimeout, nil)
+			}
+		}
+
 		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
 		if waited := time.Since(ej.CreationTimestamp.Time); waited > r.ProvisioningBudget {
 			ej.Status.Message = fmt.Sprintf(
@@ -1326,20 +1414,6 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 			return res, err
 		}
 		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
-	}
-
-	// The absolute bound, checked before anything a client can influence.
-	//
-	// Everything below is refreshable or conditional; this is not. Burst
-	// capacity bills per node-hour, and a workload whose end depends on a
-	// cooperative client has no end at all.
-	if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
-		l.Info("reaping workload at its lifetime bound", "ephemeralJob", ej.Name, "lived", lived.Truncate(time.Second))
-		if err := r.deletePod(ctx, pod); err != nil {
-			return ctrl.Result{}, err
-		}
-		ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime", ej.Spec.MaxLifetimeSeconds)
-		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
 	}
 
 	// StartTime is seeded as soon as the pod runs, ready or not: the readiness
