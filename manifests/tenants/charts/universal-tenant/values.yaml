@@ -161,6 +161,11 @@ gateway:
   #       tokenLength: 22
   publicRoutes: []
   enabled: false
+  # Whether to enforce OIDC login on the browser-facing gateway listener.
+  # Defaults to true. If set to false, requests to the application shell are
+  # routed directly to frontend-workload without redirecting to the identity provider.
+  oidc:
+    enabled: true
   # Hostnames this fleet answers on. The first is the browser-facing host and is
   # where the OAuth redirect returns; the rest are additional names for the same
   # gateway. These must already be declared under `public.hosts` so a certificate

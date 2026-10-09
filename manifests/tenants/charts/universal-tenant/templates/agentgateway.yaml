@@ -89,6 +89,10 @@
 {{- $clientId := printf "%s-public-client" $t }}
 {{- $redirect := printf "https://%s/oauth/callback" $host }}
 {{- $name := printf "agentgateway-%s" $t }}
+{{- $oidcEnabled := true }}
+{{- if and (hasKey (.Values.gateway | default dict) "oidc") (hasKey .Values.gateway.oidc "enabled") }}
+{{-   $oidcEnabled = eq (.Values.gateway.oidc.enabled | toString) "true" }}
+{{- end }}
 # This fleet's own AgentGateway instance (ADR-050 amendment 2026-08-31).
 #
 # One instance per tenant, not one per spoke. The shared instance required every
@@ -465,6 +469,7 @@ data:
     # to attach it here rather than repeating it per route. Scoping the target to
     # a listener does not change that: the cookie is named for the POLICY, so the
     # SPA and the API still share one session.
+{{- if $oidcEnabled }}
     policies:
     - name:
         name: {{ $t }}-oidc
@@ -598,6 +603,7 @@ data:
           # list, and it is interpolated because the organisation is allocated at
           # provisioning time and cannot be known when this renders.
           - "urn:zitadel:iam:org:id:${OIDC_ORG_ID}"
+{{- end }}
 ---
 # The tenant's public base URL, published for its own workloads to consume.
 #
