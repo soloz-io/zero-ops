@@ -23,6 +23,10 @@ func meta_IsStatusConditionTrue(c []metav1.Condition, condType string) bool {
 	return meta.IsStatusConditionTrue(c, condType)
 }
 
+func meta_FindStatusCondition(c []metav1.Condition, condType string) *metav1.Condition {
+	return meta.FindStatusCondition(c, condType)
+}
+
 func isTerminal(p computev1alpha1.Phase) bool {
 	switch p {
 	case computev1alpha1.PhaseSucceeded, computev1alpha1.PhaseFailed, computev1alpha1.PhaseTimedOut:

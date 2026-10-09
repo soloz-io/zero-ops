@@ -108,6 +108,10 @@ const (
 	// happened — leaving maxLifetimeSeconds at eight hours as the only bound on
 	// a job that was never going to run.
 	ReasonPlacementUnsatisfiable = "PlacementUnsatisfiable"
+
+	// ReasonCapacityTimeout: the workload waited longer for capacity than its
+	// configured capacityWaitSeconds budget.
+	ReasonCapacityTimeout = "CapacityTimeout"
 )
 
 // +kubebuilder:object:root=true
@@ -254,6 +258,16 @@ type EphemeralJobSpec struct {
 	// +kubebuilder:default=600
 	// +optional
 	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
+
+	// CapacityWaitSeconds bounds how long a workload may wait for capacity
+	// before timing out.
+	//
+	// When unset, a workload waits indefinitely for capacity subject only to
+	// MaxLifetimeSeconds. When set and exceeded while waiting for capacity, the
+	// job transitions to PhaseTimedOut with reason CapacityTimeout.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CapacityWaitSeconds *int32 `json:"capacityWaitSeconds,omitempty"`
 
 	// TTLSecondsAfterFinished is how long the EphemeralJob and its Job are
 	// retained after reaching a terminal phase.

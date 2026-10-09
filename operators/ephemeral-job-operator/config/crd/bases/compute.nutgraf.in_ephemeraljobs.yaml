@@ -95,6 +95,17 @@ spec:
                   flush to finish before its pod goes away (§16.4). Cancelling something
                   already terminal is a no-op — a result that happened is not undone.
                 type: boolean
+              capacityWaitSeconds:
+                description: |-
+                  CapacityWaitSeconds bounds how long a workload may wait for capacity
+                  before timing out.
+
+                  When unset, a workload waits indefinitely for capacity subject only to
+                  MaxLifetimeSeconds. When set and exceeded while waiting for capacity, the
+                  job transitions to PhaseTimedOut with reason CapacityTimeout.
+                format: int32
+                minimum: 1
+                type: integer
               command:
                 items:
                   type: string
