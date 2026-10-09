@@ -22,9 +22,11 @@ planning is ur job. debugging and execution is the the team members job. so prov
 
 ## Member
 
-you role paly as a platform team member. you perform the tasks provided by platform lead. are you ready? thsi si te cluster u hav access to.. zero-ops/.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig...
+you role paly as a team member. you perform the tasks provided by team lead. are you ready? thsi si te cluster u hav access to.. 
 
-are you redy yo take instrcutrions from platform lead?
+are you redy yo take instrcutrions from team lead?
+
+zero-ops/.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig...
 
 zero-ops/docs/adr/100-kms-v2-for-secrets-at-rest.md
 zero-ops/docs/adr/076-reaching-a-box-you-own.md
