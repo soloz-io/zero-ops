@@ -73,7 +73,7 @@ spec:
   # This container is the only root in the pod, it runs once, and it has no network.
   initContainers:
     - name: prepare-socket-dir
-      image: ghcr.io/soloz-io/kms-plugin@sha256:f4d795b5c3ca1e3dde996a59e3b576a6d6d1368668cda99d03556e93963b8e7d
+      image: ghcr.io/soloz-io/kms-plugin@sha256:00ae062b760a9a105081d32e6ce43d397b2b2e17c63859b02c544d684ca502e6
       command:
         - /kms-plugin
         - --prepare-socket-dir=/var/run/kms
@@ -118,7 +118,7 @@ spec:
       # PINNED BY DIGEST, written by the build (.github/workflows/kms-plugin.yml).
       # A tag would let the node resolve a different binary on a restart than the one
       # that was tested, on the component the API server cannot start without.
-      image: ghcr.io/soloz-io/kms-plugin@sha256:f4d795b5c3ca1e3dde996a59e3b576a6d6d1368668cda99d03556e93963b8e7d
+      image: ghcr.io/soloz-io/kms-plugin@sha256:00ae062b760a9a105081d32e6ce43d397b2b2e17c63859b02c544d684ca502e6
       imagePullPolicy: IfNotPresent
       args:
         - --socket=/var/run/kms/soloz-kms.sock
