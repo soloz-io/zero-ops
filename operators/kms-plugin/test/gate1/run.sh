@@ -228,11 +228,23 @@ else
   bad "case 4 failed: expected hard refusal on expired cert without fallback, got: $OUT_4"
 fi
 
-# Case 2: leaf.enc only -> unwraps, writes tls.* at 0600, proceeds
+# Case 2: leaf.enc delivered as root:root 0600 -> initContainer prepares directory, plugin as 65532 unwraps, writes tls.* at 0600, proceeds
 TEST_DIR_2=$(mktemp -d)
-chmod 777 "$TEST_DIR_2"
-cp leaf.enc "$TEST_DIR_2/leaf.enc"
+chmod 755 "$TEST_DIR_2"
+# Deliver leaf.enc as root:root 0600 into the directory, exactly as cloud-init does
+docker run --rm -v "$TEST_DIR_2":/out -v "$PWD/leaf.enc":/in/leaf.enc:ro golang:1.26 sh -c "cp /in/leaf.enc /out/leaf.enc && chown 0:0 /out/leaf.enc && chmod 600 /out/leaf.enc"
+# Run the init container as root with CAP_CHOWN only, exactly as deploy/static-pod.yaml specifies
+docker run --rm \
+  --user 0:0 \
+  --cap-drop ALL \
+  --cap-add CHOWN \
+  -v "$TEST_DIR_2":/etc/kubernetes/kms \
+  "$IMAGE" /kms-plugin \
+    --prepare-credential-dir=/etc/kubernetes/kms \
+    --socket-dir-uid=65532
+# Run the plugin as non-root UID 65532:65532, exactly as distroless / static-pod specifies
 docker run -d --name test-plugin-case2 \
+  --user 65532:65532 \
   -e KMS_CRYPTO_KEY="$CRYPTO_KEY" \
   -e KMS_INSECURE_TEST_ENDPOINT="$STUB:8200" \
   --network kind \
@@ -249,7 +261,7 @@ docker rm -f test-plugin-case2 >/dev/null 2>&1 || true
 if [ -f "$TEST_DIR_2/tls.crt" ] && [ -f "$TEST_DIR_2/tls.key" ]; then
   PERM=$(stat -c '%a' "$TEST_DIR_2/tls.key" 2>/dev/null || stat -f '%Op' "$TEST_DIR_2/tls.key" 2>/dev/null | tail -c 4)
   case "$PERM" in
-    *600*) ok "case 2: leaf.enc unwrapped and written as tls.crt / tls.key at mode 0600" ;;
+    *600*) ok "case 2: leaf.enc delivered root:root 0600, prepared by initContainer, unwrapped and written as tls.crt / tls.key at mode 0600" ;;
     *) bad "case 2: written key has unexpected permissions: $PERM" ;;
   esac
 else
@@ -259,6 +271,7 @@ fi
 # Case 1: tls.* present -> steady-state reboot path makes ZERO KMS calls for credential setup
 DECRYPT_BEFORE=$(docker logs "$STUB" 2>&1 | grep -c 'Decrypt:' || true)
 docker run -d --name test-plugin-case1 \
+  --user 65532:65532 \
   -e KMS_CRYPTO_KEY="$CRYPTO_KEY" \
   -e KMS_INSECURE_TEST_ENDPOINT="$STUB:8200" \
   --network kind \

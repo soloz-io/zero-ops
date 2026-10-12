@@ -364,13 +364,16 @@ func matchKey(pub any, priv any) error {
 	return nil
 }
 
-// PrepareCredentialDir ensures the credential directory exists and is owned by the target uid.
+// PrepareCredentialDir ensures the credential directory exists, its files are owned
+// by uid, and the directory is handed over to uid mode 0700.
 //
-// Follows the same ordering as prepareSocketDir:
+// Ordering is critical (W14):
 // 1. If already 0700 owned by uid, return nil (restart path performs no privileged syscalls).
-// 2. Chown to root:root first so chmod that follows is an owner chmod (needs CAP_CHOWN, not CAP_FOWNER).
-// 3. Chmod 0700 while root owns it.
-// 4. Chown to target uid last.
+// 2. MkdirAll(dir, 0700)
+// 3. Chown(dir, 0, 0) - become the owner
+// 4. Chmod(dir, 0700) - restrict permissions
+// 5. ReadDir and Chown each file to uid WHILE root still owns the directory (CAP_CHOWN without CAP_DAC_OVERRIDE)
+// 6. Chown(dir, uid, uid) - hand over the directory last
 func PrepareCredentialDir(dir string, uid int) error {
 	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
@@ -391,16 +394,21 @@ func PrepareCredentialDir(dir string, uid int) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return fmt.Errorf("restricting %s to 0700: %w", dir, err)
 	}
-	// Step 4: hand it to the plugin's uid.
+	// Step 4: ensure existing files are readable by uid BEFORE handing over the directory.
+	// Done while root still owns dir so ReadDir does not need CAP_DAC_OVERRIDE.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("reading credential directory %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		entryPath := filepath.Join(dir, entry.Name())
+		if err := os.Chown(entryPath, uid, uid); err != nil {
+			return fmt.Errorf("chowning %s to uid %d: %w", entryPath, uid, err)
+		}
+	}
+	// Step 5: hand the directory over to the plugin's uid last.
 	if err := os.Chown(dir, uid, uid); err != nil {
 		return fmt.Errorf("giving %s to uid %d (needs CAP_CHOWN): %w", dir, uid, err)
-	}
-	// Also ensure any existing files (e.g. leaf.enc, credentials.json) are readable by uid
-	if entries, err := os.ReadDir(dir); err == nil {
-		for _, entry := range entries {
-			entryPath := filepath.Join(dir, entry.Name())
-			_ = os.Chown(entryPath, uid, uid)
-		}
 	}
 	return nil
 }

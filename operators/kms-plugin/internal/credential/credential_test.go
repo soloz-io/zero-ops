@@ -700,3 +700,37 @@ func TestUnwrapLeafBlob_RejectsEmpty(t *testing.T) {
 		t.Error("expected error on whitespace-only blob")
 	}
 }
+
+func TestPrepareCredentialDir_Success(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("skipping PrepareCredentialDir test: requires root (CAP_CHOWN)")
+	}
+	tmp := t.TempDir()
+	credDir := filepath.Join(tmp, "kms")
+	if err := os.Mkdir(credDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testFile := filepath.Join(credDir, "leaf.enc")
+	if err := os.WriteFile(testFile, []byte("ciphertext"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	uid := os.Getuid()
+	if err := PrepareCredentialDir(credDir, uid); err != nil {
+		t.Fatalf("PrepareCredentialDir failed: %v", err)
+	}
+
+	fi, err := os.Stat(credDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0700 {
+		t.Errorf("expected dir mode 0700, got %o", fi.Mode().Perm())
+	}
+
+	// Calling again (idempotent / restart path) returns nil
+	if err := PrepareCredentialDir(credDir, uid); err != nil {
+		t.Fatalf("idempotent PrepareCredentialDir failed: %v", err)
+	}
+}
+

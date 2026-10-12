@@ -83,6 +83,7 @@ Emits tab-separated lines the shell wrapper classifies:
     BAD<TAB><message>
     NONE
 """
+import json
 import os
 import re
 import sys
@@ -616,6 +617,102 @@ def main():
                         f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)}: volume {v.get('name')!r} "
                         f"mounts {hp!r}, which is a parent directory rather than a leaf"
                     )
+
+            # ANY FILE THE STATIC POD'S NON-ROOT CONTAINER READS MUST BE REACHABLE BY IT.
+            #
+            # If the container runs as non-root UID (runAsUser), any file it reads that
+            # is delivered with mode 0600 or 0400 (owner-only read) must either be:
+            #   (a) delivered owned by runAsUser, or
+            #   (b) covered by an init container that runs as root, holds CAP_CHOWN,
+            #       and prepares that directory (e.g. --prepare-credential-dir=<dir>).
+            init_containers = (pod or {}).get("spec", {}).get("initContainers") or []
+            prepared_dirs = set()
+            for ic in init_containers:
+                ic_sc = ic.get("securityContext") or {}
+                is_root = ic_sc.get("runAsUser") == 0 or (
+                    ic_sc.get("runAsNonRoot") is not True and ic_sc.get("runAsUser") in (None, 0)
+                )
+                caps = (ic_sc.get("capabilities") or {}).get("add") or []
+                has_chown = "CHOWN" in caps or "ALL" in caps
+
+                if is_root and has_chown:
+                    cmd_and_args = (ic.get("command") or []) + (ic.get("args") or [])
+                    for item in cmd_and_args:
+                        s = str(item)
+                        if s.startswith("--prepare-credential-dir="):
+                            prepared_dirs.add(s.split("=", 1)[1].rstrip("/"))
+                        elif s.startswith("--prepare-socket-dir="):
+                            prepared_dirs.add(s.split("=", 1)[1].rstrip("/"))
+
+            for c in containers:
+                sc = c.get("securityContext") or {}
+                run_as_user = sc.get("runAsUser")
+                if run_as_user is None or run_as_user == 0:
+                    continue
+                expected_uid = str(run_as_user)
+
+                read_paths = set()
+                for arg in c.get("args") or []:
+                    arg_str = str(arg)
+                    if "=" in arg_str:
+                        val = arg_str.split("=", 1)[1]
+                        if val.startswith("/"):
+                            read_paths.add(val)
+                # bootstrap.key is read by bootstrap_certificate_config.json
+                read_paths.add("/etc/kubernetes/kms/bootstrap.key")
+
+                templates_to_check = [
+                    ZERO_OPS / "manifests/providers/hetzner/base/spokepool-clusterclass-v1-canary.yaml",
+                    ZERO_OPS / "manifests/providers/hetzner/base/spokepool-control-plane-v5-kms.yaml",
+                ]
+                for tmpl_path in templates_to_check:
+                    if not tmpl_path.is_file():
+                        continue
+                    try:
+                        docs = list(yaml.safe_load_all(tmpl_path.read_text(encoding="utf-8")))
+                    except Exception:
+                        continue
+                    for doc in docs:
+                        if not doc or not isinstance(doc, dict):
+                            continue
+                        files_delivered = []
+                        if doc.get("kind") == "KubeadmControlPlaneTemplate":
+                            cp_files = (
+                                doc.get("spec", {})
+                                .get("template", {})
+                                .get("spec", {})
+                                .get("kubeadmConfigSpec", {})
+                                .get("files", [])
+                            )
+                            files_delivered.extend(cp_files)
+                        elif doc.get("kind") == "ClusterClass":
+                            for patch in doc.get("spec", {}).get("patches", []):
+                                for d in patch.get("definitions", []):
+                                    for jp in d.get("jsonPatches", []):
+                                        if jp.get("path", "").endswith("/files/-"):
+                                            tmpl_str = jp.get("valueFrom", {}).get("template", "")
+                                            try:
+                                                f_obj = json.loads(tmpl_str)
+                                                files_delivered.append(f_obj)
+                                            except Exception:
+                                                pass
+                        for f in files_delivered:
+                            f_path = f.get("path")
+                            if f_path not in read_paths:
+                                continue
+                            f_owner = str(f.get("owner", "root")).split(":")[0]
+                            f_perm = str(f.get("permissions", "0644"))
+                            if f_perm in ("0600", "0400", "600", "400"):
+                                parent_dir = str(Path(f_path).parent).rstrip("/")
+                                covered_by_init = parent_dir in prepared_dirs
+                                if f_owner != expected_uid and not covered_by_init:
+                                    findings.append(
+                                        f"BAD\t{tmpl_path.relative_to(ZERO_OPS)}: file {f_path!r} "
+                                        f"is delivered with mode {f_perm!r} owned by {f.get('owner')!r}, "
+                                        f"but static pod container {c.get('name')!r} runs as non-root UID "
+                                        f"{expected_uid} and its directory {parent_dir!r} is not prepared "
+                                        f"by an initContainer running as root with CAP_CHOWN"
+                                    )
         except Exception as exc:  # noqa: BLE001 - a malformed manifest is a finding
             findings.append(
                 f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)} could not be parsed: {exc}"

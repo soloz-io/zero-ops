@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -254,6 +255,28 @@ func TestKMSPreconditionsFailsOnUnpinnedImage(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "9/9 failed") || !strings.Contains(err.Error(), "unpinned image") {
 		t.Fatalf("expected 9/9 failure for unpinned image, got: %v", err)
 	}
+}
+
+func TestLiveCanaryPreconditions(t *testing.T) {
+	if os.Getenv("TEST_LIVE_KMS") == "" {
+		t.Skip("skipping live KMS test; set TEST_LIVE_KMS=1 to run against live cluster")
+	}
+	pre := &KMSPreconditions{
+		ClusterName: "kms-canary-01",
+		Namespace:   "platform-capi",
+		KMSConfig: KMSSettings{
+			ProjectID:     "nutgraf-510805",
+			ProjectNumber: "1010595512891",
+			Location:      "europe-west3",
+			KeyRing:       "soloz-etcd",
+		},
+		Kubeconfig: "../../../k8-secrets/kubeconfig/hub-hybrid-dev.kubeconfig",
+	}
+	ctx := context.Background()
+	if err := pre.Assert(ctx); err != nil {
+		t.Fatalf("Live KMSPreconditions 9/9 gate failed: %v", err)
+	}
+	t.Log("All 9/9 live preconditions PASSED!")
 }
 
 
