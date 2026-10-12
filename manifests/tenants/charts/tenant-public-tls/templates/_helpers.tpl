@@ -108,7 +108,12 @@ tenant-{{ .Values.tenantId }}-{{ .Values.appId }}
 
 {{- /*
   The application's login-free DYNAMIC routes (gateway.publicRoutes, ADR-103),
-  validated, as a JSON list of {prefix, tokenLength, regex}. Empty when none.
+  validated, as a JSON list of {prefix, tokenLength, answeredBy, regex}. Empty
+  when none.
+
+  answeredBy (amendment 2026-10-12) names which of the app's two workloads
+  answers: bff (the default) or frontend, whose built page then loads its files
+  from a gateway.publicAssets directory and its data from a bff route.
 
   For a page the app serves to anyone holding an unguessable link -- a shared
   session -- which publicAssets cannot express: that is exact static paths to
@@ -168,7 +173,80 @@ tenant-{{ .Values.tenantId }}-{{ .Values.appId }}
 {{- if or (not $numeric) (and $numeric (or (ne (float64 (int $len)) (float64 $len)) (lt (int $len) 16) (gt (int $len) 64))) -}}
 {{- fail (printf "gateway.publicRoutes tokenLength %v for %q must be an integer in [16, 64]" $len $prefix) -}}
 {{- end -}}
-{{- $out = append $out (dict "prefix" $prefix "tokenLength" (int $len) "regex" (printf "^%s/[A-Za-z0-9]{%d}$" $prefix (int $len))) -}}
+{{- $answeredBy := $r.answeredBy | default "bff" -}}
+{{- if not (has $answeredBy (list "bff" "frontend")) -}}
+{{- fail (printf "gateway.publicRoutes answeredBy %v for %q must be bff or frontend" $answeredBy $prefix) -}}
+{{- end -}}
+{{- $out = append $out (dict "prefix" $prefix "tokenLength" (int $len) "answeredBy" $answeredBy "regex" (printf "^%s/[A-Za-z0-9]{%d}$" $prefix (int $len))) -}}
 {{- end -}}
 {{- toJson $out -}}
+{{- end -}}
+
+{{- /*
+  The application's public static DIRECTORIES (gateway.publicAssets.directories,
+  ADR-101 amendment 2026-10-12), validated, as a JSON list. Empty when none.
+
+  For a built page served without a login (a public route answered by the
+  frontend, ADR-103): its scripts and styles live in a build directory whose
+  file names change with every build, which exact paths cannot name.
+
+    - each entry is ONE segment with a trailing slash, e.g. /assets/, using
+      only [a-z0-9._-]; no wildcard, regex or nesting;
+    - never api, internal, v1, oauth, health or healthz;
+    - never a gateway.publicRoutes prefix, and never a directory that holds a
+      declared exact path (the two lists must not overlap);
+    - at most 4 entries, no duplicates.
+
+  What is in a declared directory is public: the chart cannot read the build.
+
+  The SAME rules are defined in universal-tenant and tenant-public-tls.
+  preflight 101-public-assets checks the two still agree.
+*/ -}}
+{{- define "tenant-public-tls.publicAssetDirectories" -}}
+{{- $dirs := ((.Values.gateway).publicAssets).directories | default list -}}
+{{- if not (kindIs "slice" $dirs) -}}
+{{- fail "gateway.publicAssets.directories must be a list of one-segment directories, e.g. [/assets/]" -}}
+{{- end -}}
+{{- if gt (len $dirs) 4 -}}
+{{- fail (printf "gateway.publicAssets.directories declares %d directories; at most 4 are allowed" (len $dirs)) -}}
+{{- end -}}
+{{- $pathCount := len ((((.Values.gateway).publicAssets).paths) | default list) -}}
+{{- if gt (add $pathCount (len $dirs)) 32 -}}
+{{- fail (printf "gateway.publicAssets declares %d paths and %d directories; together at most 32 are allowed (each renders two matches, and a rule holds 64)" $pathCount (len $dirs)) -}}
+{{- end -}}
+{{- $routePrefixes := dict -}}
+{{- range $r := (((.Values.gateway).publicRoutes) | default list) -}}
+{{- if and (kindIs "map" $r) (kindIs "string" ($r.prefix | default "")) -}}{{- $_ := set $routePrefixes (trimPrefix "/" ($r.prefix | default "")) true -}}{{- end -}}
+{{- end -}}
+{{- $assetFirst := dict -}}
+{{- range $p := (((.Values.gateway).publicAssets).paths | default list) -}}
+{{- if kindIs "string" $p -}}{{- $_ := set $assetFirst (lower (first (splitList "/" (trimPrefix "/" $p)))) true -}}{{- end -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $d := $dirs -}}
+{{- if not (kindIs "string" $d) -}}
+{{- fail (printf "gateway.publicAssets.directories entry %v is not a string" $d) -}}
+{{- end -}}
+{{- if not (regexMatch "^/[a-z0-9._-]+/$" $d) -}}
+{{- fail (printf "gateway.publicAssets.directories entry %q must be one segment with a trailing slash, e.g. /assets/, using only [a-z0-9._-]" $d) -}}
+{{- end -}}
+{{- $seg := trimSuffix "/" (trimPrefix "/" $d) -}}
+{{- if or (eq $seg ".") (eq $seg "..") -}}
+{{- fail (printf "gateway.publicAssets.directories entry %q is not a directory name" $d) -}}
+{{- end -}}
+{{- if has $seg (list "api" "internal" "v1" "oauth" "health" "healthz") -}}
+{{- fail (printf "gateway.publicAssets.directories entry %q is under /%s, which always requires a login" $d $seg) -}}
+{{- end -}}
+{{- if hasKey $routePrefixes $seg -}}
+{{- fail (printf "gateway.publicAssets.directories entry %q is a gateway.publicRoutes prefix" $d) -}}
+{{- end -}}
+{{- if hasKey $assetFirst $seg -}}
+{{- fail (printf "gateway.publicAssets.directories entry %q holds a declared gateway.publicAssets path; declare one or the other" $d) -}}
+{{- end -}}
+{{- if hasKey $seen $seg -}}
+{{- fail (printf "gateway.publicAssets.directories lists %q more than once" $d) -}}
+{{- end -}}
+{{- $_ := set $seen $seg true -}}
+{{- end -}}
+{{- toJson $dirs -}}
 {{- end -}}

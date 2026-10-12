@@ -42,6 +42,7 @@ type CloudProvider struct {
 	driver      CloudDriver
 	clusterName string
 	debug       bool
+	encryption  cluster.EncryptionMode
 }
 
 func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *CloudProvider {
@@ -50,6 +51,14 @@ func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *Cloud
 		clusterName: clusterName,
 		debug:       debug,
 	}
+}
+
+func (p *CloudProvider) SetEncryption(mode cluster.EncryptionMode) {
+	p.encryption = mode
+}
+
+func (p *CloudProvider) Encryption() cluster.EncryptionMode {
+	return p.encryption
 }
 
 // ── Identity ────────────────────────────────────────────────────────────────
@@ -107,6 +116,7 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// a Hetzner box and a hybrid box encrypt etcd the same way.
 	clusterCfg.Encryption = cfg.Encryption
 	clusterCfg.KMS = cfg.KMS
+	p.encryption = cfg.Encryption
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
 	//
@@ -289,7 +299,9 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 30*time.Minute); err != nil {
 		return "", fmt.Errorf("machines not ready for pivot: %w", err)
 	}
-	fmt.Println("[pivot] ✓ All nodes joined")
+	if cfg.Encryption != "" {
+		p.encryption = cfg.Encryption
+	}
 
 	pivotOrch := &pivot.Orchestrator{
 		BootstrapKubeconfig: cfg.BootstrapKubeconfig,
@@ -298,6 +310,7 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 		Namespace:           constants.NamespaceCAPI,
 		OSType:              p.driver.OSType(),
 		Debug:               p.debug || cfg.Debug,
+		Encryption:          p.encryption,
 	}
 
 	mgmtKubeconfig, err := pivotOrch.ExecuteMove(ctx)
@@ -319,6 +332,7 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 		Namespace:           constants.NamespaceCAPI,
 		OSType:              p.driver.OSType(),
 		Debug:               p.debug,
+		Encryption:          p.encryption,
 	}
 
 	// Place the CAPI controllers BEFORE waiting for them to be ready.

@@ -71,6 +71,7 @@
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
 {{- /* Validated in _helpers.tpl; empty renders no bind, route or port. */ -}}
 {{- $publicAssets := include "universal-tenant.publicAssetPaths" . | fromJsonArray }}
+{{- $publicAssetDirs := include "universal-tenant.publicAssetDirectories" . | fromJsonArray }}
 {{- /* Validated in _helpers.tpl (ADR-103); empty renders no bind, route or port. */ -}}
 {{- $publicRoutes := include "universal-tenant.publicRoutes" . | fromJsonArray }}
 {{- /* Derived only as a FALLBACK name; the real value arrives at runtime.
@@ -353,7 +354,7 @@ data:
           - path:
               pathPrefix: /v1/webhooks/
 {{- end }}
-{{- if $publicAssets }}
+{{- if or $publicAssets $publicAssetDirs }}
     # A THIRD bind, for the static files a browser fetches without the user's
     # session: a web app manifest, its icons, a service worker. Behind the login
     # they get a redirect to the identity provider instead, and the browser
@@ -396,6 +397,16 @@ data:
             method: {{ . }}
           {{- end }}
           {{- end }}
+          {{- /* Declared build directories (ADR-101 amendment 2026-10-12):
+                 every file beneath one, GET and HEAD, from the same frontend. */}}
+          {{- range $publicAssetDirs }}
+          {{- $dir := . }}
+          {{- range list "GET" "HEAD" }}
+          - path:
+              pathPrefix: {{ $dir | quote }}
+            method: {{ . }}
+          {{- end }}
+          {{- end }}
 {{- end }}
 {{- if $publicRoutes }}
     # A FOURTH bind (ADR-103): login-free DYNAMIC routes to this app's BFF, for a
@@ -425,7 +436,10 @@ data:
         {{- $regex := .regex }}
         - name: {{ $t }}-public{{ .prefix | replace "/" "-" }}
           backends:
-          - host: {{ $bff }}
+          {{- /* answeredBy (ADR-103 amendment 2026-10-12): the app's BFF by
+                 default, or its frontend for a built page; derived here, never
+                 named in values. */}}
+          - host: {{ if eq .answeredBy "frontend" }}{{ $frontend }}{{ else }}{{ $bff }}{{ end }}
           hostnames:
           {{- range $hosts }}
           - {{ . }}
@@ -1071,7 +1085,7 @@ spec:
     port: 3004
     targetPort: 3004
 {{- end }}
-{{- if $publicAssets }}
+{{- if or $publicAssets $publicAssetDirs }}
   # The public static-asset bind. Reachable only via the platform HTTPRoute rule
   # that selects this port for the declared paths, GET/HEAD (tenant-public-tls).
   - name: public-assets

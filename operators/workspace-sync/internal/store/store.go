@@ -254,6 +254,14 @@ type Config struct {
 // checkpoint — because squashfs archives do NOT share blocks with each other.
 const DefaultKeepCheckpoints = 5
 
+// UnboundedKeepCheckpoints is KeepCheckpoints' value for "keep everything"
+// (§14.8). Negative, so planRetention's keep <= 0 rule keeps every checkpoint;
+// zero stays "unset" and means the default.
+const UnboundedKeepCheckpoints = -1
+
+// UnboundedEnvValue is how KEEP_CHECKPOINTS spells UnboundedKeepCheckpoints.
+const UnboundedEnvValue = "unbounded"
+
 func FromEnv() (Config, error) {
 	c := Config{
 		Endpoint:        os.Getenv("S3_ENDPOINT_URL"),
@@ -279,7 +287,11 @@ func FromEnv() (Config, error) {
 		c.Staging = "/ws-staging"
 	}
 	if v := os.Getenv("KEEP_CHECKPOINTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		// "unbounded" is the operator's rendering of retainAllCheckpoints
+		// (§14.8): a word, so it can never be mistaken for a count.
+		if v == UnboundedEnvValue {
+			c.KeepCheckpoints = UnboundedKeepCheckpoints
+		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.KeepCheckpoints = n
 		}
 	}
@@ -347,7 +359,7 @@ func New(cfg Config) (*Store, error) {
 		staging = "/ws-staging"
 	}
 	keep := cfg.KeepCheckpoints
-	if keep <= 0 {
+	if keep == 0 {
 		keep = DefaultKeepCheckpoints
 	}
 	return &Store{
@@ -754,7 +766,15 @@ func (s *Store) Prune(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list checkpoints: %w", err)
 	}
-	ids, doomed := planRetention(all, s.keep, s.pinnedCheckpoints)
+	// Pins arrive at any time, from whoever needs a checkpoint kept (§14.8),
+	// so they are read at every prune rather than once at startup. A failed
+	// read aborts the prune: deleting without knowing what is pinned is the
+	// one mistake retention cannot undo.
+	marked, err := s.ListPinMarkers(ctx)
+	if err != nil {
+		return fmt.Errorf("list pin markers (aborting prune): %w", err)
+	}
+	ids, doomed := planRetention(all, s.keep, unionSets(s.pinnedCheckpoints, marked))
 	if len(doomed) > 0 {
 		for _, id := range doomed {
 			if err := s.remove(ctx, s.manifestKey(id)); err != nil {
@@ -1153,6 +1173,53 @@ func (s *Store) ListCheckpoints(ctx context.Context) ([]string, error) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(ids)))
 	return ids, nil
+}
+
+// pinsPrefix is the subtree pin markers live in (§14.8):
+// <appId>/<workspaceId>/pins/<checkpointId>/<holder>. The sidecar reads it and
+// never writes it; whoever needs a checkpoint kept owns its own marker.
+func (s *Store) pinsPrefix() string { return s.prefix + "/pins/" }
+
+// ListPinMarkers returns the checkpoint ids that hold at least one pin marker.
+// A marker naming a checkpoint that no longer exists is inert: it is returned,
+// and matches nothing in planRetention.
+func (s *Store) ListPinMarkers(ctx context.Context) (map[string]struct{}, error) {
+	prefix := s.pinsPrefix()
+	ch := s.c.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+	pinned := make(map[string]struct{})
+	for obj := range ch {
+		if obj.Err != nil {
+			return nil, obj.Err
+		}
+		if id := pinMarkerCheckpoint(strings.TrimPrefix(obj.Key, prefix)); id != "" {
+			pinned[id] = struct{}{}
+		}
+	}
+	return pinned, nil
+}
+
+// pinMarkerCheckpoint reads the checkpoint id out of a marker's key below
+// pins/: "<checkpointId>/<holder>". Anything else is not a marker.
+func pinMarkerCheckpoint(rel string) string {
+	id, holder, ok := strings.Cut(rel, "/")
+	if !ok || id == "" || holder == "" || strings.Contains(holder, "/") {
+		return ""
+	}
+	return id
+}
+
+func unionSets(a, b map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(a)+len(b))
+	for k := range a {
+		out[k] = struct{}{}
+	}
+	for k := range b {
+		out[k] = struct{}{}
+	}
+	return out
 }
 
 // splitList parses a comma-separated env value, ignoring blanks so a trailing

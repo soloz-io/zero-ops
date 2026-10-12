@@ -464,7 +464,10 @@ type EphemeralJobSpec struct {
 // KeepCheckpoints is the exception, and the distinction is worth stating: it
 // does not change any mechanism, only how much history is retained. That is a
 // product question about the fleet's own users ("how far back can they undo?"),
-// which the platform is in no position to answer for them.
+// which the platform is in no position to answer for them. RetainAllCheckpoints
+// is the same question answered "everything" (§14.8).
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.keepCheckpoints) && has(self.retainAllCheckpoints) && self.retainAllCheckpoints)",message="set keepCheckpoints or retainAllCheckpoints, not both"
 type WorkspacePersistenceSpec struct {
 	// WorkspaceID identifies the WORKSPACE, not this request.
 	//
@@ -593,6 +596,18 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=50
 	KeepCheckpoints *int32 `json:"keepCheckpoints,omitempty"`
+
+	// RetainAllCheckpoints asks for no retention bound at all (ADR-052 §14.8):
+	// every checkpoint this workspace takes is kept for the workspace's life.
+	//
+	// A separate, explicit field rather than a magic KeepCheckpoints value,
+	// because the two are different promises: a number is "how far back undo
+	// reaches", this is "the whole history is the product". Storage then grows
+	// with every checkpoint, by one compressed image each, and that cost is the
+	// fleet's choice. Setting both is refused.
+	//
+	// +optional
+	RetainAllCheckpoints bool `json:"retainAllCheckpoints,omitempty"`
 
 	// CheckpointID pins the workspace to one exact checkpoint (ADR-052 §14.3).
 	// Unset means the latest, which is what an interactive sandbox wants.

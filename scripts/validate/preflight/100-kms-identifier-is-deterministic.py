@@ -562,15 +562,20 @@ def main():
                         f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)}: container "
                         f"{c.get('name')!r} image {img!r} is not pinned by digest"
                     )
-            # THE PLUGIN CONTAINER MUST NOT MOUNT THE CLUSTER PKI.
+            # NO CONTAINER IN THIS POD MAY MOUNT THE CLUSTER PKI -- not the plugin, and
+            # not the init container either.
             #
-            # ca.key can mint ANY identity in the cluster: a kubelet, an API server
-            # client, an admin. The initContainer needs it for the seconds it takes to
-            # sign one certificate, as root, with no network. The long-running process
-            # that talks to Google must not be able to read it even if it is compromised,
-            # and the plugin works identically either way -- so nothing about a wrong
-            # mount would ever surface.
-            for c in containers:
+            # The init container used to, so it could sign the plugin's certificate from
+            # the CLUSTER CA. That design is withdrawn (ADR-100): it extended the cluster
+            # CA's authority into Cloud KMS, and uploading that CA as a GCP trust anchor
+            # meant Google trusted every certificate the cluster would ever issue -- with
+            # only an IAM binding separating a kubelet certificate from a KMS credential.
+            #
+            # The leaf is now issued by the hub from a dedicated per-cluster CA that signs
+            # nothing else. So the check covers EVERY container: reintroducing the mount
+            # anywhere in this pod is reintroducing the withdrawn design, and it would work
+            # identically, which is why nothing else would catch it.
+            for c in containers + ((pod or {}).get("spec", {}).get("initContainers") or []):
                 for m in c.get("volumeMounts") or []:
                     path = str(m.get("mountPath", ""))
                     if path.startswith("/etc/kubernetes/pki"):

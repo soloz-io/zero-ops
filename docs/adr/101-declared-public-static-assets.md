@@ -1,7 +1,7 @@
 # ADR-101: An application may declare static files that need no login
 
 **Date:** 2026-10-03
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-12)
 **Amends:** ADR-050 (tenant authentication via AgentGateway): one more declared
 exception to "every path is behind the login", alongside the webhook bind
 **Relates to:** ADR-051 (platform-owned public route), ADR-088 (per-application
@@ -61,6 +61,33 @@ route), restricted further:
 
 Every other path stays on `:3000` behind the login, exactly as before.
 
+### Amendment 2026-10-12: a declared directory of built files
+
+A page served without a login (ADR-103, as amended) is the application's own
+built page, and it loads its scripts and styles from a build directory whose
+file names change with every build (content hashes). Exact paths cannot name
+them.
+
+An application may also declare **directories** of public static files:
+`gateway.publicAssets.directories`, each one path segment with a trailing
+slash, for example `/assets/`. Every file beneath a declared directory answers
+GET and HEAD from the application's frontend without a login, through the same
+`:3003` bind and the same public route rule.
+
+The bounds of §1–§5 hold, with these for directories:
+
+- **One segment, declared by name.** No wildcard, regex or nesting. Only
+  `[a-z0-9._-]` in the segment.
+- **Never a dynamic surface or the shell.** The refused first segments of §4
+  are refused as directories too, as is a directory that is the prefix of a
+  declared public route (ADR-103) or that contains a declared exact path.
+- **At most 4 directories,** and at most 32 paths and directories together
+  (each renders two matches, and a rule holds 64).
+- **What is in it is public.** The chart cannot read the build. An application
+  must not put into a declared directory anything it would not publish: a
+  built page's scripts are its code, and declaring the directory publishes
+  that code.
+
 ## Acceptance criteria
 
 Without a session, for an application declaring paths:
@@ -112,6 +139,9 @@ both charts.
 - `manifests/tenants/charts/tenant-public-tls`: the same helper and an HTTPRoute
   rule to `:3003`, with the same HSTS header as the catch-all.
 - `scripts/validate/preflight/101-public-assets.sh`.
+- Amendment 2026-10-12: `gateway.publicAssets.directories` in both charts'
+  helper, rendered as a path-prefix match on the bind's route and on the public
+  route rule; preflight `101-public-assets` pins the matches and the refusals.
 - Requires the Gateway API `HTTPRouteMethodMatching` feature (Cilium 1.17 reports
   it) and AgentGateway route `matches[].method` (v1.5.0).
 

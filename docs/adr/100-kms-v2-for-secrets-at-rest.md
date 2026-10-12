@@ -5,6 +5,44 @@
 **Status:** **Proposed — revision required.** Accepted 2026-10-02; **that acceptance is
 withdrawn** following external review on 2026-10-06. The architecture is not in dispute.
 The conditions are in [Review](#review).
+
+**Where this stands as of 2026-10-12.**
+
+**Decided.** The bootstrap identity is a **dedicated per-cluster KMS CA with the leaf issued
+by the hub**, delivered as a **two-phase credential**: a one-hour bootstrap leaf plus the
+long-lived leaf wrapped under the cluster's own KEK, so the permanent copy in node
+bootstrap material becomes cryptographically useless rather than merely stale. The first
+design — the leaf signed on the node by the cluster's own CA — is **withdrawn and deleted
+from the codebase**; the sections describing it carry a superseded banner. The interface
+contract is fixed under "Gap audit of the proposed design".
+
+**Resolved since review:** escrow (the CA is not escrowed; a rebuild regenerates it), hub
+rebuild, the Day-0 custody gap at pivot, the delivery-path investigation, condition 4's
+expiry cliff, and the per-Machine rendering question that makes a one-hour credential
+survive scale-up.
+
+**Implemented and locally verified:** the crypto and issuance path, the CLI commands, the
+provisioning precondition gate with all six checks, the pivot CA copy, and provider-version
+parity. Tests pass and the preflight is green.
+
+**Open, and the ADR is not closed until these land:**
+
+1. The pivot CA copy skips silently when the CA Secret is absent, which is correct for
+   `secretbox` and **reintroduces the 90-day fuse** under `kms-v2`. Must gate on the
+   encryption mode, not the Secret's existence.
+2. **First-boot validation on a rebuilt `kms-canary-01`.** Not compressible: four of the five
+   gaps found so far surfaced in review or on real infrastructure, not in tests.
+3. **Condition 6** — the leaf is per cluster, so there is no per-node revocation. Harmless at
+   `ControlPlaneReplicas = 1`, binding above it.
+4. The v5 control-plane template and the Crossplane federation resources remain
+   **deliberately unwired**.
+
+**Not addressed by this ADR, and not addressable by it:** control-plane bootstrap material is
+readable by any pod on this provider, because KCP must place the cluster PKI in bootstrap
+data. ADR-100 changes one item in that payload and four cluster CA keys are untouched. See
+`docs/analysis/bootstrap-material-exposure.md`. Nothing here should be read as progress
+against it.
+
 **Amends:** ADR-003 §6 (Protection at rest)
 **Relates to:** ADR-065 Amendment 2 (the platform may own crypto infrastructure, and
 what that costs), ADR-076 (the escrow), ADR-046 (two sites), ADR-041 (template
@@ -109,7 +147,7 @@ round produced.
 | 4a | one cluster's plugin cannot use another cluster's key | **PROVEN** against real GCP: `PERMISSION_DENIED` encrypting under a second key in the same ring. Each cluster also has its own key and its own service account bound only to it. The probe key is a sibling rather than literally a second cluster's key; the IAM check is identical, and it becomes literal once a second cluster is provisioned |
 | 4b | plugin cannot rotate, disable, destroy, administer or alter IAM | **CLOSED.** 12 of 12 against real GCP on 2026-10-06, all five administrative operations refused on a canary carrying the identical binding. Real calls on the enforcement path, aimed at a canary key carrying the IDENTICAL binding, with the aim enforced in code by `mustBeCanary`. Three designs preceded it and all were wrong: live-key mutation (performs the action it tests for), an unbound throwaway (refused for the wrong reason), and `testIamPermissions` (documented by Google as unsuitable for authorization checking and able to fail open). Policy Troubleshooter would add *attribution* of which binding decides and is **not implemented** — recorded as a complement, not a substitute |
 | 4c | the required `GetCryptoKey` permission is explicitly accounted for | **CLOSED, and it is no longer required.** This is the finding from the first round, and the fix was to remove the need rather than grant it: the plugin discovers its active version by encrypting against the parent key and reading `EncryptResponse.Name`. `cryptoKeys.get` is not held, the plugin does not call it, the denial is proven against real GCP, and a preflight fails the build if the call reappears |
-| 5 | complete bootstrap identity design: issuer, per-node credential source, renewal, revocation and expiry, full hub-rebuild path, no long-lived key on disk | **DECIDED, NOT BUILT — still the critical path.** See "The bootstrap identity". X.509 federation against the per-cluster CA; the API surface, the attribute mapping, the token exchange and the Go support were all **verified on 2026-10-06** against the pinned modules, and the plugin's client already routes through the auth library that supports it with no dependency change. Node replacement needs no action and identity isolation is structural. **Three things remain open and are named there:** the hub-rebuild trust-anchor step is a procedure whose *enforcement* is not written; nothing reports the certificate's remaining lifetime, so a pod that does not restart for a year expires into a failed cold read; and credential failure is **not** cleanly distinguishable by gRPC status code, so the health classification needs a separate credential probe rather than the code |
+| 5 | complete bootstrap identity design: issuer, per-cluster credential source, renewal, revocation and expiry, full hub-rebuild path, no long-lived key on disk | **DECIDED, NOT BUILT — still the critical path.** See "The bootstrap identity". X.509 federation against the per-cluster CA; the API surface, the attribute mapping, the token exchange and the Go support were all **verified on 2026-10-06** against the pinned modules, and the plugin's client already routes through the auth library that supports it with no dependency change. Node replacement needs no action and identity isolation is structural. **Three things remain open and are named there:** the hub-rebuild trust-anchor step is a procedure whose *enforcement* is not written; nothing reports the certificate's remaining lifetime, so a pod that does not restart for a year expires into a failed cold read; and credential failure is **not** cleanly distinguishable by gRPC status code, so the health classification needs a separate credential probe rather than the code |
 | 6 | a durable rotation authority enforcing monotonic progression; not plugin memory, not operator discipline | **CLOSED for detection; remediation is deliberately manual.** Plugin memory gone (Amendment 2); operator discipline gone (Amendment 3 removed the suffix). Reactivation is not expressible in the reconciler's desired state, and a durable **version floor** now lives on the reviewed manifest with `soloz kms drift` alarming on a regression — see "Drift control". No automatic repair, by decision: that would restore the mutation authority withheld from anything in-cluster. **Open:** nothing runs the check on a schedule or routes its failure to an owner |
 | 7 | remove the synthetic key-ID suffix unless a shared-key use case is formally enforced | **CLOSED, and more completely in Amendment 4.** There is no shared-key use case: the key is per cluster and cross-cluster use is denied by IAM. Amendment 3 removed the suffix from the identifier but kept the flag as break-glass; the second review was right that an available flag *is* the manual mutation path, so Amendment 4 **deletes it**. No configuration can append anything to the identifier |
 | 8 | defined availability design: location, latency/SLO budget, quotas, retry/timeouts, monitoring, alerting, incident ownership, DR assumptions | **CARRIER, OWNER, SIGNING-KEY POLICY AND INSTRUMENTATION DONE; BUDGETS OPEN.** Location signed off; timeouts, retries and probe rates recorded. `soloz kms check` plus a scheduled CI workflow observe from outside the clusters they check. Owner is **Platform Security / Control-Plane on-call**, and the workflow refuses to run without one. Signing-key rotation is event-driven with a stated expiry condition. The plugin now exports latency, failures by reason, the active key version and health — the inputs an SLO needs. **Open:** the SLO and error budget themselves, measured quotas, and a recovery objective, all of which want numbers from running it rather than from design |
@@ -756,6 +794,25 @@ is in Git and reconstructible.
 
 #### The design: X.509 Workload Identity Federation, per cluster
 
+> ## ⚠ SUPERSEDED FROM HERE TO "The provisioning dependency gate"
+>
+> **The subsections below describe the bootstrap identity as it was first designed: the
+> leaf signed ON THE NODE by the CLUSTER's own CA. That is withdrawn.** The decision is
+> "Decided: a dedicated per-cluster KMS CA, leaf issued by the hub" further down, and
+> `internal/nodecert` — the code these sections describe — is deleted.
+>
+> Kept rather than cut, because why A was rejected is load-bearing: it extended the cluster
+> CA's authority into Cloud KMS, so a GCP trust anchor holding that CA meant Google trusted
+> every certificate the cluster would ever sign, with only an IAM binding separating a
+> kubelet certificate from a KMS credential.
+>
+> **What in these sections still holds:** the federation mechanism (X.509 WIF, one provider
+> per cluster), the trust-anchor immutability constraint and the rebuild sequencing it
+> forces, the JWKS lifecycle, and the credential-failure classification finding.
+> **What does not:** anything about `ca.key` on the node, the initContainer signing, and the
+> renewal answer that depends on it.
+
+
 ```
 cluster CA (CAPI-managed, one per cluster)
     │
@@ -992,23 +1049,26 @@ So a certificate issued once at node bootstrap expires, silently, roughly a year
 and the symptom is a control plane that cannot cold-read Secrets. That is the same failure
 class as losing the key, arriving on a schedule nobody set.
 
-**The answer is to re-issue on every plugin start, in the initContainer that already
-exists.** `--prepare-socket-dir` runs as root before the plugin drops to 65532, the node
-holds `ca.key`, and a static pod is restarted by kubelet on node reboot and on any manifest
-change — which includes every control-plane roll. A certificate re-issued on each start,
-with a lifetime comfortably longer than the longest expected uninterrupted pod lifetime, is
-renewed by the thing that already happens rather than by a timer somebody has to maintain.
+**THE ANSWER BELOW IS WITHDRAWN. What survives is the problem statement above** —
+kubeadm will not renew this certificate, so a certificate issued once expires silently and
+the symptom is a control plane that cannot cold-read Secrets.
 
-**The deliberate choice inside that: the plugin itself does not get `ca.key`.** It would be
-simpler to have the plugin renew its own certificate on its refresh loop, and it would mean
-a process that can sign with the cluster CA can mint any identity in the cluster. The
-initContainer holds that capability for the seconds it needs it; the long-running process
-does not.
+The withdrawn answer was to re-issue on every plugin start in the initContainer, since
+`--prepare-socket-dir` already ran as root and the node held `ca.key`. It renewed by a thing
+that already happens rather than by a timer, which was genuinely the right instinct — and it
+required the node to hold a key that could mint any identity in the cluster, which is why
+the whole option fell.
 
-**What this still does not cover, and it is open:** nothing yet reports the certificate's
-remaining lifetime. A pod that happens not to restart for a year expires, and the first
-symptom is a failed cold read. The plugin should surface its own certificate expiry — in
-`Status` logging, where monitoring can reach it — and that is not written.
+**Under the decided design the node holds a leaf and cannot sign anything**, so renewal
+cannot happen there at all. It is a planned control-plane roll instead, re-issuing from the
+hub (condition 4). That trades a free renewal for a scheduled one, and the ADR is explicit
+that this is the one point on which the withdrawn design was better.
+
+**The gap this section identified is now closed.** It said "nothing yet reports the
+certificate's remaining lifetime", and that was correct at the time.
+`soloz_kms_plugin_certificate_remaining_fraction` now exists, the plugin watches its own
+certificate and can only read it — it holds no issuing capability — and
+`soloz kms check` surfaces it with weeks of margin rather than hours.
 
 #### Credential failure is NOT cleanly distinguishable, correcting an earlier assumption
 
@@ -1047,25 +1107,50 @@ control plane that never starts, on a cluster that looks provisioned.
 > trust anchor, the credential configuration and the plugin manifest all exist and have been
 > verified.
 
-Four things, and the gate must cover all four. Verifying the trust anchor while the
-credential configuration is still absent gets a node that authenticates and then cannot find
-its own configuration.
+**Five things, and the gate must cover all five** — this said "four" and listed five, which
+is the kind of slip that becomes an implementation covering four. Verifying the trust anchor
+while the credential configuration is still absent gets a node that authenticates and then
+cannot find its own configuration.
 
-**Candidate mechanisms, none yet verified.** `sigs.k8s.io/cluster-api` is not in this
-module's dependency graph, so none of this can be read from the pinned source — and ADR-097
-forbids asserting it from memory. Each needs checking against the CAPI version this platform
-runs before anything is wired:
+**RESOLVED BY THE ISSUER DECISION, AND THE GATE GOT SIMPLER RATHER THAN BETTER-ENGINEERED.**
 
-| mechanism | what must be verified |
-|---|---|
-| `Cluster.spec.paused` / the `cluster.x-k8s.io/paused` annotation, set at apply and cleared after verification | that it halts **machine creation** specifically, and that the **topology controller** on a ClusterClass-managed cluster does not reconcile it away — the same question `rolloutAfter` had, which turned out fine but only because it was tested |
-| provision the GCP side first, with no cluster at all | the trust anchor names the cluster's CA, and the CA does not exist until the Cluster does. **This is the ordering problem, not a way around it** |
-| a dedicated CA created before the cluster | removes the dependency entirely: the trust anchor can be uploaded before any cluster exists. See the issuer analysis below — this is one of its arguments |
+This section previously listed three candidate mechanisms and sent a reader off to verify
+`Cluster.spec.paused` semantics against the deployed CAPI — whether it halts machine
+creation specifically, and whether the topology controller reconciles it away on a
+ClusterClass-managed cluster. **That research is no longer needed and should not be done.**
 
-**The third is the one worth noticing.** The dependency gate exists only because the trust
-anchor depends on a CA that CAPI creates. A CA that does **not** come from CAPI has no such
-dependency, the whole ordering problem disappears, and the gate becomes unnecessary rather
-than carefully engineered. That is an argument about the issuer, which is the next section.
+The reason: the ordering problem existed *only* because the trust anchor named a CA that CAPI
+creates, so the anchor could not be uploaded until the cluster existed, and the cluster
+existing is what starts the machine. A **dedicated** KMS CA does not come from CAPI. It can
+be created, uploaded as a trust anchor, bound in IAM and used to issue the leaf **before the
+`Cluster` is submitted at all**. There is nothing left to race.
+
+So the gate is an **ordering requirement plus a verification**, needing no CAPI feature:
+
+```
+create the dedicated CA              ─┐
+create the WIF provider + anchor      │  all of this, with no Cluster in existence
+create the key + IAM binding          │
+issue the leaf, store both Secrets   ─┘
+        ↓
+VERIFY all five                          soloz kms check must exit 0
+        ↓
+submit the Cluster                       the first machine may now be created
+```
+
+**Why this is worth stating rather than quietly simplifying.** A paused-cluster gate would
+have worked, and it would have been a mechanism to maintain, a CAPI behaviour to re-verify on
+every provider upgrade, and a state a failed provisioning run could get stuck in. The
+dedicated CA was chosen for an unrelated reason — containment — and it removed an entire
+class of ordering problem as a side effect. That is the second time in this ADR that the more
+contained design turned out to be the simpler one, and it is a reason to be suspicious of the
+next place we reach for a synchronisation mechanism.
+
+**What the gate must still refuse, since it is now the only protection:** it has no CAPI
+backstop. If it is skipped, or if it passes while a prerequisite is absent, the node boots
+with an encryption configuration naming a provider it cannot authenticate to and the control
+plane never starts. So it fails hard and names which of the five prerequisites was missing —
+no partial pass, no warning-and-continue (condition 1).
 
 ### The bootstrap identity, specified
 
@@ -1080,53 +1165,428 @@ certificate would validate the chain and then map to a principal with no binding
 denied. That works, and it is one control deep. Narrowing the trust store is defence in
 depth that costs little.
 
-#### Three options, and the trade is not close on containment
+#### Decided: a dedicated per-cluster KMS CA, leaf issued by the hub
 
-| | trust store contains | the node holds | renewal | ordering gate needed |
-|---|---|---|---|---|
-| **A** cluster CA, certificate issued on the node *(current)* | the cluster's entire PKI | `ca.key` — can mint **any** identity in the cluster | free, on pod start | **yes** |
-| **B** dedicated per-cluster KMS CA, leaf issued **by the hub**, delivered as template content | one CA that signs nothing else | a leaf key only — the plugin identity for one cluster | needs a roll | **no** |
-| **C** dedicated CA, certificate issued on the node | one CA that signs nothing else | the dedicated CA key — can mint any **plugin** identity | free | **no** |
+**Option B, and option A is withdrawn rather than kept as an alternative.** (For the single
+reason that actually distinguishes them, see the correction below the table — it is the trust
+store's scope, not what the node holds.) A — the cluster
+CA with the certificate issued on the node — is deleted from the codebase, not left behind a
+flag. Two production paths for a bootstrap credential is two things to audit and one of them
+is the one somebody reaches for at 3am.
 
-**Recommendation: B.** It is the only option where the node never holds a key that can mint
-an identity, and the only one where a compromised node yields exactly one credential rather
-than the ability to issue more. It also removes the dependency gate: a dedicated CA can be
-created before the cluster exists, so the trust anchor can be uploaded before CAPI is asked
-for anything.
+What A got wrong, stated once: mounting the cluster CA's private key into an init container
+extends that CA's authority into Cloud KMS, and uploading it as a GCP trust anchor means
+Google trusts **every certificate that CA will ever sign**. Isolation then rests on an IAM
+binding — a kubelet certificate validates the chain and is denied only because its subject
+maps to a principal with no grant. One control deep, on the credential protecting every
+Secret in the cluster.
 
-The hub already holds every spoke's cluster CA, so holding a dedicated KMS CA is the same
-authority differently shaped rather than new concentration.
+| | trust store contains | the node additionally holds | GCP will validate |
+|---|---|---|---|
+| A *(withdrawn)* | the cluster's entire PKI | nothing new | **any certificate the cluster CA ever signs** |
+| **B** *(decided)* | one CA that signs nothing else | a leaf key, for one cluster's plugin | **only that CA's leaves** |
 
-**What B costs, stated plainly.** Renewal needs a control-plane roll, because the leaf
-arrives as cloud-init content and an existing node will not re-read it. That is acceptable on
-a platform that rolls for every template change, and it is why
-`soloz_kms_plugin_certificate_remaining_fraction` exists — but it is a cliff rather than a
-gradient, and a cluster that has not rolled in a long time approaches it silently. A is
-better on exactly this point and worse on everything else.
+**CORRECTING AN OVERSTATEMENT IN THIS ADR.** An earlier version of this table claimed A put
+`ca.key` on the node while B put only a leaf there, and concluded that under A the node could
+mint any identity in the cluster while under B it could not. **The second half of that is
+wrong, and it flattered the decision.**
 
-#### The specification, for review
+Every control-plane node holds `ca.key` already, under either option, because kubeadm cannot
+issue certificates without it — and the withdrawn design's own reasoning said as much ("the
+node holds `ca.key`"). Option A did not *add* that exposure; it reused what was already
+there. Under B the node holds `ca.key` **plus** a leaf.
+
+So B's advantage is **exactly one thing**, not two: the **scope of the GCP trust store.**
+Under A, uploading the cluster CA means Google validates every certificate that CA will ever
+sign, leaving an IAM binding as the only separation between a kubelet certificate and a KMS
+credential. Under B, Google validates only the leaves of a CA that signs nothing else, so the
+separation is in the chain. That reason alone is sufficient and B stands — but "a compromised
+node yields one credential" was never true of either option, and this ADR should not have
+said it.
+
+`internal/nodecert` is deleted, the static pod mounts no PKI in **any** container, and a
+preflight asserts that for every container rather than just the long-running one —
+reintroducing the mount anywhere is reintroducing the withdrawn design, and it would work
+identically, which is why nothing else would catch it.
+
+#### Six conditions on B, all mandatory before wiring
+
+Five were set at review. The sixth is one the investigation of condition 5 turned up on its own — the leaf is per cluster, not per node — and it belongs here rather than in a footnote, because it bounds what the containment claim actually says.
+
+**1. An explicit readiness dependency, not an assumed ordering.** Everything — the dedicated
+CA, the WIF provider and its trust anchor, the per-cluster key, the IAM binding, and the node
+leaf — exists and is **verified** before the `Cluster` is submitted to CAPI. B removes the
+CA-discovery race, because a dedicated CA does not come from CAPI and can exist before any
+cluster does. It does **not** remove the need for the dependency to be declared: a GitOps
+apply that creates the Cluster while the provider is still converging is the same failure
+with a different cause. The gate is a precondition on provisioning, checked by
+`soloz kms check` returning zero before `applyCluster` is called.
+
+**2. Revocation is a dual-trust procedure, because "rotate the CA" alone is an outage.**
+A trust store holds multiple anchors, and that is what makes this survivable:
+
+```
+add the replacement anchor alongside the compromised one   both validate
+        ↓
+issue replacement leaves from the new CA
+        ↓
+roll nodes                                                  each picks up its new leaf
+        ↓
+VERIFY the new CA is actually in use                        not that it is merely present
+        ↓
+remove the compromised anchor                               the only irreversible step
+```
+
+Removing the old anchor first would invalidate every live node's credential at once, on a
+control plane that cannot decrypt without it. The overlap is the design, and the verify step
+before the removal is what distinguishes it from hope — a node still presenting an old leaf
+when the old anchor goes away is a node that stops being able to decrypt.
+
+**3. The dedicated CA private key is a platform root credential**, and is treated as one.
+Specified, and **blocking platform-wide acceptance** even though it does not block a
+disposable canary:
 
 | | |
 |---|---|
-| **subject** | `CN=kms-plugin.<cluster>`, no SANs. The certificate authenticates to Google STS and never serves, so there is nothing for a SAN to name |
-| **audience mapping** | `google.subject` from `assertion.subject.dn.cn`. One provider per cluster, so the CN need only be unique within a cluster; it carries the cluster anyway so an audit log reads correctly |
-| **per-cluster isolation** | three independent controls: a **separate CA** per cluster (a certificate from cluster B does not chain to cluster A's anchor), a **separate provider** per cluster, and a **separate service account** bound only to that cluster's key. Under B the first of these is a real boundary rather than relying on the third |
-| **issuance** | by the hub, at cluster creation, from the per-cluster KMS CA. Delivered as `contentFrom.secret` in the control-plane template, the same mechanism the encryption configuration already uses |
-| **renewal** | re-issue the Secret and roll. `soloz kms check` reports remaining lifetime; the alarm is `soloz_kms_plugin_certificate_remaining_fraction < 0.2`, which is days of margin, not hours |
-| **revocation** | replace the provider's trust anchor. There is no CRL and no OCSP in this path — revoking **one** certificate is not expressible, so revocation is "rotate the CA", which is why the CA is per cluster and signs nothing else |
-| **expiry monitoring** | the gauge above, plus `soloz kms check` returning UNKNOWN rather than OK when it cannot read the certificate |
-| **hub rebuild** | the KMS CA is **not** the cluster CA, so a rebuilt hub does not invalidate it. It must be escrowed (ADR-076) or recreated with the trust anchor re-uploaded. **Undecided**, and it is the one place B is not obviously simpler than A |
-| **supply chain** | the init container runs the same digest-pinned image as the plugin, built by CI from a commit, with the digest committed back. Under B it needs **no PKI mount at all**, which removes the control that is hardest to argue for |
-| **host mounts** | under A: `/etc/kubernetes/pki` read-only, init container only, asserted by preflight. Under B: **none** |
+| custody | the hub, as the only component that issues leaves — **except for the hub's own CA at Day-0, see below**. It already holds every spoke's cluster CA, so this is the same authority differently shaped — not new concentration |
+| access policy | the issuing path only. No workload, no tenant, and not the plugin, which holds a leaf and nothing that could mint another |
+| audit trail | every issuance recorded with the cluster, the subject and the validity window. **Not built** |
+| backup / escrow | **DECIDED: not escrowed.** Escrowing it in Infisical would mean an Infisical compromise yields the ability to mint KMS identities for *every* cluster. This ADR already refused to route Crossplane's GCP credential through Infisical for that reason; escrowing the CA there is the same mistake one level deeper. And there is nothing to recover — see hub rebuild. It also matches ADR-076's own criterion: escrow exists for what cannot be **regenerated**, and a CA can be. The cost, stated plainly: losing it means re-uploading a trust anchor and rolling every node of every cluster. That is an outage, accepted in exchange for not holding a standing fleet-wide minting capability in a second system |
+| rotation | the dual-trust procedure above, run deliberately rather than in an incident |
+| hub rebuild | **no recovery needed, which is what makes "not escrowed" cheap.** A rebuilt hub creates a **new** CA, uploads a new trust anchor and issues new leaves. The KEK is untouched in GCP, so a restored etcd still decrypts. The apparent circularity — the CA lives in the hub's etcd, which needs the CA to decrypt — never arises, because rebuild does not need the *old* CA. Rebuild therefore reuses the dual-trust replacement procedure condition 2 already requires, and adds no new machinery |
 
-**Why a dedicated constrained issuer is required rather than optional:** because the
-alternative asks Google to trust a CA whose purpose is issuing Kubernetes identities, and the
-only thing then separating a kubelet certificate from a KMS credential is an IAM binding. One
-control deep, on the credential protecting every Secret in the cluster.
+#### The hub cannot be its own issuer at Day-0, and option B has a 90-day fuse without this
 
-**Not built.** A is implemented (`internal/nodecert`, with tests). B is specified here and
-would replace it. Nothing is wired either way, and the recommendation is a recommendation
-until reviewed.
+Found while specifying T32, not at review, and it is the kind of gap that would have shipped.
+
+**The sequence that creates the hub does not have a hub in it.** The KMS Secrets must exist
+in whichever cluster CAPI reads control-plane file content from, which at Day-0 is the
+**bootstrap kind cluster** —
+`internal/assets/manifests/secrets/secret-encryption-config-kms.yaml` already says so for the
+encryption configuration. So the hub's dedicated KMS CA is necessarily created *there*.
+
+**And that cluster is then destroyed.** The platform pivots with `clusterctl move`
+(`internal/soloz-cli/pivot/orchestrator.go:122`) and deletes the kind cluster afterwards
+(`internal/soloz-cli/bootstrap/orchestrator.go:424-426`). `clusterctl move` relocates
+CAPI-owned objects; a Secret that no CAPI object owns is not among them.
+
+**The failure this produces is on a timer, which is why it would have shipped.** The hub's
+leaf is already on its node and valid for `LeafValidity`, so the hub comes up and works.
+Ninety days later the leaf expires, nothing can re-issue it because the CA died with the
+kind cluster, and the symptom is a hub control plane that cannot cold-read Secrets. Every
+test would have passed.
+
+**The fix reuses a pattern that already exists.** Pivot already re-creates the Hetzner
+credentials Secret on the target cluster before the move
+(`pivot/orchestrator.go:82-100`). The KMS CA goes in the same place in the sequence, with one
+difference worth stating: the Hetzner Secret is *re-created from an environment variable*,
+while a generated CA has no such source and must be **copied** from the bootstrap cluster to
+the hub. Read from source, apply to target, then let the move proceed.
+
+So the full Day-0 ordering is:
+
+```
+bootstrap (kind)   create the dedicated CA + leaf Secrets here, because CAPI reads
+                   control-plane file content from this cluster
+       ↓
+                   CAPI renders the leaf into the hub's control-plane user-data
+       ↓
+pivot              COPY the CA Secret to the hub, alongside the namespace and the
+                   Hetzner credentials, BEFORE clusterctl move
+       ↓
+kind destroyed     the hub now holds its own CA and can re-issue its own leaf
+```
+
+**Spokes are unaffected**: the hub is already running and is the issuer, so no pivot is
+involved and the custody row reads as written.
+
+**This makes "custody: the hub" true only after pivot.** Before it, custody is the bootstrap
+cluster — an ephemeral, local, single-node cluster that holds a credential able to mint KMS
+identities for the hub. That window is short and local, but it is real, and it belongs in the
+access-policy and audit answers rather than being left implicit.
+
+**4. Leaf renewal is not an expiry cliff — and the two-phase credential removes the cliff
+rather than alarming around it.**
+
+The condition as set required a deliberate lifetime, remaining-lifetime reporting, an alarm
+with days of margin, and a **scheduled roll** before expiry, with the alarm as the backstop
+for the schedule rather than the mechanism. All of that still holds except the roll.
+
+**What changed:** the long-lived leaf now lives on the node's disk, written by the plugin
+after unwrapping `leaf.enc`, and is re-fetchable. So renewal is the hub re-wrapping a fresh
+leaf and the plugin picking it up on its refresh loop — **no control-plane roll**. The
+"scheduled roll" requirement is satisfied by removing the need for one, which is a better
+answer than scheduling it reliably.
+
+`soloz_kms_plugin_certificate_remaining_fraction` and the `soloz kms check` reporting remain,
+now as detection for a renewal path that has stopped working rather than as the trigger for a
+roll somebody has to perform.
+
+**5. The delivery path does leak, it leaks something worse today, and that is the
+argument for proceeding rather than against it.**
+
+Investigated against the **deployed** provider versions — core CAPI v1.10.0, kubeadm
+bootstrap and control plane **v1.8.5**, CAPH **v1.0.7**, read from
+`internal/assets/manifests/core/capi-operator/providers/*.yaml`, which is what
+`internal/soloz-cli/capi/operator.go:454` applies verbatim.
+
+| | finding | confidence |
+|---|---|---|
+| CAPH → Hetzner | **proven.** The bootstrap Secret's raw bytes become the server's `user_data` at create (v1.0.7 `pkg/services/hcloud/server/server.go:347` → `:376`, `hcloud-go` `schema/server.go:107`). The read schema has **no** `user_data` field, so a GET does not return it — but Hetzner stores it for the server's lifetime | source-verified |
+| the bootstrap Secret | **strictly per-Machine**, 1:1 owned by its `KubeadmConfig`, named by `Machine.spec.bootstrap.dataSecretName`, key `value`, in the cluster's namespace. Retained for the Machine's whole life; CAPH adds an owner reference but no finalizer, and nothing cleans it up after boot. Note the distinction that matters: the **rendered** Secret is per-Machine, the **source** Secret that `contentFrom` names is per-cluster | source-verified |
+| does the renderer inline the content? | **yes.** The bootstrap controller reads the Secret during `KubeadmConfig` reconciliation and writes its content into the `#cloud-config` `write_files` block. The controller source is still not on disk, but the conclusion no longer rests on that: **the VM has no API token and no network path to the hub at boot**, so there is nothing that could resolve a reference later. Inlining is the only mechanism that can work | architecture contract |
+| metadata service | **it re-serves the user-data.** Hetzner Cloud serves the raw initial user-data over **unauthenticated HTTP** at `http://169.254.169.254/hetzner/v1/userdata`, for the server's life. Any process on the node — including any `hostNetwork` pod — can read the whole `#cloud-config` payload. The repo's own host scripts already curl this service (`spokepool-clusterclass-v1.yaml:503`), so reachability is not in question | doc-only (Hetzner's own API documentation); **needs a node to confirm the exact endpoint and who can reach it** |
+| on-disk copy | no cloud-init source on disk; mode and ownership unknown | cannot verify locally |
+| existing mitigation | **none.** Nothing in `manifests/`, `internal/`, or `scripts/` touches `/var/lib/cloud`, `user-data.txt`, `cloud-init clean` or `shred`. `postKubeadmCommands` never remove `/etc/tailscale-authkey` | source-verified |
+
+**THE FINDING THAT CHANGES THE SHAPE OF THE PROBLEM.** The metadata row above is not a
+node-disk problem, which is what a shred would have addressed. **Anything delivered through
+cloud-init on this provider is readable, unauthenticated, over HTTP, by anything on the
+node, for the life of the server.** A file mode of 0600 on the written file is irrelevant —
+the payload is served from the hypervisor, and nothing running in the guest can revoke,
+purge or mutate it.
+
+That is why a `preKubeadmCommands` shred is not a partial control but close to no control:
+it reaches one of five copies, and not the reachable one.
+
+**This is a present-day exposure, not a KMS one.** `/etc/kubernetes/enc/enc.yaml` carries the
+secretbox key today, through this same path. If the metadata finding holds on a node, then
+**the key that decrypts every Secret in every cluster is currently readable from an
+unauthenticated link-local endpoint by any `hostNetwork` pod** — and that key permits
+offline, permanent, unaudited decryption of any etcd snapshot. It needs its own decision on
+its own timeline, and it does not wait for ADR-100.
+
+**THE FINDING THAT DECIDES IT.** The etcd encryption key **already travels this exact
+path.** `/etc/kubernetes/enc/enc.yaml` is delivered by `contentFrom.secret` from a
+per-cluster Secret at `spokepool-clusterclass-v1.yaml:173-188`, 0600 root, and the manifest's
+own comment says it is *the key to every Secret in the cluster*.
+
+So the comparison is not "a leaf through cloud-init versus nothing". It is **a leaf through
+cloud-init versus the secretbox key through cloud-init, which is what this platform does
+today** — and the asymmetry runs strongly the other way:
+
+| leaked credential | what it gives an attacker |
+|---|---|
+| **secretbox key** *(today)* | offline decryption of any etcd snapshot, **forever**. Unrevocable, unauditable, and its use is undetectable |
+| **KMS leaf** *(this ADR)* | authenticated calls to Cloud KMS. Revocable by removing the trust anchor or the IAM binding, logged in Cloud Audit Logs, rate-limited, and **worthless offline** — after revocation an etcd snapshot cannot be decrypted with it at all |
+
+**THE SCOPE OF THAT ARGUMENT, STATED BEFORE IT IS MADE, BECAUSE IT WAS OVERSTATED ONCE.**
+This ADR reduces the permanence and blast radius of **one** item in that payload. It does
+**not** make it acceptable for tenant workloads to read control-plane bootstrap material, and
+it does not eliminate the exposure. The arithmetic is unforgiving:
+
+| in the user-data payload | changed by ADR-100? |
+|---|---|
+| `enc.yaml`'s secretbox key | **yes** — becomes a revocable, audited credential |
+| `ca.key` (Kubernetes root CA) | **no** |
+| `etcd/ca.key` | **no** |
+| `front-proxy-ca.key` | **no** |
+| `sa.key` (service-account signing key) | **no** |
+
+**Four of the five are untouched, and any one of them is cluster takeover.** A perfect KMS
+implementation still leaves an unprivileged pod able to mint a `system:masters` certificate,
+forge service-account tokens for any namespace, or talk to etcd directly. So the *severity*
+of the bootstrap exposure is unchanged by this ADR, and nothing here should be read as
+addressing it.
+
+**The bootstrap exposure is an independent defect and must be eliminated on its own track.**
+It is recorded in `docs/analysis/bootstrap-material-exposure.md`. This ADR does not block on
+it and does not fix it; the two are being conflated only because the same investigation found
+both.
+
+**With that boundary: the delivery path is a pre-existing exposure that this ADR shrinks
+rather than creates.**
+Taken narrowly — "is `contentFrom.secret` acceptable for a private key?" — the answer on
+present evidence is no. Taken as the decision actually in front of us, moving the thing on
+that path from an offline-usable key to a revocable, audited credential is a strict
+improvement, and the delivery path then needs fixing for **both**.
+
+**DECIDED: the two-phase credential.** Specified under "Gap audit of the proposed design"
+below, with its interface contract. What follows is why it is the only option that survives.
+
+**The only mitigation that survives this finding: make the delivered credential
+short-lived.** If the leaf in user-data is valid for an hour rather than ninety days, then
+every copy — metadata service, Hetzner's records, the hub's bootstrap Secret, the node's
+disk, the logs — is worthless an hour after boot. The plugin would use it once to obtain a
+longer-lived credential written to disk outside cloud-init, and the permanent copies would
+hold an expired certificate.
+
+This is the "spent at first use" pattern, and it is the only option that treats an
+unpurgeable copy as unpurgeable rather than hoping to delete it. **Not decided, and it has
+real costs:** a node rebooting after the window needs a credential that is still on its
+disk, so disk loss becomes unrecoverable without re-issuance; and it adds a first-boot
+exchange that can fail, on the path that brings up a control plane. Recorded as the
+candidate, not the decision.
+
+**A shred in `preKubeadmCommands` is not sufficient**, and it is worth stating what it misses
+rather than shipping it as a control: the bootstrap Secret on the hub, Hetzner's stored
+`user_data`, the metadata endpoint if it re-serves, cloud-init's own logs, and the leaf's
+source Secret on the hub. It also runs inside the same cloud-init run, so anything written
+afterwards or on a re-run is uncovered.
+
+**6. The leaf is per cluster, not per node — so there is no per-node revocation.**
+
+Recorded because the containment claim above needs it. `contentFrom.secret.name` is fixed in
+the template, the per-cluster patches template only `{{ .builtin.cluster.name }}`, and KCP
+holds **one** `kubeadmConfigSpec` for every control-plane Machine. Every control-plane node of
+a cluster therefore presents the same leaf. "A compromised node yields one credential" is
+true; that credential is **cluster-wide**, and containing it means rotating the leaf and
+rolling every control-plane node.
+
+Not currently binding — `driver_hetzner.go:383` sets `ControlPlaneReplicas = 1` for the hub
+and every spoke, so per-cluster and per-node coincide today. It becomes binding the moment a
+control plane scales past one replica, which is a thing this platform will want.
+
+### Gap audit of the proposed design
+
+Dev-environment exposure is out of scope by decision. The requirement is that **the proposed
+design does not reproduce it.** Audited below against one question: what does ADR-100 place in
+node bootstrap material, and what can a reader of that material do with it?
+
+#### What this ADR actually adds to user-data
+
+| item | secret? | if an attacker reads it |
+|---|---|---|
+| `enc.yaml` (KMS `EncryptionConfiguration`) | **no** | a socket path and a key *name*. The key cannot be exported from Cloud KMS |
+| the plugin's static-pod manifest | **no** | an image digest and flags |
+| the WIF credential configuration | **no** | an audience and provider path, both non-secret by design |
+| **the plugin's leaf private key** | **YES** | authenticate as that cluster's plugin and call encrypt/decrypt on its KEK |
+
+**One secret, and it is the only thing this design has to get right.** Note what leaves:
+ADR-100 *removes* key material from this payload — `enc.yaml` under `secretbox` carries 32
+bytes that are the key, and under KMS it carries none.
+
+#### The gap that cannot be closed here, stated first
+
+**The four cluster PKI keys stay in user-data, and nothing in this ADR changes that.** KCP
+places `ca.key`, `etcd/ca.key`, `front-proxy-ca.key` and `sa.key` in bootstrap data because
+kubeadm cannot issue certificates without them. Any one is cluster takeover.
+
+So this design can be free of gaps **of its own** and the payload is still catastrophic to
+read. Treating ADR-100 as closing the bootstrap exposure would be the single most dangerous
+conclusion available here. The independent track is
+`docs/analysis/bootstrap-material-exposure.md`.
+
+#### The design for the one secret: short-lived leaf plus a KMS-wrapped long-lived leaf
+
+The naive fix — a one-hour leaf, re-issued often — fails on reboot. A node restarting must
+authenticate before the API server serves, so it needs a credential on disk that does not
+expire, and that credential cannot come from the API server it is required to start.
+
+So user-data carries **two** things:
+
+```
+(a) a SHORT-lived leaf              valid ~1h from Machine creation
+(b) the LONG-lived leaf, encrypted under the cluster's own KEK
+
+first boot: plugin authenticates with (a) → decrypts (b) via Cloud KMS → writes it to disk
+thereafter: plugin uses the on-disk long-lived leaf, surviving reboots
+after ~1h:  (a) is expired, so (b) cannot be decrypted by anyone reading user-data
+```
+
+**The property that matters: the permanent copy becomes cryptographically useless, not merely
+stale.** Decrypting (b) requires Cloud KMS access, which requires a valid leaf. An attacker
+reading the hypervisor's copy a day later holds an expired certificate and a blob they cannot
+open. That is stronger than expiry alone, and it needs no new service — the KEK already
+exists, and it exists before the `Cluster` is submitted.
+
+#### Remaining gaps, enumerated rather than claimed absent
+
+| gap | severity | status |
+|---|---|---|
+| **A one-hour window from Machine creation** in which user-data yields both (a) and (b) | real, bounded | accepted, and it must be stated in the ADR rather than discovered. Compare: today's window is the server's lifetime |
+| **Stale (a) for a Machine created later than the leaf's validity.** KCP creates Machines on scale-up and on replacement after failure, at arbitrary times | **would break bootstrap** | mitigated by T31's finding that bootstrap data is rendered **per Machine** at `KubeadmConfig` reconciliation, so each Machine reads the source Secret at its own creation. Requires the hub to re-issue (a) on a schedule shorter than its validity |
+| **If the re-issuer stops, new Machines get an expired (a)** and fail to bootstrap | availability, not confidentiality | a hard failure, which is the correct direction, but it is a new dependency on the provisioning path and belongs in the readiness gate |
+| **Cloud KMS on the first-boot path**, now for decrypting (b) as well as for etcd | availability | already true of this ADR; this does not add a new dependency, it adds a second use of one |
+| **The four cluster PKI keys** | **catastrophic** | **not addressed, and not addressable here** |
+| Clock skew at first boot making (a) not-yet-valid | minor | leaves are already backdated a minute |
+
+#### The interface contract
+
+Fixed here so the pieces can be built independently. Changing any name below is a change to
+this ADR, not an implementation detail.
+
+**Secrets** (created by the hub, or by the bootstrap cluster at Day-0):
+
+| Secret | keys | reaches a node? |
+|---|---|---|
+| `<cluster>-kms-ca` | `tls.crt`, `tls.key` | **never.** The CA key is the one thing that must not be templated |
+| `<cluster>-kms-plugin-bootstrap` | `tls.crt`, `tls.key` | yes — the **short-lived** leaf, `BootstrapLeafValidity` |
+| `<cluster>-kms-plugin-wrapped` | `leaf.enc` | yes — the **long-lived** leaf, wrapped under the cluster's KEK |
+
+**Node paths** under `/etc/kubernetes/kms/`:
+
+| path | written by | lifetime |
+|---|---|---|
+| `bootstrap.crt` / `bootstrap.key` | cloud-init, from the bootstrap Secret | expires; never renewed |
+| `leaf.enc` | cloud-init, from the wrapped Secret | re-delivered on a roll |
+| `tls.crt` / `tls.key` | **the plugin, at first boot**, after unwrapping `leaf.enc` | long-lived, survives reboots |
+
+**Lifetimes:** `BootstrapLeafValidity = 1h`, `LeafValidity = 90d` (unchanged). The hub
+re-issues the bootstrap leaf on a schedule **shorter than its validity**, so a Machine created
+at any time reads a valid one — this is what makes a one-hour credential survive scale-up and
+failure replacement, and it depends on bootstrap data being rendered per Machine.
+
+**Startup order in the plugin**, and it fails hard at each step rather than falling back:
+
+```
+1. tls.crt/tls.key present and valid?        → use it. Normal path, every boot after the first
+2. else leaf.enc present?                    → authenticate with bootstrap.*, unwrap via Cloud
+                                               KMS, write tls.*, use it
+3. else                                      → REFUSE TO START, naming which file was missing
+```
+
+Step 2 is the only step that uses `bootstrap.*`, and only once per node. There is no path in
+which an expired bootstrap credential is retried or worked around: if step 2 fails, the node
+does not come up, which is the correct outcome and the one that surfaces a stalled re-issuer.
+
+#### What this changes about conditions 4 and 6
+
+**Condition 4 gets simpler.** Renewal was a planned control-plane roll with an expiry cliff.
+With the long-lived leaf on disk and re-fetchable, renewal becomes the hub re-wrapping (b) and
+the plugin picking it up on its refresh loop — **no roll**. The cliff in condition 4 is
+removed rather than alarmed around.
+
+**Condition 6 is unchanged and still open.** The leaf remains per cluster, so there is still
+no per-node revocation. Harmless at `ControlPlaneReplicas = 1`; binding above it.
+
+#### Delivery-path assumptions, checked against the live fleet
+
+Audited because a design that is correct in git and absent on the cluster is not correct.
+
+**ADR-100's delivery is template-based, and that is what saves it.** Everything this ADR
+places on a node — `enc.yaml`, the plugin manifest, the credential configuration, the leaf —
+arrives through the `KubeadmControlPlaneTemplate`, which CAPI renders **per Machine at
+`KubeadmConfig` reconciliation**. So each Machine reads the current source Secret when it is
+created, and an update is a control-plane roll. That is the mechanism the short-lived leaf
+depends on, and it is not shared with the fleet's addon path.
+
+**The addon path, by contrast, does not update the hub at all.** `ClusterResourceSet`
+strategies are asymmetric and immutable:
+
+| cluster | CRS strategy | consequence |
+|---|---|---|
+| spokes | `Reconcile` (`spokepool-hybrid-composition.yaml:324`) | template edits propagate; the spoke self-heals |
+| **the hub** | **`ApplyOnce`** (`internal/assets/manifests/addons/crs.yaml:11`) | applied once at creation and **never again** |
+
+**So the hub is the least self-healing cluster in the fleet, which is backwards** — it is the
+one that manages every other cluster, and under this ADR it is also the issuer of every
+cluster's KMS identity. Two consequences for this work:
+
+1. **Verification must read the live hub, never infer from manifests.** Any acceptance check
+   for ADR-100 that compares a manifest against itself proves nothing on the hub. This is the
+   same class of error as a value compared only against its own source.
+2. **Concentrating issuance on the hub concentrates it on the cluster hardest to update.**
+   That does not change the decision — the hub already holds every spoke's CA, so the
+   authority is not new — but it is a reason the Day-0 CA copy at pivot must be verified
+   rather than assumed, and a reason not to add further hub-side components to this design.
+
+**One finding worth separating from drift**, because it is not drift: the hub's CSI driver
+does not come from the addon template at all. It is installed from the Day-0 catalog at
+`internal/assets/catalog/cloud-providers/hetzner/csi/install.yaml`, which contains **no
+`hostNetwork` setting whatsoever**. So the hub's CSI is pod-networked *by its source*, and
+editing `csi-addon-template.yaml` would not change it. A fix aimed at the template would have
+reported success and changed nothing.
 
 ### Declarative delivery
 
@@ -1219,8 +1679,9 @@ manifests pin. A platform that checked `:v1` would have concluded this design is
 impossible; it is not, and the release line is the difference.
 
 **The trust store is not `ForceNew`.** Only `workloadIdentityPoolId` and
-`workloadIdentityPoolProviderId` are immutable, so a new cluster CA replaces the trust
-anchor **in place**. That matters more than it looks: the provider keeps its ID, so the
+`workloadIdentityPoolProviderId` are immutable, so a new **dedicated KMS CA** replaces the
+trust anchor **in place**. (This said "cluster CA" when the trust anchor was the cluster's
+own CA; the mechanism is unchanged, the anchor's identity is not.) That matters more than it looks: the provider keeps its ID, so the
 audience URI already written into every node's credential configuration stays valid and
 the CAPI template does not have to be regenerated during a rebuild.
 
@@ -1295,12 +1756,24 @@ under condition 6. A preflight forbids `Create`, `Update` and `Delete` on anythi
 
 **Still to settle before the kustomization line is added:**
 
-1. **How the reconciler authenticates**, given the two findings above. The honest options
-   are a public issuer (a decision in its own right), a JWKS published to a public object
-   path, or X.509 for the reconciler too — which reuses one trust anchor per cluster and
-   needs no public issuer, but requires a certificate reachable by a Deployment that has no
-   access to `ca.key`.
-2. **The hub-rebuild trust-anchor step**, a procedure with no enforcement.
+1. **How the reconciler authenticates** — **now resolved by the issuer decision, in favour
+   of X.509.** The options were a public issuer (a decision in its own right), a JWKS
+   published to a public object path, or X.509 for the reconciler too. X.509 was the
+   cheapest but was blocked on the same problem the plugin had: a Deployment cannot sign its
+   own certificate without `ca.key`.
+
+   Under the hub-issued model it does not need to. **The hub holds the dedicated KMS CA and
+   issues the reconciler a leaf exactly as it issues the plugin's**, delivered as an ordinary
+   Secret mounted into the Deployment. One trust anchor per cluster, no public issuer, no
+   JWKS to publish, and nothing anywhere that can sign.
+
+   That is the third problem the dedicated CA closed without being chosen for it — after
+   containment and the provisioning ordering. Worth noticing as a pattern: the identity
+   decisions in this ADR that reduced what could sign also reduced what had to be
+   synchronised.
+2. **The hub-rebuild trust-anchor step** — **procedure now specified** as the dual-trust
+   replacement (condition 2), and a rebuild regenerates the CA rather than restoring it.
+   **Still no enforcement**: nothing fails if the step is skipped, and that remains open.
 3. **Spoke keys**, a different case entirely: the hub creates a spoke's key before the spoke
    exists, so there is no circularity and the full lifecycle is available — and a hub
    administering a spoke's key is not the exposure a cluster administering its own is. They
@@ -1627,9 +2100,9 @@ that never happens, while leaving the one that does — a rebuild — covered on
 hourly CI check remains **independent drift detection** and is explicitly *not* the
 authority for signing-key freshness.
 
-It also unifies two problems that looked separate: a rebuild replaces both the cluster CA
-(invalidating the plugin's trust anchor) and the service-account signing key (invalidating
-the reconciler's JWKS). They are one event with two registrations to update, and both are
+It also unifies two problems that looked separate: a rebuild replaces both the **dedicated
+KMS CA** (invalidating the plugin's trust anchor) and the service-account signing key
+(invalidating the reconciler's JWKS). They are one event with two registrations to update, and both are
 prerequisites to activating the rebuilt control plane.
 
 **THIS POLICY HAS AN EXPIRY CONDITION, and it must not outlive its premise:**
@@ -1795,7 +2268,7 @@ running environment.
 
 | cluster | environment | disposable |
 |---|---|---|
-| `kms-canary-01` | dev | **yes** — provisioned for this work, no workloads, no tenant data |
+| `kms-canary-01` | dev | **yes** — and **no longer exists**: its node was deleted as idle, the API server is unreachable, and a stale CAPI `Cluster` record remains in `platform-capi` in `Provisioned` state. It must be rebuilt, and the stale record cleaned, before any first-boot validation |
 | `nutgraf-01` | dev | **no** — carries the tenant's only running workloads |
 | `nutgraf-hub` | dev | **no** — holds every cluster's credentials and is what the others are repaired from |
 

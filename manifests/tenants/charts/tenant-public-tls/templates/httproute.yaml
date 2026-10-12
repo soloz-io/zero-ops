@@ -1,5 +1,6 @@
 {{- include "tenant-public-tls.requirements" . }}
 {{- $publicAssets := include "tenant-public-tls.publicAssetPaths" . | fromJsonArray }}
+{{- $publicAssetDirs := include "tenant-public-tls.publicAssetDirectories" . | fromJsonArray }}
 {{- $publicRoutes := include "tenant-public-tls.publicRoutes" . | fromJsonArray }}
 {{- if .Values.public.hosts }}
 ---
@@ -104,7 +105,7 @@ spec:
           namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3001
 {{- end }}
-{{- if $publicAssets }}
+{{- if or $publicAssets $publicAssetDirs }}
     # The application's declared public static files (gateway.publicAssets),
     # to the gateway's OIDC-free :3003 bind. Browsers fetch a web app manifest,
     # its icons and its service worker without the user's session; behind the
@@ -124,6 +125,16 @@ spec:
         - path:
             type: Exact
             value: {{ $path | quote }}
+          method: {{ . }}
+      {{- end }}
+      {{- end }}
+      {{- /* Declared build directories (ADR-101 amendment 2026-10-12). */}}
+      {{- range $publicAssetDirs }}
+      {{- $dir := . }}
+      {{- range list "GET" "HEAD" }}
+        - path:
+            type: PathPrefix
+            value: {{ $dir | quote }}
           method: {{ . }}
       {{- end }}
       {{- end }}

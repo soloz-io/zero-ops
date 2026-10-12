@@ -133,6 +133,7 @@ type PivotConfig struct {
 	BootstrapKubeconfig string
 	BootstrapContext    string
 	Debug               bool
+	Encryption          cluster.EncryptionMode
 }
 
 // FinalizeConfig carries state from the orchestrator into Phase 12.

@@ -49,34 +49,36 @@
 #      LARGEST consumer on a k8s node, and the one nothing here used to touch:
 #      kubelet's image GC does not fire until imagefs crosses 85%, which the
 #      guest never reached because the HOST ran out first;
-#   4. runs fstrim.
+#   4. bounds kubelet disk usage via /etc/kubernetes/kubelet.conf.d/50-host-disk.conf
+#      (image GC at 50%/40%, eviction at 40% nodefs/imagefs, 5% inodes, 100Mi memory);
+#   5. runs fstrim.
 #
 # Phase 2, once per host:
 #
-#   5. deletes VHDX files that no VM on that host references (by declared disk
+#   6. deletes VHDX files that no VM on that host references (by declared disk
 #      path or by name) and nothing has attached — never flatcar-base.vhdx, the
 #      pristine image the provisioner copies from;
-#   6. deletes *.config.ign / *-ignition.iso only for VMs that no longer exist
+#   7. deletes *.config.ign / *-ignition.iso only for VMs that no longer exist
 #      on that host (a live VM keeps its ISO: its firmware still boots that
 #      DVD, and Hyper-V fails the start when the file is gone);
-#   7. empties C:\Windows\Temp and C:\temp (files older than a day), the recycle
+#   8. empties C:\Windows\Temp and C:\temp (files older than a day), the recycle
 #      bin, the Windows Update download cache, and superseded WinSxS components;
-#   8. REPORTS, without touching: hiberfil.sys, C:\Windows.old, shadow-copy
+#   9. REPORTS, without touching: hiberfil.sys, C:\Windows.old, shadow-copy
 #      usage, every .vhdx/.avhdx over 1 GB anywhere on C:, and any VM holding a
 #      checkpoint. Each is a decision, not a sweep;
-#   9. COMPACTS every disk a VM declares: stop the VM gracefully, Optimize-VHD
+#  10. COMPACTS every disk a VM declares: stop the VM gracefully, Optimize-VHD
 #      -Mode Full, restart it if it had been running;
-#  10. prints free space before and after per host, and EXITS 1 if any host ends
+#  11. prints free space before and after per host, and EXITS 1 if any host ends
 #      below 20 GB free. That non-zero is the alarm: something is growing faster
 #      than this script is run.
 #
-# Why 9 exists, and why the sentence "it never starts or stops a VM" is gone
+# Why 10 exists, and why the sentence "it never starts or stops a VM" is gone
 # from this header: fstrim alone reclaims NOTHING on the host. A dynamically
 # expanding VHDX only ever grows; TRIM marks blocks reusable inside the file so
 # it stops growing, but the file stays at its high-water mark forever and every
 # byte of that stays charged to C:. Optimize-VHD is the only thing that gives it
-# back, and it requires the disk offline — so the VM must be Off. Step 4 without
-# step 9 is the reason a run can report success while the host is still full.
+# back, and it requires the disk offline — so the VM must be Off. Step 5 without
+# step 10 is the reason a run can report success while the host is still full.
 #
 # The two guards are deliberate inverses. DELETION asks "does any VM claim this
 # file?" and refuses when the answer is yes — the lesson of the 20:40 incident
@@ -98,6 +100,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: $ENV_FILE not found." >&2
   exit 1
 fi
+
+if [[ ! -f "${HERE}/kubelet-host-disk.conf" ]]; then
+  echo "ERROR: ${HERE}/kubelet-host-disk.conf not found." >&2
+  exit 1
+fi
+KUBELET_HOST_DISK_B64=$(base64 < "${HERE}/kubelet-host-disk.conf" | tr -d '\r\n')
 
 # home-lab.env interpolates this when it is unset (its HUB_KUBECONFIG default
 # otherwise shells out to `git rev-parse`, which fails from outside the repo and
@@ -255,20 +263,25 @@ if (Test-Path -LiteralPath 'C:\Windows.old') {
 $vss = (vssadmin list shadowstorage 2>&1 | Select-String 'Used Shadow Copy Storage') -join '; '
 if ($vss) { 'NOTE shadow copies: {0}' -f $vss }
 
-# Virtual disks ANYWHERE on C:, not just the provisioner's directory, and
-# .avhdx as well as .vhdx. A checkpoint redirects every write to a differencing
-# .avhdx that grows without bound while its parent .vhdx still looks small --
-# the single most common reason a host fills up with no obvious culprit. Report
-# only: merging a checkpoint is a long, interruption-sensitive operation and
-# belongs to a human, not to a sweep that runs unattended.
-#
-# 'C:\*' rather than 'C:': -Include filters the PATH, so with a path carrying no
-# wildcard it matches nothing and this whole scan silently reports clean -- the
-# quietest possible way for a full disk to look empty.
-Get-ChildItem 'C:\*' -Recurse -Include '*.vhdx','*.avhdx' -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.Length -gt 1GB } |
-    Sort-Object Length -Descending |
-    ForEach-Object { 'NOTE DISK {0} {1:N1}GB' -f $_.FullName, ($_.Length / 1GB) }
+# Virtual disks in the provisioner directory, declared VM disk paths, and Hyper-V locations.
+# Only inspect real virtual disk paths rather than whole-drive recursion to avoid NTFS junction loops.
+$reportPaths = @()
+Get-ChildItem $dir -Filter '*.vhdx' -ErrorAction SilentlyContinue | ForEach-Object { $reportPaths += $_.FullName }
+Get-ChildItem $dir -Filter '*.avhdx' -ErrorAction SilentlyContinue | ForEach-Object { $reportPaths += $_.FullName }
+$hvPath = (Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+if ($hvPath -and (Test-Path $hvPath)) {
+    Get-ChildItem $hvPath -Filter '*.vhdx' -ErrorAction SilentlyContinue | ForEach-Object { $reportPaths += $_.FullName }
+    Get-ChildItem $hvPath -Filter '*.avhdx' -ErrorAction SilentlyContinue | ForEach-Object { $reportPaths += $_.FullName }
+}
+foreach ($p in $vmDiskPaths) { if ($p) { $reportPaths += $p } }
+$reportPaths | Select-Object -Unique | ForEach-Object {
+    if (Test-Path -LiteralPath $_) {
+        $item = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
+        if ($item.Length -gt 1GB) {
+            'NOTE DISK {0} {1:N1}GB' -f $item.FullName, ($item.Length / 1GB)
+        }
+    }
+}
 
 foreach ($vm in $vms) {
     $snaps = @(Get-VMSnapshot -VMName $vm.Name -ErrorAction SilentlyContinue)
@@ -394,6 +407,33 @@ else
     echo "  crictl not on PATH -- images NOT pruned"
 fi
 
+# Bound kubelet disk usage (ADR-046): early image GC (50%/40%) and eviction
+# (40% nodefs/imagefs, 5% inodes, 100Mi memory) keep guest disk growth under ~60%.
+mkdir -p /etc/kubernetes/kubelet.conf.d
+KUBELET_CHANGED=0
+
+TMP_HOST_DISK=$(mktemp)
+printf '%s' "__KUBELET_HOST_DISK_B64__" | base64 -d > "$TMP_HOST_DISK"
+if [ ! -f /etc/kubernetes/kubelet.conf.d/50-host-disk.conf ] || ! cmp -s "$TMP_HOST_DISK" /etc/kubernetes/kubelet.conf.d/50-host-disk.conf; then
+    cp "$TMP_HOST_DISK" /etc/kubernetes/kubelet.conf.d/50-host-disk.conf
+    chmod 0644 /etc/kubernetes/kubelet.conf.d/50-host-disk.conf
+    KUBELET_CHANGED=1
+fi
+rm -f "$TMP_HOST_DISK"
+
+if [ -f /etc/systemd/system/kubelet.service ] && ! grep -q -- '--config-dir=/etc/kubernetes/kubelet.conf.d' /etc/systemd/system/kubelet.service; then
+    sed -i 's|--config=/var/lib/kubelet/config.yaml|--config=/var/lib/kubelet/config.yaml --config-dir=/etc/kubernetes/kubelet.conf.d|' /etc/systemd/system/kubelet.service
+    KUBELET_CHANGED=1
+fi
+
+if [ "$KUBELET_CHANGED" -eq 1 ]; then
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl restart kubelet 2>/dev/null || true
+    echo "kubelet disk bound: applied"
+else
+    echo "kubelet disk bound: already present"
+fi
+
 # fstrim LAST, so it returns every block the steps above freed. On its own this
 # still does not shrink the VHDX file: it only marks blocks reusable inside it.
 # The host-side Optimize-VHD pass is what actually returns the space to C:, and
@@ -405,6 +445,7 @@ fi
 df -h / | awk 'NR==2 {print "root fs: " $3 " used of " $2 " (" $5 ")"}'
 SH_EOF
 )
+GUEST_SWEEP_SH="${GUEST_SWEEP_SH/__KUBELET_HOST_DISK_B64__/${KUBELET_HOST_DISK_B64}}"
 
 # ── Sweep ────────────────────────────────────────────────────────────────────
 

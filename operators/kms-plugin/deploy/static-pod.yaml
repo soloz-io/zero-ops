@@ -78,12 +78,6 @@ spec:
         - /kms-plugin
         - --prepare-socket-dir=/var/run/kms
         - --socket-dir-uid=65532
-        # Also issues the plugin's X.509 client certificate from the cluster CA. See
-        # internal/nodecert for why it happens HERE and not in a preKubeadmCommand: the
-        # static pod manifest lands before kubeadm runs, so on a fresh node the CA does
-        # not exist yet, and an initContainer blocks the pod and is retried by kubelet
-        # while a preKubeadmCommand cannot be.
-        - --cluster=CLUSTER_NAME_VALUE
       securityContext:
         # root, because chown requires it. CHOWN alone rather than ALL capabilities:
         # the only privileged thing it does is change one directory's owner.
@@ -105,19 +99,17 @@ spec:
       volumeMounts:
         - name: socket
           mountPath: /var/run/kms
-        # THE PKI IS MOUNTED INTO THIS CONTAINER AND NOWHERE ELSE, and that is the
-        # security boundary rather than a tidiness choice. ca.key can mint ANY identity in
-        # the cluster -- a kubelet, an API server client, an admin. This container holds
-        # that for the seconds it needs to sign one certificate, as root, with no network.
-        # The plugin container below does not mount it at all, so the long-running process
-        # that talks to Google cannot read it even if it were compromised.
-        - name: pki
-          mountPath: /etc/kubernetes/pki
-          readOnly: true
-        # Writable here, because this is what writes tls.crt and tls.key. Read-only in the
-        # plugin container.
-        - name: credential
-          mountPath: /etc/kubernetes/kms
+        # NO PKI MOUNT, AND NO CONTAINER IN THIS POD HAS ONE.
+        #
+        # An earlier design mounted /etc/kubernetes/pki here so this container could sign
+        # the plugin's certificate from the CLUSTER CA. That is withdrawn: it extended the
+        # cluster CA's authority into Cloud KMS, and uploading that CA as a GCP trust
+        # anchor meant Google trusted every certificate the cluster would ever issue, with
+        # only an IAM binding separating a kubelet certificate from a KMS credential.
+        #
+        # The leaf is now issued by the HUB from a dedicated per-cluster KMS CA that signs
+        # nothing else, and arrives as node bootstrap material. Nothing on the node can
+        # mint an identity. A preflight asserts no container here mounts the PKI.
   containers:
     - name: kms-plugin
       # PINNED BY DIGEST, written by the build (.github/workflows/kms-plugin.yml).
@@ -260,11 +252,4 @@ spec:
       hostPath:
         path: /etc/kubernetes/kms
         type: Directory
-    # A LEAF, and /etc/kubernetes/pki is as narrow as this can be: the CA certificate and
-    # key live there and the initContainer needs both to sign. Mounting /etc/kubernetes
-    # instead would hand it every kubeconfig on the node, which is why the preflight
-    # refuses a parent directory here.
-    - name: pki
-      hostPath:
-        path: /etc/kubernetes/pki
-        type: Directory
+

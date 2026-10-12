@@ -18,6 +18,10 @@ import (
 const (
 	minKeepCheckpoints int32 = 1
 	maxKeepCheckpoints int32 = 50
+	// unboundedKeepCheckpoints is resolveKeepCheckpoints' answer for
+	// RetainAllCheckpoints. Never a value a fleet can write: the CRD's minimum
+	// for keepCheckpoints is 1.
+	unboundedKeepCheckpoints int32 = 0
 )
 
 // The platform's workspace persistence agent (ADR-052 §14, §14.2). Image and
@@ -504,7 +508,7 @@ func workspaceSyncContainerFor(
 			// value that governs a running pod is visible in `kubectl describe`
 			// rather than implied by the sidecar's own fallback. A retention
 			// bound that has to be inferred is one nobody checks.
-			Name: "KEEP_CHECKPOINTS", Value: strconv.Itoa(int(keepCheckpoints)),
+			Name: "KEEP_CHECKPOINTS", Value: keepCheckpointsEnv(keepCheckpoints),
 		},
 	)
 
@@ -569,7 +573,14 @@ func workspaceSyncContainerFor(
 // validation, would otherwise reach the sidecar — and `keep: 0` there means
 // "prune everything but the newest", while a negative would be read as
 // "unbounded". Neither is a value a fleet can be assumed to have meant.
+//
+// Zero is returned for RetainAllCheckpoints, and only for it: the env writer
+// renders it as KEEP_CHECKPOINTS=unbounded (§14.8), never as a number the
+// sidecar could read as a bound.
 func resolveKeepCheckpoints(ws *computev1alpha1.WorkspacePersistenceSpec) int32 {
+	if ws != nil && ws.RetainAllCheckpoints {
+		return unboundedKeepCheckpoints
+	}
 	if ws == nil || ws.KeepCheckpoints == nil {
 		return computev1alpha1.DefaultKeepCheckpoints
 	}
@@ -629,4 +640,13 @@ func (r *EphemeralJobReconciler) resolveFleetID(ctx context.Context, namespace s
 		return ""
 	}
 	return ns.Labels[fleetIDLabel]
+}
+
+// keepCheckpointsEnv renders the resolved retention for the sidecar. The
+// unbounded case is a word, not 0, so no reader can mistake it for a count.
+func keepCheckpointsEnv(keep int32) string {
+	if keep == unboundedKeepCheckpoints {
+		return "unbounded"
+	}
+	return strconv.Itoa(int(keep))
 }

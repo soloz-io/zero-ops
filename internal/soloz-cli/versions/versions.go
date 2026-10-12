@@ -8,13 +8,18 @@ const (
 	CAPIVersion = "v1.10.0"
 
 	// Bootstrap & Control Plane Providers
-	KubeadmBootstrapProviderVersion    = "v1.10.0"
-	KubeadmControlPlaneProviderVersion = "v1.10.0"
-	TalosBootstrapProviderVersion      = "v0.7.0"
-	TalosControlPlaneProviderVersion   = "v0.7.0"
+	//
+	// Authoritative for the versions deployed by the CAPI operator manifests in
+	// internal/assets/manifests/core/capi-operator/providers/.
+	// Divergence between these constants and the provider manifests is caught by
+	// TestProviderManifestVersionParity.
+	KubeadmBootstrapProviderVersion    = "v1.8.5"
+	KubeadmControlPlaneProviderVersion = "v1.8.5"
+	TalosBootstrapProviderVersion      = "v0.6.5"
+	TalosControlPlaneProviderVersion   = "v0.5.6"
 
 	// Infrastructure Providers
-	HetznerInfraProviderVersion = "v1.0.0-beta.47"
+	HetznerInfraProviderVersion = "v1.0.7"
 
 	// Binaries
 	ClusterctlVersion = "v1.10.0"

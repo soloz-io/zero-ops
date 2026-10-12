@@ -1,7 +1,7 @@
 # ADR-103: An application may declare login-free routes keyed by an unguessable token
 
 **Date:** 2026-10-07
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-12)
 **Amends:** ADR-050 (tenant authentication via AgentGateway): a third declared
 exception to "every path is behind the login", beside the webhook bind and
 ADR-101's static assets
@@ -69,6 +69,26 @@ The bounds, each by construction:
    `tokenLength` outside 16–64 or not an integer; duplicates; more than 4 routes.
    Both charts refuse the same input with the same message.
 
+### Amendment 2026-10-12: a route answered by the frontend
+
+Bound 2 named one backend, the BFF, so the only page a public route could
+return was one the BFF rendered itself. An application whose page is its
+built frontend could not show it without a login.
+
+Each declared route may now name which of the application's two workloads
+answers it: `answeredBy: bff` (the default, unchanged) or `answeredBy:
+frontend`. The chart derives the workload from that word; values still never
+name a Service. A route answered by the frontend returns the application's
+built page, which loads its files from a directory declared under ADR-101's
+`directories` and its data from a route answered by the BFF. Every other
+bound (the token shape, GET and HEAD, no cookies in or out, the gateway's
+headers, the rate limit and the refused declarations) applies to both
+answers unchanged.
+
+The token is still checked only by the BFF. A route answered by the frontend
+serves the same page for every well-shaped token, so the page must hold no
+data of its own and must get everything from the BFF route.
+
 **The token is the only credential.** The gateway proves only that a path has the
 right shape. The BFF must look the token up, compare its hash in constant time,
 honour expiry and revocation, and refuse any token it did not mint. What a share
@@ -128,6 +148,9 @@ identical refusal of 14 unsafe declarations by both charts.
 - `manifests/tenants/charts/tenant-public-tls`: the same helper and one HTTPRoute
   rule per prefix to `:3004`.
 - `scripts/validate/preflight/103-public-routes.sh`.
+- Amendment 2026-10-12: `answeredBy` (`bff` default, `frontend`) in both
+  charts' helper and the bind's route backend; preflight `103-public-routes`
+  pins both answers and refuses any other value. ADR-101 gains `directories`.
 - Requires AgentGateway v1.5.0 route `matches[].path.regex`, `matches[].method`,
   `policies.localRateLimit` and `policies.transformations`, and Gateway API
   `HTTPRouteMethodMatching` (Cilium 1.17 reports it).

@@ -485,3 +485,53 @@ func TestRestoredDigestIsTheBaselineAndEmptyMeansNoBaseline(t *testing.T) {
 		t.Fatal("a fresh Store claims a baseline it never observed")
 	}
 }
+
+// TestPinMarkersKeepCheckpointsOutsideTheBound covers §14.8: a checkpoint some
+// holder marked survives retention however old it is, and does not take one
+// of the bound's slots.
+func TestPinMarkersKeepCheckpointsOutsideTheBound(t *testing.T) {
+	ids := []string{"e", "d", "c", "b", "a"} // newest first
+	marked := map[string]struct{}{}
+	for _, rel := range []string{"a/share-1", "a/share-2", "zz/share-3", "b", "/share-4", "c/x/y"} {
+		if id := pinMarkerCheckpoint(rel); id != "" {
+			marked[id] = struct{}{}
+		}
+	}
+	if len(marked) != 2 {
+		t.Fatalf("markers read = %v, want only a and zz: a key without a holder, "+
+			"without an id, or nested deeper is not a marker", marked)
+	}
+	survivors, doomed := planRetention(ids, 2, unionSets(nil, marked))
+	if got := strings.Join(survivors, ","); got != "e,d,a" {
+		t.Errorf("survivors = %s, want e,d,a: the bound keeps the newest two and the marker keeps a", got)
+	}
+	if got := strings.Join(doomed, ","); got != "c,b" {
+		t.Errorf("doomed = %s, want c,b", got)
+	}
+}
+
+// TestKeepCheckpointsUnboundedReadsAsAWord pins the operator's rendering of
+// retainAllCheckpoints: "unbounded" keeps everything, while 0 or garbage stay
+// "unset" and fall back to the default bound.
+func TestKeepCheckpointsUnboundedReadsAsAWord(t *testing.T) {
+	t.Setenv("WORKSPACE_ID", "ws")
+	t.Setenv("APP_ID", "app")
+	for v, want := range map[string]int{
+		UnboundedEnvValue: UnboundedKeepCheckpoints,
+		"12":              12,
+		"0":               DefaultKeepCheckpoints,
+		"lots":            DefaultKeepCheckpoints,
+	} {
+		t.Setenv("KEEP_CHECKPOINTS", v)
+		c, err := FromEnv()
+		if err != nil && !errors.Is(err, ErrNotConfigured) {
+			t.Fatalf("FromEnv: %v", err)
+		}
+		if c.KeepCheckpoints != want {
+			t.Errorf("KEEP_CHECKPOINTS=%q -> %d, want %d", v, c.KeepCheckpoints, want)
+		}
+	}
+	if survivors, doomed := planRetention([]string{"b", "a"}, UnboundedKeepCheckpoints, nil); len(doomed) != 0 || len(survivors) != 2 {
+		t.Errorf("unbounded retention deleted %v", doomed)
+	}
+}

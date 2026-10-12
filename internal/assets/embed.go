@@ -41,6 +41,27 @@ func EncryptionSecretName(cluster string) string {
 	return cluster + "-encryption-config"
 }
 
+// KMSCASecretName is the Secret holding the dedicated KMS CA for one cluster.
+//
+// Stored on the hub only (platform-capi). NEVER reaches a node.
+func KMSCASecretName(cluster string) string {
+	return cluster + "-kms-ca"
+}
+
+// KMSPluginBootstrapSecretName is the Secret holding the short-lived bootstrap leaf.
+//
+// Delivered to the node via cloud-init. Valid for 1h, never renewed.
+func KMSPluginBootstrapSecretName(cluster string) string {
+	return cluster + "-kms-plugin-bootstrap"
+}
+
+// KMSPluginWrappedSecretName is the Secret holding the long-lived KMS-wrapped leaf.
+//
+// Delivered to the node via cloud-init as leaf.enc.
+func KMSPluginWrappedSecretName(cluster string) string {
+	return cluster + "-kms-plugin-wrapped"
+}
+
 // EncryptionKeyName is the name a given generation of the at-rest encryption key
 // carries inside the provider configuration.
 //

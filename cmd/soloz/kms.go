@@ -1,13 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/template"
 	"time"
 
+	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/platform/kms"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +42,9 @@ var (
 	kmsProvider      string
 	kmsJWKSFile      string
 	kmsFormat        string
+	kmsNamespace     string
+	kmsKubeconfig    string
+	kmsDryRun        bool
 )
 
 // newKMSCmd manages the Google Cloud KMS resources ADR-100 depends on.
@@ -72,6 +82,8 @@ anything.`,
 	cmd.AddCommand(newKMSTrustAnchorCmd())
 	cmd.AddCommand(newKMSJWKSCmd())
 	cmd.AddCommand(newKMSCheckCmd())
+	cmd.AddCommand(newKMSCACmd())
+	cmd.AddCommand(newKMSLeafCmd())
 
 	// Shared across every subcommand: which project, and where to write what was done.
 	pf := cmd.PersistentFlags()
@@ -993,4 +1005,284 @@ func orDefault(v, d string) string {
 		return d
 	}
 	return v
+}
+
+// ── CA and Leaf commands (ADR-100 Workstream 1) ──────────────────────────
+
+func newKMSCACmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ca",
+		Short: "Manage the dedicated per-cluster KMS Certificate Authority (ADR-100)",
+	}
+	cmd.AddCommand(newKMSCAEnsureCmd())
+	return cmd
+}
+
+func newKMSCAEnsureCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ensure",
+		Short: "Ensure a dedicated KMS CA Secret exists for a cluster",
+		Long: `Verify that the cluster's dedicated KMS CA Secret exists in the target namespace.
+If not found, generate a new KMS CA and write the <cluster>-kms-ca Secret.
+Never templates the CA key to a node. Idempotent: re-running confirms state without replacing the CA.`,
+		RunE: runKMSCAEnsure,
+	}
+	f := cmd.Flags()
+	f.StringVar(&kmsCluster, "cluster", "", "cluster name (required)")
+	f.StringVar(&kmsNamespace, "namespace", "platform-capi", "namespace for the CA Secret (default: platform-capi)")
+	f.StringVar(&kmsKubeconfig, "kubeconfig", "", "kubeconfig to reach the cluster where platform-capi lives")
+	f.BoolVar(&kmsDryRun, "dry-run", false, "render the Secret without applying it")
+	_ = cmd.MarkFlagRequired("cluster")
+	return cmd
+}
+
+func runKMSCAEnsure(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+	if kmsCluster == "" {
+		return fmt.Errorf("--cluster is required")
+	}
+	ns := orDefault(kmsNamespace, "platform-capi")
+	secretName := assets.KMSCASecretName(kmsCluster)
+
+	if !kmsDryRun {
+		exists, _, err := getKubernetesSecret(ctx, kmsKubeconfig, ns, secretName)
+		if err != nil {
+			return fmt.Errorf("checking for existing CA Secret %s in %s: %w", secretName, ns, err)
+		}
+		if exists {
+			fmt.Printf("[kms] CA Secret %s already exists in %s (confirmed, idempotent)\n", secretName, ns)
+			return nil
+		}
+	}
+
+	ca, err := kms.NewKMSCA(kmsCluster)
+	if err != nil {
+		return fmt.Errorf("generating KMS CA for %s: %w", kmsCluster, err)
+	}
+
+	manifest, err := renderSecretManifest("secrets/kms-ca.yaml", map[string]any{
+		"SecretName": secretName,
+		"Namespace":  ns,
+		"CertB64":    base64.StdEncoding.EncodeToString(ca.CertPEM),
+		"KeyB64":     base64.StdEncoding.EncodeToString(ca.KeyPEM),
+	})
+	if err != nil {
+		return fmt.Errorf("rendering CA Secret manifest: %w", err)
+	}
+
+	if kmsDryRun {
+		fmt.Printf("[kms] dry-run: would apply CA Secret %s in %s\n%s\n", secretName, ns, manifest)
+		return nil
+	}
+
+	if err := applyKMSManifest(ctx, kmsKubeconfig, manifest); err != nil {
+		return fmt.Errorf("applying CA Secret %s in %s: %w", secretName, ns, err)
+	}
+	fmt.Printf("[kms] created dedicated CA Secret %s in %s\n", secretName, ns)
+	return nil
+}
+
+func newKMSLeafCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "leaf",
+		Short: "Manage the KMS plugin's leaf credentials (ADR-100)",
+	}
+	cmd.AddCommand(newKMSLeafIssueCmd())
+	return cmd
+}
+
+func newKMSLeafIssueCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "issue",
+		Short: "Issue bootstrap and long-lived leaves, wrap under KMS, and write all 3 Secrets",
+		Long: `Issues both the short-lived bootstrap leaf (1h) and long-lived leaf (90d) for a cluster.
+Wraps the long-lived leaf under the cluster's Cloud KMS KEK.
+Writes all 3 Secrets:
+  - <cluster>-kms-ca (ensured, never reaches a node)
+  - <cluster>-kms-plugin-bootstrap (reaches node via cloud-init, 1h validity)
+  - <cluster>-kms-plugin-wrapped (reaches node via cloud-init, KMS-wrapped leaf.enc)`,
+		RunE: runKMSLeafIssue,
+	}
+	f := cmd.Flags()
+	f.StringVar(&kmsCluster, "cluster", "", "cluster name (required)")
+	f.StringVar(&kmsNamespace, "namespace", "platform-capi", "namespace for Secrets (default: platform-capi)")
+	f.StringVar(&kmsKubeconfig, "kubeconfig", "", "kubeconfig to reach the cluster where platform-capi lives")
+	f.BoolVar(&kmsDryRun, "dry-run", false, "render the Secrets without applying them")
+	_ = cmd.MarkFlagRequired("cluster")
+	return cmd
+}
+
+func runKMSLeafIssue(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+	if kmsCluster == "" {
+		return fmt.Errorf("--cluster is required")
+	}
+	if err := resolveProject(); err != nil {
+		return err
+	}
+	ns := orDefault(kmsNamespace, "platform-capi")
+	caSecretName := assets.KMSCASecretName(kmsCluster)
+
+	var ca *kms.PEMPair
+	if !kmsDryRun {
+		exists, secretData, err := getKubernetesSecret(ctx, kmsKubeconfig, ns, caSecretName)
+		if err != nil {
+			return fmt.Errorf("checking CA Secret %s in %s: %w", caSecretName, ns, err)
+		}
+		if exists {
+			dataMap, _ := secretData["data"].(map[string]any)
+			crtB64, _ := dataMap["tls.crt"].(string)
+			keyB64, _ := dataMap["tls.key"].(string)
+			crtBytes, err1 := base64.StdEncoding.DecodeString(crtB64)
+			keyBytes, err2 := base64.StdEncoding.DecodeString(keyB64)
+			if err1 != nil || err2 != nil || len(crtBytes) == 0 || len(keyBytes) == 0 {
+				return fmt.Errorf("CA Secret %s in %s is missing or has invalid tls.crt / tls.key", caSecretName, ns)
+			}
+			ca = &kms.PEMPair{CertPEM: crtBytes, KeyPEM: keyBytes}
+			fmt.Printf("[kms] using existing CA Secret %s in %s\n", caSecretName, ns)
+		}
+	}
+
+	if ca == nil {
+		var err error
+		ca, err = kms.NewKMSCA(kmsCluster)
+		if err != nil {
+			return fmt.Errorf("generating KMS CA for %s: %w", kmsCluster, err)
+		}
+		caManifest, err := renderSecretManifest("secrets/kms-ca.yaml", map[string]any{
+			"SecretName": caSecretName,
+			"Namespace":  ns,
+			"CertB64":    base64.StdEncoding.EncodeToString(ca.CertPEM),
+			"KeyB64":     base64.StdEncoding.EncodeToString(ca.KeyPEM),
+		})
+		if err != nil {
+			return fmt.Errorf("rendering CA Secret manifest: %w", err)
+		}
+		if kmsDryRun {
+			fmt.Printf("[kms] dry-run: would apply CA Secret %s in %s\n%s\n", caSecretName, ns, caManifest)
+		} else {
+			if err := applyKMSManifest(ctx, kmsKubeconfig, caManifest); err != nil {
+				return fmt.Errorf("applying CA Secret %s in %s: %w", caSecretName, ns, err)
+			}
+			fmt.Printf("[kms] created dedicated CA Secret %s in %s\n", caSecretName, ns)
+		}
+	}
+
+	// 1. Issue short-lived bootstrap leaf (1h)
+	bootLeaf, err := kms.IssueBootstrapLeaf(ca, kmsCluster)
+	if err != nil {
+		return fmt.Errorf("issuing bootstrap leaf for %s: %w", kmsCluster, err)
+	}
+	fmt.Printf("[kms] issued bootstrap leaf for %s (valid %s)\n", kmsCluster, kms.BootstrapLeafValidity)
+
+	// 2. Issue long-lived leaf (90d)
+	longLeaf, err := kms.IssueLeaf(ca, kmsCluster)
+	if err != nil {
+		return fmt.Errorf("issuing long-lived leaf for %s: %w", kmsCluster, err)
+	}
+	fmt.Printf("[kms] issued long-lived leaf for %s (valid %s)\n", kmsCluster, kms.LeafValidity)
+
+	// 3. Wrap long-lived leaf under Cloud KMS KEK
+	c, err := kms.New(ctx, kmsProjectID, kmsProjectNumber, kmsImpersonate)
+	if err != nil {
+		return err
+	}
+	keyName := c.CryptoKeyName(kmsLocation, kmsKeyRing, kms.KeyIDFor(kmsCluster))
+	wrappedCiphertext, err := kms.WrapLeaf(ctx, c, keyName, longLeaf)
+	if err != nil {
+		return fmt.Errorf("wrapping leaf under %s: %w", keyName, err)
+	}
+	fmt.Printf("[kms] wrapped long-lived leaf under %s\n", keyName)
+
+	// 4. Render and apply bootstrap Secret
+	bootSecretName := assets.KMSPluginBootstrapSecretName(kmsCluster)
+	bootManifest, err := renderSecretManifest("secrets/kms-plugin-bootstrap.yaml", map[string]any{
+		"SecretName": bootSecretName,
+		"Namespace":  ns,
+		"CertB64":    base64.StdEncoding.EncodeToString(bootLeaf.CertPEM),
+		"KeyB64":     base64.StdEncoding.EncodeToString(bootLeaf.KeyPEM),
+	})
+	if err != nil {
+		return fmt.Errorf("rendering bootstrap Secret manifest: %w", err)
+	}
+
+	// 5. Render and apply wrapped Secret
+	wrapSecretName := assets.KMSPluginWrappedSecretName(kmsCluster)
+	wrapManifest, err := renderSecretManifest("secrets/kms-plugin-wrapped.yaml", map[string]any{
+		"SecretName":  wrapSecretName,
+		"Namespace":   ns,
+		"WrappedLeaf": wrappedCiphertext,
+	})
+	if err != nil {
+		return fmt.Errorf("rendering wrapped Secret manifest: %w", err)
+	}
+
+	if kmsDryRun {
+		fmt.Printf("[kms] dry-run: would apply bootstrap Secret %s in %s\n%s\n", bootSecretName, ns, bootManifest)
+		fmt.Printf("[kms] dry-run: would apply wrapped Secret %s in %s\n%s\n", wrapSecretName, ns, wrapManifest)
+		return nil
+	}
+
+	if err := applyKMSManifest(ctx, kmsKubeconfig, bootManifest); err != nil {
+		return fmt.Errorf("applying bootstrap Secret %s in %s: %w", bootSecretName, ns, err)
+	}
+	fmt.Printf("[kms] applied %s in %s (bootstrap leaf)\n", bootSecretName, ns)
+
+	if err := applyKMSManifest(ctx, kmsKubeconfig, wrapManifest); err != nil {
+		return fmt.Errorf("applying wrapped Secret %s in %s: %w", wrapSecretName, ns, err)
+	}
+	fmt.Printf("[kms] applied %s in %s (wrapped leaf)\n", wrapSecretName, ns)
+
+	return nil
+}
+
+func getKubernetesSecret(ctx context.Context, kubeconfig, namespace, name string) (bool, map[string]any, error) {
+	args := []string{"get", "secret", name, "-n", namespace, "-o", "json"}
+	if kubeconfig != "" {
+		args = append([]string{"--kubeconfig", kubeconfig}, args...)
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		outStr := string(out)
+		if strings.Contains(outStr, "NotFound") || strings.Contains(outStr, "not found") {
+			return false, nil, nil
+		}
+		return false, nil, fmt.Errorf("kubectl get secret %s -n %s: %w\n%s", name, namespace, err, out)
+	}
+	var res map[string]any
+	if err := json.Unmarshal(out, &res); err != nil {
+		return false, nil, fmt.Errorf("parsing secret JSON: %w", err)
+	}
+	return true, res, nil
+}
+
+func applyKMSManifest(ctx context.Context, kubeconfig string, manifest []byte) error {
+	args := []string{"apply", "-f", "-"}
+	if kubeconfig != "" {
+		args = append([]string{"--kubeconfig", kubeconfig}, args...)
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd.Stdin = bytes.NewReader(manifest)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("applying manifest: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func renderSecretManifest(path string, data any) ([]byte, error) {
+	raw, err := assets.ReadManifest(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
+	}
+	tmpl, err := template.New(filepath.Base(path)).Parse(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("parsing manifest %s: %w", path, err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("executing template %s: %w", path, err)
+	}
+	return buf.Bytes(), nil
 }

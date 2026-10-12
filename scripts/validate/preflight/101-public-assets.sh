@@ -41,11 +41,16 @@ FIXTURE = {
 }
 PATHS = ["/manifest.json", "/sw.js", "/.well-known/assetlinks.json"]
 
-def render(chart, paths):
+def render(chart, paths, dirs=None, routes=None):
+    v = json.loads(json.dumps(FIXTURE))
+    v["gateway"]["publicAssets"] = {"paths": paths}
+    if dirs is not None:
+        v["gateway"]["publicAssets"]["directories"] = dirs
+    if routes is not None:
+        v["gateway"]["publicRoutes"] = routes
     with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
-        yaml.safe_dump(FIXTURE, f); f.flush()
-        r = subprocess.run(["helm", "template", "t", chart, "-f", f.name,
-                            "--set-json", "gateway.publicAssets.paths=" + json.dumps(paths)],
+        yaml.safe_dump(v, f); f.flush()
+        r = subprocess.run(["helm", "template", "t", chart, "-f", f.name],
                            capture_output=True, text=True)
     err = next((l.split("): ", 1)[-1] for l in r.stderr.splitlines() if l.startswith("Error:")), None)
     return r.stdout, err
@@ -122,6 +127,42 @@ for case in BAD:
         bad_ok = False
         fails.append(f"A5 {json.dumps(case)[:60]}: universal-tenant={a!r} tenant-public-tls={b!r}")
 check(bad_ok, f"A5 both charts refuse all {len(BAD)} unsafe inputs with the same message", "A5 refusal mismatch (above)")
+
+# ── directories (amendment 2026-10-12) ──────────────────────────────────────
+ut6, e6 = render(UT, [], ["/assets/"])
+tls6, f6 = render(TLS, [], ["/assets/"])
+if e6 or f6:
+    fails.append(f"A6 a directory fixture failed to render: {e6 or f6}")
+else:
+    cfg6 = next(yaml.safe_load(d["data"]["config.yaml"]) for d in docs(ut6)
+                if d["kind"] == "ConfigMap" and "config.yaml" in d.get("data", {}))
+    b6 = {x["port"]: x for x in cfg6["binds"]}.get(3003)
+    r6 = [r for l in (b6 or {}).get("listeners", []) for r in l.get("routes", [])]
+    gw6 = {(m["path"].get("pathPrefix"), m.get("method")) for r in r6 for m in r.get("matches", [])}
+    ok6 = len(r6) == 1 and [x["host"].split(".")[0] for x in r6[0]["backends"]] == ["frontend-workload"] \
+        and gw6 == {("/assets/", "GET"), ("/assets/", "HEAD")}
+    route6 = next(d for d in docs(tls6) if d["kind"] == "HTTPRoute")
+    rt6 = {(m["path"]["type"], m["path"]["value"], m.get("method")) for rule in route6["spec"]["rules"]
+           if any(br.get("port") == 3003 for br in rule["backendRefs"]) for m in rule.get("matches", [])}
+    ok6 = ok6 and rt6 == {("PathPrefix", "/assets/", "GET"), ("PathPrefix", "/assets/", "HEAD")}
+    check(ok6, "A6 a declared directory is a GET/HEAD path prefix to frontend-workload on the bind and the route",
+          f"A6 directory rendering wrong: bind {sorted(gw6)} route {sorted(rt6)}")
+BAD_DIRS = [("not a list", [], "/assets/", None), ("no trailing slash", [], ["/assets"], None),
+            ("nested", [], ["/a/b/"], None), ("wildcard", [], ["/assets/*"], None), ("upper case", [], ["/Assets/"], None),
+            ("reserved api", [], ["/api/"], None), ("dot-dot", [], ["/../"], None), ("duplicate", [], ["/assets/", "/assets/"], None),
+            ("too many", [], [f"/d{i}/" for i in range(5)], None),
+            ("holds a declared path", ["/assets/logo.png"], ["/assets/"], None),
+            ("is a public route prefix", [], ["/share/"], [{"prefix": "/share"}]),
+            ("paths and directories over 32", ["/f%d.png" % i for i in range(30)], ["/a/", "/b/", "/c/"], None)]
+dirs_ok = True
+for name, paths, dirs, routes in BAD_DIRS:
+    _, a6 = render(UT, paths, dirs, routes)
+    _, b6_ = render(TLS, paths, dirs, routes)
+    if not a6 or a6 != b6_:
+        dirs_ok = False
+        fails.append(f"A6 {name}: universal-tenant={a6!r} tenant-public-tls={b6_!r}")
+check(dirs_ok, f"A6 both charts refuse all {len(BAD_DIRS)} unsafe directory inputs with the same message",
+      "A6 directory refusal mismatch (above)")
 
 for p in passes: print("PASS " + p)
 for f in fails: print("FAIL " + f)

@@ -263,7 +263,7 @@ win_ps() { # Execute PowerShell on the Windows host via SSH (buffered)
 }
 
 win_ps_stream() { # Stream PowerShell output live from Windows host via SSH
-  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|✗|→|===|⚠|Error|Failed|Exception}"
+  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|✗|→|===|⚠|Error|Failed|Exception|VM-CAPACITY|HOST-DISK}"
   printf '%s\n' "$PS_SCRIPT" | ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
     "$SSH_TARGET" "powershell -NoProfile -ExecutionPolicy Bypass -Command -" 2>&1 | \
     grep --line-buffered -E "$FILTER" | sed 's/^/      /' || true
@@ -816,6 +816,7 @@ DNS=1.1.1.1
   # hours old, 500 MB total. free-spoke.sh applies the same file to nodes
   # provisioned before this line existed.
   JOURNAL_B64=$(printf '[Journal]\nMaxRetentionSec=1day\nSystemMaxUse=500M\n' | base64 | tr -d '\r\n')
+  HOST_DISK_B64=$(base64 < "${HERE}/kubelet-host-disk.conf" | tr -d '\r\n')
 
   local ISO_ROOT="${TMP_DIR}/iso-root"
   mkdir -p "${ISO_ROOT}/ignition" "${ISO_ROOT}/bin"
@@ -1073,6 +1074,14 @@ SH_EOF
         "contents": {
           "source": "data:text/plain;charset=utf-8;base64,${JOURNAL_B64}"
         }
+      },
+      {
+        "path": "/etc/kubernetes/kubelet.conf.d/50-host-disk.conf",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:text/plain;charset=utf-8;base64,${HOST_DISK_B64}"
+        }
       }
     ]
   },
@@ -1105,7 +1114,7 @@ SH_EOF
       {
         "name": "kubelet.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --config-dir=/etc/kubernetes/kubelet.conf.d --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubeadm-join.service",
@@ -1182,6 +1191,11 @@ write_files:
       MaxRetentionSec=1day
       SystemMaxUse=500M
 
+  - path: /etc/kubernetes/kubelet.conf.d/50-host-disk.conf
+    permissions: '0644'
+    content: |
+$(sed 's/^/      /' "${HERE}/kubelet-host-disk.conf")
+
 coreos:
   units:
     - name: systemd-networkd.service
@@ -1237,7 +1251,7 @@ coreos:
         Environment="KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}"
         EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
         ExecStartPre=/opt/bin/dynamic-node-ip.sh
-        ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
+        ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --config-dir=/etc/kubernetes/kubelet.conf.d --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
         Restart=always
         StartLimitInterval=0
         RestartSec=10
@@ -1477,6 +1491,31 @@ if (\$existingVM) {
 
 # Clean any stale checkpoint avhdx files
 Get-ChildItem \$solozDir -Filter '${VM_NAME}*.avhdx' | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# Host disk headroom guard (ADR-046): ensure C: has room for bounded growth (60%) plus 20 GB reserve
+\$cFree = [int64](Get-PSDrive C).Free
+\$thisBounded = [int64]($NODE_DISK_BYTES * 0.60)
+\$thisCurrent = if (Test-Path \$vhdPath) { (Get-Item \$vhdPath).Length } else { [int64]0 }
+\$thisGrowth = [math]::Max([int64]0, \$thisBounded - \$thisCurrent)
+
+\$otherGrowth = [int64]0
+\$otherDisks = Get-VM | Where-Object { \$_.Name -ne \$vmName } | ForEach-Object { Get-VMHardDiskDrive -VMName \$_.Name }
+foreach (\$d in \$otherDisks) {
+  if (Test-Path \$d.Path) {
+    \$cur = (Get-Item \$d.Path).Length
+    \$maxBounded = [int64]((Get-VHD \$d.Path).Size * 0.60)
+    \$growth = [math]::Max([int64]0, \$maxBounded - \$cur)
+    \$otherGrowth += \$growth
+  }
+}
+\$reserveBytes = [int64](20GB)
+\$headroom = \$cFree - \$thisGrowth - \$otherGrowth
+if (\$headroom -lt \$reserveBytes) {
+  Write-Output ('    ✗ host disk headroom check failed: C: free ' + [math]::Round(\$cFree/1GB, 1) + ' GB, this VM growth ' + [math]::Round(\$thisGrowth/1GB, 1) + ' GB, other VMs growth ' + [math]::Round(\$otherGrowth/1GB, 1) + ' GB, projected headroom ' + [math]::Round(\$headroom/1GB, 1) + ' GB < 20 GB reserve')
+  Write-Output 'HOST-DISK=FAIL'
+  exit 1
+}
+Write-Output ('    ✓ host disk headroom: C: free ' + [math]::Round(\$cFree/1GB, 1) + ' GB, projected headroom ' + [math]::Round(\$headroom/1GB, 1) + ' GB (>= 20 GB reserve)')
 
 Write-Output '    → Creating fresh VM disk from pristine base Flatcar VHDX...'
 Copy-Item -Path \$baseVhdx -Destination \$vhdPath -Force

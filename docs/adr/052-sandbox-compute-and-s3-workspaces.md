@@ -6,7 +6,7 @@ the largest part — was invisible in the old title.*
 
 **Date:** 2026-08-23
 **Status:** Accepted (amended 2026-08-31, 2026-09-02, 2026-09-06, 2026-09-06b,
-2026-09-07, 2026-09-25). §§16–19 are
+2026-09-07, 2026-09-25, 2026-10-12). §§16–19 are
 normative contracts — durable work, control-plane availability, workspace
 durability, tenant isolation — not aspirational sections. **§19 is
 conditionally satisfied and is the one open approval gate.** It carries four
@@ -2227,6 +2227,49 @@ A workload that declares no workspace is unaffected and starts normally, which
 makes provisioning without one a way to isolate this from an unrelated fault.
 That is a diagnostic, recorded as one, and it is not a fix.
 
+#### §14.8 Unbounded retention on request, and pins that arrive at any time (Amendment 2026-10-12)
+
+**The gap.** Two things a workload may need from its snapshot history are not
+expressible:
+
+- **Keeping every snapshot.** `keepCheckpoints` is the retention bound
+  (§14.2). The sidecar already treats `KEEP_CHECKPOINTS <= 0` as "delete
+  nothing", but the EphemeralJob schema admits only 1–50 and the operator
+  clamps to that range (`resolveKeepCheckpoints`), so a workload cannot ask for
+  unbounded history.
+- **Protecting a snapshot after the sandbox started.** `pinnedCheckpoints`
+  (§14.3) exempts named snapshots from retention without consuming a slot, but
+  it is read once, from the pod's environment, when the sandbox is created,
+  and holds at most 50 ids. A snapshot that becomes worth keeping while the
+  sandbox runs is pruned like any other.
+
+**Decision.**
+
+- **Unbounded on request.** The workspace spec gains `retainAllCheckpoints`,
+  an explicit request for no bound, refused together with `keepCheckpoints`.
+  The operator passes it to the sidecar as `KEEP_CHECKPOINTS=unbounded`, a
+  word rather than a number so no reader mistakes it for a count, and the
+  sidecar then deletes no checkpoint. Unset still means the default of five;
+  out-of-range numbers are still refused at admission and clamped by the
+  operator.
+- **Pins in object storage.** A workspace may hold pin markers at
+  `<appId>/<workspaceId>/pins/<checkpointId>/<holder>`, beside `objects/` and
+  `checkpoints/` (§14.4). Whoever needs a snapshot kept writes a marker naming
+  itself as the holder and deletes it when it no longer needs it. The sidecar
+  never writes this subtree; at every prune it lists the markers and treats
+  each checkpoint that has at least one as pinned, together with
+  `pinnedCheckpoints`. As with every pin, a marked checkpoint does not consume
+  a retention slot, and a marker naming a checkpoint that no longer exists is
+  inert.
+
+Neither changes how snapshots are taken, what they contain, or how they are
+restored.
+
+**What this trades.** An unbounded workspace keeps one compressed image per
+snapshot for its whole life, because images do not share blocks (§14.2); its
+storage is the workload's choice and cost. A prune costs one extra list of a
+small prefix.
+
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 
 **The gap, in this ADR's own words, from §"Negative / Trade-offs" above:**
@@ -3542,6 +3585,12 @@ declared in Git.
   on a stale value), and §19.5's egress-selector verification MUST pass on the
   upgraded spoke before it carries tenant workloads (a component upgrade is
   precisely what silently broke that selector twice before).
+- **Amendment 2026-10-12 (§14.8).** The EphemeralJob schema and the operator
+  admit `retainAllCheckpoints` (sidecar `KEEP_CHECKPOINTS=unbounded`);
+  the `workspace-sync` sidecar's prune also honours pin markers under
+  `<appId>/<workspaceId>/pins/`, which it reads and never writes. **waypoint
+  ADR-050** sets the bound from a pack's definition, and **waypoint ADR-048**
+  pins the snapshots a share shows.
 
 ## References
 

@@ -140,6 +140,24 @@ for name, routes, extra in BAD:
         fails.append(f"R5 {name}: universal-tenant={x!r} tenant-public-tls={y!r}")
 check(bad_ok, f"R5 both charts refuse all {len(BAD)} unsafe inputs with the same message", "R5 refusal mismatch (above)")
 
+# ── answeredBy (amendment 2026-10-12) ───────────────────────────────────────
+ut6, e6 = render(UT, [{"prefix": "/share", "answeredBy": "frontend"}, {"prefix": "/shares"}])
+backends = {}
+if not e6:
+    cfg6 = next(yaml.safe_load(d["data"]["config.yaml"]) for d in docs(ut6)
+                if d["kind"] == "ConfigMap" and "config.yaml" in d.get("data", {}))
+    b6 = {x["port"]: x for x in cfg6["binds"]}.get(3004) or {"listeners": [{}]}
+    for r in b6["listeners"][0].get("routes", []):
+        rx = r["matches"][0]["path"].get("regex", "")
+        backends[rx.split("/")[1]] = [x["host"].split(".")[0] for x in r["backends"]]
+check(backends == {"share": ["frontend-workload"], "shares": ["bff-workload"]},
+      "R6 answeredBy: frontend reaches frontend-workload, the default reaches bff-workload",
+      f"R6 answeredBy backends wrong (or failed: {e6}): {backends}")
+_, x6 = render(UT, [{"prefix": "/share", "answeredBy": "sdk"}])
+_, y6 = render(TLS, [{"prefix": "/share", "answeredBy": "sdk"}])
+check(bool(x6) and x6 == y6, "R6 both charts refuse an answeredBy other than bff or frontend",
+      f"R6 answeredBy refusal mismatch: universal-tenant={x6!r} tenant-public-tls={y6!r}")
+
 for p in passes: print("PASS " + p)
 for f in fails: print("FAIL " + f)
 PY

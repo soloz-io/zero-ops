@@ -163,6 +163,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.Provider.Name(), o.ClusterName)
 	}
 
+	if o.Provider != nil {
+		if cp, ok := o.Provider.(*CloudProvider); ok {
+			cp.encryption = o.Encryption
+		}
+	}
+
 	// A tenant's bootstrap keeps its state in the tenant's repository, so a run
 	// resumed on a fresh runner picks up where the last one stopped (ADR-072).
 	stateMgr := state.NewStateManager(o.ClusterName)
@@ -359,6 +365,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapKubeconfig: kubeconfig,
 		BootstrapContext:    bootstrapCtx,
 		Debug:               o.Debug,
+		Encryption:          o.Encryption,
 	}
 
 	// Self-heal: pivot-move writes the mgmt kubeconfig on success. A phase

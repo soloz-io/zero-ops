@@ -4511,6 +4511,17 @@ spec:
                       to object storage. The workload still gets a writable /workspace — the
                       overlay's upper layer is local scratch that dies with the pod.
                     type: boolean
+                  retainAllCheckpoints:
+                    description: |-
+                      RetainAllCheckpoints asks for no retention bound at all (ADR-052 §14.8):
+                      every checkpoint this workspace takes is kept for the workspace's life.
+
+                      A separate, explicit field rather than a magic KeepCheckpoints value,
+                      because the two are different promises: a number is "how far back undo
+                      reaches", this is "the whole history is the product". Storage then grows
+                      with every checkpoint, by one compressed image each, and that cost is the
+                      fleet's choice. Setting both is refused.
+                    type: boolean
                   sharedWorkspaceId:
                     description: "SharedWorkspaceID names a SECOND workspace mounted
                       inside this one, at\n<WorkspaceMountPath>/.global, for artifacts
@@ -4588,6 +4599,10 @@ spec:
                 - appId
                 - workspaceId
                 type: object
+                x-kubernetes-validations:
+                - message: set keepCheckpoints or retainAllCheckpoints, not both
+                  rule: '!(has(self.keepCheckpoints) && has(self.retainAllCheckpoints)
+                    && self.retainAllCheckpoints)'
             required:
             - image
             type: object

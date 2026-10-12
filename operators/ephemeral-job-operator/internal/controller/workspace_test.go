@@ -553,6 +553,13 @@ func TestKeepCheckpointsReachesTheSidecar(t *testing.T) {
 	}); got != "12" {
 		t.Errorf("KEEP_CHECKPOINTS with a fleet value of 12 = %q, want \"12\"", got)
 	}
+	// §14.8: keeping everything is a word the sidecar reads as "no bound",
+	// never a number it could read as a count.
+	if got := env(&computev1alpha1.WorkspacePersistenceSpec{
+		WorkspaceID: "app-1", AppID: "app-1", RetainAllCheckpoints: true,
+	}); got != "unbounded" {
+		t.Errorf("KEEP_CHECKPOINTS with retainAllCheckpoints = %q, want \"unbounded\"", got)
+	}
 }
 
 // TestDefaultKeepCheckpointsMatchesTheSidecar guards a number that exists twice.

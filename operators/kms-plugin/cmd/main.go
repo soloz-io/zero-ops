@@ -19,7 +19,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/soloz-io/zero-ops/operators/kms-plugin/internal/metrics"
-	"github.com/soloz-io/zero-ops/operators/kms-plugin/internal/nodecert"
 	"log"
 	"net"
 	"net/http"
@@ -52,7 +51,12 @@ func main() {
 		prepDir = flag.String("prepare-socket-dir", "", "run as an initContainer: create this "+
 			"directory 0700 owned by --socket-dir-uid, then exit. The plugin runs non-root and "+
 			"kubelet creates a hostPath root-owned 0755, so something has to chown it")
-		prepUID     = flag.Int("socket-dir-uid", 65532, "uid to own the socket directory")
+		prepUID  = flag.Int("socket-dir-uid", 65532, "uid to own the socket directory")
+		certPath = flag.String("certificate", "/etc/kubernetes/kms/tls.crt", "the plugin's "+
+			"client certificate. Read ONLY to report its remaining lifetime: this process "+
+			"cannot issue or renew one, because the leaf is issued by the hub from a dedicated "+
+			"per-cluster KMS CA and delivered as node bootstrap material. Nothing on the node "+
+			"can mint another identity")
 		metricsAddr = flag.String("metrics-addr", "127.0.0.1:8082", "address the Prometheus "+
 			"endpoint binds. LOOPBACK ONLY by default and it should stay that way: this pod "+
 			"runs with hostNetwork, so 0.0.0.0 would publish the plugin's latency and failure "+
@@ -81,30 +85,6 @@ func main() {
 		}
 		log.Printf("prepared %s as 0700 owned by %d:%d", *prepDir, *prepUID, *prepUID)
 
-		// THE CERTIFICATE IS ISSUED HERE, IN THE SAME initContainer, AND THAT PLACEMENT
-		// IS THE DESIGN. See internal/nodecert: the static pod manifest arrives as
-		// cloud-init content BEFORE kubeadm runs, so on a fresh node the cluster CA does
-		// not exist yet. An initContainer BLOCKS the pod and kubelet retries it, so "not
-		// ready yet" resolves itself; a preKubeadmCommand could not, and the plugin
-		// starting without a credential would deadlock kubeadm behind an API server that
-		// cannot decrypt.
-		//
-		// Only this container ever touches ca.key. The long-running process runs as 65532
-		// and cannot read it: anything able to sign with the cluster CA can mint any
-		// identity in the cluster, and that capability lives for the seconds it is needed.
-		if *cluster != "" {
-			wrote, err := nodecert.Ensure(nodecert.DefaultPaths(), *cluster)
-			if err != nil {
-				log.Fatalf("issuing the plugin's client certificate: %v", err)
-			}
-			if wrote {
-				log.Printf("issued a client certificate for %s, valid %s",
-					nodecert.CommonName(*cluster), nodecert.Lifetime)
-			} else {
-				log.Printf("the existing client certificate for %s is still usable",
-					nodecert.CommonName(*cluster))
-			}
-		}
 		return
 	}
 
@@ -164,21 +144,22 @@ func main() {
 		}()
 	}
 
-	if err := run(*socket, *cluster, *interval, svc); err != nil {
+	if err := run(*socket, *cluster, *certPath, *interval, svc); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // run serves until the context is cancelled. Separated from main so the socket
 // lifecycle is testable.
-func run(socketPath, cluster string, interval time.Duration, svc *service.Service) error {
+func run(socketPath, cluster, certPath string, interval time.Duration, svc *service.Service) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
-	// THE PLUGIN WATCHES ITS OWN CERTIFICATE, because nothing else does. It can read the
-	// certificate (0644) and never the CA key (0600, root) -- so it can report how much
-	// life is left and cannot renew. That split is deliberate: reporting needs no
-	// privilege, renewing needs the ability to mint any identity in the cluster.
-	go watchCertificate(ctx, nodecert.DefaultPaths().Cert)
+	// THE PLUGIN WATCHES ITS OWN CERTIFICATE AND CANNOT RENEW IT, which under the
+	// hub-issued model is not a limitation but the design. The leaf is issued by the hub
+	// from a dedicated per-cluster KMS CA and delivered as node bootstrap material; this
+	// process holds the leaf and nothing that could mint another. Renewal is a planned
+	// control-plane roll, so what this process owes is early warning.
+	go watchCertificate(ctx, certPath)
 	defer stop()
 
 	// A LEFTOVER SOCKET FILE MUST BE REMOVED OR THE BIND FAILS.
@@ -347,7 +328,7 @@ func watchCertificate(ctx context.Context, path string) {
 			metrics.CertificateRemaining.Set(0)
 			return
 		}
-		metrics.CertificateRemaining.Set(nodecert.RemainingFraction(cert, time.Now()))
+		metrics.CertificateRemaining.Set(remainingFraction(cert, time.Now()))
 	}
 	report()
 	t := time.NewTicker(time.Hour)
@@ -360,4 +341,22 @@ func watchCertificate(ctx context.Context, path string) {
 			return
 		}
 	}
+}
+
+// remainingFraction is how much of the certificate's life is left, as 0..1.
+//
+// Here rather than in a certificate package because there is no longer a certificate
+// package: issuing moved to the hub, and the only thing this process does with a
+// certificate is say how long it has. ADR-100 records why -- a process that can sign is a
+// process that can mint an identity, and this one holds a leaf and nothing else.
+func remainingFraction(cert *x509.Certificate, now time.Time) float64 {
+	total := cert.NotAfter.Sub(cert.NotBefore)
+	if total <= 0 {
+		return 0
+	}
+	left := cert.NotAfter.Sub(now)
+	if left <= 0 {
+		return 0
+	}
+	return float64(left) / float64(total)
 }

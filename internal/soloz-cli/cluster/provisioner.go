@@ -236,6 +236,17 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 	}
 
 	// Generate and apply Cluster resource
+	if p.Config.Encryption == EncryptionKMSv2 {
+		pre := &KMSPreconditions{
+			ClusterName: p.Config.ClusterName,
+			Namespace:   p.Config.Namespace,
+			KMSConfig:   p.Config.KMS.withDefaults(),
+			Kubeconfig:  p.Kubeconfig,
+		}
+		if err := pre.Assert(ctx); err != nil {
+			return fmt.Errorf("precondition failed before applyCluster: %w", err)
+		}
+	}
 	if err := p.applyCluster(ctx); err != nil {
 		return err
 	}
