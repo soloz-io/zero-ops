@@ -417,3 +417,61 @@ func TestCAKeyAppearsInNoNodeBoundSecret(t *testing.T) {
 		t.Fatal("bootstrap leaf private key is identical to CA private key")
 	}
 }
+
+func TestKMSCredentialConfigAndPluginManifestSecrets(t *testing.T) {
+	cluster := "test-cluster"
+	namespace := "platform-capi"
+
+	// 1. Test credential config Secret
+	credRaw, err := assets.ReadManifest("secrets/kms-credential-config.yaml")
+	if err != nil {
+		t.Fatalf("reading credential config template: %v", err)
+	}
+	credTmpl, err := template.New("cred").Parse(string(credRaw))
+	if err != nil {
+		t.Fatalf("parsing credential config template: %v", err)
+	}
+	var credBuf bytes.Buffer
+	credSecretName := assets.KMSCredentialConfigSecretName(cluster)
+	if err := credTmpl.Execute(&credBuf, map[string]any{
+		"SecretName":                  credSecretName,
+		"Namespace":                   namespace,
+		"CredentialsJSONB64":          base64.StdEncoding.EncodeToString([]byte(`{"test":"credentials"}`)),
+		"BootstrapCredentialsJSONB64": base64.StdEncoding.EncodeToString([]byte(`{"test":"bootstrap"}`)),
+	}); err != nil {
+		t.Fatalf("rendering credential config template: %v", err)
+	}
+	credSecret := credBuf.String()
+	if !strings.Contains(credSecret, "name: "+credSecretName) {
+		t.Fatalf("expected secret name %s in rendered credential config secret, got: %s", credSecretName, credSecret)
+	}
+	if !strings.Contains(credSecret, "credentials.json:") || !strings.Contains(credSecret, "bootstrap-credentials.json:") {
+		t.Fatalf("expected credentials.json and bootstrap-credentials.json in rendered secret, got: %s", credSecret)
+	}
+
+	// 2. Test plugin manifest Secret
+	manifestRaw, err := assets.ReadManifest("secrets/kms-plugin-manifest.yaml")
+	if err != nil {
+		t.Fatalf("reading plugin manifest template: %v", err)
+	}
+	manifestTmpl, err := template.New("manifest").Parse(string(manifestRaw))
+	if err != nil {
+		t.Fatalf("parsing plugin manifest template: %v", err)
+	}
+	var manifestBuf bytes.Buffer
+	manifestSecretName := assets.KMSPluginManifestSecretName(cluster)
+	if err := manifestTmpl.Execute(&manifestBuf, map[string]any{
+		"SecretName":        manifestSecretName,
+		"Namespace":         namespace,
+		"PluginManifestB64": base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Pod")),
+	}); err != nil {
+		t.Fatalf("rendering plugin manifest template: %v", err)
+	}
+	manifestSecret := manifestBuf.String()
+	if !strings.Contains(manifestSecret, "name: "+manifestSecretName) {
+		t.Fatalf("expected secret name %s in rendered plugin manifest secret, got: %s", manifestSecretName, manifestSecret)
+	}
+	if !strings.Contains(manifestSecret, "kms-plugin.yaml:") {
+		t.Fatalf("expected kms-plugin.yaml key in rendered plugin manifest secret, got: %s", manifestSecret)
+	}
+}

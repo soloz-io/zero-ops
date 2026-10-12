@@ -42,6 +42,12 @@ nodes:
       - hostPath: GATE1_DIR/credentials.json
         containerPath: /etc/kubernetes/kms/credentials.json
         readOnly: true
+      - hostPath: GATE1_DIR/bootstrap-credentials.json
+        containerPath: /etc/kubernetes/kms/bootstrap-credentials.json
+        readOnly: true
+      - hostPath: GATE1_DIR/leaf.enc
+        containerPath: /etc/kubernetes/kms/leaf.enc
+        readOnly: true
 kubeadmConfigPatches:
   - |
     kind: ClusterConfiguration

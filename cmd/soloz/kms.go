@@ -1094,13 +1094,15 @@ func newKMSLeafCmd() *cobra.Command {
 func newKMSLeafIssueCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "issue",
-		Short: "Issue bootstrap and long-lived leaves, wrap under KMS, and write all 3 Secrets",
+		Short: "Issue bootstrap and long-lived leaves, wrap under KMS, and write all 5 Secrets",
 		Long: `Issues both the short-lived bootstrap leaf (1h) and long-lived leaf (90d) for a cluster.
 Wraps the long-lived leaf under the cluster's Cloud KMS KEK.
-Writes all 3 Secrets:
+Writes all 5 Secrets:
   - <cluster>-kms-ca (ensured, never reaches a node)
   - <cluster>-kms-plugin-bootstrap (reaches node via cloud-init, 1h validity)
-  - <cluster>-kms-plugin-wrapped (reaches node via cloud-init, KMS-wrapped leaf.enc)`,
+  - <cluster>-kms-plugin-wrapped (reaches node via cloud-init, KMS-wrapped leaf.enc)
+  - <cluster>-kms-credential-config (reaches node via cloud-init, WIF configs)
+  - <cluster>-kms-plugin-manifest (reaches node via cloud-init, static pod manifest)`,
 		RunE: runKMSLeafIssue,
 	}
 	f := cmd.Flags()
@@ -1217,9 +1219,100 @@ func runKMSLeafIssue(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("rendering wrapped Secret manifest: %w", err)
 	}
 
+	// 6. Render and apply credential config Secret (<cluster>-kms-credential-config)
+	projNum := kmsProjectNumber
+	if projNum == "" {
+		projNum = kmsProjectID
+	}
+	saEmail := c.ServiceAccountEmail(kms.ServiceAccountIDFor(kmsCluster))
+	audience := fmt.Sprintf("//iam.googleapis.com/projects/%s/locations/global/workloadIdentityPools/soloz-%s/providers/control-plane", projNum, kmsCluster)
+	impersonationURL := fmt.Sprintf("https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken", saEmail)
+
+	credConfig := map[string]any{
+		"type":               "external_account",
+		"audience":           audience,
+		"subject_token_type": "urn:ietf:params:oauth:token-type:mtls",
+		"token_url":          "https://sts.mtls.googleapis.com/v1/token",
+		"credential_source": map[string]any{
+			"certificate": map[string]any{
+				"certificate_config_location": "/etc/kubernetes/kms/certificate_config.json",
+			},
+		},
+		"service_account_impersonation_url": impersonationURL,
+	}
+	credJSON, err := json.MarshalIndent(credConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling credentials.json: %w", err)
+	}
+
+	bootCredConfig := map[string]any{
+		"type":               "external_account",
+		"audience":           audience,
+		"subject_token_type": "urn:ietf:params:oauth:token-type:mtls",
+		"token_url":          "https://sts.mtls.googleapis.com/v1/token",
+		"credential_source": map[string]any{
+			"certificate": map[string]any{
+				"certificate_config_location": "/etc/kubernetes/kms/bootstrap_certificate_config.json",
+			},
+		},
+		"service_account_impersonation_url": impersonationURL,
+	}
+	bootCredJSON, err := json.MarshalIndent(bootCredConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling bootstrap-credentials.json: %w", err)
+	}
+
+	credSecretName := assets.KMSCredentialConfigSecretName(kmsCluster)
+	credManifest, err := renderSecretManifest("secrets/kms-credential-config.yaml", map[string]any{
+		"SecretName":                  credSecretName,
+		"Namespace":                   ns,
+		"CredentialsJSONB64":          base64.StdEncoding.EncodeToString(credJSON),
+		"BootstrapCredentialsJSONB64": base64.StdEncoding.EncodeToString(bootCredJSON),
+	})
+	if err != nil {
+		return fmt.Errorf("rendering credential config Secret manifest: %w", err)
+	}
+
+	// 7. Render and apply static pod manifest Secret (<cluster>-kms-plugin-manifest)
+	rawStaticPod, err := os.ReadFile("operators/kms-plugin/deploy/static-pod.yaml")
+	if err != nil {
+		rawStaticPod, err = assets.ReadManifest("kms/static-pod.yaml")
+		if err != nil {
+			return fmt.Errorf("reading static-pod.yaml template: %w", err)
+		}
+	}
+	staticPodContent := string(rawStaticPod)
+	if !strings.Contains(staticPodContent, "CLUSTER_NAME_VALUE") || !strings.Contains(staticPodContent, "KMS_CRYPTO_KEY_VALUE") {
+		return fmt.Errorf("static-pod.yaml is missing expected placeholder markers CLUSTER_NAME_VALUE and/or KMS_CRYPTO_KEY_VALUE")
+	}
+	renderedStaticPod := strings.ReplaceAll(staticPodContent, "CLUSTER_NAME_VALUE", kmsCluster)
+	renderedStaticPod = strings.ReplaceAll(renderedStaticPod, "KMS_CRYPTO_KEY_VALUE", keyName)
+
+	// Strip comments to fit within cloud-init user_data limits (e.g. Hetzner 32 KiB limit).
+	var cleanLines []string
+	for _, line := range strings.Split(renderedStaticPod, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		cleanLines = append(cleanLines, line)
+	}
+	renderedStaticPod = strings.TrimSpace(strings.Join(cleanLines, "\n"))
+
+	pluginManifestSecretName := assets.KMSPluginManifestSecretName(kmsCluster)
+	manifestSecret, err := renderSecretManifest("secrets/kms-plugin-manifest.yaml", map[string]any{
+		"SecretName":        pluginManifestSecretName,
+		"Namespace":         ns,
+		"PluginManifestB64": base64.StdEncoding.EncodeToString([]byte(renderedStaticPod)),
+	})
+	if err != nil {
+		return fmt.Errorf("rendering plugin manifest Secret: %w", err)
+	}
+
 	if kmsDryRun {
 		fmt.Printf("[kms] dry-run: would apply bootstrap Secret %s in %s\n%s\n", bootSecretName, ns, bootManifest)
 		fmt.Printf("[kms] dry-run: would apply wrapped Secret %s in %s\n%s\n", wrapSecretName, ns, wrapManifest)
+		fmt.Printf("[kms] dry-run: would apply credential config Secret %s in %s\n%s\n", credSecretName, ns, credManifest)
+		fmt.Printf("[kms] dry-run: would apply plugin manifest Secret %s in %s\n%s\n", pluginManifestSecretName, ns, manifestSecret)
 		return nil
 	}
 
@@ -1232,6 +1325,16 @@ func runKMSLeafIssue(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("applying wrapped Secret %s in %s: %w", wrapSecretName, ns, err)
 	}
 	fmt.Printf("[kms] applied %s in %s (wrapped leaf)\n", wrapSecretName, ns)
+
+	if err := applyKMSManifest(ctx, kmsKubeconfig, credManifest); err != nil {
+		return fmt.Errorf("applying credential config Secret %s in %s: %w", credSecretName, ns, err)
+	}
+	fmt.Printf("[kms] applied %s in %s (credential config)\n", credSecretName, ns)
+
+	if err := applyKMSManifest(ctx, kmsKubeconfig, manifestSecret); err != nil {
+		return fmt.Errorf("applying plugin manifest Secret %s in %s: %w", pluginManifestSecretName, ns, err)
+	}
+	fmt.Printf("[kms] applied %s in %s (plugin manifest)\n", pluginManifestSecretName, ns)
 
 	return nil
 }

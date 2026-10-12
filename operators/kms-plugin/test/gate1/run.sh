@@ -18,6 +18,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+PYTHON=$(command -v python3.11 || command -v python3 || echo "python3")
 CLUSTER=kms-gate1
 CRYPTO_KEY="projects/gate1/locations/global/keyRings/gate1/cryptoKeys/gate1-key"
 STUB=kms-gate1-keystore
@@ -54,9 +55,27 @@ cleanup() {
   say "teardown"
   kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
   docker rm -f "$STUB" >/dev/null 2>&1 || true
-  rm -f static-pod.rendered.yaml credentials.json kind.rendered.yaml
+  rm -f static-pod.rendered.yaml credentials.json bootstrap-credentials.json leaf.enc test-leaf.crt test-leaf.key kind.rendered.yaml
+  [ -n "${GATE1_DOCKER_CONFIG:-}" ] && rm -rf "$GATE1_DOCKER_CONFIG"
 }
 trap cleanup EXIT
+
+# In automated environments where docker-credential-desktop fails keychain access,
+# bypass credsStore so Docker pulls and builds succeed without interactive prompts.
+if command -v docker-credential-desktop >/dev/null 2>&1 && ! echo "https://index.docker.io/v1/" | docker-credential-desktop get >/dev/null 2>&1; then
+  GATE1_DOCKER_CONFIG=$(mktemp -d)
+  [ -d ~/.docker/contexts ] && ln -s ~/.docker/contexts "$GATE1_DOCKER_CONFIG/contexts"
+  [ -d ~/.docker/cli-plugins ] && ln -s ~/.docker/cli-plugins "$GATE1_DOCKER_CONFIG/cli-plugins"
+  if [ -f ~/.docker/config.json ]; then
+    python3 -c '
+import json, pathlib
+cfg = json.loads(pathlib.Path("~/.docker/config.json").expanduser().read_text())
+cfg.pop("credsStore", None)
+pathlib.Path("'$GATE1_DOCKER_CONFIG'/config.json").write_text(json.dumps(cfg))
+'
+  fi
+  export DOCKER_CONFIG="$GATE1_DOCKER_CONFIG"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 say "1. build the plugin image"
@@ -79,7 +98,7 @@ docker rm -f "$STUB" >/dev/null 2>&1 || true
 # start" -- a timeout reported as a defect. The host has already downloaded these
 # (go.sum pins them), so the cache is shared read-only.
 GOMODCACHE_HOST="$(go env GOMODCACHE 2>/dev/null || echo "$HOME/go/pkg/mod")"
-docker run -d --name "$STUB" --network kind \
+docker run -d --name "$STUB" --network kind -p 127.0.0.1:8201:8201 \
   -v "$PWD/../..":/src -w /src \
   -v "$GOMODCACHE_HOST":/go/pkg/mod:ro \
   -e GOFLAGS=-mod=mod \
@@ -97,7 +116,7 @@ say "3. render the production static pod for this run"
 # THE PRODUCTION MANIFEST IS THE SOURCE. Only the three substitution markers and the
 # image reference change — the securityContext, the resources, the mounts and the
 # initContainer are whatever deploy/static-pod.yaml says, so this run exercises them.
-python3 - <<PY
+"$PYTHON" <<PY
 import re, pathlib
 src = pathlib.Path("../../deploy/static-pod.yaml").read_text()
 out = src
@@ -140,20 +159,126 @@ pathlib.Path("static-pod.rendered.yaml").write_text(out)
 PY
 ok "rendered from deploy/static-pod.yaml"
 
-# A PLACEHOLDER credential configuration. The stub needs no authentication -- that is
-# what KMS_INSECURE_TEST_ENDPOINT turns off -- so this exists only so the mount the
-# production pod declares is present, and the pod spec is not special-cased for the
-# gate. Proving a real federated identity is Gate 3's job and no file here can do it.
-printf '{"_comment":"placeholder; the gate stub requires no authentication"}\n' > credentials.json
+# PLACEHOLDER credential configurations for steady-state and bootstrap. The stub needs no
+# authentication -- that is what KMS_INSECURE_TEST_ENDPOINT turns off -- so these exist only
+# so the mounts the production pod declares are present, and the pod spec is not special-cased.
+printf '{"_comment":"placeholder steady-state; the gate stub requires no authentication"}\n' > credentials.json
 chmod 600 credentials.json
-ok "placeholder credential configuration written 0600"
+printf '{"_comment":"placeholder bootstrap; the gate stub requires no authentication"}\n' > bootstrap-credentials.json
+chmod 600 bootstrap-credentials.json
+ok "placeholder steady-state and bootstrap credential configurations written 0600"
+
+# Generate 90d leaf certificate and key, and wrap it under Cloud KMS via keystore-stub
+curl -s -f http://127.0.0.1:8201/gen-wrapped-leaf > leaf.enc
+chmod 600 leaf.enc
+ok "wrapped leaf.enc prepared via keystore-stub (90d RSA-2048 leaf)"
 
 # ABSOLUTE PATHS FOR THE BIND MOUNTS. See the comment in kind.yaml: a relative
 # hostPath that does not resolve makes Docker create a DIRECTORY at the destination,
-# which is silent and breaks all three mounts at once.
+# which is silent and breaks all mounts at once.
 sed "s#GATE1_DIR#$PWD#g" kind.yaml > kind.rendered.yaml
 grep -q GATE1_DIR kind.rendered.yaml && { bad "a path marker survived"; exit 1; }
 ok "kind config rendered with absolute mount paths"
+
+say "3b. prove the two-phase credential startup sequence (4 cases)"
+
+# Case 3: Neither tls.* nor leaf.enc present -> plugin refuses to start, naming missing files
+TEST_DIR_3=$(mktemp -d)
+OUT_3=$(docker run --rm \
+  -e KMS_CRYPTO_KEY="$CRYPTO_KEY" \
+  -e KMS_INSECURE_TEST_ENDPOINT="$STUB:8200" \
+  --network kind \
+  -v "$TEST_DIR_3":/etc/kubernetes/kms \
+  "$IMAGE" /kms-plugin \
+    --socket=/etc/kubernetes/kms/test.sock \
+    --certificate=/etc/kubernetes/kms/tls.crt \
+    --key=/etc/kubernetes/kms/tls.key \
+    --wrapped-leaf=/etc/kubernetes/kms/leaf.enc \
+    2>&1 || true)
+rm -rf "$TEST_DIR_3"
+if echo "$OUT_3" | grep -q "refusing to start: neither steady-state certificate (/etc/kubernetes/kms/tls.crt) nor wrapped leaf (/etc/kubernetes/kms/leaf.enc) found"; then
+  ok "case 3: plugin refuses when neither file exists, explicitly naming both missing paths"
+else
+  bad "case 3 failed: expected refusal naming missing paths, got: $OUT_3"
+fi
+
+# Case 4: tls.* present but expired, leaf.enc ALSO present -> refuses, ZERO fallback to bootstrap
+TEST_DIR_4=$(mktemp -d)
+chmod 777 "$TEST_DIR_4"
+curl -s -f "http://127.0.0.1:8201/gen-leaf?expired=true" > "$TEST_DIR_4/combined.pem"
+awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' "$TEST_DIR_4/combined.pem" > "$TEST_DIR_4/tls.crt"
+awk '/BEGIN RSA PRIVATE KEY/,/END RSA PRIVATE KEY/' "$TEST_DIR_4/combined.pem" > "$TEST_DIR_4/tls.key"
+rm -f "$TEST_DIR_4/combined.pem"
+cp leaf.enc "$TEST_DIR_4/leaf.enc"
+OUT_4=$(docker run --rm \
+  -e KMS_CRYPTO_KEY="$CRYPTO_KEY" \
+  -e KMS_INSECURE_TEST_ENDPOINT="$STUB:8200" \
+  --network kind \
+  -v "$TEST_DIR_4":/etc/kubernetes/kms \
+  "$IMAGE" /kms-plugin \
+    --socket=/etc/kubernetes/kms/test.sock \
+    --certificate=/etc/kubernetes/kms/tls.crt \
+    --key=/etc/kubernetes/kms/tls.key \
+    --wrapped-leaf=/etc/kubernetes/kms/leaf.enc \
+    2>&1 || true)
+rm -rf "$TEST_DIR_4"
+if echo "$OUT_4" | grep -q "refusing to start: tls certificate /etc/kubernetes/kms/tls.crt is expired" && echo "$OUT_4" | grep -q "will not fall back to bootstrap credential"; then
+  ok "case 4: plugin refuses on expired tls.* even with leaf.enc present (ZERO fallback to bootstrap)"
+else
+  bad "case 4 failed: expected hard refusal on expired cert without fallback, got: $OUT_4"
+fi
+
+# Case 2: leaf.enc only -> unwraps, writes tls.* at 0600, proceeds
+TEST_DIR_2=$(mktemp -d)
+chmod 777 "$TEST_DIR_2"
+cp leaf.enc "$TEST_DIR_2/leaf.enc"
+docker run -d --name test-plugin-case2 \
+  -e KMS_CRYPTO_KEY="$CRYPTO_KEY" \
+  -e KMS_INSECURE_TEST_ENDPOINT="$STUB:8200" \
+  --network kind \
+  -v "$TEST_DIR_2":/etc/kubernetes/kms \
+  "$IMAGE" /kms-plugin \
+    --socket=/etc/kubernetes/kms/test.sock \
+    --certificate=/etc/kubernetes/kms/tls.crt \
+    --key=/etc/kubernetes/kms/tls.key \
+    --wrapped-leaf=/etc/kubernetes/kms/leaf.enc >/dev/null 2>&1
+sleep 3
+docker stop test-plugin-case2 >/dev/null 2>&1 || true
+docker rm -f test-plugin-case2 >/dev/null 2>&1 || true
+
+if [ -f "$TEST_DIR_2/tls.crt" ] && [ -f "$TEST_DIR_2/tls.key" ]; then
+  PERM=$(stat -c '%a' "$TEST_DIR_2/tls.key" 2>/dev/null || stat -f '%Op' "$TEST_DIR_2/tls.key" 2>/dev/null | tail -c 4)
+  case "$PERM" in
+    *600*) ok "case 2: leaf.enc unwrapped and written as tls.crt / tls.key at mode 0600" ;;
+    *) bad "case 2: written key has unexpected permissions: $PERM" ;;
+  esac
+else
+  bad "case 2 failed: tls.crt or tls.key was not written after unwrapping leaf.enc"
+fi
+
+# Case 1: tls.* present -> steady-state reboot path makes ZERO KMS calls for credential setup
+DECRYPT_BEFORE=$(docker logs "$STUB" 2>&1 | grep -c 'Decrypt:' || true)
+docker run -d --name test-plugin-case1 \
+  -e KMS_CRYPTO_KEY="$CRYPTO_KEY" \
+  -e KMS_INSECURE_TEST_ENDPOINT="$STUB:8200" \
+  --network kind \
+  -v "$TEST_DIR_2":/etc/kubernetes/kms \
+  "$IMAGE" /kms-plugin \
+    --socket=/etc/kubernetes/kms/test.sock \
+    --certificate=/etc/kubernetes/kms/tls.crt \
+    --key=/etc/kubernetes/kms/tls.key \
+    --wrapped-leaf=/etc/kubernetes/kms/leaf.enc >/dev/null 2>&1
+sleep 3
+docker stop test-plugin-case1 >/dev/null 2>&1 || true
+docker rm -f test-plugin-case1 >/dev/null 2>&1 || true
+rm -rf "$TEST_DIR_2"
+
+DECRYPT_AFTER=$(docker logs "$STUB" 2>&1 | grep -c 'Decrypt:' || true)
+if [ "$DECRYPT_BEFORE" -eq "$DECRYPT_AFTER" ]; then
+  ok "case 1: steady-state reboot uses existing tls.* with ZERO KMS Decrypt calls"
+else
+  bad "case 1 failed: steady-state reboot called KMS Decrypt ($DECRYPT_BEFORE -> $DECRYPT_AFTER)"
+fi
 
 say "4. create the cluster with the KMS provider configured"
 kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
@@ -198,7 +323,8 @@ wait "$CREATE_PID" 2>/dev/null || true
 # Without this the failure presents as "API server never became ready", which sends
 # the reader to the plugin rather than to a directory where a file should be.
 for f in /etc/kubernetes/enc/enc.yaml /etc/kubernetes/manifests/kms-plugin.yaml \
-         /etc/kubernetes/kms/credentials.json; do
+         /etc/kubernetes/kms/credentials.json /etc/kubernetes/kms/bootstrap-credentials.json \
+         /etc/kubernetes/kms/leaf.enc; do
   if docker exec "${CLUSTER}-control-plane" test -f "$f" 2>/dev/null; then
     ok "mounted as a file: $f"
   else
@@ -233,6 +359,10 @@ docker exec "${CLUSTER}-control-plane" stat -c '%a %u:%g' /var/run/kms 2>/dev/nu
   | grep -q '^700 65532:65532' \
   && ok "socket dir is 0700 owned by 65532 — the initContainer did its job" \
   || bad "socket dir is $(docker exec "${CLUSTER}-control-plane" stat -c '%a %u:%g' /var/run/kms 2>/dev/null)"
+docker exec "${CLUSTER}-control-plane" stat -c '%a %u:%g' /etc/kubernetes/kms/tls.key 2>/dev/null \
+  | grep -q '^600 65532:65532' \
+  && ok "tls.key on the live node is 0600 owned by 65532 — unwrapped by the plugin on first boot" \
+  || bad "tls.key on live node is $(docker exec "${CLUSTER}-control-plane" stat -c '%a %u:%g' /etc/kubernetes/kms/tls.key 2>/dev/null)"
 
 say "6. a Secret is stored under the KMS provider"
 kubectl --context "kind-$CLUSTER" -n default create secret generic enc-probe \

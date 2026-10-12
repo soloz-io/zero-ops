@@ -21,15 +21,96 @@ rebuild, the Day-0 custody gap at pivot, the delivery-path investigation, condit
 expiry cliff, and the per-Machine rendering question that makes a one-hour credential
 survive scale-up.
 
-**Implemented and locally verified:** the crypto and issuance path, the CLI commands, the
-provisioning precondition gate with all six checks, the pivot CA copy, and provider-version
-parity. Tests pass and the preflight is green.
+**Implemented and locally verified — the ISSUING half only:** the crypto, the CLI commands,
+the provisioning precondition gate with all six checks, the pivot CA copy, and
+provider-version parity. Tests pass and the preflight is green.
+
+**The consuming half is now implemented too**, in
+`operators/kms-plugin/internal/credential/`. It was previously missing entirely while this
+ADR described the work as "code-complete" — the hub could issue and wrap a leaf that nothing
+on the node could open, and the startup sequence was specification rather than behaviour.
+
+The sequence in the contract above is enforced, and the **Kind gate at
+`operators/kms-plugin/test/gate1/` proves all four cases** without any cloud node: `tls.*`
+present uses them with no KMS call at all (the reboot path); `leaf.enc` alone unwraps via the
+bootstrap credential and writes `tls.*`; neither present refuses to start naming the missing
+file; and — the case that matters most — **`tls.*` present but expired with `leaf.enc`
+available refuses rather than falling back**. A plugin that silently reverted to an expired
+bootstrap credential would look healthy and then fail to cold-read Secrets after a reboot,
+far from the cause.
+
+**Two implementation facts that corrected this ADR's own specification:**
+
+- The contract said `tls.crt`/`tls.key` are written `0600, root`. They are written
+  `0644`/`0600` owned `65532:65532`, because **the plugin does not run as root** and cannot
+  write files it does not own. A certificate is public in any case. The specification was
+  wrong, not the implementation.
+- Setting the mode on a pre-existing hostPath directory needs ownership without
+  `CAP_FOWNER`, so the init container takes ownership, sets `0700`, then hands it to
+  `65532`. Recorded because it looks redundant and is not.
+
+**An accepted widening, recorded rather than left as an undocumented manifest change.** The
+`credential` mount is **no longer `readOnly`** for the plugin container, because the plugin
+is what writes `tls.*` at first boot. The previous `readOnly` was deliberate, so the cost is
+stated: a compromised plugin can now overwrite `leaf.enc` or `bootstrap.*` in its own
+credential directory. It cannot reach anything else — no container in this pod mounts the
+cluster PKI, and a preflight asserts that for every container. The alternative was a second
+writable path or a privileged sidecar, both worse.
+
+**The readers now accept exactly one shape each**, pinned to the issuer: JSON
+`{"cert","key"}` as `MarshalLeaf` produces, and base64 as `WrapLeaf` returns. The
+`cert_pem`/`key_pem` aliases, the concatenated-PEM path and the raw-ciphertext path are
+removed, each with a test asserting it is **rejected** — those tests are what keep the two
+copies honest, since the plugin is a separate module and cannot import
+`internal/platform/kms`, so the format is duplicated by hand.
+
+**And narrowing it exposed that the gate had been passing against a shape nothing emits.**
+The Kind harness's stub produced concatenated PEM and raw ciphertext — the two variants the
+leniency existed for. So a 28/28 pass was proving the plugin could read a payload it would
+never receive in production. An audit of every emitter in the repository confirmed no real
+component produced those shapes; only the stub did. The stub was realigned to the writer's
+contract and the suite re-run.
+
+**This is the general trap, worth stating because it will recur:** a tolerant reader plus a
+test fixture written to match the reader rather than the writer gives a green suite that
+proves nothing about the real path. The fix is that fixtures imitate the **writer**, and the
+reader accepts only what the writer emits.
+
+#### Gate 1 on Kind: 28 passed, 0 failed, against the real contract
+
+What it proves, with no cloud node involved:
+
+| | |
+|---|---|
+| **the two-phase startup, all four cases** | refuses with neither file, naming both paths; refuses on expired `tls.*` **even with `leaf.enc` present** — zero fallback; unwraps `leaf.enc` and writes `tls.*` at `0600`; and on reboot uses existing `tls.*` with **zero KMS Decrypt calls** |
+| **the live node's posture** | `tls.key` is `0600` owned `65532`, written by the plugin on first boot; the socket dir is `0700` owned `65532`; the process runs as `65532` |
+| **delivery of all five files** | `enc.yaml`, the static pod, both credential configurations, and `leaf.enc` |
+| **the DEK round trip across a restart** | a Secret written before a plugin restart decrypts after it — the row that catches the DEK-cache defect |
+| **rotation** | `key_id` changes across a rotation, pre-rotation ciphertext still decrypts, post-rotation writes round-trip |
+| **fail-closed behaviour** | a **cold read** fails while the key store is unreachable, and recovers with no operator action once it returns |
+
+One recorded non-failure worth keeping visible: **a write succeeded during the outage**,
+because the API server reused a cached DEK. That is KMS v2 as designed, and it bounds the
+exposure — writes survive an outage shorter than the DEK cache lifetime, cold reads do not.
+
+**What Gate 1 cannot prove**, and therefore what the canary is still for: cloud-init delivery
+on a real provider, per-Machine rendering of a fresh bootstrap leaf, the pivot CA copy across
+a real bootstrap-to-hub move, and the metadata-endpoint checks. Kind mounts files directly,
+so every question about *how the files arrive* is out of its reach.
+
+**One consequence worth recording before it is built:** the WIF credential configuration
+names the certificate path, so two phases means either two configuration files or one that
+the plugin rewrites after unwrapping. Whichever is chosen, the phase-2 file must reference
+`bootstrap.*` and the steady-state file `tls.*`, and the plugin must not be able to fall back
+from the second to the first — a plugin that silently reverts to an expired bootstrap
+credential would look healthy and be unable to cold-read Secrets after a reboot.
 
 **Open, and the ADR is not closed until these land:**
 
-1. The pivot CA copy skips silently when the CA Secret is absent, which is correct for
-   `secretbox` and **reintroduces the 90-day fuse** under `kms-v2`. Must gate on the
-   encryption mode, not the Secret's existence.
+1. **Nothing on the correctness side.** Both halves are implemented, the readers are pinned
+   to the issuer, and Gate 1 passes against the real contract. Everything remaining needs
+   infrastructure: the repository review, wiring v5 behind a canary-only ClusterClass, a
+   rebuilt `kms-canary-01`, and the four checks Gate 1 cannot reach.
 2. **First-boot validation on a rebuilt `kms-canary-01`.** Not compressible: four of the five
    gaps found so far surfaced in review or on real infrastructure, not in tests.
 3. **Condition 6** — the leaf is per cluster, so there is no per-node revocation. Harmless at
@@ -42,6 +123,24 @@ readable by any pod on this provider, because KCP must place the cluster PKI in 
 data. ADR-100 changes one item in that payload and four cluster CA keys are untouched. See
 `docs/analysis/bootstrap-material-exposure.md`. Nothing here should be read as progress
 against it.
+
+**Implementation history.** The whole of this ADR's implementation landed in
+**`f6196417`**, whose subject line describes unrelated tenant public-asset and kubelet
+disk-bounding work. Recorded here because the commit message does not mention KMS, and
+`git log` on this decision will otherwise point somewhere misleading. That commit contains:
+
+| area | what |
+|---|---|
+| `internal/platform/kms/` | the dedicated CA, bootstrap and long-lived leaf issuance, KEK wrapping/unwrapping, secret naming |
+| `cmd/soloz/kms.go` | `kms ca ensure`, `kms leaf issue` |
+| `internal/soloz-cli/cluster/kms_preconditions.go` | the six-check provisioning gate (condition 1) |
+| `internal/soloz-cli/pivot/orchestrator.go` | the Day-0 CA copy, gated on encryption mode |
+| `internal/soloz-cli/versions/` | provider-version parity with the applied manifests, and the test that enforces it |
+| `operators/kms-plugin/` | the fork, metrics, and the removal of on-node issuance (`internal/nodecert` deleted) |
+| `internal/assets/manifests/secrets/` | the three KMS Secret templates |
+| `docs/analysis/bootstrap-material-exposure.md` | the independent finding, which this ADR does **not** address |
+
+Review by path rather than by commit.
 
 **Amends:** ADR-003 §6 (Protection at rest)
 **Relates to:** ADR-065 Amendment 2 (the platform may own crypto infrastructure, and

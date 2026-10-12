@@ -13,24 +13,28 @@
 #
 # ── WHAT IT ADDS OVER v4 ────────────────────────────────────────────────────
 #
-# Exactly one file: /etc/kubernetes/kms/certificate_config.json. That looks trivial and is
-# load-bearing twice over.
-#
-#   1. It names the certificate and key paths that Application Default Credentials reads
-#      for X.509 Workload Identity Federation. Verified in the pinned client:
+# Exactly two static files:
+#   1. /etc/kubernetes/kms/certificate_config.json: names the certificate and key paths
+#      (/etc/kubernetes/kms/tls.crt and tls.key) that Application Default Credentials reads
+#      for steady-state X.509 Workload Identity Federation. Verified in the pinned client:
 #      cloud.google.com/go/auth@v0.20.0 credentials/internal/externalaccount/x509_provider.go.
 #
-#   2. Writing it CREATES /etc/kubernetes/kms. The plugin's static pod mounts that path
-#      with `type: Directory`, which does NOT create it — so without this file the pod is
-#      unschedulable on a fresh node, and the symptom is a kubelet event rather than
-#      anything that names the cause.
+#   2. /etc/kubernetes/kms/bootstrap_certificate_config.json: names the bootstrap credential
+#      paths (/etc/kubernetes/kms/bootstrap.crt and bootstrap.key) that ADC reads for
+#      phase-2 bootstrap WIF authentication on first boot, before leaf.enc is unwrapped.
+#
+#   Writing these files CREATES /etc/kubernetes/kms. The plugin's static pod mounts that
+#   path with `type: Directory`, which does NOT create it — so without these files the
+#   pod is unschedulable on a fresh node, and the symptom is a kubelet event rather than
+#   anything that names the cause.
 #
 # ── WHAT IT DOES NOT ADD, AND WHY ───────────────────────────────────────────
 #
-# The plugin's static pod manifest, the WIF credential configuration, and the encryption
-# provider configuration are all PATCHES in the ClusterClass, not entries here. Every one
-# of them carries a per-cluster value — the cluster's name, its workload identity pool,
-# its own key — and a template is shared by every cluster of its class.
+# The plugin's static pod manifest, the WIF credential configurations, the bootstrap
+# certificate/key, the KMS-wrapped leaf, and the encryption provider configuration are all
+# PATCHES in the ClusterClass, not entries here. Every one of them carries a per-cluster
+# value — the cluster's name, its workload identity pool, its own key — and a template is
+# shared by every cluster of its class.
 #
 # That is not a style preference; it is the defect this platform already shipped once. v2
 # named the encryption Secret literally in the template, which is ONE Secret in
@@ -38,8 +42,11 @@
 # have made the others undecryptable. A per-cluster value cannot be delivered by a shared
 # object, and a literal in a shared template is a shared object.
 #
-# The patch definitions this template needs are at the bottom of this file, as the exact
-# YAML to add to the ClusterClass when the rollout is approved.
+# The five patch definitions this template needs are at the bottom of this file, as the
+# exact YAML to add to the ClusterClass when the rollout is approved.
+#
+# INVARIANT: <cluster>-kms-ca must NEVER appear in this template or in any patch. The
+# cluster KMS CA private key lives exclusively on the hub and never reaches any node.
 #
 ---
 # ── spokepool-control-plane-v2 — the ONE control-plane template ──────────────
@@ -138,17 +145,19 @@ spec:
         # It is appended rather than patched in place on purpose: a JSON patch into
         # this list needs an index, and an index silently rewrites whatever file
         # entry someone later inserts above it.
-        # THE CERTIFICATE CONFIGURATION, and the directory it brings with it.
+        # THE CERTIFICATE CONFIGURATIONS, and the directory they bring with them.
         #
-        # Application Default Credentials reads the credential configuration (delivered by
-        # a patch, because its audience is per cluster), which points HERE, and this points
-        # at the certificate and key the initContainer issues from the cluster CA.
+        # Application Default Credentials reads the credential configurations (delivered by
+        # patches, because their audiences/identities are per cluster), which point HERE,
+        # and these point at the on-disk certificate and key paths:
+        #   - certificate_config.json: steady-state paths (/etc/kubernetes/kms/tls.*)
+        #   - bootstrap_certificate_config.json: bootstrap paths (/etc/kubernetes/kms/bootstrap.*)
         #
-        # Fixed paths, so this one can be a literal: nothing in it varies per cluster.
+        # Fixed paths, so these can be literals: nothing in them varies per cluster.
         #
-        # It also creates /etc/kubernetes/kms. The plugin's static pod mounts that with
-        # `type: Directory`, which does not create it — so on a fresh node without this
-        # file the pod is unschedulable and the symptom is a kubelet event that names a
+        # Writing them also creates /etc/kubernetes/kms. The plugin's static pod mounts that
+        # with `type: Directory`, which does not create it — so on a fresh node without these
+        # files the pod is unschedulable and the symptom is a kubelet event that names a
         # path rather than a cause.
         - path: /etc/kubernetes/kms/certificate_config.json
           owner: root
@@ -159,6 +168,18 @@ spec:
                 "workload": {
                   "cert_path": "/etc/kubernetes/kms/tls.crt",
                   "key_path": "/etc/kubernetes/kms/tls.key"
+                }
+              }
+            }
+        - path: /etc/kubernetes/kms/bootstrap_certificate_config.json
+          owner: root
+          permissions: "0644"
+          content: |
+            {
+              "cert_configs": {
+                "workload": {
+                  "cert_path": "/etc/kubernetes/kms/bootstrap.crt",
+                  "key_path": "/etc/kubernetes/kms/bootstrap.key"
                 }
               }
             }
@@ -198,34 +219,10 @@ spec:
           content: |
             #!/bin/sh
             # Re-assert kubelet --provider-id, --node-labels and --node-ip.
-            # Idempotent. Survives kubeadm upgrade (which rewrites kubeadm-flags.env).
-            #
-            # ORDER IS LOAD-BEARING. Everything that does not need tailscale runs
-            # before anything that does, because the tailscale checks below exit 0.
-            # This script previously began with them, so on a node where tailscaled
-            # was slow or absent it set NOTHING and said so by succeeding.
             FLAGS=/var/lib/kubelet/kubeadm-flags.env
             [ -f "$FLAGS" ] || exit 0
 
             # Self-assign providerID from Hetzner metadata.
-            #
-            # THIS BLOCK WAS MISSING FROM THIS TEMPLATE, and that is why a replacement
-            # spoke control-plane node never joined. Every worker template and the hub
-            # control-plane template carry it; this one did not, so the node came up
-            # with no .spec.providerID, CAPI -- which matches Machines to Nodes BY
-            # providerID -- left the Machine with an empty NODENAME, and the KCP roll
-            # stalled on NodeHealthy=False/NodeProvisioning with nothing naming the
-            # cause.
-            #
-            # Once --node-ip is a tailnet address the Hetzner CCM refuses to initialise
-            # the node: cloud-node-controller validates
-            # alpha.kubernetes.io/provided-node-ip against the addresses the cloud
-            # reports (ExternalIP 37.x, InternalIP 10.0.x) and fails with
-            #   provided node ip ... is not valid: failed to get node address from
-            #   cloud provider that matches ip: 100.x.x.x
-            # so it never writes the providerID itself. The instance id is
-            # authoritative and served by the node's own metadata service, so kubelet
-            # sets it directly and the CCM is off the critical path.
             if ! grep -q '\-\-provider-id=' "$FLAGS"; then
               ID="$(curl -fsS --max-time 5 http://169.254.169.254/hetzner/v1/metadata/instance-id 2>/dev/null)"
               if [ -n "$ID" ]; then
@@ -233,26 +230,12 @@ spec:
               fi
             fi
 
-            # Inject --node-labels if not already present. Also independent of
-            # tailscale, and also silently skipped while it sat below the gates.
-            #
-            # `|` IS THE DELIMITER, NOT `/`, AND THAT IS A BUG FIX. The label value
-            # contains a slash -- instance.hetzner.cloud/provided-by=cloud -- so with
-            # `s/.../.../g` the expression closed early and every copy of this line
-            # failed with `sed: bad option in substitution expression`. It had never
-            # worked, in any of the five templates carrying it, and nothing noticed
-            # because kubeadm also sets the label from kubeletExtraArgs at join time
-            # and sed's failure is not the script's exit status.
-            #
-            # Which is the whole reason the re-assertion exists: a kubeadm upgrade
-            # rewrites kubeadm-flags.env, and after one the label would have been
-            # gone with nothing to put it back.
+            # Inject --node-labels if not already present.
             if ! grep -q '\-\-node-labels=' "$FLAGS"; then
               sed -i "s|KUBELET_KUBEADM_ARGS=\"|KUBELET_KUBEADM_ARGS=\"--node-labels=instance.hetzner.cloud/provided-by=cloud |g" "$FLAGS"
             fi
 
-            # --node-ip = tailnet IPv4. From here down tailscale is required, and its
-            # absence is not an error: kubelet keeps the address it already had.
+            # --node-ip = tailnet IPv4.
             TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
             [ -x "$TS_BIN" ] || exit 0
             TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
@@ -344,12 +327,14 @@ spec:
 # ═══════════════════════════════════════════════════════════════════════════
 # THE CLUSTERCLASS PATCHES THIS TEMPLATE NEEDS
 #
-# Add these to `spec.patches` in spokepool-clusterclass-v1.yaml when the rollout is
-# approved, alongside the existing `secretEncryptionConfig` patch. They are kept here, as
-# comments, so this file is reviewable as one artefact and applying it changes nothing.
+# Add these to `spec.patches` in the canary ClusterClass (spokepool-clusterclass-v1-canary.yaml)
+# alongside the existing `secretEncryptionConfig` patch. They are documented here, as comments,
+# so this template is reviewable as one artefact.
 #
-# Both append to `files/-` rather than patching an index: a JSON patch into that list needs
+# All append to `files/-` rather than patching an index: a JSON patch into that list needs
 # an index, and an index silently rewrites whatever entry somebody later inserts above it.
+#
+# INVARIANT: <cluster>-kms-ca must NEVER appear in any patch or template.
 #
 # ---------------------------------------------------------------------------
 #   - name: kmsPluginStaticPod
@@ -417,6 +402,98 @@ spec:
 #                 "secret": {
 #                   "name": "{{ .builtin.cluster.name }}-kms-credential-config",
 #                   "key": "credentials.json"
+#                 }
+#               }
+#             }
+# ---------------------------------------------------------------------------
+#   - name: kmsBootstrapCredentialConfig
+#     definitions:
+#     - selector:
+#         apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+#         kind: KubeadmControlPlaneTemplate
+#         matchResources:
+#           controlPlane: true
+#       jsonPatches:
+#       - op: add
+#         path: /spec/template/spec/kubeadmConfigSpec/files/-
+#         valueFrom:
+#           # 0644, root: phase-2 bootstrap WIF configuration pointing to
+#           # /etc/kubernetes/kms/bootstrap_certificate_config.json.
+#           template: |
+#             {
+#               "path": "/etc/kubernetes/kms/bootstrap-credentials.json",
+#               "owner": "root",
+#               "permissions": "0644",
+#               "contentFrom": {
+#                 "secret": {
+#                   "name": "{{ .builtin.cluster.name }}-kms-credential-config",
+#                   "key": "bootstrap-credentials.json"
+#                 }
+#               }
+#             }
+# ---------------------------------------------------------------------------
+#   - name: kmsBootstrapSecret
+#     definitions:
+#     - selector:
+#         apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+#         kind: KubeadmControlPlaneTemplate
+#         matchResources:
+#           controlPlane: true
+#       jsonPatches:
+#       - op: add
+#         path: /spec/template/spec/kubeadmConfigSpec/files/-
+#         valueFrom:
+#           # 0644, root: public bootstrap leaf certificate (valid 1 hour).
+#           template: |
+#             {
+#               "path": "/etc/kubernetes/kms/bootstrap.crt",
+#               "owner": "root",
+#               "permissions": "0644",
+#               "contentFrom": {
+#                 "secret": {
+#                   "name": "{{ .builtin.cluster.name }}-kms-plugin-bootstrap",
+#                   "key": "tls.crt"
+#                 }
+#               }
+#             }
+#       - op: add
+#         path: /spec/template/spec/kubeadmConfigSpec/files/-
+#         valueFrom:
+#           # 0600, root: private key for the 1-hour bootstrap leaf.
+#           template: |
+#             {
+#               "path": "/etc/kubernetes/kms/bootstrap.key",
+#               "owner": "root",
+#               "permissions": "0600",
+#               "contentFrom": {
+#                 "secret": {
+#                   "name": "{{ .builtin.cluster.name }}-kms-plugin-bootstrap",
+#                   "key": "tls.key"
+#                 }
+#               }
+#             }
+# ---------------------------------------------------------------------------
+#   - name: kmsWrappedLeafSecret
+#     definitions:
+#     - selector:
+#         apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+#         kind: KubeadmControlPlaneTemplate
+#         matchResources:
+#           controlPlane: true
+#       jsonPatches:
+#       - op: add
+#         path: /spec/template/spec/kubeadmConfigSpec/files/-
+#         valueFrom:
+#           # 0600, root: the 90-day leaf certificate and key wrapped under the cluster's KEK.
+#           template: |
+#             {
+#               "path": "/etc/kubernetes/kms/leaf.enc",
+#               "owner": "root",
+#               "permissions": "0600",
+#               "contentFrom": {
+#                 "secret": {
+#                   "name": "{{ .builtin.cluster.name }}-kms-plugin-wrapped",
+#                   "key": "leaf.enc"
 #                 }
 #               }
 #             }

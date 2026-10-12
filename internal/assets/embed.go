@@ -62,6 +62,21 @@ func KMSPluginWrappedSecretName(cluster string) string {
 	return cluster + "-kms-plugin-wrapped"
 }
 
+// KMSCredentialConfigSecretName is the Secret holding the Google WIF credential configs.
+//
+// Delivered to the node via cloud-init as credentials.json and bootstrap-credentials.json.
+func KMSCredentialConfigSecretName(cluster string) string {
+	return cluster + "-kms-credential-config"
+}
+
+// KMSPluginManifestSecretName is the Secret holding the rendered static pod manifest.
+//
+// Delivered to the node via cloud-init as /etc/kubernetes/manifests/kms-plugin.yaml.
+func KMSPluginManifestSecretName(cluster string) string {
+	return cluster + "-kms-plugin-manifest"
+}
+
+
 // EncryptionKeyName is the name a given generation of the at-rest encryption key
 // carries inside the provider configuration.
 //

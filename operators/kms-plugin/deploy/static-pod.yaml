@@ -77,10 +77,11 @@ spec:
       command:
         - /kms-plugin
         - --prepare-socket-dir=/var/run/kms
+        - --prepare-credential-dir=/etc/kubernetes/kms
         - --socket-dir-uid=65532
       securityContext:
         # root, because chown requires it. CHOWN alone rather than ALL capabilities:
-        # the only privileged thing it does is change one directory's owner.
+        # the only privileged thing it does is change directory owners.
         runAsUser: 0
         runAsGroup: 0
         runAsNonRoot: false
@@ -99,6 +100,8 @@ spec:
       volumeMounts:
         - name: socket
           mountPath: /var/run/kms
+        - name: credential
+          mountPath: /etc/kubernetes/kms
         # NO PKI MOUNT, AND NO CONTAINER IN THIS POD HAS ONE.
         #
         # An earlier design mounted /etc/kubernetes/pki here so this container could sign
@@ -136,25 +139,23 @@ spec:
         # identifier: ADR-100 records why the break-glass suffix was removed rather than
         # kept available.
         - --cluster=CLUSTER_NAME_VALUE
-        # THE GOOGLE CREDENTIAL CONFIGURATION, which is not a key.
+        - --certificate=/etc/kubernetes/kms/tls.crt
+        - --key=/etc/kubernetes/kms/tls.key
+        - --wrapped-leaf=/etc/kubernetes/kms/leaf.enc
+        # THE GOOGLE CREDENTIAL CONFIGURATIONS (ADR-100 two-phase credentials).
         #
-        # It cannot be a Kubernetes Secret: the plugin must authenticate before the
-        # API server can read one (ADR-100). It is a Workload Identity Federation
-        # credential CONFIGURATION, which names an external identity source rather
-        # than carrying key material — the property that makes mounting it acceptable
+        # They cannot be Kubernetes Secrets: the plugin must authenticate before the
+        # API server can read one (ADR-100). They are Workload Identity Federation
+        # credential CONFIGURATIONS, which name an external identity source rather
+        # than carrying key material — the property that makes mounting them acceptable
         # where a long-lived service-account key would not be. ADR-100 prohibits the
         # latter outright.
         #
-        # Which external identity backs this file on a static pod is a Gate 3
-        # question. A static pod cannot consume a projected Kubernetes ServiceAccount
-        # token, so the usual workload-identity path is unavailable; X.509 federation
-        # is the leading candidate and its certificate lifecycle is unproven here.
-        #
-        # An earlier draft pulled a credential into env with `valueFrom.fileKeyRef`.
-        # That field is KEP-4440, ALPHA IN KUBERNETES 1.33, and this control plane runs
-        # 1.31.6 — kubelet would have rejected the pod or started it with no credential.
-        # The plugin reads the path itself and depends on no Kubernetes feature at all.
+        # Two configs: --google-bootstrap-credentials for first boot (pointing at
+        # bootstrap.crt/bootstrap.key to unwrap leaf.enc), and --google-credentials
+        # for steady-state (pointing at tls.crt/tls.key written by the plugin).
         - --google-credentials=/etc/kubernetes/kms/credentials.json
+        - --google-bootstrap-credentials=/etc/kubernetes/kms/bootstrap-credentials.json
         # LOOPBACK, AND THE POD USES hostNetwork, so this is the whole access control.
         #
         # ADR-100 condition 8 needs an SLO and an error budget, and neither can be
@@ -229,8 +230,9 @@ spec:
         capabilities:
           drop: ["ALL"]
       volumeMounts:
-        # TIGHTLY SCOPED, both of them. The socket directory is the only thing this
-        # plugin writes, and the credential directory is the only thing it reads.
+        # TIGHTLY SCOPED, both of them. The socket directory is where the plugin binds its
+        # unix socket, and the credential directory is where the plugin reads bootstrap/WIF
+        # configurations and writes the unwrapped tls.crt/tls.key (0600) on first boot.
         # Neither is a parent of anything else: mounting /etc/kubernetes or /var/run
         # would give a process that can request unwrapping of every DEK a view of the
         # control plane's entire PKI.
@@ -238,7 +240,6 @@ spec:
           mountPath: /var/run/kms
         - name: credential
           mountPath: /etc/kubernetes/kms
-          readOnly: true
   volumes:
     - name: socket
       hostPath:

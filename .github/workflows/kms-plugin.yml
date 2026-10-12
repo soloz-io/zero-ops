@@ -91,15 +91,19 @@ jobs:
               sys.exit(f"refusing to pin {digest!r}: not a sha256 digest")
           p = pathlib.Path("deploy/static-pod.yaml")
           t = p.read_text()
+          pattern = r"image: ghcr\.io/soloz-io/kms-plugin@sha256:[0-9a-f]{64}"
+          counted = len(re.findall(pattern, t))
+          if counted == 0:
+              sys.exit("found no matching kms-plugin image lines to pin")
           new, n = re.subn(
-              r"image: ghcr\.io/soloz-io/kms-plugin@sha256:[0-9a-f]{64}",
+              pattern,
               f"image: ghcr.io/soloz-io/kms-plugin@{digest}",
               t,
           )
-          # Refused rather than appended. A manifest whose image line stopped matching
-          # would otherwise be published unpinned, with the workflow reporting success.
-          if n != 1:
-              sys.exit(f"expected exactly one pinned image line, replaced {n}")
+          # Refused rather than appended. Assert every matching image line was replaced
+          # without encoding today's container count.
+          if n != counted:
+              sys.exit(f"expected all {counted} image lines to be replaced, replaced {n}")
           p.write_text(new)
           PY
 

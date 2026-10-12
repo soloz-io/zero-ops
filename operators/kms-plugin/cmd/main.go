@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc"
 	kmsv2 "k8s.io/kms/apis/v2"
 
+	"github.com/soloz-io/zero-ops/operators/kms-plugin/internal/credential"
 	"github.com/soloz-io/zero-ops/operators/kms-plugin/internal/keystore"
 	"github.com/soloz-io/zero-ops/operators/kms-plugin/internal/service"
 )
@@ -51,23 +52,27 @@ func main() {
 		prepDir = flag.String("prepare-socket-dir", "", "run as an initContainer: create this "+
 			"directory 0700 owned by --socket-dir-uid, then exit. The plugin runs non-root and "+
 			"kubelet creates a hostPath root-owned 0755, so something has to chown it")
+		prepCredDir = flag.String("prepare-credential-dir", "", "run as an initContainer: ensure this "+
+			"credential directory is owned by --socket-dir-uid with mode 0700 so the non-root plugin can write unwrapped tls.*")
 		prepUID  = flag.Int("socket-dir-uid", 65532, "uid to own the socket directory")
 		certPath = flag.String("certificate", "/etc/kubernetes/kms/tls.crt", "the plugin's "+
-			"client certificate. Read ONLY to report its remaining lifetime: this process "+
-			"cannot issue or renew one, because the leaf is issued by the hub from a dedicated "+
-			"per-cluster KMS CA and delivered as node bootstrap material. Nothing on the node "+
-			"can mint another identity")
+			"client certificate. Read to report its remaining lifetime, and on reboot to authenticate "+
+			"steady-state WIF")
+		keyPath = flag.String("key", "/etc/kubernetes/kms/tls.key", "the plugin's client private key. "+
+			"Written at first boot by unwrapping --wrapped-leaf, and used alongside --certificate on subsequent boots")
+		wrappedLeaf = flag.String("wrapped-leaf", "/etc/kubernetes/kms/leaf.enc", "the long-lived leaf "+
+			"wrapped under the cluster's KEK, delivered via cloud-init. Unwrapped at first boot to write --certificate and --key")
 		metricsAddr = flag.String("metrics-addr", "127.0.0.1:8082", "address the Prometheus "+
 			"endpoint binds. LOOPBACK ONLY by default and it should stay that way: this pod "+
 			"runs with hostNetwork, so 0.0.0.0 would publish the plugin's latency and failure "+
 			"counts on every control-plane interface. A node-local collector scrapes "+
 			"127.0.0.1; nothing off-node needs to")
-		credFile = flag.String("google-credentials", "", "path to a Google credential "+
-			"CONFIGURATION for Workload Identity Federation, exported as "+
-			"GOOGLE_APPLICATION_CREDENTIALS. It cannot be a Kubernetes Secret: the plugin must "+
-			"authenticate before the API server can read one. A long-lived service-account key "+
-			"is PROHIBITED (ADR-100); which external identity backs this file is a Gate 3 "+
-			"question")
+		credFile = flag.String("google-credentials", "", "path to the steady-state Google credential "+
+			"CONFIGURATION for Workload Identity Federation, exported as GOOGLE_APPLICATION_CREDENTIALS. "+
+			"It cannot be a Kubernetes Secret: the plugin must authenticate before the API server can read one. "+
+			"A long-lived service-account key is PROHIBITED (ADR-100)")
+		bootstrapCredFile = flag.String("google-bootstrap-credentials", "", "path to the bootstrap Google credential "+
+			"CONFIGURATION for Workload Identity Federation, used once at first boot to unwrap --wrapped-leaf")
 	)
 	flag.Parse()
 
@@ -79,32 +84,40 @@ func main() {
 	//
 	// It returns before --cluster is required, because preparing a directory needs
 	// neither a cluster name nor a key store.
-	if *prepDir != "" {
-		if err := prepareSocketDir(*prepDir, *prepUID); err != nil {
-			log.Fatal(err)
+	if *prepDir != "" || *prepCredDir != "" {
+		if *prepDir != "" {
+			if err := prepareSocketDir(*prepDir, *prepUID); err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("prepared %s as 0700 owned by %d:%d", *prepDir, *prepUID, *prepUID)
 		}
-		log.Printf("prepared %s as 0700 owned by %d:%d", *prepDir, *prepUID, *prepUID)
+		if *prepCredDir != "" {
+			if err := credential.PrepareCredentialDir(*prepCredDir, *prepUID); err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("prepared credential directory %s as 0700 owned by %d:%d", *prepCredDir, *prepUID, *prepUID)
+		}
 
 		return
 	}
 
-	// --cluster is NO LONGER REQUIRED and supplies nothing. It used to carry the key_id
-	// suffix; the identifier is the CryptoKeyVersion resource name and the cluster name
-	// appears only in a log line.
-
-	// One place where the key store is resolved, and it refuses rather than degrading.
-	// See keystore.FromFile for why the credential is a file, and keystore.FromEnv for
-	// why there is no in-memory fallback.
-	// GOOGLE_APPLICATION_CREDENTIALS is how Application Default Credentials finds a
-	// Workload Identity Federation credential configuration. Set here from the flag so
-	// the path is visible in the pod spec while the CREDENTIAL itself is not: a WIF
-	// configuration names an external identity source rather than carrying key
-	// material, which is the property that makes mounting it acceptable and a
-	// service-account key not.
-	if *credFile != "" {
-		if err := os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", *credFile); err != nil {
-			log.Fatal(err)
-		}
+	// TWO-PHASE CREDENTIAL STARTUP (ADR-100).
+	//
+	// 1. tls.crt/tls.key present and valid?  → use them. Every boot after the first.
+	// 2. else leaf.enc present?              → construct a client from the BOOTSTRAP credential
+	//                                          config, Unwrap leaf.enc, write tls.crt/tls.key
+	//                                          (0600), then construct the steady-state
+	//                                          client and continue.
+	// 3. else                                → REFUSE TO START, naming which file was missing.
+	setupOpts := credential.SetupOptions{
+		CertPath:            *certPath,
+		KeyPath:             *keyPath,
+		WrappedLeafPath:     *wrappedLeaf,
+		SteadyStateCredFile: *credFile,
+		BootstrapCredFile:   *bootstrapCredFile,
+	}
+	if err := credential.Setup(context.Background(), setupOpts); err != nil {
+		log.Fatalf("credential startup failed: %v", err)
 	}
 
 	store, err := keystore.FromEnv()

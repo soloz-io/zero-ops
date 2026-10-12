@@ -61,6 +61,13 @@ func setupValidPreconditions(t *testing.T, cluster, namespace string, bootLeafVa
 		assets.KMSPluginWrappedSecretName(cluster): {
 			"leaf.enc": "valid-ciphertext-payload",
 		},
+		assets.KMSCredentialConfigSecretName(cluster): {
+			"credentials.json":           "valid-credentials-json",
+			"bootstrap-credentials.json": "valid-bootstrap-credentials-json",
+		},
+		assets.KMSPluginManifestSecretName(cluster): {
+			"kms-plugin.yaml": "image: ghcr.io/soloz-io/kms-plugin@sha256:142996cf1489d244e4f2b8484a48254bd913e57e99f6bf41b1c52b0121e0ac66\n",
+		},
 	}
 
 	return &KMSPreconditions{
@@ -108,8 +115,8 @@ func TestKMSPreconditionsFailsOnMissingCASecret(t *testing.T) {
 	}
 
 	err := pre.Assert(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "1/6 failed") {
-		t.Fatalf("expected 1/6 failure for missing CA secret, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "1/9 failed") {
+		t.Fatalf("expected 1/9 failure for missing CA secret, got: %v", err)
 	}
 }
 
@@ -120,8 +127,8 @@ func TestKMSPreconditionsFailsOnWIFTrustMismatch(t *testing.T) {
 	}
 
 	err := pre.Assert(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "2/6 failed") {
-		t.Fatalf("expected 2/6 failure for trust mismatch, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "2/9 failed") {
+		t.Fatalf("expected 2/9 failure for trust mismatch, got: %v", err)
 	}
 }
 
@@ -132,8 +139,8 @@ func TestKMSPreconditionsFailsOnMissingCryptoKey(t *testing.T) {
 	}
 
 	err := pre.Assert(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "3/6 failed") {
-		t.Fatalf("expected 3/6 failure for missing key, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "3/9 failed") {
+		t.Fatalf("expected 3/9 failure for missing key, got: %v", err)
 	}
 }
 
@@ -144,8 +151,8 @@ func TestKMSPreconditionsFailsOnMissingIAMBinding(t *testing.T) {
 	}
 
 	err := pre.Assert(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "4/6 failed") {
-		t.Fatalf("expected 4/6 failure for missing IAM binding, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "4/9 failed") {
+		t.Fatalf("expected 4/9 failure for missing IAM binding, got: %v", err)
 	}
 }
 
@@ -160,8 +167,8 @@ func TestKMSPreconditionsFailsOnMissingNodeBoundSecret(t *testing.T) {
 	}
 
 	err := pre.Assert(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "5/6 failed") {
-		t.Fatalf("expected 5/6 failure for missing wrapped secret, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "5/9 failed") {
+		t.Fatalf("expected 5/9 failure for missing wrapped secret, got: %v", err)
 	}
 }
 
@@ -170,7 +177,83 @@ func TestKMSPreconditionsFailsOnStaleBootstrapLeaf(t *testing.T) {
 	pre := setupValidPreconditions(t, "kms-canary-01", "platform-capi", 20*time.Minute)
 
 	err := pre.Assert(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "6/6 failed") {
-		t.Fatalf("expected 6/6 failure for expired/stale bootstrap leaf, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "6/9 failed") {
+		t.Fatalf("expected 6/9 failure for expired/stale bootstrap leaf, got: %v", err)
 	}
 }
+
+func TestKMSPreconditionsFailsOnMissingCredentialConfigSecret(t *testing.T) {
+	pre := setupValidPreconditions(t, "kms-canary-01", "platform-capi", 55*time.Minute)
+	origGetter := pre.SecretGetter
+	pre.SecretGetter = func(ctx context.Context, name string) (map[string]any, error) {
+		if name == assets.KMSCredentialConfigSecretName("kms-canary-01") {
+			return nil, errors.New("not found")
+		}
+		return origGetter(ctx, name)
+	}
+
+	err := pre.Assert(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "7/9 failed: credential config Secret") || !strings.Contains(err.Error(), "not found in") {
+		t.Fatalf("expected 7/9 failure specifically for missing credential config secret, got: %v", err)
+	}
+}
+
+func TestKMSPreconditionsFailsOnMissingPluginManifestSecret(t *testing.T) {
+	pre := setupValidPreconditions(t, "kms-canary-01", "platform-capi", 55*time.Minute)
+	origGetter := pre.SecretGetter
+	pre.SecretGetter = func(ctx context.Context, name string) (map[string]any, error) {
+		if name == assets.KMSPluginManifestSecretName("kms-canary-01") {
+			return nil, errors.New("not found")
+		}
+		return origGetter(ctx, name)
+	}
+
+	err := pre.Assert(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "8/9 failed") {
+		t.Fatalf("expected 8/9 failure for missing plugin manifest secret, got: %v", err)
+	}
+}
+
+func TestKMSPreconditionsFailsOnPlaceholderDigest(t *testing.T) {
+	pre := setupValidPreconditions(t, "kms-canary-01", "platform-capi", 55*time.Minute)
+	origGetter := pre.SecretGetter
+	pre.SecretGetter = func(ctx context.Context, name string) (map[string]any, error) {
+		if name == assets.KMSPluginManifestSecretName("kms-canary-01") {
+			return map[string]any{
+				"kms-plugin.yaml": "image: ghcr.io/soloz-io/kms-plugin@sha256:0000000000000000000000000000000000000000000000000000000000000000\n",
+			}, nil
+		}
+		return origGetter(ctx, name)
+	}
+
+	err := pre.Assert(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "9/9 failed") || !strings.Contains(err.Error(), "placeholder/unpinned image digest") {
+		t.Fatalf("expected 9/9 failure for placeholder digest, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), assets.KMSPluginManifestSecretName("kms-canary-01")) {
+		t.Fatalf("expected error to name the secret, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "0000000000000000000000000000000000000000000000000000000000000000") {
+		t.Fatalf("expected error to name the placeholder digest, got: %v", err)
+	}
+}
+
+func TestKMSPreconditionsFailsOnUnpinnedImage(t *testing.T) {
+	pre := setupValidPreconditions(t, "kms-canary-01", "platform-capi", 55*time.Minute)
+	origGetter := pre.SecretGetter
+	pre.SecretGetter = func(ctx context.Context, name string) (map[string]any, error) {
+		if name == assets.KMSPluginManifestSecretName("kms-canary-01") {
+			return map[string]any{
+				"kms-plugin.yaml": "image: ghcr.io/soloz-io/kms-plugin:latest\n",
+			}, nil
+		}
+		return origGetter(ctx, name)
+	}
+
+	err := pre.Assert(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "9/9 failed") || !strings.Contains(err.Error(), "unpinned image") {
+		t.Fatalf("expected 9/9 failure for unpinned image, got: %v", err)
+	}
+}
+
+

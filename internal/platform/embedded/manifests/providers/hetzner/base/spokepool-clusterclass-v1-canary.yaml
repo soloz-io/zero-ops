@@ -1,0 +1,338 @@
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: spokepool-v1-canary
+  namespace: platform-capi
+spec:
+  # Canary-only ClusterClass for ADR-100 KMS v2 validation.
+  # Leaves spokepool-v1 untouched on spokepool-control-plane-v4 so production spokes
+  # are protected from unverified KMS changes.
+  #
+  # /etc/kubernetes/enc is mounted into the API server by the referenced
+  # spokepool-control-plane-v5-kms template (mountPath: /etc/kubernetes/enc).
+  #
+  # INVARIANT: <cluster>-kms-ca must NEVER appear in this ClusterClass or any patch.
+  # The cluster KMS CA private key lives exclusively on the hub and never reaches any node.
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: KubeadmControlPlaneTemplate
+      name: spokepool-control-plane-v5-kms
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        name: spokepool-control-plane-machine-v1
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: HetznerClusterTemplate
+      name: spokepool-cluster-v3
+  workers:
+    machineDeployments:
+    - class: default-worker
+      template:
+        bootstrap:
+          ref:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+            kind: KubeadmConfigTemplate
+            name: spokepool-worker-bootstrap-v6
+        infrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: HCloudMachineTemplate
+            name: spokepool-worker-machine-v1
+    # ADR-052: the elastic tenant-execution pool.
+    - class: burst-worker
+      template:
+        bootstrap:
+          ref:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+            kind: KubeadmConfigTemplate
+            name: spokepool-burst-bootstrap-v6
+        infrastructure:
+          ref:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+            kind: HCloudMachineTemplate
+            name: spokepool-burst-machine-v1
+  patches:
+  - name: region
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/controlPlaneRegions
+        valueFrom:
+          template: '[{{ .region | quote }}]'
+      - op: add
+        path: /spec/template/spec/controlPlaneLoadBalancer/region
+        valueFrom:
+          variable: region
+      - op: add
+        path: /spec/template/spec/hcloudNetwork/networkZone
+        valueFrom:
+          template: '{{ if eq .region "hel1" }}eu-central{{ else if eq .region "nbg1" }}eu-central{{ else }}eu-central{{ end }}'
+  - name: controlPlaneEndpoint
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/controlPlaneLoadBalancer/enabled
+        valueFrom:
+          variable: controlPlaneLoadBalancerEnabled
+      - op: replace
+        path: /spec/template/spec/controlPlaneEndpoint/host
+        valueFrom:
+          variable: controlPlaneEndpointHost
+  - name: controlPlaneMachineType
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/type
+        valueFrom:
+          variable: controlPlaneMachineType
+  - name: workerMachineType
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HCloudMachineTemplate
+        matchResources:
+          machineDeploymentClass:
+            names:
+            - default-worker
+      jsonPatches:
+      - op: replace
+        path: /spec/template/spec/type
+        valueFrom:
+          variable: workerMachineType
+  - name: sshKeyName
+    definitions:
+    - selector:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: HetznerClusterTemplate
+        matchResources:
+          infrastructureCluster: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/sshKeys/hcloud/0/name
+        valueFrom:
+          variable: hcloudSSHKeyName
+  # The at-rest encryption provider configuration.
+  - name: secretEncryptionConfig
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0600 and root: it is the key to every Secret in the cluster, and the API
+          # server reads it as root before any workload exists.
+          template: |
+            {
+              "path": "/etc/kubernetes/enc/enc.yaml",
+              "owner": "root",
+              "permissions": "0600",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-encryption-config",
+                  "key": "enc.yaml"
+                }
+              }
+            }
+  # KMS v2: Static pod manifest for the KMS plugin.
+  - name: kmsPluginStaticPod
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0644, because kubelet reads it as root and it carries no secret: a socket
+          # path, an image digest and a key resource name.
+          template: |
+            {
+              "path": "/etc/kubernetes/manifests/kms-plugin.yaml",
+              "owner": "root",
+              "permissions": "0644",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-kms-plugin-manifest",
+                  "key": "kms-plugin.yaml"
+                }
+              }
+            }
+  # KMS v2: Steady-state WIF credential configuration pointing to certificate_config.json.
+  - name: kmsCredentialConfig
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0644, root: external account WIF config naming identity pool and certificate_config.json.
+          template: |
+            {
+              "path": "/etc/kubernetes/kms/credentials.json",
+              "owner": "root",
+              "permissions": "0644",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-kms-credential-config",
+                  "key": "credentials.json"
+                }
+              }
+            }
+  # KMS v2: Phase-2 bootstrap WIF credential configuration pointing to bootstrap_certificate_config.json.
+  - name: kmsBootstrapCredentialConfig
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0644, root: phase-2 bootstrap WIF configuration.
+          template: |
+            {
+              "path": "/etc/kubernetes/kms/bootstrap-credentials.json",
+              "owner": "root",
+              "permissions": "0644",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-kms-credential-config",
+                  "key": "bootstrap-credentials.json"
+                }
+              }
+            }
+  # KMS v2: Short-lived bootstrap leaf certificate (0644) and private key (0600).
+  - name: kmsBootstrapSecret
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0644, root: public bootstrap leaf certificate (valid 1 hour).
+          template: |
+            {
+              "path": "/etc/kubernetes/kms/bootstrap.crt",
+              "owner": "root",
+              "permissions": "0644",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-kms-plugin-bootstrap",
+                  "key": "tls.crt"
+                }
+              }
+            }
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0600, root: private key for the 1-hour bootstrap leaf.
+          template: |
+            {
+              "path": "/etc/kubernetes/kms/bootstrap.key",
+              "owner": "root",
+              "permissions": "0600",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-kms-plugin-bootstrap",
+                  "key": "tls.key"
+                }
+              }
+            }
+  # KMS v2: Long-lived leaf certificate and private key, KMS-wrapped under the cluster's KEK.
+  - name: kmsWrappedLeafSecret
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0600, root: the 90-day leaf certificate and key wrapped under the cluster's KEK.
+          template: |
+            {
+              "path": "/etc/kubernetes/kms/leaf.enc",
+              "owner": "root",
+              "permissions": "0600",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-kms-plugin-wrapped",
+                  "key": "leaf.enc"
+                }
+              }
+            }
+  variables:
+  - name: region
+    required: true
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "hel1"
+  - name: workerMachineType
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "cx33"
+  - name: controlPlaneMachineType
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "cx33"
+  - name: controlPlaneLoadBalancerEnabled
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: boolean
+        default: true
+  - name: controlPlaneEndpointHost
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: ""
+  - name: hcloudSSHKeyName
+    required: false
+    schema:
+      openAPIV3Schema:
+        type: string
+        default: "mac-mini-ssh"

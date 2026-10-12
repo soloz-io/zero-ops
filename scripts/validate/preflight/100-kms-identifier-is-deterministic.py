@@ -555,13 +555,34 @@ def main():
             # The image must be pinned by digest. A tag would let a node resolve a
             # different binary on restart than the one that was tested, on the
             # component the API server cannot start without.
-            for c in containers:
+            all_containers = containers + ((pod or {}).get("spec", {}).get("initContainers") or [])
+            for c in all_containers:
                 img = str(c.get("image", ""))
                 if "@sha256:" not in img:
                     findings.append(
                         f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)}: container "
                         f"{c.get('name')!r} image {img!r} is not pinned by digest"
                     )
+                else:
+                    digest = img.split("@sha256:", 1)[1]
+                    if re.fullmatch(r"0{64}", digest):
+                        if os.environ.get("CI"):
+                            findings.append(
+                                f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)}: container "
+                                f"{c.get('name')!r} image {img!r} has all-zero placeholder digest. "
+                                f"CI must pin this to a published image digest on publish"
+                            )
+                        else:
+                            print(
+                                f"SKIP\t{STATIC_POD.relative_to(ZERO_OPS)}: container "
+                                f"{c.get('name')!r} image {img!r} has all-zero placeholder digest "
+                                f"(CI pins this on publish). Run under CI=1 to enforce pinned digest."
+                            )
+                    elif not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                        findings.append(
+                            f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)}: container "
+                            f"{c.get('name')!r} image {img!r} has malformed sha256 digest"
+                        )
             # NO CONTAINER IN THIS POD MAY MOUNT THE CLUSTER PKI -- not the plugin, and
             # not the init container either.
             #

@@ -28,15 +28,24 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"google.golang.org/grpc"
@@ -270,7 +279,92 @@ func main() {
 			log.Printf("ROTATED: primary is now v%d; previous versions retained", n)
 			fmt.Fprintf(w, "v%d\n", n)
 		})
-		log.Printf("admin (rotate) on %s", *admin)
+		mux.HandleFunc("/encrypt", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "POST required", http.StatusMethodNotAllowed)
+				return
+			}
+			plain, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			s.mu.Lock()
+			n := s.primary
+			v := s.versions[n]
+			s.mu.Unlock()
+			nonce := make([]byte, v.aead.NonceSize())
+			if _, err := rand.Read(nonce); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			sealed := v.aead.Seal(nil, nonce, plain, nil)
+			blob := append([]byte(fmt.Sprintf("v%d:", n)), nonce...)
+			blob = append(blob, sealed...)
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write(blob)
+		})
+		mux.HandleFunc("/gen-leaf", func(w http.ResponseWriter, r *http.Request) {
+			expired := r.URL.Query().Get("expired") == "true"
+			certPEM, keyPEM, err := generateTestLeaf(expired)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write(append(certPEM, keyPEM...))
+		})
+		mux.HandleFunc("/gen-leaf-cert", func(w http.ResponseWriter, r *http.Request) {
+			expired := r.URL.Query().Get("expired") == "true"
+			certPEM, _, err := generateTestLeaf(expired)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write(certPEM)
+		})
+		mux.HandleFunc("/gen-leaf-key", func(w http.ResponseWriter, r *http.Request) {
+			expired := r.URL.Query().Get("expired") == "true"
+			_, keyPEM, err := generateTestLeaf(expired)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write(keyPEM)
+		})
+		mux.HandleFunc("/gen-wrapped-leaf", func(w http.ResponseWriter, _ *http.Request) {
+			certPEM, keyPEM, err := generateTestLeaf(false)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			payload, err := json.Marshal(map[string]string{
+				"cert": string(certPEM),
+				"key":  string(keyPEM),
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.mu.Lock()
+			n := s.primary
+			v := s.versions[n]
+			s.mu.Unlock()
+			nonce := make([]byte, v.aead.NonceSize())
+			if _, err := rand.Read(nonce); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			sealed := v.aead.Seal(nil, nonce, payload, nil)
+			blob := append([]byte(fmt.Sprintf("v%d:", n)), nonce...)
+			blob = append(blob, sealed...)
+			b64Blob := base64.StdEncoding.EncodeToString(blob)
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(b64Blob))
+		})
+		log.Printf("admin (rotate, encrypt, gen-leaf) on %s", *admin)
 		_ = http.ListenAndServe(*admin, mux)
 	}()
 
@@ -283,4 +377,43 @@ func main() {
 	log.Printf("keystore-stub serving Cloud KMS gRPC on %s for %s at v%d",
 		*addr, *cryptoKey, s.primary)
 	log.Fatal(srv.Serve(lis))
+}
+
+func generateTestLeaf(expired bool) ([]byte, []byte, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	notBefore := now.Add(-1 * time.Hour)
+	notAfter := now.Add(90 * 24 * time.Hour)
+	if expired {
+		notBefore = now.Add(-90 * 24 * time.Hour)
+		notAfter = now.Add(-1 * time.Hour)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   "gate1-leaf",
+			Organization: []string{"soloz.io"},
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return nil, nil, err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	return certPEM, keyPEM, nil
 }
