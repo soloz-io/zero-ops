@@ -484,8 +484,9 @@ func newFleetSecretsTemplateCmd() *cobra.Command {
 		Long: `Generate the file that ` + "`import`" + ` reads, with one empty entry per declared
 secret and the capability each serves as its comment.
 
-Redirect it to a file, fill in the values, import it, and delete it. The
-skeleton carries no values and is safe to commit nowhere.`,
+It carries no values, so it is committed as environments/<env>/<app>/.env.example:
+scripts/seed-secrets.sh copies it to .env for the values, and refuses an example
+that no longer matches this output.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f, err := fleet.Load(fleetRepoRoot, args[0], args[1])
@@ -498,19 +499,21 @@ skeleton carries no values and is safe to commit nowhere.`,
 			}
 
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "# Secrets for %s / %s -- generated from environments/%s/values.yaml.\n",
-				f.TenantID, args[0], args[0])
+			env, app := args[0], args[1]
+			fmt.Fprintf(out, "# Secrets for %s / %s / %s -- generated from environments/%s/%s/values.yaml\n",
+				f.TenantID, env, app, env, app)
+			fmt.Fprintf(out, "# by `soloz fleet secrets template %s %s`. No values here, ever.\n", env, app)
 			fmt.Fprintf(out, "#\n")
-			fmt.Fprintf(out, "# Fill in each value, then:\n")
+			fmt.Fprintf(out, "# To supply them, from the repository root:\n")
 			fmt.Fprintf(out, "#\n")
-			fmt.Fprintf(out, "#     soloz fleet secrets import %s --from-env <this file>\n", args[0])
-			fmt.Fprintf(out, "#     soloz fleet secrets import %s --from-env <this file> --confirm\n", args[0])
+			fmt.Fprintf(out, "#     ./scripts/seed-secrets.sh %s %s             copies this to .env beside it\n", app, env)
+			fmt.Fprintf(out, "#     (fill in the values in .env)\n")
+			fmt.Fprintf(out, "#     ./scripts/seed-secrets.sh %s %s             shows what would be written\n", app, env)
+			fmt.Fprintf(out, "#     ./scripts/seed-secrets.sh %s %s --confirm   writes it\n", app, env)
 			fmt.Fprintf(out, "#\n")
-			fmt.Fprintf(out, "# Then DELETE this file. Once imported, the values live where the fleet's\n")
-			fmt.Fprintf(out, "# declaration says they do, and a copy here is one nothing rotates.\n")
-			fmt.Fprintf(out, "#\n")
-			fmt.Fprintf(out, "# Only these keys are read on import. Anything else in the file is ignored,\n")
-			fmt.Fprintf(out, "# because a key this fleet does not declare is delivered to no workload.\n")
+			fmt.Fprintf(out, "# Then delete .env: once imported, the values live where the declaration\n")
+			fmt.Fprintf(out, "# says they do, and a copy there is one nothing rotates. An empty entry is\n")
+			fmt.Fprintf(out, "# never written, and a key this app does not declare is ignored.\n")
 
 			for _, d := range f.Secrets {
 				fmt.Fprintf(out, "\n# %s\n", d.Capability)
