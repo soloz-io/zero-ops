@@ -147,7 +147,17 @@ def main():
     try:
         import yaml
     except ImportError:
-        yaml = None
+        # Check standard local site-packages if python3 without PyYAML was invoked on macOS
+        for p in ("/opt/homebrew/lib/python3.11/site-packages", "/usr/local/lib/python3.11/site-packages"):
+            if Path(p).is_dir() and p not in sys.path:
+                sys.path.append(p)
+                try:
+                    import yaml
+                    break
+                except ImportError:
+                    pass
+        else:
+            yaml = None
 
     findings = []
     checked = 0
@@ -718,6 +728,105 @@ def main():
                 f"BAD\t{STATIC_POD.relative_to(ZERO_OPS)} could not be parsed: {exc}"
             )
 
+    # ── control-plane template KMS socket mount into apiServer.extraVolumes ────
+    #
+    # Whenever encryption configuration specifies a unix:// KMS endpoint, the API server
+    # static pod must mount that socket directory into apiServer.extraVolumes.
+    #
+    # The API server runs as a static pod, so a path outside the directories kubeadm
+    # mounts by default (/etc/kubernetes, /etc/ssl) is invisible to it. Without this
+    # mount, kube-apiserver fails to start on a socket that exists on the node -- which
+    # manifests as a connection error rather than naming the missing mount.
+    #
+    # The socket path is derived from the encryption configuration template and the
+    # provisioner default rather than hardcoding /var/run/kms.
+    if yaml is not None:
+        kms_socket_dir = None
+        kms_enc_cfg_path = ZERO_OPS / "internal/assets/manifests/secrets/secret-encryption-config-kms.yaml"
+        if kms_enc_cfg_path.is_file():
+            enc_text = kms_enc_cfg_path.read_text(encoding="utf-8")
+            m = re.search(r"endpoint:\s*unix://(\S+)", enc_text)
+            if m:
+                endpoint_target = m.group(1).strip()
+                if "{{" in endpoint_target:
+                    prov_file = ZERO_OPS / "internal/soloz-cli/cluster/provisioner.go"
+                    if prov_file.is_file():
+                        p_match = re.search(
+                            r'SocketPath\s*=\s*"([^"]+)"', prov_file.read_text(encoding="utf-8")
+                        )
+                        if p_match:
+                            endpoint_target = p_match.group(1).strip()
+                kms_socket_dir = str(Path(endpoint_target).parent)
+
+        if kms_socket_dir:
+            kms_cp_templates = [
+                ZERO_OPS / "manifests/providers/hetzner/base/spokepool-control-plane-v5-kms.yaml",
+                ZERO_OPS / "internal/platform/embedded/manifests/providers/hetzner/base/spokepool-control-plane-v5-kms.yaml",
+            ]
+            for tmpl_path in kms_cp_templates:
+                if not tmpl_path.is_file():
+                    findings.append(f"BAD\t{tmpl_path.relative_to(ZERO_OPS)} does not exist")
+                    continue
+                checked += 1
+                try:
+                    docs = list(yaml.safe_load_all(tmpl_path.read_text(encoding="utf-8")))
+                except Exception as exc:
+                    findings.append(f"BAD\t{tmpl_path.relative_to(ZERO_OPS)} could not be parsed: {exc}")
+                    continue
+                for doc in docs:
+                    if not doc or not isinstance(doc, dict):
+                        continue
+                    if doc.get("kind") != "KubeadmControlPlaneTemplate":
+                        continue
+                    tmpl_name = (doc.get("metadata") or {}).get("name", "")
+                    api_server = (
+                        (doc.get("spec") or {})
+                        .get("template", {})
+                        .get("spec", {})
+                        .get("kubeadmConfigSpec", {})
+                        .get("clusterConfiguration", {})
+                        .get("apiServer", {})
+                    )
+                    extra_args = api_server.get("extraArgs") or {}
+                    enc_cfg = extra_args.get("encryption-provider-config")
+                    if not enc_cfg:
+                        continue
+                    extra_vols = api_server.get("extraVolumes") or []
+                    found_socket_mount = False
+                    for vol in extra_vols:
+                        v_name = vol.get("name")
+                        hp = vol.get("hostPath")
+                        mp = vol.get("mountPath")
+                        if v_name == "kms-socket" or mp == kms_socket_dir or hp == kms_socket_dir:
+                            found_socket_mount = True
+                            if v_name != "kms-socket":
+                                findings.append(
+                                    f"BAD\t{tmpl_path.relative_to(ZERO_OPS)}: volume mounting {kms_socket_dir} "
+                                    f"is named {v_name!r}, want 'kms-socket'"
+                                )
+                            if hp != kms_socket_dir:
+                                findings.append(
+                                    f"BAD\t{tmpl_path.relative_to(ZERO_OPS)}: volume 'kms-socket' hostPath is "
+                                    f"{hp!r}, want {kms_socket_dir!r}"
+                                )
+                            if mp != kms_socket_dir:
+                                findings.append(
+                                    f"BAD\t{tmpl_path.relative_to(ZERO_OPS)}: volume 'kms-socket' mountPath is "
+                                    f"{mp!r}, want {kms_socket_dir!r}"
+                                )
+                            if vol.get("readOnly") is True:
+                                findings.append(
+                                    f"BAD\t{tmpl_path.relative_to(ZERO_OPS)}: volume 'kms-socket' is readOnly, "
+                                    f"preventing API server from connecting to the unix domain socket"
+                                )
+                            break
+                    if not found_socket_mount:
+                        findings.append(
+                            f"BAD\t{tmpl_path.relative_to(ZERO_OPS)}: KubeadmControlPlaneTemplate {tmpl_name!r} "
+                            f"configures encryption-provider-config with unix:// KMS endpoint but does not mount "
+                            f"{kms_socket_dir} into apiServer.extraVolumes (missing volume 'kms-socket' mounting {kms_socket_dir})"
+                        )
+
     if checked == 0 and not findings:
         print("NONE")
         return 0
@@ -734,7 +843,7 @@ def main():
             # without PyYAML, and an OK line that listed it anyway would be the same
             # false signal one layer up -- a pass that reads as covering more than it did.
             + (
-                "; the static pod is Guaranteed and digest-pinned"
+                "; the static pod is Guaranteed and digest-pinned; control plane templates mount kms-socket"
                 if yaml is not None
                 else "; the static pod was NOT checked (see SKIP above)"
             )

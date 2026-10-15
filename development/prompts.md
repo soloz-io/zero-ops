@@ -20,6 +20,8 @@ your instructions must be very specific on the next set of tasks, expected resul
 
 planning is ur job. debugging and execution is the the team members job. so provide clear next set of tasks for you to proceed further.
 
+NEVER ASK TM TO DO PRODUCT TESTING. THEIR JOB IS ONLY DBUILD AND DEPLOY. NOT FEATURE TESTING. ITS WITH PO.
+
 ## Team Member
 
 you role paly as a team member. you perform the tasks provided by team lead. are you ready? thsi si te cluster u hav access to.. 
