@@ -34,48 +34,12 @@ func ReadCatalog(path string) ([]byte, error) {
 // and CAPI reports that as a bootstrap that never completes rather than as a name it
 // could not find. Preflight 003-encryption-secret-is-per-cluster asserts the two halves agree.
 //
-// The key is per cluster because ADR-100 decides it is and the escrow holds it under
-// the cluster's id (ADR-076). An earlier version named one flat Secret for every
-// cluster of a class, which is the defect this function's existence prevents.
+// The key is per cluster and the escrow holds it under the cluster's id (ADR-076).
+// An earlier version named one flat Secret for every cluster of a class, which is
+// the defect this function's existence prevents.
 func EncryptionSecretName(cluster string) string {
 	return cluster + "-encryption-config"
 }
-
-// KMSCASecretName is the Secret holding the dedicated KMS CA for one cluster.
-//
-// Stored on the hub only (platform-capi). NEVER reaches a node.
-func KMSCASecretName(cluster string) string {
-	return cluster + "-kms-ca"
-}
-
-// KMSPluginBootstrapSecretName is the Secret holding the short-lived bootstrap leaf.
-//
-// Delivered to the node via cloud-init. Valid for 1h, never renewed.
-func KMSPluginBootstrapSecretName(cluster string) string {
-	return cluster + "-kms-plugin-bootstrap"
-}
-
-// KMSPluginWrappedSecretName is the Secret holding the long-lived KMS-wrapped leaf.
-//
-// Delivered to the node via cloud-init as leaf.enc.
-func KMSPluginWrappedSecretName(cluster string) string {
-	return cluster + "-kms-plugin-wrapped"
-}
-
-// KMSCredentialConfigSecretName is the Secret holding the Google WIF credential configs.
-//
-// Delivered to the node via cloud-init as credentials.json and bootstrap-credentials.json.
-func KMSCredentialConfigSecretName(cluster string) string {
-	return cluster + "-kms-credential-config"
-}
-
-// KMSPluginManifestSecretName is the Secret holding the rendered static pod manifest.
-//
-// Delivered to the node via cloud-init as /etc/kubernetes/manifests/kms-plugin.yaml.
-func KMSPluginManifestSecretName(cluster string) string {
-	return cluster + "-kms-plugin-manifest"
-}
-
 
 // EncryptionKeyName is the name a given generation of the at-rest encryption key
 // carries inside the provider configuration.
@@ -91,17 +55,14 @@ func KMSPluginManifestSecretName(cluster string) string {
 // unprovable is the same as unfinished.
 //
 // Generations start at 1 because the key store convention elsewhere in this platform
-// does (ADR-100), and because 0 is what an unread value looks like.
+// does, and because 0 is what an unread value looks like.
 func EncryptionKeyName(generation int) string {
 	return fmt.Sprintf("key%d", generation)
 }
 
 // EncryptionRotationWindow is how often an at-rest encryption key is replaced.
 //
-// NINETY DAYS, FOR BOTH PROVIDERS, AND IT IS ONE NUMBER DELIBERATELY. The secretbox
-// key and the Cloud KMS key protect the same data for the same reason, and two
-// cryptoperiods would mean the weaker control could legitimately outlive the stronger
-// one.
+// NINETY DAYS, AND IT IS ONE NUMBER DELIBERATELY.
 //
 // WHAT "THE ENTERPRISE STANDARD" ACTUALLY SAYS, because it is worth not overstating:
 //
@@ -110,25 +71,15 @@ func EncryptionKeyName(generation int) string {
 //   - NIST SP 800-57 Part 1 puts the originator-usage period of a symmetric
 //     data-encryption key at up to two years. That is a ceiling, not a target.
 //   - Cloud-provider convention is the tighter figure: Google's guidance for a
-//     symmetric encryption key is 90 days; AWS KMS automatic rotation is annual.
+//     symmetric encryption key is 90 days; AWS automatic rotation is annual.
 //
-// So no framework hands us 90. What decides it here is narrower and does not need one:
-// ADR-100 already adopted at most 90 days for the Cloud KMS key, because the API server
-// retains data encryption keys in memory and a key's exposure window is otherwise
-// unbounded. `secretbox` keeps its key ON the control-plane host, which is strictly
-// more exposed than a non-exportable key in an external authority — so it has no
-// business carrying a LONGER cryptoperiod than the stronger control it is a stopgap
-// for. 90 days is the tighter convention and the figure this platform already uses.
+// 90 days is the tighter convention and the figure this platform uses.
 //
 // A DISCLOSED KEY IS NOT A CADENCE MATTER, and this constant must not be read as
 // permission to wait. A key known to have left its trust boundary is an incident: it is
 // replaced now, and the 90-day clock is what governs keys that have not. Treating a
 // disclosure as "due at the next window" is how a known-compromised key stays in force
 // for a quarter.
-//
-// Referenced rather than restated: internal/platform/kms sets the Cloud KMS rotation
-// period from this, `soloz encryption rotate` prints it, and ADR-100 records it. A
-// second spelling of a cryptoperiod is a second policy.
 const EncryptionRotationWindow = 90 * 24 * time.Hour
 
 // EncryptionRotationWindowDays renders the window the way an operator reads it.

@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
 
-ADR-100 decides one encryption key per cluster, and ADR-076 holds it in the escrow
+ADR-003 §6 adopts one encryption key per cluster, and ADR-076 holds it in the escrow
 under that cluster's id. The key reaches a control plane as a Secret in
 `platform-capi`, named by a ClusterClass's control-plane template -- and a
 ClusterClass is shared by EVERY cluster of its class.
@@ -28,7 +28,7 @@ another. CAPI does not report that as a missing Secret: the control-plane node
 simply never finishes bootstrapping, and the KCP says NodeProvisioning. The two
 halves are checked against each other here because nothing else can.
 
-FIVE THINGS ARE ASSERTED:
+FOUR THINGS ARE ASSERTED:
 
   agreement     every ClusterClass patch builds the same name the Go helper does.
   per-cluster   that name interpolates the cluster, rather than being a literal.
@@ -37,9 +37,6 @@ FIVE THINGS ARE ASSERTED:
                 failure mode that reads as a missing file rather than a missing
                 delivery -- and once the API server argument lands in v4, it is a
                 control plane that does not start.
-  ca-isolation  the dedicated cluster KMS CA private key (<cluster>-kms-ca) is
-                never referenced in any node template or patch; it lives exclusively
-                on the hub (ADR-100).
   producer-gap  every per-cluster Secret referenced via contentFrom.secret in any
                 ClusterClass has a named producer helper in internal/assets/embed.go.
 
@@ -130,17 +127,6 @@ def main():
             text = path.read_text(encoding="utf-8")
             rel = path.relative_to(ZERO_OPS)
 
-            # Invariant: the dedicated cluster KMS CA private key (<cluster>-kms-ca)
-            # lives exclusively on the hub and must never be referenced by any node
-            # template or patch (ADR-100).
-            ca_refs = re.findall(r'"name":\s*"([^"]*kms-ca[^"]*)"', text)
-            ca_refs += re.findall(r'name:\s*([^\s]*kms-ca[^\s]*)', text)
-            for m in ca_refs:
-                findings.append(
-                    f"BAD\t{rel} references Secret {m!r}; the cluster KMS CA private key "
-                    f"lives exclusively on the hub and must NEVER reach a node (ADR-100)"
-                )
-
             if "kind: ClusterClass" not in text:
                 continue
             classes += 1
@@ -195,7 +181,7 @@ def main():
                         f"BAD\t{rel} builds the Secret name {n!r} without "
                         f"{{{{ .builtin.cluster.name }}}}; a ClusterClass is shared by every "
                         f"cluster of its class, so this is one key for all of them and the first "
-                        f"rotation makes the rest undecryptable (ADR-100)"
+                        f"rotation makes the rest undecryptable (ADR-003 §6)"
                     )
             for n in literal:
                 findings.append(
@@ -226,7 +212,7 @@ def main():
     if not findings:
         print(
             f"OK\t{classes} ClusterClass(es) deliver a per-cluster encryption Secret, named "
-            f"<cluster>{suffix} on both the Go and the CAPI side, with KMS CA isolation and "
+            f"<cluster>{suffix} on both the Go and the CAPI side, with "
             f"Secret producer coverage verified"
         )
     return 0

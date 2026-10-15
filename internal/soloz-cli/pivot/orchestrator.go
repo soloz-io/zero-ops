@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,9 +14,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/soloz-io/zero-ops/internal/assets"
-	"github.com/soloz-io/zero-ops/internal/platform/kms"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/binaries"
-	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/constants"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
 )
@@ -47,7 +44,6 @@ type Orchestrator struct {
 	Namespace        string
 	OSType           string // ubuntu or talos
 	Debug            bool
-	Encryption       cluster.EncryptionMode
 }
 
 // ExecuteMove performs the pivot move operation (without waiting for ready)
@@ -121,11 +117,6 @@ func (o *Orchestrator) ExecuteMove(ctx context.Context) (string, error) {
 	applyCmd.Stdin = &buf
 	if output, err := applyCmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to create hetzner secret: %w\n%s", err, output)
-	}
-
-	// 2.7. Copy <cluster>-kms-ca from bootstrap cluster to management cluster before move (T36)
-	if err := o.copyKMSCASecret(ctx, mgmtKubeconfig); err != nil {
-		return "", fmt.Errorf("failed to copy KMS CA secret to management cluster: %w", err)
 	}
 
 	// 3. Execute clusterctl move
@@ -714,71 +705,4 @@ func (o *Orchestrator) waitForClusterReady(ctx context.Context, kubeconfig strin
 		},
 	}
 	return waiter.Wait(ctx, kubeconfig)
-}
-
-// copyKMSCASecret copies <cluster>-kms-ca from the bootstrap kind cluster to the hub
-// before clusterctl move (ADR-100 T36).
-//
-// Under secretbox mode, the KMS CA does not exist and is not needed on the hub,
-// so this skips immediately without querying the bootstrap cluster.
-//
-// Under kms-v2 mode, the CA secret MUST exist on the bootstrap cluster and be copied
-// to the hub before the bootstrap cluster is torn down. If missing or misnamed,
-// this hard-fails before clusterctl move: refusing to pivot because the hub would
-// have no CA and the KMS leaf would be unrenewable after LeafValidity.
-func (o *Orchestrator) copyKMSCASecret(ctx context.Context, mgmtKubeconfig string) error {
-	if o.Encryption != cluster.EncryptionKMSv2 {
-		return nil
-	}
-
-	caSecretName := assets.KMSCASecretName(o.ClusterName)
-	getArgs := []string{"get", "secret", caSecretName, "-n", o.Namespace, "-o", "json"}
-	if o.BootstrapKubeconfig != "" {
-		getArgs = append([]string{"--kubeconfig", o.BootstrapKubeconfig}, getArgs...)
-	}
-	if o.BootstrapContext != "" {
-		getArgs = append([]string{"--context", o.BootstrapContext}, getArgs...)
-	}
-	cmd := exec.CommandContext(ctx, "kubectl", getArgs...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		outStr := string(out)
-		if strings.Contains(outStr, "NotFound") || strings.Contains(outStr, "not found") {
-			return fmt.Errorf("KMS CA secret %s not found on bootstrap cluster: refusing to pivot because the hub would have no CA and the leaf would be unrenewable after %v", caSecretName, kms.LeafValidity)
-		}
-		return fmt.Errorf("reading KMS CA secret %s from bootstrap cluster: %w\n%s", caSecretName, err, out)
-	}
-
-	fmt.Printf("[pivot] Copying KMS CA secret %s to management cluster (T36)...\n", caSecretName)
-
-	var secretObj map[string]any
-	if err := json.Unmarshal(out, &secretObj); err != nil {
-		return fmt.Errorf("parsing KMS CA secret %s JSON: %w", caSecretName, err)
-	}
-
-	// Strip runtime metadata before applying to target cluster
-	if meta, ok := secretObj["metadata"].(map[string]any); ok {
-		delete(meta, "resourceVersion")
-		delete(meta, "uid")
-		delete(meta, "creationTimestamp")
-		delete(meta, "generation")
-		delete(meta, "managedFields")
-	}
-
-	cleanJSON, err := json.Marshal(secretObj)
-	if err != nil {
-		return fmt.Errorf("marshaling cleaned KMS CA secret %s: %w", caSecretName, err)
-	}
-
-	applyCmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", mgmtKubeconfig,
-		"apply", "-f", "-",
-	)
-	applyCmd.Stdin = bytes.NewReader(cleanJSON)
-	if output, err := applyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("applying KMS CA secret %s to management cluster: %w\n%s", caSecretName, err, output)
-	}
-
-	fmt.Printf("[pivot] Successfully copied KMS CA secret %s to management cluster\n", caSecretName)
-	return nil
 }

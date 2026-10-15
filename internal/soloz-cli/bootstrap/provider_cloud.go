@@ -115,7 +115,6 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	// At-rest encryption is a property of the box, not of the cloud underneath it:
 	// a Hetzner box and a hybrid box encrypt etcd the same way.
 	clusterCfg.Encryption = cfg.Encryption
-	clusterCfg.KMS = cfg.KMS
 	p.encryption = cfg.Encryption
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
@@ -310,7 +309,6 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 		Namespace:           constants.NamespaceCAPI,
 		OSType:              p.driver.OSType(),
 		Debug:               p.debug || cfg.Debug,
-		Encryption:          p.encryption,
 	}
 
 	mgmtKubeconfig, err := pivotOrch.ExecuteMove(ctx)
@@ -332,7 +330,6 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 		Namespace:           constants.NamespaceCAPI,
 		OSType:              p.driver.OSType(),
 		Debug:               p.debug,
-		Encryption:          p.encryption,
 	}
 
 	// Place the CAPI controllers BEFORE waiting for them to be ready.

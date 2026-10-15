@@ -90,10 +90,9 @@ type Orchestrator struct {
 	// sequenced: converged creation is requested by name or it does not occur.
 	Gating GatingMode
 
-	// Encryption and KMS select at-rest encryption for this box (ADR-003 section 6,
-	// ADR-100). Empty Encryption means secretbox.
+	// Encryption selects at-rest encryption for this box (ADR-003 section 6).
+	// Empty Encryption means secretbox.
 	Encryption cluster.EncryptionMode
-	KMS        cluster.KMSSettings
 	// ProviderName names the provider when no Provider is constructed. A
 	// bootstrap always has one; operations that only restate Day-0 artifacts on
 	// an existing cluster need the name and nothing else, and building a whole
@@ -266,7 +265,6 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		OIDCIssuerURL:       o.OIDCIssuerURL,
 		OIDCClientID:        o.OIDCClientID,
 		Encryption:          o.Encryption,
-		KMS:                 o.KMS,
 	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
 		"",

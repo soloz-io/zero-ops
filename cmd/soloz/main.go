@@ -34,7 +34,6 @@ func main() {
 	rootCmd.AddCommand(newBundleVersionCmd())
 	rootCmd.AddCommand(newEscrowCmd())
 	rootCmd.AddCommand(newEncryptionCmd())
-	rootCmd.AddCommand(newKMSCmd())
 	rootCmd.AddCommand(newProposalCmd())
 	rootCmd.AddCommand(newSupportCmd())
 	rootCmd.AddCommand(newFleetCmd())
