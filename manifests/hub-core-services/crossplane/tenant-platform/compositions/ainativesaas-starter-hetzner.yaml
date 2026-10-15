@@ -310,8 +310,13 @@ spec:
             metadata:
               name: ""
               namespace: ""
+              # tenant-id, app-id and cost-center: Kyverno's require-cost-labels
+              # refuses a tenant workload without all three (ADR-088). A cache
+              # Deployment created before that rule kept running without
+              # app-id; recreated, it was refused, and the tenant had no cache.
               labels:
                 app.kubernetes.io/component: cache
+                app-id: ""
                 cost-center: platform
                 tenant-id: ""
             spec:
@@ -391,6 +396,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.scopeId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.metadata.labels.tenant-id"}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.metadata.labels.app-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.selector.matchLabels.app-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.template.metadata.labels.app-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[1].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}

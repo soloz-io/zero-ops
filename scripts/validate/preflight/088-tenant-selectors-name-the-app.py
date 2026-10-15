@@ -15,6 +15,12 @@ published to one; browsers subscribed on the other; nothing errored.
 So each Service selector, workload selector and pod template a tenant
 composition renders must carry `app-id`, patched from spec.appId.
 
+And each workload must carry what Kyverno's require-cost-labels admits
+(spoke-catalog/infra/kyverno-tenant-abi.yaml): tenant-id, app-id and
+cost-center, each a literal or patched. A workload created before that rule
+keeps running without them and is refused only when it is recreated -- the
+cache Deployment was, on 2026-10-15, and the tenant was left with no cache.
+
 Emits tab-separated lines the shell wrapper classifies:
     OK<TAB><message>
     BAD<TAB><message>
@@ -31,6 +37,11 @@ SELECTORS = {
     "Deployment": ["spec.selector.matchLabels", "spec.template.metadata.labels"],
     "StatefulSet": ["spec.selector.matchLabels", "spec.template.metadata.labels"],
 }
+
+
+# Kyverno require-cost-labels: the kinds it matches, and the labels it requires.
+ADMITTED_KINDS = {"Deployment", "Job", "Rollout"}
+COST_LABELS = ("tenant-id", "app-id", "cost-center")
 
 
 def dig(doc, dotted):
@@ -52,7 +63,20 @@ def main():
                 continue
             for res in (doc.get("spec") or {}).get("resources") or []:
                 manifest = dig(res, "base.spec.forProvider.manifest") or {}
-                paths = SELECTORS.get(manifest.get("kind"))
+                kind = manifest.get("kind")
+                name = f"{path.name}: {res.get('name')} ({kind})"
+                targets = {p.get("toFieldPath") for p in res.get("patches") or []}
+                if kind in ADMITTED_KINDS:
+                    labels = dig(manifest, "metadata.labels") or {}
+                    unset = [
+                        k for k in COST_LABELS
+                        if not labels.get(k) and f"spec.forProvider.manifest.metadata.labels.{k}" not in targets
+                    ]
+                    if unset:
+                        print(f"BAD\t{name}: metadata.labels lacks {', '.join(unset)} (Kyverno require-cost-labels refuses it)")
+                    else:
+                        print(f"OK\t{name}: carries tenant-id, app-id and cost-center")
+                paths = SELECTORS.get(kind)
                 if not paths:
                     continue
                 patched = {
@@ -60,7 +84,6 @@ def main():
                     for p in res.get("patches") or []
                     if p.get("fromFieldPath") == "spec.appId"
                 }
-                name = f"{path.name}: {res.get('name')} ({manifest['kind']})"
                 missing = []
                 for sel in paths:
                     labels = dig(manifest, sel)
