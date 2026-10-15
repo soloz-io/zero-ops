@@ -55,7 +55,6 @@ ignore: |
   # Go text/template assets are not valid plain YAML until rendered.
   internal/assets/manifests/addons/crs.yaml
   internal/assets/manifests/secrets/hetzner-credentials.yaml
-  internal/assets/manifests/classes/archived-talos/hetzner-mgmt-talos-v1.yaml
   # Vendored upstream CRDs and install manifests. These are third-party content
   # reproduced verbatim so the platform can pin and mirror them; they are not
   # ours to reformat, and re-wrapping a line would make the next vendor bump a

@@ -746,12 +746,6 @@ func (o *Orchestrator) localCleanup(ctx context.Context) error {
 		}
 	}
 
-	// Remove talosconfig
-	talosconfigPath := fmt.Sprintf("%s.talosconfig", o.ClusterName)
-	if err := os.Remove(talosconfigPath); err == nil {
-		fmt.Printf("[teardown] ✓ Removed %s\n", talosconfigPath)
-	}
-
 	// Remove state files, in both layouts.
 	//
 	// State moved from .zero-ops to .state, and teardown must clean whichever a

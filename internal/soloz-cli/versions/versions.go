@@ -15,15 +15,12 @@ const (
 	// TestProviderManifestVersionParity.
 	KubeadmBootstrapProviderVersion    = "v1.8.5"
 	KubeadmControlPlaneProviderVersion = "v1.8.5"
-	TalosBootstrapProviderVersion      = "v0.6.5"
-	TalosControlPlaneProviderVersion   = "v0.5.6"
 
 	// Infrastructure Providers
 	HetznerInfraProviderVersion = "v1.0.7"
 
 	// Binaries
 	ClusterctlVersion = "v1.10.0"
-	TalosctlVersion   = "v1.12.0"
 	PackerVersion     = "1.11.2"
 
 	// Prerequisites

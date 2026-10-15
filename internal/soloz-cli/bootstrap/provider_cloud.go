@@ -526,7 +526,8 @@ type CloudDriver interface {
 	// Name returns the cloud identifier ("hetzner", "aws", "gcp").
 	Name() string
 
-	// OSType returns the OS type for CAPI provisioning ("ubuntu" or "talos").
+	// OSType returns the node operating system for CAPI provisioning
+	// ("ubuntu" is the only supported value, ADR-001).
 	OSType() string
 
 	// PlannedWorkerReplicas is how many cloud workers this driver will provision.

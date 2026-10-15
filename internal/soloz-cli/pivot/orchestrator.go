@@ -45,7 +45,7 @@ type Orchestrator struct {
 	BootstrapContext string
 	ClusterName      string
 	Namespace        string
-	OSType           string // ubuntu or talos
+	OSType           string // node OS; "ubuntu" is the only supported value (ADR-001)
 	Debug            bool
 	Encryption       cluster.EncryptionMode
 }
@@ -594,20 +594,10 @@ func (o *Orchestrator) applyProviders(ctx context.Context, kubeconfig string) er
 		return fmt.Errorf("operator CRDs not ready: %w", err)
 	}
 
-	// Determine which providers to install based on OS type
-	var bootstrapProvider, controlPlaneProvider string
-	if o.OSType == "talos" {
-		bootstrapProvider = "bootstrap-provider-talos.yaml"
-		controlPlaneProvider = "controlplane-provider-talos.yaml"
-	} else {
-		bootstrapProvider = "bootstrap-provider-kubeadm.yaml"
-		controlPlaneProvider = "controlplane-provider-kubeadm.yaml"
-	}
-
 	providers := []string{
 		"core-provider.yaml",
-		bootstrapProvider,
-		controlPlaneProvider,
+		"bootstrap-provider-kubeadm.yaml",
+		"controlplane-provider-kubeadm.yaml",
 		"infrastructure-provider-hetzner.yaml",
 	}
 

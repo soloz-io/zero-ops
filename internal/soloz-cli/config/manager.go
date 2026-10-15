@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-// Manager manages kubeconfig and talosconfig
+// Manager manages kubeconfig
 type Manager struct {
 	BootstrapKubeconfig string
 	ClusterName         string
@@ -48,38 +48,6 @@ func (m *Manager) SaveKubeconfig(ctx context.Context) (string, error) {
 	
 	if err := os.WriteFile(path, decoded, 0600); err != nil {
 		return "", fmt.Errorf("failed to write kubeconfig: %w", err)
-	}
-	
-	return path, nil
-}
-
-// SaveTalosconfig retrieves and saves talosconfig locally
-func (m *Manager) SaveTalosconfig(ctx context.Context) (string, error) {
-	secretName := fmt.Sprintf("%s-talosconfig", m.ClusterName)
-	
-	cmd := exec.CommandContext(ctx, "kubectl",
-		"--kubeconfig", m.BootstrapKubeconfig,
-		"get", "secret", secretName,
-		"-n", m.Namespace,
-		"-o", "jsonpath={.data.talosconfig}",
-	)
-	
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get talosconfig: %w", err)
-	}
-	
-	decoded, err := base64.StdEncoding.DecodeString(string(output))
-	if err != nil {
-		return "", fmt.Errorf("failed to decode talosconfig: %w", err)
-	}
-	
-	// Save to current directory
-	filename := fmt.Sprintf("%s.talosconfig", m.ClusterName)
-	path := filepath.Join(".", filename)
-	
-	if err := os.WriteFile(path, decoded, 0600); err != nil {
-		return "", fmt.Errorf("failed to write talosconfig: %w", err)
 	}
 	
 	return path, nil

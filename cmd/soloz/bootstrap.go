@@ -30,7 +30,6 @@ var (
 	oidcIssuerURL string
 	oidcClientID  string
 	region        string
-	imageID       string
 
 	// Optional flags
 	provider          string
@@ -42,7 +41,6 @@ var (
 	networkCIDR       string
 	upgrade           bool
 	sshKey            string
-	buildTalosImage   bool
 	buildFlatcarImage bool
 	debug             bool
 	environment       string
@@ -211,10 +209,9 @@ sixteen hours behind a run that reported success.`,
 
 	// Hetzner-specific flags (required when provider=hetzner)
 	cmd.Flags().StringVar(&region, "region", "", "Hetzner region (fsn1, nbg1, hel1)")
-	cmd.Flags().StringVar(&imageID, "image-id", "", "OS image ID (Talos snapshot ID or ubuntu image name)")
 
 	// Optional flags
-	cmd.Flags().StringVar(&osType, "os", "ubuntu", "OS type: ubuntu (default) or talos")
+	cmd.Flags().StringVar(&osType, "os", "ubuntu", "OS type: ubuntu (default; the only supported node OS, ADR-001)")
 	cmd.Flags().StringVar(&bootstrapContext, "bootstrap-context", "", "Use existing K8s cluster instead of Kind")
 	cmd.Flags().BoolVar(&keepBootstrap, "keep-bootstrap", false, "Preserve Kind cluster after successful pivot")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate prerequisites and generate manifests without provisioning")
@@ -222,7 +219,6 @@ sixteen hours behind a run that reported success.`,
 	cmd.Flags().StringVar(&networkCIDR, "network-cidr", "10.0.0.0/16", "Custom CIDR for Hetzner private network")
 	cmd.Flags().BoolVar(&upgrade, "upgrade", false, "Reconcile/update existing cluster components to match CLI version")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "SSH key name for Hetzner Rescue Mode emergencies only")
-	cmd.Flags().BoolVar(&buildTalosImage, "build-talos-image", false, "Trigger Packer build for Talos image")
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
@@ -295,11 +291,8 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 		if !validRegions[region] {
 			return fmt.Errorf("invalid region: must be one of fsn1, nbg1, hel1")
 		}
-		if osType != "ubuntu" && osType != "talos" {
-			return fmt.Errorf("invalid OS type: must be 'ubuntu' or 'talos'")
-		}
-		if osType == "talos" && imageID == "" && !buildTalosImage {
-			return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
+		if osType != "ubuntu" {
+			return fmt.Errorf("unsupported OS type %q: ubuntu is the only supported node operating system (ADR-001)", osType)
 		}
 		if err := resolveHCloudToken(); err != nil {
 			return err
@@ -375,11 +368,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Token:             hcloudToken,
 			Region:            region,
 			OS:                osType,
-			ImageID:           imageID,
 			NetworkCIDR:       networkCIDR,
 			SSHKey:            sshKey,
 			Debug:             debug,
-			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
 			Environment:       environment,
 			OnPremEnabled:     onPremEnabled,
@@ -393,11 +384,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Token:             hcloudToken,
 			Region:            region,
 			OS:                osType,
-			ImageID:           imageID,
 			NetworkCIDR:       networkCIDR,
 			SSHKey:            sshKey,
 			Debug:             debug,
-			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
 			Environment:       environment,
 			OnPremEnabled:     onPremEnabled,

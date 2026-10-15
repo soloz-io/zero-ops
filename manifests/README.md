@@ -5,7 +5,7 @@ This directory contains infrastructure definitions for the Zero-Ops Platform.
 ## Structure
 
 - `core/` - Bootstrap components (CAPI operator, providers)
-- `classes/` - ClusterClass definitions (Talos-based topologies)
+- `classes/` - ClusterClass definitions (ubuntu topologies)
 
 ## Usage
 

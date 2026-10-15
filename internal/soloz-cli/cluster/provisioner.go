@@ -89,8 +89,8 @@ type Config struct {
 	ClusterName             string
 	Namespace               string
 	Region                  string
-	OSType                  string // "talos" or "flatcar"
-	ImageID                 string // Talos snapshot ID or Flatcar image name
+	OSType                  string // node OS; "ubuntu" is the only supported value (ADR-001)
+	ImageID                 string // node image name (Hetzner's official ubuntu-24.04)
 	KubernetesVersion       string
 	NetworkCIDR             string
 	SubnetCIDR              string
@@ -468,15 +468,7 @@ func (p *Provisioner) applySecretboxEncryptionConfig(ctx context.Context) error 
 }
 
 func (p *Provisioner) applyClusterClass(ctx context.Context) error {
-	// Select ClusterClass based on OS type
-	var classFile string
-	if p.Config.OSType == "ubuntu" {
-		classFile = "classes/hetzner-mgmt-ubuntu-v1.yaml"
-	} else {
-		classFile = "classes/hetzner-mgmt-talos-v1.yaml"
-	}
-
-	manifest, err := assets.ReadManifest(classFile)
+	manifest, err := assets.ReadManifest("classes/hetzner-mgmt-ubuntu-v1.yaml")
 	if err != nil {
 		return err
 	}
@@ -630,11 +622,7 @@ func ScaleCiliumOperatorForTest(manifest string, replicas int) string {
 // template is otherwise only visible as a kubectl rejection partway through a
 // bootstrap that has already provisioned cloud infrastructure.
 func (p *Provisioner) renderClusterManifest() (string, error) {
-	// Select cluster class name based on OS
-	className := "hetzner-mgmt-talos-v1"
-	if p.Config.OSType == "ubuntu" {
-		className = "hetzner-mgmt-ubuntu-v1"
-	}
+	className := "hetzner-mgmt-ubuntu-v1"
 
 	clusterYAML := `apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster

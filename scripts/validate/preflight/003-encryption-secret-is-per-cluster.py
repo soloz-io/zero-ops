@@ -108,9 +108,6 @@ def main():
             )
             continue
         for path in sorted(tree.rglob("*.yaml")):
-            # The retired Talos classes provision nothing and are kept for reference.
-            if "archived-talos" in path.parts:
-                continue
             text = path.read_text(encoding="utf-8")
             if "kind: ClusterClass" not in text:
                 continue

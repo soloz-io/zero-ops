@@ -113,8 +113,8 @@ func (i *InfisicalReadiness) Checkers() []HealthChecker {
 // management cluster.
 type CAPIProvidersReadiness struct {
 	Namespace string
-	// OSType selects the bootstrap/control-plane provider names
-	// ("kubeadm" for ubuntu, "talos" for talos).
+	// OSType is retained for future node-OS support; today ubuntu is the only
+	// supported value and therefore always yields the kubeadm providers (ADR-001).
 	OSType string
 }
 
@@ -127,16 +127,10 @@ func (c *CAPIProvidersReadiness) Checkers() []HealthChecker {
 	if ns == "" {
 		ns = constants.NamespaceCAPI
 	}
-	bootstrapProvider := "kubeadm"
-	controlPlaneProvider := "kubeadm"
-	if c.OSType == "talos" {
-		bootstrapProvider = "talos"
-		controlPlaneProvider = "talos"
-	}
 	return []HealthChecker{
 		NewCAPIResourceReadyHealth("CoreProvider", "cluster-api", ns),
-		NewCAPIResourceReadyHealth("BootstrapProvider", bootstrapProvider, ns),
-		NewCAPIResourceReadyHealth("ControlPlaneProvider", controlPlaneProvider, ns),
+		NewCAPIResourceReadyHealth("BootstrapProvider", "kubeadm", ns),
+		NewCAPIResourceReadyHealth("ControlPlaneProvider", "kubeadm", ns),
 		NewCAPIResourceReadyHealth("InfrastructureProvider", "hetzner", ns),
 	}
 }

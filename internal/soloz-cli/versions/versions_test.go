@@ -64,16 +64,6 @@ func TestProviderManifestVersionParity(t *testing.T) {
 			manifest: "core/capi-operator/providers/infrastructure-provider-hetzner.yaml",
 			constant: HetznerInfraProviderVersion,
 		},
-		{
-			name:     "Talos Bootstrap Provider",
-			manifest: "core/capi-operator/providers/bootstrap-provider-talos.yaml",
-			constant: TalosBootstrapProviderVersion,
-		},
-		{
-			name:     "Talos ControlPlane Provider",
-			manifest: "core/capi-operator/providers/controlplane-provider-talos.yaml",
-			constant: TalosControlPlaneProviderVersion,
-		},
 	}
 
 	for _, tc := range cases {

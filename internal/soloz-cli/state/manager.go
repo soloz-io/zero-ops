@@ -72,8 +72,6 @@ type BootstrapState struct {
 	// missing because CAPI does not live there until pivot.
 	BootstrapKubeconfig string            `json:"bootstrapKubeconfig,omitempty"`
 	MgmtKubeconfig      string            `json:"mgmtKubeconfig"`
-	TalosConfig         string            `json:"talosConfig"`
-	TalosImageId        string            `json:"talosImageId"`
 	NetworkCIDR         string            `json:"networkCIDR"`
 	SSHKeys             []string          `json:"sshKeys,omitempty"`
 	Timestamp           time.Time         `json:"timestamp"`
