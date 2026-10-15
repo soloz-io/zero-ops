@@ -215,8 +215,35 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return r.reconcileServiceMode(ctx, &ej)
 	}
 
+	// The absolute bound, checked before anything that can stall.
+	//
+	// Service mode has always checked it; Job mode did not, so a request whose
+	// Job could never be created retried for as long as the CR existed. One sat
+	// for 45 hours with no phase, its workflow step waiting on a callback that
+	// nothing was ever going to send.
+	if ej.Spec.MaxLifetimeSeconds > 0 {
+		if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
+			l.Info("reaping job at its lifetime bound", "ephemeralJob", req.NamespacedName, "lived", lived.Truncate(time.Second))
+			if err := r.deleteJob(ctx, &ej); err != nil {
+				return ctrl.Result{}, err
+			}
+			ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime without finishing", ej.Spec.MaxLifetimeSeconds)
+			return ctrl.Result{}, r.markFinished(ctx, &ej, computev1alpha1.PhaseTimedOut, nil)
+		}
+	}
+
 	job, err := r.ensureJob(ctx, &ej)
 	if err != nil {
+		// Refused at admission: a policy, Pod Security or schema said no. The
+		// same Job is refused the same way on every retry, so retrying only
+		// hides the reason in this operator's log. Fail the request with the
+		// API server's own message and tell the caller, which is what a
+		// workflow waiting on this job needs.
+		if jobRefusedAtAdmission(err) {
+			ej.Status.Message = err.Error()
+			return ctrl.Result{}, r.markFinishedWithReason(ctx, &ej, computev1alpha1.PhaseFailed,
+				computev1alpha1.ReasonAdmissionRejected, nil)
+		}
 		return ctrl.Result{}, err
 	}
 	if job == nil {
@@ -489,8 +516,10 @@ func (r *EphemeralJobReconciler) buildJob(
 ) *batchv1.Job {
 	backoff := int32(0) // no retry: a burst node join per attempt is too costly to spend blindly
 	ttl := ej.Spec.TTLSecondsAfterFinished
+	fleetID := r.resolveFleetID(ctx, ej.Namespace)
 
 	container := r.buildWorkloadContainer(ej)
+	container.Env = append(container.Env, jobStorageEnv(ej, fleetID)...)
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -499,6 +528,14 @@ func (r *EphemeralJobReconciler) buildJob(
 			Labels: authoredLabels(ej, map[string]string{
 				labelJobUID: string(ej.UID),
 				"tenant-id": tenantFromNamespace(ej.Namespace),
+				// The application (ADR-088), read from the namespace label the
+				// tenant registry writes. require-cost-labels demands it since
+				// 2026-09-24, and its absence refused every Job-mode request in
+				// every tenant namespace. Never taken from the CR, so a
+				// submitter cannot attribute its work to another app. A
+				// namespace without the label renders it empty, which the
+				// policy refuses and the request fails naming.
+				"app-id": fleetID,
 				// enforce-tenant-abi/require-cost-labels matches every Job in a
 				// tenant-* namespace and demands BOTH labels. tenant-id alone
 				// meant the Job was rejected at admission — and rejected inside
@@ -556,6 +593,7 @@ func (r *EphemeralJobReconciler) buildJob(
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: authoredLabels(ej, map[string]string{
 						labelJobUID: string(ej.UID),
+						"app-id":    fleetID,
 					}),
 				},
 				Spec: r.buildPodSpec(ctx, ej, p, container),
@@ -1254,6 +1292,7 @@ func (r *EphemeralJobReconciler) buildPod(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) *corev1.Pod {
 	container := r.buildWorkloadContainer(ej)
+	fleetID := r.resolveFleetID(ctx, ej.Namespace)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			// GenerateName, not Name — see ensurePod. The server picks a unique
@@ -1265,6 +1304,7 @@ func (r *EphemeralJobReconciler) buildPod(
 				labelJobUID:  string(ej.UID),
 				labelJobName: ej.Name,
 				"tenant-id":  tenantFromNamespace(ej.Namespace),
+				"app-id":     fleetID,
 				// enforce-tenant-abi/require-cost-labels does not match bare
 				// Pods, but the label is carried anyway so Job-mode and
 				// Service-mode workloads attribute identically.

@@ -112,6 +112,11 @@ const (
 	// ReasonCapacityTimeout: the workload waited longer for capacity than its
 	// configured capacityWaitSeconds budget.
 	ReasonCapacityTimeout = "CapacityTimeout"
+
+	// ReasonAdmissionRejected: the API server refused to create the Job -- a
+	// policy, Pod Security or schema said no. Terminal, and reported to the
+	// caller: the same Job is refused the same way on every retry.
+	ReasonAdmissionRejected = "AdmissionRejected"
 )
 
 // +kubebuilder:object:root=true
