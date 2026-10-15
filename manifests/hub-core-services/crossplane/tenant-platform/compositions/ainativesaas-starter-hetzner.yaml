@@ -274,8 +274,16 @@ spec:
                 tenant-id: ""
             spec:
               type: ClusterIP
+              # app-id with the component: a cache pod of another name in this
+              # namespace (a leftover of a rename) must never join this Service.
+              # On 2026-10-15 nutgraf-waypoint-cache, orphaned by the ADR-088
+              # rename, sat behind waypoint-cache: two independent Redis servers
+              # behind one address, each connection landing on either. The SDK
+              # published to one and browsers subscribed on the other, so
+              # wake-ups were lost at random.
               selector:
                 app.kubernetes.io/component: cache
+                app-id: ""
               ports:
               - {name: redis, port: 6379, targetPort: 6379, protocol: TCP}
               - {name: redis-tls, port: 6380, targetPort: 6380, protocol: TCP}
@@ -287,6 +295,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.scopeId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.selector.app-id"}
 
   - name: cache-deployment
     base:
@@ -307,13 +316,16 @@ spec:
                 tenant-id: ""
             spec:
               replicas: 1
+              # app-id, as the Service's selector (see cache-service).
               selector:
                 matchLabels:
                   app.kubernetes.io/component: cache
+                  app-id: ""
               template:
                 metadata:
                   labels:
                     app.kubernetes.io/component: cache
+                    app-id: ""
                     cost-center: platform
                     tenant-id: ""
                 spec:
@@ -379,6 +391,8 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.scopeId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.spec.template.metadata.labels.tenant-id"}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.selector.matchLabels.app-id"}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.template.metadata.labels.app-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[1].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-tls"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.template.spec.volumes[2].secret.secretName", transforms: [{type: string, string: {fmt: "%s-cache-auth"}}]}
     # The fleet's only inputs.
@@ -408,6 +422,7 @@ spec:
               endpointSelector:
                 matchLabels:
                   app.kubernetes.io/component: cache
+                  app-id: ""
               # DNS out, tenant namespace in. The cache reaches nothing else.
               #
               # Both DNS backends: CoreDNS directly, or the node-local cache
@@ -444,6 +459,7 @@ spec:
     - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: spec.forProvider.manifest.metadata.name, transforms: [{type: string, string: {fmt: "%s-cache"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.scopeId, toFieldPath: spec.forProvider.manifest.metadata.namespace, transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.tenantId, toFieldPath: "spec.forProvider.manifest.metadata.labels.tenant-id"}
+    - {type: FromCompositeFieldPath, fromFieldPath: spec.appId, toFieldPath: "spec.forProvider.manifest.spec.endpointSelector.matchLabels.app-id"}
     - {type: FromCompositeFieldPath, fromFieldPath: spec.scopeId, toFieldPath: "spec.forProvider.manifest.spec.ingress[0].fromEndpoints[0].matchLabels['k8s:io.kubernetes.pod.namespace']", transforms: [{type: string, string: {fmt: "tenant-%s"}}]}
 
   - name: pooler
