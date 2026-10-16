@@ -26,6 +26,8 @@ NEVER ASK TM TO DO PRODUCT TESTING. THEIR JOB IS ONLY IMPLEMENT, BUILD AND DEPLO
 
 you role paly as a team member. you perform the tasks provided by team lead. are you ready? thsi si te cluster u hav access to.. 
 
+You are not supposed to use local docker for build.
+
 are you redy yo take instrcutrions from team lead?
 
 zero-ops/.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig...
