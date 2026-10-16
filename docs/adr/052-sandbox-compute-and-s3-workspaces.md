@@ -14,9 +14,9 @@ live gaps, each stated with its evidence rather than implied: effective
 sandbox egress is any host on 443 (§19.2, replacement control specified in
 §19.3 but not built); the existing policy check passes over that open boundary
 and so must not be read as verification (§19.5); sandbox pods automount a
-ServiceAccount token and the workload container still holds `DATABASE_URL` and
-`WAYPOINT_INTERNAL_TOKEN`, so the single-channel credential contract is not yet
-in force (§19.6); and credentials are stored as plaintext literals in the
+ServiceAccount token and the workload container still holds `DATABASE_URL`
+(`WAYPOINT_INTERNAL_TOKEN` moved to agent-vault on 2026-10-16), so the
+single-channel credential contract is not yet in force (§19.6); and credentials are stored as plaintext literals in the
 `EphemeralJob` CR (§19.6). No tenant-facing confidentiality claim may be made
 until these close. §20 records the CAPI/Kubernetes version floor these
 contracts assume, the requirement that deployed artifacts pin exact versions
@@ -2994,15 +2994,20 @@ a secret store. The operator MUST instead resolve these from a platform-owned
 Secret by reference when it authors the sidecar, and the CR schema MUST NOT
 accept credential literals — unrepresentable beats forbidden, per §4.
 
-**Two credentials cannot use this channel today. Naming them is the point:**
+**Two credentials could not use this channel. Naming them is the point; one is
+now closed:**
 
-- **`WAYPOINT_INTERNAL_TOKEN`** is in the workload container's environment. It
-  *can* move to agent-vault in principle — the SDK is reached over HTTP — but
-  two things block it: agent-vault's `NO_PROXY` deliberately exempts
-  `.svc.cluster.local` and `waypoint-sdk`, so that traffic bypasses the proxy
-  by design, and injection would require agent-vault to set a custom header
-  name (`x-waypoint-internal-token`) rather than the bearer/basic forms it is
-  known to support. Both are tractable; neither is done.
+- **`WAYPOINT_INTERNAL_TOKEN`** — *closed (2026-10-16).* It moved to
+  agent-vault like every other sandbox credential: delivered to the sidecar's
+  Secret (tenant `secrets:` with workload `agent-vault`), registered as a
+  service on the SDK's host with agent-vault's `api-key` auth type and header
+  `x-waypoint-internal-token`, and no longer in the workload's environment.
+  The two blockers this section named are gone: `NO_PROXY` no longer exempts
+  `.svc.cluster.local` or `waypoint-sdk`, and `api-key` sets the custom header.
+  agent-vault refuses private upstreams by default, so it starts with
+  `AGENT_VAULT_ALLOW_PRIVATE_RANGES` when the token is configured; that reaches
+  only registered services (an unmatched host is refused before any dial), and
+  cloud metadata stays blocked.
 - **`DATABASE_URL`** carries a Postgres password into the workload container
   and **cannot** move to agent-vault at all: agent-vault is an HTTP/HTTPS MITM
   proxy and the Postgres wire protocol is not HTTP. There is no version of the

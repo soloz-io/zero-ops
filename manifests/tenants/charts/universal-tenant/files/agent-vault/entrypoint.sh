@@ -21,7 +21,21 @@ export HOME=/shared
 export XDG_DATA_HOME=/shared
 export XDG_CONFIG_HOME=/shared
 
+# Every sandbox calls the SDK, and only through this vault (zero-ops ADR-052
+# §19.6), so its token and address are required.
+if [ -z "$WAYPOINT_INTERNAL_TOKEN" ] || [ -z "$WAYPOINT_SDK_BASE_URL" ]; then
+  echo "FATAL: WAYPOINT_INTERNAL_TOKEN and WAYPOINT_SDK_BASE_URL are required"
+  exit 1
+fi
+# host:port of the SDK, from the address the workload is given.
+SDK_HOST=$(echo "$WAYPOINT_SDK_BASE_URL" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+
+# The SDK is an in-cluster Service, on a private address agent-vault refuses to
+# dial by default. Opening private ranges reaches only hosts with a registered
+# service below (an unmatched host is refused before any dial), so it reaches
+# the SDK and nothing else in the cluster. Cloud metadata stays blocked.
 AGENT_VAULT_MASTER_PASSWORD="$MASTER_PASSWORD" \
+AGENT_VAULT_ALLOW_PRIVATE_RANGES=true \
   /usr/local/bin/agent-vault server \
   --host 0.0.0.0 --port 14321 --mitm-port 14322 &
 SERVER_PID=$!
@@ -80,6 +94,14 @@ if [ -n "$AGENTREGISTRY_RUNPOD_AUTH" ]; then
     http://localhost:14321/v1/credentials >/dev/null 2>&1
 fi
 
+# The SDK's internal token (zero-ops ADR-052 §19.6): injected on the sandbox's
+# calls to the SDK, so the workload never holds it.
+SDK_CRED_BODY='{"vault":"sandbox","credentials":{"WAYPOINT_INTERNAL_TOKEN":"'"$WAYPOINT_INTERNAL_TOKEN"'"}}'
+wget -qO- --post-data="$SDK_CRED_BODY" \
+  --header='Content-Type: application/json' \
+  --header="Authorization: Bearer $TOKEN" \
+  http://localhost:14321/v1/credentials >/dev/null 2>&1
+
 if [ -n "$AI_GATEWAY_API_KEY" ]; then
   AI_GATEWAY_CRED_BODY='{"vault":"sandbox","credentials":{"AI_GATEWAY_KEY":"'"$AI_GATEWAY_API_KEY"'"}}'
   wget -qO- --post-data="$AI_GATEWAY_CRED_BODY" \
@@ -115,6 +137,11 @@ if [ -n "$AI_GATEWAY_API_KEY" ]; then
     http://localhost:14321/v1/vaults/sandbox/services >/dev/null 2>&1
 fi
 
+wget -qO- --post-data='{"services":[{"name":"waypoint-sdk","host":"'"$SDK_HOST"'","auth":{"type":"api-key","key":"WAYPOINT_INTERNAL_TOKEN","header":"x-waypoint-internal-token"}}]}' \
+  --header='Content-Type: application/json' \
+  --header="Authorization: Bearer $TOKEN" \
+  http://localhost:14321/v1/vaults/sandbox/services >/dev/null 2>&1
+
 AGENT_RESP=$(wget -qO- \
   --post-data='{"name":"sandbox-agent","role":"no-access","vaults":[{"vault_name":"sandbox","vault_role":"proxy"}]}' \
   --header='Content-Type: application/json' \
@@ -134,7 +161,7 @@ PROXY_URL="http://${AGENT_TOKEN}:sandbox@localhost:14322"
 cat > /shared/proxy.env <<ENVEOF
 export HTTPS_PROXY="${PROXY_URL}"
 export HTTP_PROXY="${PROXY_URL}"
-export NO_PROXY="localhost,127.0.0.1,.svc.cluster.local,waypoint-sdk,waypoint-postgres,waypoint-redis,oranger-serve,builder-serve"
+export NO_PROXY="localhost,127.0.0.1,waypoint-postgres,waypoint-redis,oranger-serve,builder-serve"
 export NODE_USE_ENV_PROXY=1
 export OPENCLAW_PROXY_URL="${PROXY_URL}"
 export SSL_CERT_FILE=/shared/agent-vault-ca.pem
