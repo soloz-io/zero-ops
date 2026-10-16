@@ -117,14 +117,13 @@ type ProvisionConfig struct {
 	OIDCIssuerURL string
 	OIDCClientID  string
 
-	// Encryption and KMS select how this box encrypts Secrets at rest.
+	// Encryption selects how this box encrypts Secrets at rest.
 	//
 	// Carried through Day-0 rather than applied afterwards because the provider
 	// configuration is control-plane FILE content: CAPI reads it while the management
 	// cluster is being created, and changing it later replaces the control plane.
 	// Empty Encryption means secretbox, which is what every box has had.
 	Encryption cluster.EncryptionMode
-	KMS        cluster.KMSSettings
 }
 
 // PivotConfig carries state from the orchestrator into Phase 6.

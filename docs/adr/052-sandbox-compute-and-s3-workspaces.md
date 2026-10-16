@@ -1010,16 +1010,20 @@ Both triggers call the identical underlying function — there is one snapshot e
 - **Init container (`workspace-sync restore`).** Runs before the workload container starts. Checks whether the PVC is freshly empty — first-ever provisioning for this `WorkspaceID`, or a genuine delete — and only then reads the workspace's latest manifest, downloads every object it references, and materializes the tree verbatim. On an ordinary reattach (idle-timeout recreate, crash restart) the PVC already has the data and this is a no-op, exiting immediately.
 - **Restore-to-a-specific-checkpoint** (not just latest) is the same operation parameterized by `checkpoint_id` instead of "latest" — this is what a user-initiated "undo to checkpoint-002" resolves to (see waypoint ADR-036 §10 for the caller-side flow and the checkpoint-history record this populates).
 - **Teardown snapshot is taken in-pod, on SIGTERM, by the sidecar itself** — see §14.1. It is a graceful-shutdown optimization, not the durability mechanism.
-- **S3 credential.** Provisioned into the sidecar's env from the FLEET's own app
-Secret — the same one its SDK binds S3 from, named by the fleet registry
-(`tenants/<fleet>/workloads/base/sdk/rollout-patch.yaml`) and rendered into the
-tenant namespace by an ExternalSecret from Infisical (ADR-003, ADR-047 Tier 2).
+- **S3 credential.** Provisioned into the sidecar's env from the FLEET's own
+objects — the same two its SDK reads S3 from, rendered into the tenant namespace
+by an ExternalSecret from Infisical (ADR-003, ADR-047 Tier 2): the Secret
+`<appId>-sdk-secrets` (`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`) and the
+ConfigMap `<appId>-config` (`S3_ENDPOINT_URL`, `S3_BUCKET_NAME`, `S3_REGION`).
 
-The operator holds a **template**, not a name: `WORKSPACE_SYNC_SECRET` defaults
-to `{namespace}-app-secrets`, expanded with the EphemeralJob's own namespace at
-reconcile. The tenant namespace is the fleet id (registries render workloads
-into `namespace: {TENANT_ID}`), so this resolves to each fleet's own Secret
-while the platform names none.
+The operator holds **templates**, not names: `WORKSPACE_SYNC_SECRET` defaults to
+`{fleetId}-sdk-secrets` and `WORKSPACE_SYNC_CONFIG` to `{fleetId}-config`, where
+`{fleetId}` is the sandbox namespace's `app-id` label, read at reconcile. So each
+resolves to the fleet's own objects while the platform names none. The operator's
+deployment manifest sets neither (a test guards this): an override there once
+pinned `{namespace}-app-secrets`, a Secret no deployed namespace has, and every
+deployed sandbox ran without object storage while local Kind, which created a
+Secret of that name, worked.
 
 That is required, not stylistic. ADR-047's addendum forbids a tenant identifier
 in platform code and preflight enforces it — and a literal name would resolve to

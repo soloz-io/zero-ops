@@ -17,16 +17,12 @@ import (
 
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/platform/escrow"
-	"github.com/soloz-io/zero-ops/internal/platform/kms"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
 )
 
 // EncryptionMode is how a cluster encrypts Secrets at rest.
 //
-// ADR-003 section 6 adopted `secretbox` as the immediate control and named KMS v2 as
-// the target. Both exist here because the target is not finished: ADR-100's status is
-// Proposed with its real-cloud gates open, and a default that required a Google Cloud
-// project would make every bootstrap depend on an unproven path.
+// ADR-003 section 6 adopted `secretbox` as the platform's at-rest encryption mechanism.
 type EncryptionMode string
 
 const (
@@ -34,55 +30,7 @@ const (
 	// because it exists nowhere else (ADR-076). Protects etcd data, backups and disk
 	// snapshots; does not protect a compromised control-plane node.
 	EncryptionSecretbox EncryptionMode = "secretbox"
-
-	// EncryptionKMSv2 wraps data encryption keys with a non-exportable key in Google
-	// Cloud KMS (ADR-100). Closes the compromised-node exposure, and adds the key
-	// authority to the availability boundary of a cold read.
-	EncryptionKMSv2 EncryptionMode = "kms-v2"
 )
-
-// KMSSettings is where the external key lives.
-//
-// The key NAME is not here: it is derived from the cluster name by
-// kms.KeyIDFor, in one place, because two derivations would provision a cluster
-// against one key and bootstrap it against another -- and the second would be created
-// empty, so nothing would fail until a restore.
-type KMSSettings struct {
-	ProjectID     string
-	ProjectNumber string
-	Location      string
-	KeyRing       string
-
-	// ProviderName appears in the stored prefix as k8s:enc:kms:v2:<name>: and is what
-	// proves the provider is in force.
-	ProviderName string
-	// SocketPath must match the plugin static pod's --socket.
-	SocketPath string
-	// Timeout bounds how long a Secret operation may block on the key authority.
-	Timeout string
-	// NoPlaintextFallback drops the `identity` provider. Never at Day-0: see the
-	// template.
-	NoPlaintextFallback bool
-}
-
-func (k KMSSettings) withDefaults() KMSSettings {
-	if k.Location == "" {
-		k.Location = "europe-west3"
-	}
-	if k.KeyRing == "" {
-		k.KeyRing = "soloz-etcd"
-	}
-	if k.ProviderName == "" {
-		k.ProviderName = "soloz-kms"
-	}
-	if k.SocketPath == "" {
-		k.SocketPath = "/var/run/kms/soloz-kms.sock"
-	}
-	if k.Timeout == "" {
-		k.Timeout = "3s"
-	}
-	return k
-}
 
 // Config holds cluster configuration
 type Config struct {
@@ -106,16 +54,8 @@ type Config struct {
 	ControlPlaneSchedulable bool
 
 	// Encryption selects how this cluster encrypts Secrets at rest.
-	//
-	// EncryptionSecretbox is the default and stays the default while ADR-100's
-	// completion gates are open. The two are not interchangeable at runtime: the
-	// stored prefix differs, so switching mode on an existing cluster is a migration
-	// with a verification step, not a flag change.
+	// EncryptionSecretbox is the default (ADR-003 §6).
 	Encryption EncryptionMode
-
-	// KMS configures the external key authority, and is read only when Encryption is
-	// EncryptionKMSv2.
-	KMS KMSSettings
 
 	// GitopsDir is a checkout of the tenant's own repository, when Day-0 is
 	// running from one (ADR-072). Empty for the platform's own box.
@@ -236,17 +176,6 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 	}
 
 	// Generate and apply Cluster resource
-	if p.Config.Encryption == EncryptionKMSv2 {
-		pre := &KMSPreconditions{
-			ClusterName: p.Config.ClusterName,
-			Namespace:   p.Config.Namespace,
-			KMSConfig:   p.Config.KMS.withDefaults(),
-			Kubeconfig:  p.Kubeconfig,
-		}
-		if err := pre.Assert(ctx); err != nil {
-			return fmt.Errorf("precondition failed before applyCluster: %w", err)
-		}
-	}
 	if err := p.applyCluster(ctx); err != nil {
 		return err
 	}
@@ -288,100 +217,19 @@ func (p *Provisioner) applyStdin(ctx context.Context, manifest []byte) error {
 // applyEncryptionConfig creates the Secret the control plane reads its at-rest
 // encryption provider configuration from.
 //
-// TWO MODES, AND THE DEFAULT IS THE PROVEN ONE. `secretbox` (ADR-003 section 6) keeps
-// the key on the control-plane host; `kms-v2` (ADR-100) puts it in Google Cloud KMS and
-// keeps nothing locally. They are not interchangeable after the fact -- the stored
-// prefix differs -- so switching an existing cluster is a migration with a
-// verification step rather than a flag change.
+// `secretbox` (ADR-003 section 6) keeps the key on the control-plane host.
 func (p *Provisioner) applyEncryptionConfig(ctx context.Context) error {
 	if p.Config.ClusterName == "" {
 		return fmt.Errorf("at-rest encryption: no cluster name, so the per-cluster key " +
 			"cannot be identified")
 	}
 	switch p.Config.Encryption {
-	case EncryptionKMSv2:
-		return p.applyKMSEncryptionConfig(ctx)
 	case EncryptionSecretbox, "":
 		return p.applySecretboxEncryptionConfig(ctx)
 	default:
-		return fmt.Errorf("at-rest encryption: unknown mode %q; expected %q or %q",
-			p.Config.Encryption, EncryptionSecretbox, EncryptionKMSv2)
+		return fmt.Errorf("at-rest encryption: unknown mode %q; expected %q",
+			p.Config.Encryption, EncryptionSecretbox)
 	}
-}
-
-// applyKMSEncryptionConfig ensures the external key exists, then points the control
-// plane at the plugin.
-//
-// IT ESCROWS NOTHING, and that is the decision rather than an omission. ADR-076 escrows
-// every root secret that cannot be regenerated; a Cloud KMS key is non-exportable, so a
-// copy outside the key store is not a recovery path -- it is the exposure encryption at
-// rest exists to remove. The secretbox path below escrows because its key exists nowhere
-// else. This one does not because its key exists nowhere here.
-//
-// It therefore also does NOT require an escrow to be configured. The box still needs one
-// for the artefacts that are escrowed -- the kubeconfig, the Zitadel masterkey -- and
-// that is enforced where those are created, not here.
-//
-// THE KEY IS ENSURED, NOT ASSUMED. `soloz kms init` does the same thing and this calls
-// the same code: creating a cloud key by hand is how a rotation period gets forgotten
-// and an IAM binding lands at the project instead of the key. It is idempotent, so a
-// rebuild or a resumed bootstrap confirms the key rather than making a second one.
-func (p *Provisioner) applyKMSEncryptionConfig(ctx context.Context) error {
-	cfg := p.Config.KMS.withDefaults()
-	if cfg.ProjectID == "" {
-		return fmt.Errorf("at-rest encryption: --encryption-mode %s needs a Google project; "+
-			"pass --kms-project or put it in k8-secrets/gcp/project-id", EncryptionKMSv2)
-	}
-
-	client, err := kms.New(ctx, cfg.ProjectID, cfg.ProjectNumber, "")
-	if err != nil {
-		return fmt.Errorf("at-rest encryption: %w", err)
-	}
-	provisioned, err := client.Provision(ctx, kms.ProvisionRequest{
-		Spec: kms.KeySpec{
-			Location: cfg.Location,
-			KeyRing:  cfg.KeyRing,
-			Key:      kms.KeyIDFor(p.Config.ClusterName),
-		},
-		ServiceAccountID: kms.ServiceAccountIDFor(p.Config.ClusterName),
-		// The API may already be enabled and the operator may not hold
-		// serviceusage.services.enable. EnsureAPIEnabled reports the single command to
-		// run in that case rather than failing with a bare 403.
-		SkipAPIEnable: cfg.ProjectNumber == "",
-	})
-	if err != nil {
-		return fmt.Errorf("at-rest encryption: %w", err)
-	}
-
-	rendered, err := renderManifest("secrets/secret-encryption-config-kms.yaml", map[string]any{
-		"SecretName":          assets.EncryptionSecretName(p.Config.ClusterName),
-		"Namespace":           p.Config.Namespace,
-		"ProviderName":        cfg.ProviderName,
-		"SocketPath":          cfg.SocketPath,
-		"Timeout":             cfg.Timeout,
-		"NoPlaintextFallback": cfg.NoPlaintextFallback,
-	})
-	if err != nil {
-		return fmt.Errorf("at-rest encryption: %w", err)
-	}
-	if err := p.applyStdin(ctx, rendered); err != nil {
-		return fmt.Errorf("at-rest encryption: applying the provider configuration: %w", err)
-	}
-
-	fmt.Printf("[provision] at-rest encryption: KMS v2 against %s\n", provisioned.CryptoKey)
-	fmt.Printf("[provision]   identity %s, %s at the key\n",
-		provisioned.ServiceAccount, kms.RoleEncrypterDecrypter)
-	fmt.Println("[provision]   nothing escrowed: the key is non-exportable and a copy " +
-		"outside Cloud KMS would be the exposure (ADR-076)")
-	// STATED, BECAUSE THE FAILURE IS OTHERWISE THREE LAYERS FROM ITS CAUSE. The
-	// provider configuration is only half of it: the control-plane template must also
-	// carry the plugin static pod and its credential, which is ADR-100's completion
-	// gate 3. Without them the API server starts, cannot reach the socket, and reports
-	// a KMS provider that is unhealthy -- which reads as a plugin bug rather than as a
-	// template that was never updated.
-	fmt.Println("[provision]   the control-plane template must carry the plugin static pod " +
-		"and its credential (ADR-100 gate 3)")
-	return nil
 }
 
 // applySecretboxEncryptionConfig is ADR-003 section 6.

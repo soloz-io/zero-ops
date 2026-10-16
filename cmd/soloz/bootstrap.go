@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"context"
-	"github.com/soloz-io/zero-ops/internal/platform/kms"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/bootstrap"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/preflight"
@@ -16,11 +14,7 @@ import (
 )
 
 var (
-	bootstrapEncryption    string
-	bootstrapKMSProject    string
-	bootstrapKMSProjectNum string
-	bootstrapKMSLocation   string
-	bootstrapKMSKeyRing    string
+	bootstrapEncryption string
 )
 
 var (
@@ -227,17 +221,7 @@ sixteen hours behind a run that reported success.`,
 			"on on-prem capacity alone, which then has to be there (ADR-075)")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
 	cmd.Flags().StringVar(&bootstrapEncryption, "encryption-mode", string(cluster.EncryptionSecretbox),
-		"how this box encrypts Secrets at rest: secretbox (ADR-003 §6, the key lives on the "+
-			"control-plane host) or kms-v2 (ADR-100, a non-exportable key in Google Cloud KMS). "+
-			"secretbox is the default while ADR-100's completion gates are open")
-	cmd.Flags().StringVar(&bootstrapKMSProject, "kms-project", "",
-		"Google project holding the key (default: k8-secrets/gcp/project-id)")
-	cmd.Flags().StringVar(&bootstrapKMSProjectNum, "kms-project-number", "",
-		"Google project number, needed only to enable the KMS API "+
-			"(default: k8-secrets/gcp/project-number)")
-	cmd.Flags().StringVar(&bootstrapKMSLocation, "kms-location", "europe-west3",
-		"key location")
-	cmd.Flags().StringVar(&bootstrapKMSKeyRing, "kms-keyring", "soloz-etcd", "key ring id")
+		"how this box encrypts Secrets at rest: secretbox (ADR-003 §6, default)")
 	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 
 	// Hybrid-provider flags (ADR-046 §WS4)
@@ -353,7 +337,7 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	// already provisioned infrastructure it will have to tear down. A resumed
 	// bootstrap skips completed phases, so a check inside the phase is a check that
 	// does not run on the attempt that matters.
-	encryptionMode, kmsSettings, err := resolveEncryptionMode()
+	encryptionMode, err := resolveEncryptionMode()
 	if err != nil {
 		return err
 	}
@@ -450,7 +434,6 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		OIDCIssuerURL:    oidcIssuerURL,
 		OIDCClientID:     oidcClientID,
 		Encryption:       encryptionMode,
-		KMS:              kmsSettings,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {
@@ -460,64 +443,19 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolveEncryptionMode validates --encryption-mode and, for kms-v2, proves the key
-// authority is reachable BEFORE any infrastructure exists.
+// resolveEncryptionMode validates --encryption-mode.
 //
-// WHAT IT CHECKS AND WHAT IT DELIBERATELY DOES NOT. It resolves the project and
-// confirms Application Default Credentials are present and usable -- both local, both
-// instant, and between them they catch the overwhelmingly common failure, which is
-// nobody having run `gcloud auth application-default login`.
-//
-// It does NOT create the key or call Google. Creating belongs in the provisioning
-// phase, where it is checkpointed and idempotent alongside everything else; doing it
-// here would put a cloud mutation in a function whose job is to decide whether to
-// start.
-func resolveEncryptionMode() (cluster.EncryptionMode, cluster.KMSSettings, error) {
+// `secretbox` (ADR-003 §6) is the platform's at-rest encryption mechanism.
+func resolveEncryptionMode() (cluster.EncryptionMode, error) {
 	mode := cluster.EncryptionMode(strings.TrimSpace(bootstrapEncryption))
 	switch mode {
 	case cluster.EncryptionSecretbox, "":
-		return cluster.EncryptionSecretbox, cluster.KMSSettings{}, nil
-	case cluster.EncryptionKMSv2:
-		// fall through
+		return cluster.EncryptionSecretbox, nil
 	default:
-		return "", cluster.KMSSettings{}, fmt.Errorf(
-			"--encryption-mode %q is not a mode; expected %q or %q",
-			bootstrapEncryption, cluster.EncryptionSecretbox, cluster.EncryptionKMSv2)
+		return "", fmt.Errorf(
+			"--encryption-mode %q is not supported; expected %q (ADR-003 §6)",
+			bootstrapEncryption, cluster.EncryptionSecretbox)
 	}
-
-	settings := cluster.KMSSettings{
-		ProjectID:     bootstrapKMSProject,
-		ProjectNumber: bootstrapKMSProjectNum,
-		Location:      bootstrapKMSLocation,
-		KeyRing:       bootstrapKMSKeyRing,
-	}
-	if settings.ProjectID == "" {
-		settings.ProjectID = readTrimmed(filepath.Join("k8-secrets", "gcp", "project-id"))
-	}
-	if settings.ProjectNumber == "" {
-		settings.ProjectNumber = readTrimmed(filepath.Join("k8-secrets", "gcp", "project-number"))
-	}
-	if settings.ProjectID == "" {
-		return "", cluster.KMSSettings{}, fmt.Errorf(
-			"--encryption-mode %s needs a Google project.\n\n"+
-				"Pass --kms-project, or put the id in k8-secrets/gcp/project-id.\n"+
-				"`soloz kms init --cluster <name>` creates the key ring, the key and the "+
-				"plugin's identity in it.", cluster.EncryptionKMSv2)
-	}
-
-	// Credentials, checked now rather than at phase 5. This constructs the client,
-	// which reads ADC; it issues no request.
-	if _, err := kms.New(context.Background(), settings.ProjectID, settings.ProjectNumber, ""); err != nil {
-		return "", cluster.KMSSettings{}, fmt.Errorf(
-			"--encryption-mode %s cannot reach the key authority: %w", cluster.EncryptionKMSv2, err)
-	}
-
-	fmt.Printf("   At-rest encryption: KMS v2, project %s, %s/%s\n",
-		settings.ProjectID, settings.Location, settings.KeyRing)
-	fmt.Println("   The control-plane template must carry the plugin static pod and its")
-	fmt.Println("   credential, which is ADR-100 completion gate 3. Without them the API")
-	fmt.Println("   server starts and reports the KMS provider unhealthy.")
-	return cluster.EncryptionKMSv2, settings, nil
 }
 
 func maskToken(token string) string {

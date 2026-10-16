@@ -3,6 +3,7 @@ archived
 chat-logs
 scratch-pad
 bin
+scratch-pad
 # The built CLI binaries, not the package directory. A bare "hub" also matched
 # cmd/soloz/, so every new source file added there was silently ignored — the file
 # stays untracked, the build keeps working locally, and the change is lost.
@@ -33,6 +34,7 @@ reference-projects
 # by hand. Only packages/auth carries its own today.
 node_modules/
 dist/
+__pycache__
 *.tsbuildinfo
 # Bootstrap runtime state — machine-local, never source of truth.
 #

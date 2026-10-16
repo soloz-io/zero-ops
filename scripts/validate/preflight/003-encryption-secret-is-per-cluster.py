@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
 
-ADR-100 decides one encryption key per cluster, and ADR-076 holds it in the escrow
+ADR-003 §6 adopts one encryption key per cluster, and ADR-076 holds it in the escrow
 under that cluster's id. The key reaches a control plane as a Secret in
 `platform-capi`, named by a ClusterClass's control-plane template -- and a
 ClusterClass is shared by EVERY cluster of its class.
@@ -28,7 +28,7 @@ another. CAPI does not report that as a missing Secret: the control-plane node
 simply never finishes bootstrapping, and the KCP says NodeProvisioning. The two
 halves are checked against each other here because nothing else can.
 
-THREE THINGS ARE ASSERTED:
+FOUR THINGS ARE ASSERTED:
 
   agreement     every ClusterClass patch builds the same name the Go helper does.
   per-cluster   that name interpolates the cluster, rather than being a literal.
@@ -37,6 +37,8 @@ THREE THINGS ARE ASSERTED:
                 failure mode that reads as a missing file rather than a missing
                 delivery -- and once the API server argument lands in v4, it is a
                 control plane that does not start.
+  producer-gap  every per-cluster Secret referenced via contentFrom.secret in any
+                ClusterClass has a named producer helper in internal/assets/embed.go.
 
 Emits tab-separated lines the shell wrapper classifies:
     OK<TAB><message>
@@ -74,8 +76,19 @@ def go_suffix():
     return m.group(1)
 
 
+def go_secret_helpers():
+    """Map of suffix -> function name for all cluster Secret helpers in embed.go."""
+    text = GO_HELPER.read_text(encoding="utf-8")
+    matches = re.findall(
+        r'func\s+([A-Za-z0-9_]+SecretName)\(cluster string\)\s+string\s*\{\s*\n\s*return\s+cluster\s*\+\s*"([^"]+)"',
+        text,
+    )
+    return {suffix: fn for fn, suffix in matches}
+
+
 def main():
     suffix = go_suffix()
+    known_helpers = go_secret_helpers()
     if suffix is None:
         print("BAD\tinternal/assets/embed.go no longer defines EncryptionSecretName as "
               "`cluster + \"<suffix>\"`; this check cannot read the Go half of the name, and the "
@@ -109,13 +122,25 @@ def main():
             continue
         for path in sorted(tree.rglob("*.yaml")):
             text = path.read_text(encoding="utf-8")
+            rel = path.relative_to(ZERO_OPS)
+
             if "kind: ClusterClass" not in text:
                 continue
             classes += 1
-            rel = path.relative_to(ZERO_OPS)
 
             # Completeness: a mount with no delivery.
             mounts = f"mountPath: {ENC_PATH}" in text
+            if not mounts:
+                # Check referenced control-plane template in the same tree
+                cp_refs = re.findall(r'controlPlane:\s*\n\s*ref:\s*\n(?:\s*apiVersion:.*\n)?(?:\s*kind:.*\n)?\s*name:\s*(\S+)', text)
+                for cp_name in cp_refs:
+                    for sibling in tree.rglob("*.yaml"):
+                        stext = sibling.read_text(encoding="utf-8")
+                        if f"name: {cp_name}" in stext and f"mountPath: {ENC_PATH}" in stext:
+                            mounts = True
+                            break
+                    if mounts:
+                        break
             has_patch = f"name: {PATCH_NAME}" in text
             if mounts and not has_patch:
                 findings.append(
@@ -153,7 +178,7 @@ def main():
                         f"BAD\t{rel} builds the Secret name {n!r} without "
                         f"{{{{ .builtin.cluster.name }}}}; a ClusterClass is shared by every "
                         f"cluster of its class, so this is one key for all of them and the first "
-                        f"rotation makes the rest undecryptable (ADR-100)"
+                        f"rotation makes the rest undecryptable (ADR-003 §6)"
                     )
             for n in literal:
                 findings.append(
@@ -161,6 +186,19 @@ def main():
                     f"per cluster and must come from the {PATCH_NAME} patch, not from a template "
                     f"body that every cluster of the class shares"
                 )
+
+            # Producer gap: every per-cluster Secret referenced via contentFrom.secret
+            # in any patch must have a corresponding named producer helper in internal/assets/embed.go.
+            secret_content_refs = re.findall(r'"secret":\s*\{\s*"name":\s*"([^"]+)"', text)
+            secret_content_refs += re.findall(r'secret:\s*\n\s*name:\s*([^\s\n]+)', text)
+            for s in secret_content_refs:
+                if "{{ .builtin.cluster.name }}" in s:
+                    s_suffix = s.replace("{{ .builtin.cluster.name }}", "").strip()
+                    if s_suffix not in known_helpers:
+                        findings.append(
+                            f"BAD\t{rel} references per-cluster Secret {s!r}, but suffix {s_suffix!r} "
+                            f"has no producer helper in internal/assets/embed.go"
+                        )
 
     if classes == 0:
         print("NONE")
@@ -171,7 +209,8 @@ def main():
     if not findings:
         print(
             f"OK\t{classes} ClusterClass(es) deliver a per-cluster encryption Secret, named "
-            f"<cluster>{suffix} on both the Go and the CAPI side"
+            f"<cluster>{suffix} on both the Go and the CAPI side, with "
+            f"Secret producer coverage verified"
         )
     return 0
 

@@ -1,40 +1,41 @@
 #!/usr/bin/env bash
-# Supply this fleet's secrets for the first time, from a local .env file.
+# Supply an application's secrets from a local .env file, by KEY=VALUE.
 #
-#   ./scripts/seed-secrets.sh <environment> [--confirm]
+#   ./scripts/seed-secrets.sh <app> <environment> [--confirm]
 #
-# WHEN YOU RUN THIS
+# THE FILES
 #
-# Once, when a fleet's secrets are first supplied -- or when migrating values
-# that currently live in a seed file. Not per application, and NOT after a
-# rebuild: your secret store's data is backed up outside the box and the keys
-# that decrypt it are escrowed, so a rebuilt cluster restores every secret
-# rather than asking for them again. Re-running this after a rebuild means the
-# escrow or the backup is broken, and that is the thing to fix.
-#
-# For one secret, or to rotate one, use `soloz fleet secrets set` instead. It
-# prompts with echo disabled and touches no file at all, which is the better
-# path whenever you are not handling a whole set at once.
+#   environments/<env>/<app>/.env.example   committed: every key this app
+#                                           declares, empty, with the capability
+#                                           each serves. No values, ever.
+#   environments/<env>/<app>/.env           yours: a copy of the example with
+#                                           the values filled in. Gitignored.
 #
 # WHAT IT DOES
 #
-#   1. Generates environments/<env>/.env holding EXACTLY the keys this fleet
-#      declares, if that file does not exist yet.
-#   2. Shows which of its keys would be written, and writes nothing.
-#   3. With --confirm, writes them.
+#   1. Checks .env.example still lists exactly what the app declares. If the
+#      declaration changed, it stops and says how to regenerate the example.
+#   2. Without .env, copies .env.example to .env (mode 600) and stops, so you
+#      can fill it in.
+#   3. Shows which keys would be written, and writes nothing.
+#   4. With --confirm, writes them.
+#
+# An entry left empty is never written: it would replace a supplied secret
+# with nothing. Re-running with a new value for a key rotates it. For one key,
+# `soloz fleet secrets set <env> <app> <KEY>` prompts with echo disabled and
+# touches no file at all.
 #
 # WHAT IT DOES NOT DO
 #
 # Feed the whole file. Only keys declared under `secrets:` in
-# environments/<env>/values.yaml are written. A seed file usually carries
-# configuration and connection settings alongside the credentials -- those
-# belong in `config:` in that same values.yaml, in git, where they can be
-# reviewed. Writing them here would put configuration back in a secret store.
+# environments/<env>/<app>/values.yaml are written; configuration belongs in
+# `config:` there, in git, where it can be reviewed.
 #
-# The filtering is not implemented here. This script calls the same
-# `soloz fleet secrets` that `status` and `set` use, so there is ONE answer to
-# "which keys does this fleet declare" -- a second implementation in a script
-# is a second answer, and the two disagree the moment either changes.
+# The filtering and the example's content are not implemented here. Both come
+# from `soloz fleet secrets`, the same command `status` and `set` use, so there
+# is ONE answer to "which keys does this app declare" -- a second
+# implementation in a script is a second answer, and the two disagree the
+# moment either changes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,8 +43,9 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 usage() {
   cat >&2 <<EOF
-Usage: $(basename "$0") <environment> [--confirm]
+Usage: $(basename "$0") <app> <environment> [--confirm]
 
+  app           names environments/<env>/<app>/
   environment   names environments/<env>/ in this repository
   --confirm     actually write; without it, nothing is written
 
@@ -52,23 +54,25 @@ EOF
   exit 1
 }
 
-[[ $# -lt 1 || $# -gt 2 ]] && usage
-ENVIRONMENT="$1"
+[[ $# -lt 2 || $# -gt 3 ]] && usage
+APP="$1"
+ENVIRONMENT="$2"
 CONFIRM=""
-if [[ $# -eq 2 ]]; then
-  [[ "$2" == "--confirm" ]] || usage
+if [[ $# -eq 3 ]]; then
+  [[ "$3" == "--confirm" ]] || usage
   CONFIRM="--confirm"
 fi
 
-FLEET_DIR="${REPO_ROOT}/environments/${ENVIRONMENT}"
-ENV_FILE="${FLEET_DIR}/.env"
-# What to call the file when talking to a person: they are standing in the
+APP_DIR="${REPO_ROOT}/environments/${ENVIRONMENT}/${APP}"
+# What to call the files when talking to a person: they are standing in the
 # repository root, not holding an absolute path.
-ENV_FILE_REL="environments/${ENVIRONMENT}/.env"
+APP_DIR_REL="environments/${ENVIRONMENT}/${APP}"
+ENV_FILE="${APP_DIR}/.env"
+EXAMPLE_FILE="${APP_DIR}/.env.example"
 
-[[ -d "$FLEET_DIR" ]] || {
-  echo "No fleet at environments/${ENVIRONMENT}/." >&2
-  echo "The environment names a directory in this repository." >&2
+[[ -d "$APP_DIR" ]] || {
+  echo "No application at ${APP_DIR_REL}/." >&2
+  echo "The environment and app name a directory in this repository." >&2
   exit 1
 }
 command -v soloz >/dev/null || {
@@ -85,20 +89,37 @@ if [[ -z "${KUBECONFIG:-}" ]]; then
   exit 1
 fi
 
-# Generated, not hand-written. Transcribing the declaration into a file by hand
-# is where a typo becomes a key the import silently skips -- an undeclared key
-# and a key you chose not to supply look identical to it.
+# The example is generated, never hand-written: transcribing the declaration
+# by hand is where a typo becomes a key the import silently skips. A stale
+# example is refused rather than used, because a key missing from it is a key
+# nobody is asked for.
+REGENERATE="soloz fleet secrets template ${ENVIRONMENT} ${APP} --repo . > ${APP_DIR_REL}/.env.example"
+if [[ ! -f "$EXAMPLE_FILE" ]]; then
+  echo "${APP_DIR_REL}/.env.example does not exist. Generate and commit it:" >&2
+  echo "  ${REGENERATE}" >&2
+  exit 1
+fi
+# The keys are compared, not the comments: the guidance text may differ by
+# soloz version, the set of keys may not.
+keys() { grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | cut -d= -f1; }
+if ! diff -q <(soloz fleet secrets template "$ENVIRONMENT" "$APP" --repo "$REPO_ROOT" | keys) <(keys < "$EXAMPLE_FILE") >/dev/null; then
+  echo "${APP_DIR_REL}/.env.example no longer matches the secrets ${APP} declares." >&2
+  echo "Regenerate and commit it, then copy any new keys into your .env:" >&2
+  echo "  ${REGENERATE}" >&2
+  exit 1
+fi
+
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Creating ${ENV_FILE_REL} from what this fleet declares..."
-  soloz fleet secrets template "$ENVIRONMENT" --repo "$REPO_ROOT" > "$ENV_FILE"
+  cp "$EXAMPLE_FILE" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
+  echo "Created ${APP_DIR_REL}/.env from .env.example."
   echo ""
-  echo "Fill in the values in that file, then run this again."
+  echo "Fill in the values, then run this again."
   echo "It is gitignored; it must never be committed."
   exit 0
 fi
 
-soloz fleet secrets import "$ENVIRONMENT" \
+soloz fleet secrets import "$ENVIRONMENT" "$APP" \
   --from-env "$ENV_FILE" \
   --repo "$REPO_ROOT" \
   --kubeconfig "$KUBECONFIG" \
@@ -107,8 +128,8 @@ soloz fleet secrets import "$ENVIRONMENT" \
 if [[ -n "$CONFIRM" ]]; then
   echo ""
   echo "Verify, and see anything still outstanding:"
-  echo "  soloz fleet secrets status ${ENVIRONMENT} --repo . --kubeconfig \$KUBECONFIG"
+  echo "  soloz fleet secrets status ${ENVIRONMENT} ${APP} --repo . --kubeconfig \$KUBECONFIG"
   echo ""
-  echo "Then delete ${ENV_FILE_REL} -- its values are now held where the"
-  echo "fleet's declaration says they are, and a copy here is one nothing rotates."
+  echo "Then delete ${APP_DIR_REL}/.env -- its values are now held where the"
+  echo "app's declaration says they are, and a copy here is one nothing rotates."
 fi

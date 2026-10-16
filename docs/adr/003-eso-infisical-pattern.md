@@ -375,22 +375,30 @@ shows plaintext either way, because the API server decrypts on the way out, so
 `kubectl get secret` cannot distinguish an encrypted cluster from an unencrypted one.
 That distinction is why the step exists.
 
-#### What a KMS v2 adoption decides — now ADR-100
+#### A KMS v2 adoption was attempted and is halted — ADR-100
 
-The questions below were open when this section was written and are answered by
-ADR-100, which decides the architecture: one non-exportable key per cluster in an
-instance of the tenant's secret store OUTSIDE every box, a platform-owned
-rotation-aware node-local plugin, no rotation controller, no copy of the key anywhere,
-and the key store accepted into the cluster's availability boundary with a
-failure-injection test required rather than a documented expectation.
+ADR-100 proposed one non-exportable key per cluster in an external key store, reached by
+a node-local plugin. **It is halted (`Deprecated`, 2026-10-15) and is not the platform's
+endpoint.**
 
-`secretbox` remains the current provider and this section remains the control. ADR-100
-is the endpoint, and the two are ordered: the audit finding closes on `secretbox`, and
-adopting ADR-100 is a separate change with its own migration.
+The reason is structural rather than a matter of effort. A key-management provider must
+answer before the API server will serve, because the API server cannot decrypt without
+it. A component that precedes the API server cannot hold a Kubernetes service-account
+token or reference a Secret, because the authority that issues them is the API server.
+The idiomatic federation mechanism is therefore inapplicable, and what remains is a
+long-lived cloud credential rejected on custody grounds or a bootstrap identity the
+platform constructs itself. External assessment returned the same conclusion: for this
+combination the components are individually supported and the bridge between them is
+not.
 
-One thing ADR-100 decides that is worth repeating here, because it is the one place
-this platform's own escrow rule does not apply: **the key is deliberately NOT
-escrowed.** Every other root secret is escrowed because it cannot be regenerated; a
+**`secretbox` is therefore the mechanism, not an interim state**, and this section
+remains the control. ADR-105 records what is deployed. A future revisit would begin by
+relaxing one of ADR-100's constraints rather than by retrying the identity bridge.
+
+One thing ADR-100 reasoned about is worth keeping, although ADR-100 is halted, because
+it concerns escrow rather than the key store: **a key held outside every box would
+deliberately NOT be escrowed.** The `secretbox` key in force today **is** escrowed
+(ADR-076), because it can be lost. The distinction is that Every other root secret is escrowed because it cannot be regenerated; a
 copy of this one outside the key store would be an offline decryption path for every
 backup taken while it was in force, which is the exposure encryption at rest exists to
 remove.
@@ -426,10 +434,11 @@ The provider configuration this platform renders carries exactly one key, so the
 is no state in which both are present, and replacing the single key is precisely the
 "new key against existing data" loss the escrow exists to prevent.
 
-Closing it needs a two-key template and a procedure of its own. It has not been
-built because ADR-100 changes the mechanism: under KMS v2 the key identifier is a
-version and rotation is the plugin's concern rather than a file's. Until one lands,
-**a cluster's key is set once** and a new key means a new cluster.
+Closing it needs a two-key template and a procedure of its own. It was deferred on the
+grounds that a KMS v2 adoption would change the mechanism, making rotation a key
+version rather than a file. **That reason no longer holds: ADR-100 is halted, so
+`secretbox` rotation is the only rotation this platform will have.** The deferral is
+now an open gap rather than a sequencing choice — see ADR-105.
 
 #### Why the box's own secret store cannot be the KMS
 
@@ -444,7 +453,7 @@ anyway:
   node-level static pod with a machine identity. An earlier draft of this section
   claimed there was none and that the platform would have to write the whole bridge;
   that was wrong. What the vendor plugin does not do is key rotation, which it states,
-  and that is the part the platform owns (ADR-100).
+  and that is the part the platform would have owned under ADR-100, now halted.
 - the hardware-backed root key and external key management are licensed features,
   disabled by default. Without them the root key is held by the same box.
 - it is circular on the management cluster and cross-boundary for every workload
@@ -497,8 +506,8 @@ depend on it.
 #### Position
 
 Infisical remains the secret authority. ESO delivers credentials into Kubernetes
-Secrets. Kubernetes Secrets are encrypted at rest with KMS v2 where an external KMS
-is available and `secretbox` where it is not. Secret access is least-privilege and
+Secrets. **Kubernetes Secrets are encrypted at rest with `secretbox`** — not as a
+fallback, but as the platform's mechanism. See ADR-105, which records what is deployed. Secret access is least-privilege and
 tenant-scoped, and tenant isolation rests on namespace scoping. The presence of
 Kubernetes Secrets in etcd is an accepted property of the delivery cache, protected
 by encryption at rest, access control, and encrypted backups.
@@ -543,7 +552,9 @@ This rewrite supersedes the original ADR-003 (ESO-Infisical Integration Pattern)
 - ADR-039: Platform Ownership Model
 - ADR-065: The platform holds no credential belonging to a tenant
 - ADR-076: Reaching a box you own — the escrow, and what it holds
-- ADR-100: The key that encrypts etcd lives outside the box
+- ADR-100: The key that encrypts etcd lives outside the box (**halted**)
+- ADR-105: Encryption of Kubernetes Secrets at rest
+- ADR-104: No key material in node bootstrap material
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-041: Controller Responsibility Matrix
 - ADR-024: Crossplane Password Rotation
