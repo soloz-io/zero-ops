@@ -961,6 +961,9 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, p Placement, container corev1.Container,
 ) corev1.PodSpec {
 	fleetID := r.resolveFleetID(ctx, ej.Namespace)
+	// Here and not in buildWorkloadContainer: the references are named from the
+	// fleet id, which only this function resolves.
+	container.Env = withOutputStorageEnv(ej, container.Env, fleetID)
 	volumes := ej.Spec.Volumes
 	if len(volumes) == 0 {
 		volumes = []corev1.Volume{
