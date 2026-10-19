@@ -430,6 +430,9 @@ var skipDir = map[string]bool{
 	".turbo":       true,
 	"__pycache__":  true,
 	".venv":        true,
+	// The harness's per-turn files (the agents' todo lists): they describe the
+	// run in progress, so a restore must never bring them back.
+	".ephemeral": true,
 }
 
 // hashFile returns the content address of a file. This is the whole basis of

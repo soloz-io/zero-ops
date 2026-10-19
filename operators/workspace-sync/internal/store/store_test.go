@@ -266,7 +266,7 @@ func TestSplitListIgnoresBlanks(t *testing.T) {
 // including node_modules meant ~21k round trips to object storage per save and
 // a 504 at every layer.
 func TestSkipDirCoversTheCostlyTrees(t *testing.T) {
-	for _, d := range []string{"node_modules", ".expo", "dist", "build", "web-build", ".cache"} {
+	for _, d := range []string{"node_modules", ".expo", "dist", "build", "web-build", ".cache", ".ephemeral"} {
 		if !skipDir[d] {
 			t.Errorf("%q is not excluded; it is derived output and re-adds the cost this list exists to avoid", d)
 		}
