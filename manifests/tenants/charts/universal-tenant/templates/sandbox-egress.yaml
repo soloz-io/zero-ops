@@ -1,0 +1,49 @@
+{{- /*
+ADR-106 §1: the external hosts this application's sandboxes may reach.
+
+The platform's agent-sandbox-default-deny gives every sandbox DNS (through the
+proxy that makes names enforceable) and the database pooler, and nothing on the
+internet. This adds exactly the hosts the application declares, by exact name,
+on :443. An undeclared destination is unreachable: there is no wider grant
+anywhere for a sandbox to fall back on.
+
+Exact names only. A wildcard admits every name a third party can create under
+it, and an IP literal bypasses the name the declaration is reviewed by.
+*/}}
+{{- if not .Values.deployXR }}
+{{- $hosts := ((.Values.sandbox | default dict).egress | default dict).hosts | default list }}
+{{- range $hosts }}
+{{- if not (regexMatch "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" .) }}
+{{- fail (printf "sandbox.egress.hosts: %q is not an exact lowercase DNS name (no wildcards, IPs, ports or schemes) -- ADR-106" .) }}
+{{- end }}
+{{- end }}
+{{- if ne (len $hosts) (len (uniq $hosts)) }}
+{{- fail "sandbox.egress.hosts lists a host twice -- ADR-106" }}
+{{- end }}
+{{- if $hosts }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sandbox-egress-declared
+  namespace: {{ include "universal-tenant.namespace" . }}
+  labels:
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: agents.x-k8s.io/sandbox
+        operator: Exists
+  egress:
+    - toFQDNs:
+        {{- range $hosts }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+{{- end }}
+{{- end }}

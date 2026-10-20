@@ -29,3 +29,21 @@ externalDnsTarget: ""
 
 gatewayName: tenant-tls-gateway
 namespace: platform-ops
+
+# ADR-108: session previews, served at <preview>.<domain> on this same :443
+# Gateway -- a second Gateway cannot bind :443 on the host network beside this
+# one (probes/l2-dual-gateway-probe.yaml, probe-c).
+#
+# domain is the environment's preview registrable domain, passed by the
+# environment manager (previewDomain). EMPTY renders nothing: no listener, no
+# certificate, no route. The domain must be delegated to the DNS service the
+# ACME issuer's dns01 solver writes to, and listed in that solver's dnsZones
+# (spoke-catalog/infra/acme-cluster-issuer.yaml), before it is set here.
+preview:
+  domain: ""
+  tlsSecret: preview-wildcard-tls
+  issuer: letsencrypt-prod
+
+# The platform's own domain, passed by the environment manager, so a preview
+# domain inside it is refused at render: it would share the platform's cookies.
+hubDomain: ""

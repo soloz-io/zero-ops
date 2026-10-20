@@ -56,6 +56,10 @@ type EphemeralJobReconciler struct {
 	// provisioning is indistinguishable to the autoscaler from deletion of a
 	// healthy workload and causes the scale-up/scale-down thrash §11 describes.
 	ProvisioningBudget time.Duration
+
+	// NetworkPolicy is how this cluster enforces sandbox network policy
+	// (ADR-106). Stated by the install, never detected: see ParseNetworkPolicyMode.
+	NetworkPolicy NetworkPolicyMode
 }
 
 const (
@@ -105,6 +109,22 @@ const (
 	// times over for containers that idle.
 	defaultSidecarRequestCPU    = "50m"
 	defaultSidecarRequestMemory = "64Mi"
+
+	// ADR-106: the bound a container gets when it states none. A sandbox runs
+	// tenant-authored code, and with requests alone one runaway session could
+	// take a whole node from every other session on it.
+	//
+	// These are DEFAULTS, not a ceiling: a request that states a limit keeps
+	// it, and a limit is never set below the container's own request. No
+	// ceiling is enforced until the heaviest workload (video export) has been
+	// measured -- a ceiling below it would kill that workload, not bound it.
+	defaultLimitCPU              = "4"
+	defaultLimitMemory           = "8Gi"
+	defaultLimitEphemeralStorage = "20Gi"
+
+	defaultSidecarLimitCPU              = "1"
+	defaultSidecarLimitMemory           = "1Gi"
+	defaultSidecarLimitEphemeralStorage = "1Gi"
 )
 
 // callbackHTTP is shared so connections are reused across reconciles rather
@@ -137,6 +157,8 @@ func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callback
 // them, and reclaiming one is the separate reaper's job. Withholding the verb
 // means a bug in the hot path cannot delete a user's workspace.
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get
+// +kubebuilder:rbac:groups=cilium.io,resources=ciliumnetworkpolicies,verbs=get;list;watch;create;update
 
 func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
@@ -198,6 +220,14 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed, reason, msg)
 	}
 
+	// Before any pod exists: a peer's policies must be in place by the time it
+	// can send a packet, or its first connections race the policy.
+	if reason, msg, invalid, err := r.reconcileSessionPeer(ctx, &ej); err != nil {
+		return ctrl.Result{}, err
+	} else if invalid {
+		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed, reason, msg)
+	}
+
 	// Service mode has no Job and no completion. It is a different lifecycle over
 	// the SAME pod description, so it branches here rather than inside every step
 	// below.
@@ -211,6 +241,12 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// a terminal phase through markTerminal, which fires nothing, and a deleted
 	// EphemeralJob is left to garbage collection. Both are caller-initiated, so the
 	// caller already knows.
+	// Both modes, before any pod exists, so a pod's first packet already has
+	// its storage (ADR-106 §1). Sandboxes are Service mode.
+	if err := r.reconcileStorageEgress(ctx, &ej); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if ej.Spec.Mode == computev1alpha1.ModeService {
 		return r.reconcileServiceMode(ctx, &ej)
 	}
@@ -972,6 +1008,7 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 		container.Resources = *ej.Spec.Resources
 	}
 	withRequests(&container, defaultRequestCPU, defaultRequestMemory)
+	withLimits(&container, defaultLimitCPU, defaultLimitMemory, defaultLimitEphemeralStorage)
 	if ej.Spec.ImagePullPolicy != "" {
 		container.ImagePullPolicy = ej.Spec.ImagePullPolicy
 	}
@@ -1188,6 +1225,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars))
 	for _, c := range ej.Spec.Sidecars {
 		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
+		withLimits(&c, defaultSidecarLimitCPU, defaultSidecarLimitMemory, defaultSidecarLimitEphemeralStorage)
 		sidecars = append(sidecars, c)
 	}
 	// Covers the operator's own containers too, both of which are now init
@@ -1196,6 +1234,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	// same way agent-vault did.
 	for i := range spec_initContainers {
 		withRequests(&spec_initContainers[i], defaultSidecarRequestCPU, defaultSidecarRequestMemory)
+		withLimits(&spec_initContainers[i], defaultSidecarLimitCPU, defaultSidecarLimitMemory, defaultSidecarLimitEphemeralStorage)
 	}
 
 	// Never for a job; Always for a service.
@@ -1280,6 +1319,9 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		Volumes:                       volumes,
 		ImagePullSecrets:              ej.Spec.ImagePullSecrets,
 		TerminationGracePeriodSeconds: grace,
+		// ADR-107: nil is the ordinary runtime. The RuntimeClass carries its own
+		// node selector, so a Sandboxed pod lands only where the runtime exists.
+		RuntimeClassName: runtimeClassFor(ej),
 	}
 	return spec
 }
@@ -1378,6 +1420,16 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 
 	pod, err := r.ensurePod(ctx, ej, name, placement)
 	if err != nil {
+		// The same rule as Job mode: a pod the API server refuses -- a
+		// RuntimeClass this cluster does not offer (ADR-107), a quota, a policy --
+		// will be refused on every retry. Retrying forever left the request
+		// Pending with no reason anywhere; it ends now, with the server's own
+		// message, which the lifecycle callback carries to the submitter.
+		if jobRefusedAtAdmission(err) {
+			ej.Status.Message = err.Error()
+			return ctrl.Result{}, r.markFinishedWithReason(ctx, ej, computev1alpha1.PhaseFailed,
+				computev1alpha1.ReasonAdmissionRejected, nil)
+		}
 		return ctrl.Result{}, err
 	}
 	if pod == nil {
@@ -1890,6 +1942,11 @@ func authoredLabels(ej *computev1alpha1.EphemeralJob, own map[string]string) map
 	for k, v := range own {
 		merged[k] = v
 	}
+	// A peer is marked by the operator, so the platform's peer default-deny
+	// selects it whatever the submitter labelled.
+	if ej.Spec.Peer != nil {
+		merged[labelSessionPeer] = "true"
+	}
 	return merged
 }
 
@@ -1931,6 +1988,32 @@ func withRequests(c *corev1.Container, cpu, memory string) {
 	}
 	if _, ok := c.Resources.Requests[corev1.ResourceMemory]; !ok {
 		c.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(memory)
+	}
+}
+
+// withLimits fills in any resource limit a container leaves unset (ADR-106).
+//
+// A stated limit is never overwritten. A default is never placed below the
+// container's own request for that resource -- the API server refuses a pod
+// whose limit is under its request, so a job that asked for more than the
+// default would otherwise never start. In that case the request is the limit.
+func withLimits(c *corev1.Container, cpu, memory, ephemeralStorage string) {
+	if c.Resources.Limits == nil {
+		c.Resources.Limits = corev1.ResourceList{}
+	}
+	for name, def := range map[corev1.ResourceName]string{
+		corev1.ResourceCPU:              cpu,
+		corev1.ResourceMemory:           memory,
+		corev1.ResourceEphemeralStorage: ephemeralStorage,
+	} {
+		if _, ok := c.Resources.Limits[name]; ok {
+			continue
+		}
+		limit := resource.MustParse(def)
+		if req, ok := c.Resources.Requests[name]; ok && req.Cmp(limit) > 0 {
+			limit = req.DeepCopy()
+		}
+		c.Resources.Limits[name] = limit
 	}
 }
 

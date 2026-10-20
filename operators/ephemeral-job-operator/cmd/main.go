@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"time"
 
@@ -48,9 +49,25 @@ func main() {
 	flag.DurationVar(&provisioningBudget, "provisioning-budget", 6*time.Minute,
 		"p95 cold-start budget for the burst placement class; over-budget waits are reported, never deleted.")
 
+	// ADR-106: whether this cluster enforces network policy through Cilium.
+	// REQUIRED, with no default, because both wrong answers are silent: a
+	// default of "cilium" makes a cluster without Cilium fail every storage-
+	// using job on a missing CRD, and a default of "none" leaves a production
+	// cluster's sandboxes without their storage and peer policies. Each install
+	// states it: config/default says cilium; the local profile says none,
+	// because ADR-106 is enforced from dev onward, by agreement with product.
+	var networkPolicy string
+	flag.StringVar(&networkPolicy, "network-policy", "",
+		"How sandbox network policy is enforced: cilium (render CiliumNetworkPolicies) or none (a cluster with no network policy enforcement). Required.")
+
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	mode, err := controller.ParseNetworkPolicyMode(networkPolicy)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -103,6 +120,7 @@ func main() {
 		Scheme:             mgr.GetScheme(),
 		ProvisioningBudget: provisioningBudget,
 		Clientset:          clientset,
+		NetworkPolicy:      mode,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "EphemeralJob")
 		os.Exit(1)

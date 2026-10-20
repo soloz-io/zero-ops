@@ -69,6 +69,12 @@ spec:
               # Cilium gateway Service is ClusterIP under hostNetwork
               # (ADR-046 §8), so with no target nothing is published and every
               # hostname on this Gateway is unreachable.
+              # ADR-108: the preview domain, and the platform's own domain so
+              # the chart can refuse a preview domain inside it.
+              - name: preview.domain
+                value: '{{ .Values.previewDomain }}'
+              - name: hubDomain
+                value: '{{ include "environment-manager.hubDomain" $ }}'
               - name: externalDnsTarget
                 value: '{{"{{"}} (splitList ":" (trimPrefix "https://" .server)) | first {{"}}"}}'
         - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}

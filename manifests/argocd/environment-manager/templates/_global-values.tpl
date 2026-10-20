@@ -99,6 +99,9 @@ global:
   {{- end }}
   provider: {{ $root.Values.provider | quote }}
   hubDomain: {{ include "environment-manager.hubDomain" $root | quote }}
+  {{- /* ADR-108: the registrable domain session previews are served from. The
+         preview-access service refuses to start without it. */}}
+  previewDomain: {{ $root.Values.previewDomain | quote }}
   clusterName: {{ include "environment-manager.clusterName" $root | quote }}
   {{- /*
     The box's own tenant id, for ADR-078 add.1 §7: Alloy stamps `cluster` AND

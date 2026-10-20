@@ -296,6 +296,19 @@ config: {}
 #     workloads: [sdk]
 secrets: []
 
+# ADR-108: session previews on the platform's preview domain.
+#
+# Enabling it routes /_platform/preview-access/ on this app's hostname, behind
+# the app's own login, to the platform's preview-access service: the canvas
+# mints handoff codes and reads preview state there, and implements no auth of
+# its own. Previews themselves are declared as PreviewAccess records by the
+# app's SDK, which needs `previewaccesses` in its workloadRbac.
+#
+# Requires gateway.hostnames: the first hostname is the app's origin, the only
+# origin the codes endpoint accepts and the only one a refusal page posts to.
+previewAccess:
+  enabled: false
+
 # ADR-047 Tier 2: Sandbox capabilities for the fleet.
 sandbox:
   # When true, the platform provisions the `agent-vault-entrypoint` ConfigMap
@@ -304,6 +317,17 @@ sandbox:
   # (spoke-catalog), not rendered per-tenant.
   agentVault:
     enabled: false
+  # ADR-106 §1: the ONLY external hosts this application's sandboxes may reach,
+  # on :443, by exact name. Nothing else outside the cluster is reachable --
+  # not by IP, not by wildcard, not by a name missing here -- and a missing
+  # name fails as a connection timeout in the sandbox, by design. The session's
+  # object storage is NOT listed here: the platform grants it per job, from the
+  # same configuration the job's storage credentials come from.
+  #
+  #   egress:
+  #     hosts: [api.github.com, api.example-model-provider.com]
+  egress:
+    hosts: []
 
 # Burst compute (ADR-052).
 #

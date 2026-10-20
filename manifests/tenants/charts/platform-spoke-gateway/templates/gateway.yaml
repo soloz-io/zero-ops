@@ -70,3 +70,19 @@ spec:
           # platform-ops, so issuance and routing still work.
           from: Same
   {{- end }}
+  {{- if .Values.preview.domain }}
+    # ADR-108: every preview host (templates/preview.yaml).
+    - name: preview
+      protocol: HTTPS
+      port: 443
+      hostname: {{ printf "*.%s" .Values.preview.domain | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: {{ .Values.preview.tlsSecret }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+  {{- end }}

@@ -1,0 +1,106 @@
+# ADR-108: the preview-access service. Same image as the operator (both
+# kustomizations are pinned to one digest by CI); see cmd/preview-access.
+#
+# ONE replica, Recreate: handoff codes are single-use and held in memory, so a
+# second replica could redeem one code twice. If it is down, previews are down
+# and nothing else is: it fails closed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-access
+  namespace: platform-ops
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: preview-access
+  namespace: platform-ops
+  labels:
+    app: preview-access
+    cost-center: platform
+    workload-class: controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: preview-access
+  template:
+    metadata:
+      labels:
+        app: preview-access
+    spec:
+      serviceAccountName: preview-access
+      nodeSelector:
+        workload-location: on-prem
+        node-role.kubernetes.io/worker: ""
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: preview-access
+          image: ephemeral-job-operator
+          command: ["/preview-access"]
+          # The ORDER of env is a contract: the issuer, keys and domain are
+          # substituted per environment by index (env[1..3]) in
+          # spoke-catalog/templated-fields.yaml and the spoke-catalog
+          # ApplicationSet's kustomize patches. Append; never insert.
+          env:
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            # The platform's issuer; per environment via templated-fields.yaml.
+            - name: OIDC_ISSUER
+              value: https://id.dev.nutgraf.in
+            - name: OIDC_JWKS_URL
+              value: https://id.dev.nutgraf.in/oauth/v2/keys
+            # The preview domain, per environment. REQUIRED: the service
+            # refuses to start without it, naming it.
+            - name: PREVIEW_DOMAIN
+              value: ""
+          ports:
+            - {containerPort: 8080, name: app-api}
+            - {containerPort: 8081, name: previews}
+            - {containerPort: 8082, name: health}
+            - {containerPort: 9443, name: webhook}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8082}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8082}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: webhook-cert
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: "1", memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: webhook-cert
+          secret:
+            secretName: preview-access-webhook-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: preview-access
+  namespace: platform-ops
+  labels:
+    app: preview-access
+spec:
+  selector:
+    app: preview-access
+  ports:
+    - {name: app-api, port: 8080, targetPort: 8080}
+    - {name: previews, port: 8081, targetPort: 8081}
+    - {name: webhook, port: 443, targetPort: 9443}

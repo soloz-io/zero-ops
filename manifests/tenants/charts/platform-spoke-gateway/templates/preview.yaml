@@ -1,0 +1,52 @@
+{{- /*
+ADR-108: every session preview host, *.<preview.domain>, on the shared :443
+Gateway (the listener is added in gateway.yaml), terminated with one wildcard
+certificate and routed to the preview-access service.
+
+preview-access checks every request against its PreviewAccess record and
+proxies to the session's sandbox; nothing here routes to a sandbox directly, so
+there is no path to a preview that skips the check.
+*/}}
+{{- with .Values.preview }}
+{{- if .domain }}
+{{- $hub := default "" $.Values.hubDomain }}
+{{- /* Equal, inside, or a parent of the platform's domain: all three share a
+       registrable domain with it. */}}
+{{- if and $hub (or (eq .domain $hub) (hasSuffix (printf ".%s" $hub) .domain) (hasSuffix (printf ".%s" .domain) $hub)) }}
+{{- fail (printf "preview.domain %q must be its own registrable domain, not the platform's (%q): a preview runs untrusted code" .domain $.Values.hubDomain) }}
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: preview-wildcard
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: platform-spoke-gateway
+spec:
+  secretName: {{ .tlsSecret }}
+  issuerRef:
+    name: {{ .issuer }}
+    kind: ClusterIssuer
+  dnsNames:
+    - {{ printf "*.%s" .domain | quote }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: preview-access
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: platform-spoke-gateway
+spec:
+  parentRefs:
+    - name: {{ $.Values.gatewayName }}
+      namespace: {{ $.Values.namespace }}
+      sectionName: preview
+  hostnames:
+    - {{ printf "*.%s" .domain | quote }}
+  rules:
+    - backendRefs:
+        - name: preview-access
+          port: 8081
+{{- end }}
+{{- end }}

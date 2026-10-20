@@ -1,0 +1,20 @@
+# Local Kind profile: the ephemeral-job-operator exactly as config/default
+# ships it, with one stated difference -- this cluster enforces no network
+# policy (kindnet, no Cilium), so the operator renders none (ADR-106 is
+# enforced from dev onward, by agreement with product).
+#
+# The `test` op makes the patch refuse to apply if config/default's argument
+# order ever changes, instead of silently replacing a different argument.
+resources:
+  - ../../../../operators/ephemeral-job-operator/config/default
+patches:
+  - target:
+      kind: Deployment
+      name: ephemeral-job-operator
+    patch: |
+      - op: test
+        path: /spec/template/spec/containers/0/args/1
+        value: --network-policy=cilium
+      - op: replace
+        path: /spec/template/spec/containers/0/args/1
+        value: --network-policy=none

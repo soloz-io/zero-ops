@@ -97,6 +97,11 @@ resources:
   - agent-sandbox/controller.yaml
   # ADR-047: platform-owned default-deny for sandbox pods
   - sandbox-network-policy.yaml
+  # ADR-106 §4: base posture for session peers (renderers)
+  - session-peer-network-policy.yaml
+  # ADR-107: the sandboxed RuntimeClass, its per-node installer and Cilium bypass
+  - sandbox-runtime
+  - sandbox-runtime-cilium.yaml
   # ADR-021/ADR-047: the default-deny anchor for tenant workloads, and their
   # egress to this box's identity endpoints. Provider-neutral since it stopped
   # carrying the hub's address; it was under providers/hybrid/ for that reason
@@ -143,6 +148,9 @@ resources:
   # of truth is the operator's own config/default and CI updates the image
   # digest there. Vendoring would fork it.
   - ../../../../operators/ephemeral-job-operator/config/default
+  # ADR-108: the preview-access service, its own component (needs cert-manager
+  # and Cilium, which this catalogue provides).
+  - ../../../../operators/ephemeral-job-operator/config/preview-access
 
 # ADR-047: single-node spokes run on the control-plane node, which carries the
 # control-plane taint. All platform workloads on the spoke must tolerate it.

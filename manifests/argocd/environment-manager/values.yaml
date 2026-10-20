@@ -60,6 +60,14 @@ instanceRepoURL: ""
 # Day-0 supplies it: scaffolding is given the tenant's domain.
 hubDomain: ""
 
+# ADR-108: the registrable domain session previews are served from, e.g.
+# nutgraf-preview.in. It must NOT be hubDomain or share its registrable domain:
+# a preview runs untrusted code, and a shared registrable domain would let it
+# set and read the platform's cookies. Until it is set, the preview-access
+# service refuses to start (and says why), PreviewAccess creates are refused at
+# admission, and the preview listener is not rendered.
+previewDomain: ""
+
 # Where this box's stateful services run (ADR-046 §11, ADR-075).
 #
 # A placement class is a pair -- a `workload-location` nodeSelector and the

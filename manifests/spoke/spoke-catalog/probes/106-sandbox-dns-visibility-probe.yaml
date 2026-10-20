@@ -1,0 +1,109 @@
+# ADR-106 §1: datapath proof for name-based sandbox egress, run BEFORE rolling it out.
+#
+# It proves, on this spoke's Cilium (v1.17.18, kube-proxy-replacement,
+# node-local-dns through a CiliumLocalRedirectPolicy), that the L7 DNS rule
+# agent-sandbox-default-deny now carries resolves names through the proxy and
+# fills the FQDN cache.
+#
+# The same rule broke DNS for every tenant workload when it was added to the
+# shared tenant-dns-egress.yaml on 2026-09-30. This probe is how the two cases
+# are told apart: one pod, nothing depending on it, the sandbox's exact egress
+# posture (DNS through the proxy, one host by name, no internet grant).
+#
+# The probe pod does NOT carry the sandbox label, so it tests the posture
+# without touching a live session.
+#
+# This file is intentionally NOT referenced by any kustomization.yaml, so ArgoCD
+# never applies it. Apply it, run the checks, delete it, all from this file:
+#
+#   KC=<spoke kubeconfig>
+#   kubectl --kubeconfig $KC apply -f manifests/spoke/spoke-catalog/probes/106-sandbox-dns-visibility-probe.yaml
+#   kubectl --kubeconfig $KC -n adr106-probe wait --for=condition=Ready pod/probe --timeout=120s
+#   # P1  DNS still resolves through the proxy: expect an address, within 2 s
+#   kubectl --kubeconfig $KC -n adr106-probe exec probe -- sh -c 'time nslookup api.github.com'
+#   kubectl --kubeconfig $KC -n adr106-probe exec probe -- nslookup kubernetes.default.svc.cluster.local
+#   # P2  the cache filled: expect api.github.com on the probe pod's node
+#   NODE=$(kubectl --kubeconfig $KC -n adr106-probe get pod probe -o jsonpath='{.spec.nodeName}')
+#   CIL=$(kubectl --kubeconfig $KC -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=$NODE -o name)
+#   kubectl --kubeconfig $KC -n kube-system exec $CIL -c cilium-agent -- cilium-dbg fqdn cache list | grep -i github
+#   # P3  an allowed name connects: expect an HTTP status line
+#   kubectl --kubeconfig $KC -n adr106-probe exec probe -- curl -sS -o /dev/null -w '%{http_code}\n' --max-time 10 https://api.github.com
+#   # P4  any other name is refused: expect a timeout, and NO status code
+#   kubectl --kubeconfig $KC -n adr106-probe exec probe -- curl -sS -o /dev/null -w '%{http_code}\n' --max-time 10 https://example.com
+#   kubectl --kubeconfig $KC delete -f manifests/spoke/spoke-catalog/probes/106-sandbox-dns-visibility-probe.yaml
+#
+# P1 failing (EAI_AGAIN or a ~5 s stall) reproduces the 2026-09-30 breakage. The
+# rollout stops there: find and fix the cause on the datapath. Never restore a
+# wider grant around it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adr106-probe
+  labels:
+    zero-ops.io/probe: adr-106
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: probe-intended-sandbox-egress
+  namespace: adr106-probe
+spec:
+  endpointSelector:
+    matchLabels:
+      zero-ops.io/probe: adr-106
+  egress:
+    # The same two DNS backends as agent-sandbox-default-deny, now with the L7
+    # rule. The proxy allows every query: this is about visibility, not about
+    # filtering names.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: node-local-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toFQDNs:
+        - matchName: "api.github.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+  ingress:
+    - fromEntities:
+        - host
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe
+  namespace: adr106-probe
+  labels:
+    zero-ops.io/probe: adr-106
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: probe
+      image: curlimages/curl:8.11.1
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {cpu: 100m, memory: 64Mi}

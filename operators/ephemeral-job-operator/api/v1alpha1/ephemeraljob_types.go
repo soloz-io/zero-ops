@@ -457,6 +457,58 @@ type EphemeralJobSpec struct {
 	// that can be made incapable of saying so.
 	// +optional
 	WorkspacePersistence *WorkspacePersistenceSpec `json:"workspacePersistence,omitempty"`
+
+	// Isolation selects how strongly the workload is separated from the node
+	// (ADR-107). Empty is the ordinary container runtime. Sandboxed runs every
+	// container of the pod under the platform's sandboxed RuntimeClass: a
+	// user-space kernel between the workload and the host, for code the fleet
+	// does not trust -- an untrusted browser, for instance.
+	//
+	// The pod schedules only onto nodes that offer the runtime. Where none do,
+	// it stays Pending and says so; it is never run without the isolation it
+	// asked for.
+	// +optional
+	// +kubebuilder:validation:Enum=Sandboxed
+	Isolation Isolation `json:"isolation,omitempty"`
+
+	// Peer makes this job a companion of another job in the same session
+	// (ADR-106 §4) -- a renderer that loads the session's app, for instance.
+	//
+	// A peer is contained more tightly than a sandbox, not less: it accepts
+	// connections only from its owning job, reaches only the owning job's app
+	// port, the session's object storage and DNS, and always runs Sandboxed.
+	// The operator renders the network policy for exactly that pair, so no
+	// other session's pods can reach it and it can reach none of them.
+	// +optional
+	Peer *PeerSpec `json:"peer,omitempty"`
+}
+
+// Isolation is the node-isolation level of a job's pod (ADR-107).
+type Isolation string
+
+const (
+	// IsolationSandboxed runs the pod under the sandboxed RuntimeClass.
+	IsolationSandboxed Isolation = "Sandboxed"
+)
+
+// PeerSpec pairs a job with the session job it serves (ADR-106 §4).
+type PeerSpec struct {
+	// JobName is the owning EphemeralJob, in this job's namespace. It must
+	// exist, must not itself be a peer, and must not have finished.
+	// +kubebuilder:validation:MinLength=1
+	JobName string `json:"jobName"`
+
+	// TargetPort is the owning job's app port this peer may reach, over HTTP
+	// and WebSocket. It must be one of the owning job's spec.ports.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	TargetPort int32 `json:"targetPort"`
+
+	// ListenPort is this job's port the owning job may reach -- where it
+	// sends work. It must be one of this job's spec.ports.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	ListenPort int32 `json:"listenPort"`
 }
 
 // WorkspacePersistenceSpec asks for a durable /workspace (ADR-052 §14, §14.2).

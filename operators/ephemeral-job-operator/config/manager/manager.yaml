@@ -49,6 +49,9 @@ spec:
           image: ephemeral-job-operator
           args:
             - --leader-elect
+            # ADR-106: this install enforces sandbox network policy through
+            # Cilium. Required; see cmd/main.go.
+            - --network-policy=cilium
             # ADR-052 §11: measured p95 for this spoke's burst placement class.
             # Reported, never acted on by deletion.
             - --provisioning-budget=6m

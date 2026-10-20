@@ -1,0 +1,21 @@
+# ADR-107 §3: Cilium's socket-LB bypass on every node offering the sandboxed
+# runtime. Separate from sandbox-runtime/ because it is Cilium's: the runtime
+# itself installs on any containerd node (the local Kind profile uses it with
+# kindnet and kube-proxy, which resolve Services per packet already and need no
+# bypass), while this applies only where Cilium's kube-proxy replacement
+# resolves them in connect().
+apiVersion: cilium.io/v2
+kind: CiliumNodeConfig
+metadata:
+  name: sandboxed-runtime-socket-lb-bypass
+  namespace: kube-system
+  annotations:
+    # Cilium's CRDs arrive with Cilium itself, outside ArgoCD. See the same
+    # annotation in sandbox-network-policy.yaml.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  nodeSelector:
+    matchLabels:
+      sandbox.zero-ops.io/runtime: sandboxed
+  defaults:
+    bpf-lb-sock-hostns-only: "true"

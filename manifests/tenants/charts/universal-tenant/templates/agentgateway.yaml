@@ -235,6 +235,29 @@ data:
         # deletes the earlier. Giving both the name "waypoint" is what deleted
         # this /api route: every API call fell through to the SPA backend, which
         # does not answer them, and returned 504 after a 60s timeout.
+{{- if (.Values.previewAccess | default dict).enabled }}
+        # ADR-108: preview handoff codes and preview state, behind this app's
+        # login like /api. The session credential is forwarded as-is so the
+        # service knows WHO is asking; WHICH app is asking it reads from this
+        # gateway pod's address.
+        - name: {{ $t }}-preview-access
+          backends:
+          - host: preview-access.platform-ops.svc.cluster.local:8080
+            policies:
+              backendAuth:
+                passthrough:
+                  location:
+                    header:
+                      name: authorization
+                      prefix: "Bearer "
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          - path:
+              pathPrefix: /_platform/preview-access/
+{{- end }}
         - name: {{ $t }}-api
           backends:
           - host: {{ $bff }}
@@ -881,6 +904,10 @@ spec:
     metadata:
       labels:
         app: {{ $name }}
+        # ADR-108: the preview-access service admits app-API calls from pods
+        # carrying this label only, and reads which application is calling
+        # from the pod's address -- never from anything in the request.
+        zero-ops.io/tenant-gateway: "true"
       annotations:
         # The configuration is rendered into the ConfigMap above, so a change to
         # this tenant's declarations must restart this pod. AgentGateway watches

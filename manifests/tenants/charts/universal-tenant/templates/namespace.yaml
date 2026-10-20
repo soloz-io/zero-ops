@@ -23,3 +23,13 @@ metadata:
     # does not author its namespace.
     compute.nutgraf.in/burst-compute: enabled
 {{- end }}
+{{- if (.Values.previewAccess | default dict).enabled }}
+{{- $origin := first (.Values.gateway.hostnames | default (list "")) }}
+{{- if not $origin }}
+{{- fail "previewAccess.enabled requires gateway.hostnames: the first hostname is the app origin previews are embedded in (ADR-108)" }}
+{{- end }}
+  annotations:
+    # ADR-108: the one origin the preview codes endpoint accepts, and the only
+    # one a preview refusal page posts its state to.
+    preview-access.zero-ops.io/app-origin: {{ printf "https://%s" $origin | quote }}
+{{- end }}

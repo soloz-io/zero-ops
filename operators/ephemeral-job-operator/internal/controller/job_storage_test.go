@@ -32,13 +32,19 @@ func jobTestReconciler(t *testing.T, funcs *interceptor.Funcs, objs ...client.Ob
 		Name:   jobTestNamespace,
 		Labels: map[string]string{"tenant-id": "acme", fleetIDLabel: "waypoint"},
 	}}
-	b := fake.NewClientBuilder().WithScheme(s).WithObjects(append(objs, ns)...).
+	// The fleet ConfigMap every fleet namespace carries: the job's storage
+	// endpoint, and (ADR-106) the host its storage egress is granted to.
+	cfg := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Namespace: jobTestNamespace, Name: resolveWorkspaceSyncConfig(jobTestNamespace, "waypoint")},
+		Data:       map[string]string{"S3_ENDPOINT_URL": "https://objects.example.test"},
+	}
+	b := fake.NewClientBuilder().WithScheme(s).WithObjects(append(objs, ns, cfg)...).
 		WithStatusSubresource(&computev1alpha1.EphemeralJob{})
 	if funcs != nil {
 		b = b.WithInterceptorFuncs(*funcs)
 	}
 	c := b.Build()
-	return &EphemeralJobReconciler{Client: c, Scheme: s, APIReader: c, ProvisioningBudget: 6 * time.Minute}, c
+	return &EphemeralJobReconciler{Client: c, Scheme: s, APIReader: c, ProvisioningBudget: 6 * time.Minute, NetworkPolicy: NetworkPolicyCilium}, c
 }
 
 func jobModeRequest(name string, age time.Duration) *computev1alpha1.EphemeralJob {

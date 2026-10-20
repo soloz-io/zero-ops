@@ -1,0 +1,125 @@
+# ADR-107: the sandboxed runtime, for workloads the fleet does not trust.
+#
+# An EphemeralJob with `isolation: Sandboxed`, and every session peer
+# (ADR-106 §4), runs under RuntimeClass `sandboxed`. That runtime puts a
+# user-space kernel between the workload and the node: gVisor (runsc) on its
+# systrap platform, which needs no hardware virtualisation. That matters here
+# because the hybrid workers are themselves Hyper-V guests. Kata was ruled out
+# for the same reason: it needs nested virtualisation.
+#
+# OPT-IN PER NODE, BY ONE LABEL:
+#
+#   kubectl label node <node> sandbox.zero-ops.io/runtime=sandboxed
+#
+# That label does three things, all keyed on it:
+#   1. the installer DaemonSet below runs on the node and installs the runtime;
+#   2. on Cilium clusters, ../sandbox-runtime-cilium.yaml turns on the
+#      socket-LB bypass gVisor pods need, on that node only;
+#   3. the RuntimeClass schedules sandboxed pods onto the node, and only there.
+# With no node labelled, a sandboxed pod stays Pending and says why. It never
+# runs without the isolation it asked for.
+#
+# THE CILIUM CHANGE IS THE RISKY PART, which is why it is per node.
+# Under kube-proxy replacement, Cilium resolves Service addresses in the
+# connect() syscall hook. A gVisor pod's connect() never reaches the host
+# kernel, because its network stack runs inside the sandbox. So that pod's
+# Service traffic (DNS included) would leave unresolved. Cilium's fix is
+# bpf-lb-sock-hostns-only, which does the lookup per packet at the pod's
+# interface for pods instead (v1.17.18,
+# Documentation/network/kubernetes/kubeproxy-free.rst:793-799).
+#
+# The flag applies to EVERY pod on the node, not just gVisor pods, and this
+# repo records a policy that broke on the hub when Service translation moved
+# (hub-core-services/database/network-policy.yaml). So the rollout is:
+#   - label ONE node;
+#   - delete that node's cilium pod: a CiliumNodeConfig takes effect only when
+#     the agent restarts (per-node-config.rst);
+#   - run scripts/validate/cluster/107-sandbox-runtime.sh;
+#   - run the tenant smoke checks on that node before labelling another.
+# Unlabelling a node and restarting its cilium pod reverts it.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: sandboxed
+handler: runsc
+scheduling:
+  nodeSelector:
+    sandbox.zero-ops.io/runtime: sandboxed
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sandboxed-runtime-installer
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: sandboxed-runtime-installer
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sandboxed-runtime-installer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sandboxed-runtime-installer
+    spec:
+      nodeSelector:
+        sandbox.zero-ops.io/runtime: sandboxed
+      # hostPID so /proc shows the host's containerd, whose --config is read
+      # below. Without it the installer could edit a file containerd does not
+      # load, and report success.
+      hostPID: true
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: install
+          image: busybox:1.37.0
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # The config the RUNNING daemon loaded: its --config/-c argument,
+              # or containerd's own compiled-in path when it was started with
+              # none (that is containerd's behaviour, not a guess made here).
+              # No containerd process at all is a node this cannot configure.
+              pid=""
+              for p in /proc/[0-9]*; do
+                if [ "$(cat "$p/comm" 2>/dev/null)" = containerd ]; then pid=${p#/proc/}; break; fi
+              done
+              [ -n "$pid" ] || { echo "no containerd process on this node" >&2; exit 1; }
+              cfg=$(tr '\0' '\n' < "/proc/$pid/cmdline" | sed -n '/^--config$/{n;p;}; /^-c$/{n;p;}; s/^--config=//p' | head -1)
+              [ -n "$cfg" ] || cfg=/etc/containerd/config.toml
+              echo "containerd config: $cfg"
+              CONTAINERD_CONFIG="$cfg" /bin/sh /installer/install.sh
+          volumeMounts:
+            - {name: host, mountPath: /host}
+            - {name: installer, mountPath: /installer}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+      containers:
+        # Holds the pod Ready only while the runtime is still present, so a node
+        # that loses it (a reprovision, an OS update) shows a NotReady installer
+        # rather than sandboxed pods failing to start.
+        - name: verify
+          image: busybox:1.37.0
+          command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+          readinessProbe:
+            exec:
+              # The runsc containerd is configured to use is still there.
+              command: ["/bin/sh", "-c", "b=$(sed -n 's/^binary_name = \"\\(.*\\)\"$/\\1/p' /host/etc/containerd/runsc.toml) && test -n \"$b\" && test -x \"/host$b\""]
+            periodSeconds: 60
+          volumeMounts:
+            - {name: host, mountPath: /host, readOnly: true}
+          resources:
+            requests: {cpu: 1m, memory: 8Mi}
+            limits: {cpu: 10m, memory: 16Mi}
+      volumes:
+        - name: host
+          hostPath: {path: /, type: Directory}
+        - name: installer
+          configMap: {name: sandboxed-runtime-installer}

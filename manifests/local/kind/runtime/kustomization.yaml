@@ -1,0 +1,6 @@
+# Local Kind profile: the sandboxed RuntimeClass (ADR-107) and its installer,
+# the same component the spoke catalogue installs. No Cilium bypass: Kind's
+# kube-proxy resolves Service addresses per packet, which is what gVisor pods
+# need.
+resources:
+  - ../../../spoke/spoke-catalog/infra/sandbox-runtime
