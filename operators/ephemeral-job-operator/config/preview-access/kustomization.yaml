@@ -13,12 +13,14 @@
 # 108-untrusted-preview-origin.sh reports.
 namespace: platform-ops
 resources:
-  - deployment.yaml
-  - preview-access.yaml
+- deployment.yaml
+- preview-access.yaml
 
 # Same image as the operator, pinned by the same CI step (both kustomizations
 # are updated together in .github/workflows/ephemeral-job-operator.yml).
 images:
-- digest: sha256:ea5fb13a7955fac17338ffdcc11e2ce453a80d4a907be1e6369dde1a3f283092
+- digest: sha256:07ff653893476c21422c47d7a4e4b7959a3b87c9132aa0321f999ab27dd8c169
   name: ephemeral-job-operator
   newName: ghcr.io/soloz-io/ephemeral-job-operator
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
