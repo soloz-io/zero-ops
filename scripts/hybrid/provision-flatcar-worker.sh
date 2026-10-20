@@ -769,9 +769,10 @@ EOF
   TMP_DIR=$(mktemp -d /tmp/ignition-gen-XXXXXX)
   trap 'rm -rf "$TMP_DIR"' RETURN
 
-  local NODE_LABELS="workload-location=on-prem,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
+  # ADR-107 §2: opt-in sandboxed runtime label
+  local NODE_LABELS="workload-location=on-prem,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true$([[ "${SANDBOX_RUNTIME:-}" == "true" ]] && echo ",sandbox.zero-ops.io/runtime=sandboxed")"
   if [[ "$CLUSTER_TARGET" == "hub" ]]; then
-    NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
+    NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true$([[ "${SANDBOX_RUNTIME:-}" == "true" ]] && echo ",sandbox.zero-ops.io/runtime=sandboxed")"
   fi
 
   local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64 JOURNAL_B64
