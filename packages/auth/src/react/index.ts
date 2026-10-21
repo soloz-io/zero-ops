@@ -11,12 +11,12 @@
 import {
   createContext,
   createElement,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
 } from "react";
 import { hasUserContext, sharedAuthClient } from "../client/auth-client.js";
 import type { AuthState, AuthTransport, UserIdentity } from "../client/types.js";
@@ -47,7 +47,13 @@ export interface AuthContextValue {
 
 export interface AuthProviderProps {
   children?: ReactNode;
-  /** How the identity endpoint is reached. Same-origin cookie by default. */
+  /**
+   * How the identity endpoint is reached. Same-origin cookie by default.
+   *
+   * Create the transport once (a module-level constant) and pass that same
+   * object everywhere. An inline object is a new transport on every render,
+   * and React StrictMode and hot reload render twice.
+   */
   transport?: AuthTransport;
   /**
    * A fixed identity for LOCAL DEVELOPMENT, used instead of the network.
@@ -96,9 +102,7 @@ export function AuthProvider({
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   const client = useMemo(() => sharedAuthClient(transport), []);
   const [state, setState] = useState<AuthState>(() =>
-    devIdentity
-      ? { status: "authenticated", user: devIdentity, error: null }
-      : client.getState(),
+    devIdentity ? { status: "authenticated", user: devIdentity, error: null } : client.getState(),
   );
 
   const refresh = useCallback(async () => {

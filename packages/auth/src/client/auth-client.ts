@@ -1,4 +1,4 @@
-import { createEventEmitter, type AuthEventListener } from "./events.js";
+import { type AuthEventListener, createEventEmitter } from "./events.js";
 import type { AuthState, AuthTransport, UserIdentity } from "./types.js";
 
 /** Where the aggregation boundary serves the current identity. */
@@ -99,10 +99,7 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     if (next.status === "authenticated" && previous.status !== "authenticated") {
       ended = false;
       events.emit({ event: "signedIn", data: next.user as UserIdentity });
-    } else if (
-      next.status === "unauthenticated" &&
-      previous.status === "authenticated"
-    ) {
+    } else if (next.status === "unauthenticated" && previous.status === "authenticated") {
       // The only transition that means a live session ended on its own.
       ended = true;
       events.emit({ event: "sessionExpired" });
@@ -122,9 +119,7 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     }
 
     try {
-      const headers = transport.authHeaders
-        ? await transport.authHeaders()
-        : undefined;
+      const headers = transport.authHeaders ? await transport.authHeaders() : undefined;
 
       const res = await doFetch(`${base}${IDENTITY_PATH}`, {
         credentials,
@@ -184,6 +179,14 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     }
   }
 
+  function refresh(): Promise<AuthState> {
+    if (inFlight) return inFlight;
+    inFlight = check().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -209,21 +212,15 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
       // may change under it, so it simply re-checks and lets set() decide
       // whether anything happened.
       const id = setInterval(() => {
-        void this.refresh();
+        void refresh();
       }, intervalMs);
       return () => clearInterval(id);
     },
     reportUnauthorized() {
       if (ended || inFlight) return;
-      void this.refresh();
+      void refresh();
     },
-    refresh() {
-      if (inFlight) return inFlight;
-      inFlight = check().finally(() => {
-        inFlight = null;
-      });
-      return inFlight;
-    },
+    refresh,
   };
 }
 
@@ -235,7 +232,11 @@ let sharedTransport: AuthTransport | undefined;
  *
  * The first call creates the instance with `createAuthClient(transport ?? {})`
  * and records the transport. A later call with transport that isn't undefined
- * and isn't the same object reference throws Error("sharedAuthClient: already created with a different transport").
+ * and isn't the same object reference throws an Error.
+ *
+ * Create the transport once (a module-level constant) and pass that same object
+ * everywhere. An inline object is a new transport on every render, and React
+ * StrictMode and hot reload render twice.
  */
 export function sharedAuthClient(transport?: AuthTransport): AuthClient {
   if (!sharedClient) {
@@ -244,7 +245,9 @@ export function sharedAuthClient(transport?: AuthTransport): AuthClient {
     return sharedClient;
   }
   if (transport !== undefined && transport !== sharedTransport) {
-    throw new Error("sharedAuthClient: already created with a different transport");
+    throw new Error(
+      "sharedAuthClient: already created with a different transport. Create the transport once (a module-level constant) and pass that same object everywhere. An inline object is a new transport on every render, and React StrictMode and hot reload render twice.",
+    );
   }
   return sharedClient;
 }

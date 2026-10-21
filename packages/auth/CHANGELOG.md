@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.21.1
+
+### Fixed
+
+- `AuthClient`: methods no longer depend on `this`. `refresh` is a local
+  function inside `createAuthClient`, making bare method references
+  (such as `es.onerror = client.reportUnauthorized`) safe to invoke.
+- `sharedAuthClient`: made the error message actionable when a different
+  transport is supplied, explaining that the transport should be a module-level
+  constant rather than an inline object recreated on every render.
+
+### Changed
+
+- Added Biome linting and formatter configuration (`biome.json`), pinned
+  `@biomejs/biome` at 2.5.15, and enforced `pnpm --filter zero-ops-auth lint` as
+  a CI gate in `.github/workflows/publish-auth.yml`.
+
 ## 0.21.0
 
 ### Added
