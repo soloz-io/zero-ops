@@ -18,7 +18,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createAuthClient, hasUserContext } from "../client/auth-client.js";
+import { hasUserContext, sharedAuthClient } from "../client/auth-client.js";
 import type { AuthState, AuthTransport, UserIdentity } from "../client/types.js";
 
 export type { AuthState, UserIdentity };
@@ -77,6 +77,12 @@ function defaultNavigate(path: string): void {
   (globalThis as unknown as { location: { href: string } }).location.href = path;
 }
 
+/**
+ * Context provider for client authentication state.
+ *
+ * The provider and plain-function helpers (such as `reportUnauthorized`) share
+ * one client instance via `sharedAuthClient(transport)`.
+ */
 export function AuthProvider({
   children,
   transport,
@@ -84,10 +90,11 @@ export function AuthProvider({
   signInPath = "/",
   navigate = defaultNavigate,
 }: AuthProviderProps) {
-  // Created once. The transport is configuration; a new client per render would
-  // drop in-flight checks and listeners.
+  // Created once via sharedAuthClient so the provider and plain-function helpers
+  // (such as reportUnauthorized) share one client instance. The transport is
+  // configuration; a new client per render would drop in-flight checks and listeners.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
-  const client = useMemo(() => createAuthClient(transport), []);
+  const client = useMemo(() => sharedAuthClient(transport), []);
   const [state, setState] = useState<AuthState>(() =>
     devIdentity
       ? { status: "authenticated", user: devIdentity, error: null }

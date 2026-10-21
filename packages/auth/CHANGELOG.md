@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.21.0
+
+### Added
+
+- `reportUnauthorized()`: added to `AuthClient` and exported at module level
+  from `zero-ops-auth/client`. Called on any 401 from an ordinary endpoint and
+  whenever an EventSource closes (ADR-050 amendment 2026-10-21).
+  - An internal `ended` latch in `createAuthClient` prevents redundant refresh
+    calls once `sessionExpired` or `signedOut` has emitted, until `signedIn`
+    resets it.
+- `sharedAuthClient(transport?)`: module-scoped shared client instance. The first
+  call creates the client with `createAuthClient(transport ?? {})` and records
+  the transport; subsequent calls with a different defined transport throw.
+- `AuthProvider`: updated to use `sharedAuthClient(transport)` so the React
+  provider and plain-function helpers share one client instance.
+
 ## 0.20.0
 
 ### Added
