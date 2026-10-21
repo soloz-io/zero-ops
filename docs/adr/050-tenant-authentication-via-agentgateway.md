@@ -135,6 +135,22 @@ using the browser's own `Sec-Fetch-Mode` header:
   branch returns `AuthenticationRequired` before the login flow begins, and
   `proxy/mod.rs` maps that to `401 UNAUTHORIZED`. The tenant gateway image moves to
   v1.6.0 (`universal-tenant/templates/agentgateway.yaml`).
+- **Scope: every route on the protected listener.** The login policy is attached to the
+  `app` listener, so the contract covers every route there, including `/api/*`, the SPA,
+  `/_platform/preview-access/` and SSE streams.
+  - The other binds (the webhook callback, public assets, public routes) run no login
+    policy, so they never start a login and never set its cookies.
+  - Browsers send `Sec-Fetch-Mode`: `fetch` and XHR send `cors` or `same-origin`,
+    `EventSource` sends `cors` (the Fetch spec's request mode for EventSource), WebSocket
+    sends `websocket`, and subresources send `no-cors`.
+- **The one cookie a 401 can carry.** It only arises if session refresh is ever enabled
+  (`clear_refresh_cookie`, `oidc/mod.rs:297,321,358` at `v1.6.0`). When a refresh cookie
+  exists and its refresh fails terminally, the `401` *expires* that cookie (`Max-Age=0`).
+  That removes a cookie and never adds one. Refresh is not enabled, so today a 401 carries
+  no cookie at all.
+- **Requests without `Sec-Fetch-Mode` are treated as navigations** and still get the
+  `302` plus a login-transaction cookie. Every current major browser sends the header;
+  non-browser clients do not, and a non-browser client has no business on this listener.
 - **The application's side.** A `401` from an ordinary endpoint means the session has
   ended. The app responds with a top-level navigation (reloading the current URL is
   enough), and the gateway answers that navigation with the login redirect. An app never
