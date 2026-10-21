@@ -275,7 +275,7 @@ the record, so deleting the record deletes it.
 | Service (one binary, same image as the operator) | `cmd/preview-access`, `internal/previewaccess`: `server.go` (§3, §3a, §4–§6), `cookie.go` (§4), `jwt.go` (§3 identity), `state.go`, `reconciler.go` (§1, §2 status and cardinality, §9), `webhook.go` (§2 admission) |
 | Deployment, RBAC, admission, its own ingress policy: a separate component from the operator (`config/default`), because it needs cert-manager and Cilium | `config/preview-access/` |
 | Public listener `*.<previewDomain>`, wildcard certificate, route | `manifests/tenants/charts/platform-spoke-gateway` (`preview.domain`) |
-| The app-side route, app origin, gateway label and egress | universal-tenant `previewAccess.enabled` |
+| The app-side route, app origin, gateway label | universal-tenant `previewAccess.enabled`. The gateway's egress is not restricted; preview-access admits tenant gateways by label at its own ingress. A policy with an egress section would make the gateway default-deny egress (2026-10-21: it denied waypoint's DNS). |
 | Per-environment issuer and preview domain | environment-manager `previewDomain`; `spoke-catalog/templated-fields.yaml` |
 
 **How the caller is identified.** The service reads **which application** is calling
