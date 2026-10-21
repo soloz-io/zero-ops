@@ -1,5 +1,5 @@
 import { JwtValidator, parseAllowedCallers } from "../jwt/validator.js";
-import { PLATFORM_ENV, requirePlatformEnv, platformEnv, type EnvSource } from "./env.js";
+import { type EnvSource, PLATFORM_ENV, platformEnv, requirePlatformEnv } from "./env.js";
 
 /**
  * Validators configured for the surfaces this platform actually has.

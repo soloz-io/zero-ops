@@ -1,10 +1,5 @@
 import type { TenantClaims } from "../jwt/claims.js";
-import type {
-  ResolveUserOptions,
-  ResolvedUser,
-  SqlExecutor,
-  SqlTransactor,
-} from "./types.js";
+import type { ResolvedUser, ResolveUserOptions, SqlExecutor, SqlTransactor } from "./types.js";
 
 // The issuer this platform runs.
 //

@@ -1,4 +1,4 @@
-import { requirePlatformEnv, type EnvSource } from "./env.js";
+import { type EnvSource, requirePlatformEnv } from "./env.js";
 
 /**
  * A token for calling ANOTHER APPLICATION, with no user in the request (ADR-097).

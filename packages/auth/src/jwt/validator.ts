@@ -1,16 +1,16 @@
 import * as jose from "jose";
-import { JwksCache, type JwksStatus } from "./jwks-cache.js";
-import { type TenantClaims, claimsFromPayload } from "./claims.js";
 import {
-  TokenExpiredError,
-  InvalidIssuerError,
-  InvalidAudienceError,
-  TokenMissingError,
-  TenantMismatchError,
-  IdTokenPresentedError,
-  CallerNotAllowedError,
   AuthError,
+  CallerNotAllowedError,
+  IdTokenPresentedError,
+  InvalidAudienceError,
+  InvalidIssuerError,
+  TenantMismatchError,
+  TokenExpiredError,
+  TokenMissingError,
 } from "../types.js";
+import { claimsFromPayload, type TenantClaims } from "./claims.js";
+import { JwksCache, type JwksStatus } from "./jwks-cache.js";
 
 export interface JwtValidatorOptions {
   /** JWKS endpoint URL */
@@ -255,7 +255,10 @@ export class JwtValidator {
         // records under an empty owner that every later caller would match.
         const appId = this.allowedCallers[claims.azp];
         claims.consumer_app_id = appId === "" ? undefined : appId;
-      } else if (this.allowedAzp.length > 0 && (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))) {
+      } else if (
+        this.allowedAzp.length > 0 &&
+        (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))
+      ) {
         throw new CallerNotAllowedError(claims.azp, this.allowedAzp);
       }
 
@@ -336,7 +339,6 @@ export class JwtValidator {
     }
   }
 }
-
 
 /**
  * Reads one claim out of an unverified token, for error messages only.

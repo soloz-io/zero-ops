@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
-import { PRINCIPAL_KEY, type AuthenticatedPrincipal } from "../index.js";
+import { type AuthenticatedPrincipal, PRINCIPAL_KEY } from "../index.js";
 
 /**
  * The trusted channel between an application's BFF and its own SDK (ADR-057).

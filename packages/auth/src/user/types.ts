@@ -14,10 +14,7 @@ export interface SqlExecutor {
    * Parameters are $1, $2, … — every value below is passed this way rather than
    * interpolated, including the JSON handed to set_config.
    */
-  query<T = Record<string, unknown>>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<T[]>;
+  query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>;
 }
 
 /**

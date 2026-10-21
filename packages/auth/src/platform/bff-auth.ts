@@ -83,7 +83,8 @@ export function bffAuth(opts: BffAuthOptions): BffAuth {
   }
 
   const publicPaths = (opts.publicPaths ?? []).map((p) => p.replace(/\/+$/, ""));
-  const isPublic = (path: string) => publicPaths.some((p) => path === p || path.startsWith(`${p}/`));
+  const isPublic = (path: string) =>
+    publicPaths.some((p) => path === p || path.startsWith(`${p}/`));
 
   if (local) {
     const fallback: AuthenticatedPrincipal = {
@@ -97,7 +98,9 @@ export function bffAuth(opts: BffAuthOptions): BffAuth {
       const p = opts.localPrincipal ?? fallback;
       return typeof p === "function" ? p(c) : p;
     };
-    console.warn(`${switchName}=local: every request is a local stand-in user; no session is validated`);
+    console.warn(
+      `${switchName}=local: every request is a local stand-in user; no session is validated`,
+    );
     return {
       local: true,
       validator: undefined,

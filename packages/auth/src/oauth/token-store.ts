@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type Redis from "ioredis";
 import type { TokenSet } from "../authz/types.js";
 
@@ -132,10 +132,7 @@ export class RedisTokenStore implements TokenStore {
    * The holder stores the rotated token set atomically before releasing the lock.
    * Waiters poll until the lock clears, then read the stored result.
    */
-  async refreshToken(
-    subject: string,
-    refreshFn: () => Promise<TokenSet>,
-  ): Promise<TokenSet> {
+  async refreshToken(subject: string, refreshFn: () => Promise<TokenSet>): Promise<TokenSet> {
     const lockValue = await this.acquireRefreshLock(subject);
 
     if (lockValue) {
@@ -178,10 +175,7 @@ export class RedisTokenStore implements TokenStore {
     return { state, stateHash };
   }
 
-  async resolveFlow(
-    state: string,
-    flowTtlMs?: number,
-  ): Promise<PendingOAuthFlow | undefined> {
+  async resolveFlow(state: string, flowTtlMs?: number): Promise<PendingOAuthFlow | undefined> {
     const raw = await this.redis.get(this.flowKey(state));
     await this.redis.del(this.flowKey(state));
     if (!raw) return undefined;

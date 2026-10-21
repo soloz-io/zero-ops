@@ -23,14 +23,20 @@ export class TokenExpiredError extends AuthError {
 
 export class InvalidIssuerError extends AuthError {
   constructor(expected: string, actual: string) {
-    super({ code: "INVALID_ISSUER", message: `Invalid issuer: expected "${expected}", got "${actual}"` });
+    super({
+      code: "INVALID_ISSUER",
+      message: `Invalid issuer: expected "${expected}", got "${actual}"`,
+    });
     this.name = "InvalidIssuerError";
   }
 }
 
 export class InvalidAudienceError extends AuthError {
   constructor(expected: string, actual: string | string[]) {
-    super({ code: "INVALID_AUDIENCE", message: `Invalid audience: expected "${expected}", got "${JSON.stringify(actual)}"` });
+    super({
+      code: "INVALID_AUDIENCE",
+      message: `Invalid audience: expected "${expected}", got "${JSON.stringify(actual)}"`,
+    });
     this.name = "InvalidAudienceError";
   }
 }
@@ -47,14 +53,20 @@ export class InsufficientScopeError extends AuthError {
 
 export class TenantMismatchError extends AuthError {
   constructor(expected: string, actual: string) {
-    super({ code: "TENANT_MISMATCH", message: `Tenant mismatch: expected "${expected}", got "${actual}"` });
+    super({
+      code: "TENANT_MISMATCH",
+      message: `Tenant mismatch: expected "${expected}", got "${actual}"`,
+    });
     this.name = "TenantMismatchError";
   }
 }
 
 export class RoleDeniedError extends AuthError {
   constructor(required: string[]) {
-    super({ code: "ROLE_DENIED", message: `Role denied: required one of [${required.join(", ")}]` });
+    super({
+      code: "ROLE_DENIED",
+      message: `Role denied: required one of [${required.join(", ")}]`,
+    });
     this.name = "RoleDeniedError";
   }
 }
@@ -79,7 +91,11 @@ export class JwksFetchError extends AuthError {
   readonly status?: number;
 
   constructor(url: string, cause?: unknown, detail?: string, status?: number) {
-    super({ code: "JWKS_FETCH_ERROR", message: `Failed to fetch JWKS from ${url}${detail ? `: ${detail}` : ""}`, cause });
+    super({
+      code: "JWKS_FETCH_ERROR",
+      message: `Failed to fetch JWKS from ${url}${detail ? `: ${detail}` : ""}`,
+      cause,
+    });
     this.name = "JwksFetchError";
     this.status = status;
   }
