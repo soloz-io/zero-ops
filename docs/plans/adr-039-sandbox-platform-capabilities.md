@@ -226,3 +226,26 @@ proposed to the user and waits for consent.
   platform-issued session; locally there is neither.
 - No header-trust bypass will be built. That would be a stub on a security path.
 - Options are with the user: (A) local runs the real path; (B) previews tested in dev only.
+
+## Round 8 (2026-10-20): release 1 rc.155 verified; product values in dev
+
+- `sandbox.egress.hosts` = api.deepseek.com, api.tavily.com, registry.npmjs.org (rendered).
+- A sandbox reaching api.runpod.ai in the 10-22 capture is reported to product as a DEFECT, not added as a host.
+- previewAccess route, app-origin annotation, gateway egress and SDK RBAC are live.
+- Remaining for release 2: the DNS probe (G1). Then the node-2 runtime, then the preview domain.
+
+## Round 9 (2026-10-20): the team member's steps 2, 4 and 8
+
+- **Step 2: PASS** (`43f2e147`): opt-in `SANDBOX_RUNTIME=true` node label at provisioning.
+- **Step 4: G1 STOP.**
+  - With the L7 DNS rule, every lookup from the probe timed out (5 s), cluster names included.
+  - This reproduces the 2026-09-30 failure. Release 2 is held.
+  - Suspected interaction: the DNS proxy (transparent mode) with the `nodelocaldns`
+    CiliumLocalRedirectPolicy (kube-dns → node-local-dns, `skipRedirectFromBackend: false`).
+  - Next: Hubble capture plus an isolating variant that bypasses the redirect (R-DNS).
+- **Step 8: ROLLED BACK**, node-2 healthy (25/25 Ready).
+  - containerd on Flatcar loads `/usr/share/containerd/config.toml`, and `/usr` is read-only.
+  - Side finding: the `/etc/containerd/config.toml` the provisioning script writes is
+    never loaded on these nodes.
+  - Next: establish Flatcar's supported containerd customisation (R-CTD), then fix
+    the installer.

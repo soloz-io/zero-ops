@@ -30,12 +30,8 @@ You are not supposed to use local docker for build.
 
 are you redy yo take instrcutrions from team lead?
 
-zero-ops/.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig...
+Local cluster access: zero-ops/.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig...
 
-zero-ops/docs/adr/100-kms-v2-for-secrets-at-rest.md
-zero-ops/docs/adr/076-reaching-a-box-you-own.md
-
-read and underatnd these ADRs before taking tasks.
 
 ### Others
 -------
