@@ -1,7 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { JwtValidator } from "../jwt/validator.js";
 import type { AuthenticatedPrincipal } from "../authz/types.js";
-import { AuthError, TokenMissingError, InsufficientScopeError } from "../types.js";
+import type { JwtValidator } from "../jwt/validator.js";
+import { AuthError } from "../types.js";
 
 const PRINCIPAL_KEY = "auth:principal" as const;
 
@@ -32,14 +32,17 @@ export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
   const reportDependency =
     opts.onDependencyError ??
     ((err: unknown) => {
-      console.warn("[zero-ops-auth] JWKS unavailable:", err instanceof Error ? err.message : "unknown error");
+      console.warn(
+        "[zero-ops-auth] JWKS unavailable:",
+        err instanceof Error ? err.message : "unknown error",
+      );
     });
 
   return async (c, next) => {
     const headerName = opts.headerName ?? "Authorization";
     const auth = c.req.header(headerName);
 
-    if (!auth || !auth.startsWith("Bearer ")) {
+    if (!auth?.startsWith("Bearer ")) {
       return c.json({ error: "Unauthorized", code: "TOKEN_MISSING" }, 401);
     }
 
@@ -74,7 +77,12 @@ export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
         tenantTier: claims.tenant_tier,
         roles: claims.roles,
         issuer: claims.iss,
-        audience: typeof claims.aud === "string" ? claims.aud : Array.isArray(claims.aud) ? claims.aud[0] : undefined,
+        audience:
+          typeof claims.aud === "string"
+            ? claims.aud
+            : Array.isArray(claims.aud)
+              ? claims.aud[0]
+              : undefined,
       };
 
       c.set(PRINCIPAL_KEY, principal);
@@ -86,7 +94,11 @@ export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
         if (err.code === "JWKS_FETCH_ERROR") {
           reportDependency(err);
           return c.json(
-            { error: "Service Unavailable", code: err.code, message: "Credentials cannot be verified right now" },
+            {
+              error: "Service Unavailable",
+              code: err.code,
+              message: "Credentials cannot be verified right now",
+            },
             503,
           );
         }

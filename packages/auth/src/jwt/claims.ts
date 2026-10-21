@@ -110,10 +110,7 @@ const TENANT_NAME_CLAIMS = [
 /** Nested as `{ roleKey: { grantingTenantId: domain } }`. */
 const SCOPED_ROLES_CLAIM = "urn:zitadel:iam:org:project:roles";
 
-function firstString(
-  payload: Record<string, unknown>,
-  names: readonly string[],
-): string {
+function firstString(payload: Record<string, unknown>, names: readonly string[]): string {
   for (const n of names) {
     const v = payload[n];
     if (typeof v === "string" && v) return v;
@@ -135,21 +132,12 @@ function firstString(
  * tenant. Roles are therefore kept only where the nested tenant id equals the
  * tenant this token is scoped to.
  */
-function rolesGrantedInTenant(
-  payload: Record<string, unknown>,
-  tenantId: string,
-): string[] {
+function rolesGrantedInTenant(payload: Record<string, unknown>, tenantId: string): string[] {
   const raw = payload[SCOPED_ROLES_CLAIM];
   if (!raw || typeof raw !== "object" || !tenantId) return [];
   const out: string[] = [];
-  for (const [roleKey, grantedIn] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
-    if (
-      grantedIn &&
-      typeof grantedIn === "object" &&
-      Object.prototype.hasOwnProperty.call(grantedIn, tenantId)
-    ) {
+  for (const [roleKey, grantedIn] of Object.entries(raw as Record<string, unknown>)) {
+    if (grantedIn && typeof grantedIn === "object" && Object.hasOwn(grantedIn, tenantId)) {
       out.push(roleKey);
     }
   }

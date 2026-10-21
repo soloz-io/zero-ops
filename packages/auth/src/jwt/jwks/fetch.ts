@@ -43,7 +43,14 @@ export type FetchOutcome =
 type Attempt =
   | { ok: true; body: string; keys: number }
   | { ok: false; cancelled: true; reason: string }
-  | { ok: false; cancelled?: false; reason: string; status?: number; retryable: boolean; retryAfterMs?: number };
+  | {
+      ok: false;
+      cancelled?: false;
+      reason: string;
+      status?: number;
+      retryable: boolean;
+      retryAfterMs?: number;
+    };
 
 /**
  * One JWKS fetch, attempted up to `fetchAttempts` times.
@@ -56,7 +63,11 @@ type Attempt =
  * `cancelled`, and is not reported: a deployment stopping is not the issuer
  * being unavailable, and ADR-022's dependency metrics must not say it was.
  */
-export async function fetchJwksWithRetry(url: string, init: RequestInit, policy: FetchPolicy): Promise<FetchOutcome> {
+export async function fetchJwksWithRetry(
+  url: string,
+  init: RequestInit,
+  policy: FetchPolicy,
+): Promise<FetchOutcome> {
   const outer = init.signal ?? undefined;
   let attempt = 0;
   for (;;) {
@@ -67,7 +78,14 @@ export async function fetchJwksWithRetry(url: string, init: RequestInit, policy:
 
     const longWait = result.retryAfterMs !== undefined && result.retryAfterMs > policy.retryMaxMs;
     const retrying = result.retryable && !longWait && attempt < policy.fetchAttempts;
-    policy.report({ url, attempt, attempts: policy.fetchAttempts, reason: result.reason, status: result.status, retrying });
+    policy.report({
+      url,
+      attempt,
+      attempts: policy.fetchAttempts,
+      reason: result.reason,
+      status: result.status,
+      retrying,
+    });
 
     if (!retrying) {
       return {
@@ -75,7 +93,10 @@ export async function fetchJwksWithRetry(url: string, init: RequestInit, policy:
         reason: result.reason,
         attempt,
         status: result.status,
-        retryAfterUntil: longWait ? Date.now() + result.retryAfterMs! : undefined,
+        retryAfterUntil:
+          result.retryAfterMs !== undefined && longWait
+            ? Date.now() + result.retryAfterMs
+            : undefined,
       };
     }
     const wait =
@@ -117,9 +138,17 @@ async function attemptOnce(
     const res = await fetch(url, { ...init, signal });
     if (res.status !== 200) {
       await res.body?.cancel().catch(() => {});
-      const retryAfterMs = isRetryableStatus(res.status) ? parseRetryAfter(res.headers.get("retry-after")) : undefined;
+      const retryAfterMs = isRetryableStatus(res.status)
+        ? parseRetryAfter(res.headers.get("retry-after"))
+        : undefined;
       const reason = `HTTP ${res.status}${retryAfterMs !== undefined ? `, Retry-After ${Math.ceil(retryAfterMs / 1000)}s` : ""}`;
-      return { ok: false, reason, status: res.status, retryable: isRetryableStatus(res.status), retryAfterMs };
+      return {
+        ok: false,
+        reason,
+        status: res.status,
+        retryable: isRetryableStatus(res.status),
+        retryAfterMs,
+      };
     }
 
     const body = await res.text();
@@ -128,7 +157,12 @@ async function attemptOnce(
       json = JSON.parse(body);
     } catch {
       const type = res.headers.get("content-type") ?? "none";
-      return { ok: false, reason: `response is not JSON (${body.length} bytes, content-type ${type})`, status: 200, retryable: true };
+      return {
+        ok: false,
+        reason: `response is not JSON (${body.length} bytes, content-type ${type})`,
+        status: 200,
+        retryable: true,
+      };
     }
     const keys = await countUsableKeys(json, policy.algorithms);
     if (keys === 0) {
@@ -142,7 +176,8 @@ async function attemptOnce(
     return { ok: true, body, keys };
   } catch (err) {
     const elapsed = Date.now() - started;
-    if (outer?.aborted) return { ok: false, cancelled: true, reason: `cancelled after ${elapsed}ms` };
+    if (outer?.aborted)
+      return { ok: false, cancelled: true, reason: `cancelled after ${elapsed}ms` };
     if (timeout.aborted) {
       return {
         ok: false,

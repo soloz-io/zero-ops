@@ -43,6 +43,9 @@ jobs:
       - name: Test
         working-directory: packages/auth
         run: pnpm test
+      - name: Lint
+        working-directory: packages/auth
+        run: pnpm --filter zero-ops-auth lint
       - name: Build
         working-directory: packages/auth
         run: pnpm build

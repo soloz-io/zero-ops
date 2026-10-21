@@ -1,11 +1,15 @@
 import * as jose from "jose";
 import { JwksFetchError } from "../types.js";
 import { fetchJwksWithRetry, type JwksFetchFailure } from "./jwks/fetch.js";
-import { resolveJwksOptions, type JwksCacheOptions, type ResolvedJwksOptions } from "./jwks/options.js";
+import {
+  type JwksCacheOptions,
+  type ResolvedJwksOptions,
+  resolveJwksOptions,
+} from "./jwks/options.js";
 import { fullJitterDelay } from "./jwks/retry-policy.js";
 
-export type { JwksCacheOptions } from "./jwks/options.js";
 export type { JwksFetchFailure } from "./jwks/fetch.js";
+export type { JwksCacheOptions } from "./jwks/options.js";
 export { fullJitterDelay } from "./jwks/retry-policy.js";
 
 /**
@@ -77,7 +81,8 @@ export class JwksCache {
     // cacheMaxAge is the STALENESS bound, not the refresh period: the background
     // refresh keeps the set younger than that, so a request does not block on a
     // download unless refreshing has been failing for longer than maxStaleMs.
-    const budget = o.fetchAttempts * o.fetchTimeoutMs + (o.fetchAttempts - 1) * o.retryMaxMs + 1_000;
+    const budget =
+      o.fetchAttempts * o.fetchTimeoutMs + (o.fetchAttempts - 1) * o.retryMaxMs + 1_000;
     this.store = jose.createRemoteJWKSet(new URL(o.jwksUrl), {
       timeoutDuration: budget,
       cooldownDuration: o.refreshIntervalMs,
@@ -118,8 +123,14 @@ export class JwksCache {
     const run = new AbortController();
     this.run = run;
     if (options.signal) {
-      if (options.signal.aborted) return this.stop();
-      options.signal.addEventListener("abort", () => this.stopRun(run), { once: true, signal: run.signal });
+      if (options.signal.aborted) {
+        this.stop();
+        return;
+      }
+      options.signal.addEventListener("abort", () => this.stopRun(run), {
+        once: true,
+        signal: run.signal,
+      });
     }
     let failures = 0;
     const tick = async () => {
@@ -130,7 +141,11 @@ export class JwksCache {
         next = this.opts.keyTtlMs * (0.9 + Math.random() * 0.2);
       } catch {
         failures++;
-        const backoff = fullJitterDelay(failures, Math.max(this.opts.retryBaseMs, 1), this.opts.backoffMaxMs);
+        const backoff = fullJitterDelay(
+          failures,
+          Math.max(this.opts.retryBaseMs, 1),
+          this.opts.backoffMaxMs,
+        );
         next = Math.max(backoff, this.retryAfterUntil - Date.now());
       }
       if (run.signal.aborted) return;
@@ -154,7 +169,8 @@ export class JwksCache {
   }
 
   status(): JwksStatus {
-    const fresh = this.lastSuccessAt !== undefined && Date.now() - this.lastSuccessAt < this.opts.maxStaleMs;
+    const fresh =
+      this.lastSuccessAt !== undefined && Date.now() - this.lastSuccessAt < this.opts.maxStaleMs;
     return {
       ready: fresh && this.usableKeys > 0,
       keys: this.usableKeys,
@@ -179,14 +195,22 @@ export class JwksCache {
     }
 
     // A stop cancels a fetch in flight as well as the loop around it.
-    const signal = this.run && init.signal ? AbortSignal.any([init.signal, this.run.signal]) : init.signal;
-    const outcome = await fetchJwksWithRetry(url, { ...init, signal }, { ...this.opts, report: (f) => this.report(f) });
+    const signal =
+      this.run && init.signal ? AbortSignal.any([init.signal, this.run.signal]) : init.signal;
+    const outcome = await fetchJwksWithRetry(
+      url,
+      { ...init, signal },
+      { ...this.opts, report: (f) => this.report(f) },
+    );
     if (outcome.ok) {
       this.usableKeys = outcome.keys;
       this.lastSuccessAt = Date.now();
       this.consecutiveFailures = 0;
       this.lastError = undefined;
-      return new Response(outcome.body, { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(outcome.body, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     }
     // Cancelled is not a failure: status keeps describing the issuer.
     if (outcome.cancelled) throw this.error(outcome.reason, outcome.attempt);
