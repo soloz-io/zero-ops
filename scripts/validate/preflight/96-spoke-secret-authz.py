@@ -102,7 +102,9 @@ rendered = run(["helm", "template", CHART,
                 # box falling back to the platform's own domain would publish
                 # the platform's hostnames (ADR-051, ADR-065).
                 "--set", "hubDomain=example.test",
-                "--set", "global.hubDomain=example.test"],
+                "--set", "global.hubDomain=example.test",
+                "--set", "previewDomain=example-preview.test",
+                "--set", "global.previewDomain=example-preview.test"],
                "environment-manager chart does not render")
 
 appset = next((d for d in yaml.safe_load_all(rendered)

@@ -97,6 +97,7 @@ helm template cell-id-contract "$repo_root/manifests/argocd/environment-manager"
   --set provider=hybrid \
   --set instanceRepoURL=https://github.com/example-org/example-gitops \
   --set hubDomain=dev.example.test \
+  --set previewDomain=example-preview.test \
   --set topology=single \
   --set publicTlsIssuer=letsencrypt-prod \
   --set oidcIssuer=https://auth.example.invalid \

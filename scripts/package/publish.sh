@@ -196,6 +196,7 @@ while read -r env provider; do
         --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
         --set instanceRepoURL=https://github.com/example-org/example-gitops \
         --set hubDomain=dev.example.test \
+        --set previewDomain=example-preview.test \
         --set bundleVersion="$VERSION" \
     | python3 scripts/validate/application-specs.py dist/charts
 done <<EOF

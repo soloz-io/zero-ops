@@ -111,8 +111,11 @@
     - path: [spec, template, spec, containers, 0, args, 1]
       value: '--txt-owner-id={{ .Values.spokeName }}'
     # ADR-108: the preview domain is the one other zone this box writes.
+    # REQUIRED: an empty --domain-filter matches EVERY zone in the DNS
+    # account, so an unset preview domain must fail the render, never widen
+    # what external-dns may write.
     - path: [spec, template, spec, containers, 0, args, 2]
-      value: '--domain-filter={{ .Values.global.previewDomain }}'
+      value: '--domain-filter={{ required "global.previewDomain is required: external-dns would otherwise be given an empty filter, which matches every zone (ADR-108)" .Values.global.previewDomain }}'
 
 - kind: ClusterSecretStore
   name: infisical-backend
@@ -153,7 +156,8 @@
       value:
         - '{{ .Values.global.hubDomain }}'
         # ADR-108: the *.<previewDomain> wildcard is issued by DNS-01 too.
-        - '{{ .Values.global.previewDomain }}'
+        # Required: an empty zone would match every domain.
+        - '{{ required "global.previewDomain is required (ADR-108)" .Values.global.previewDomain }}'
 
 - kind: ClusterIssuer
   name: letsencrypt-staging
@@ -168,7 +172,8 @@
       value:
         - '{{ .Values.global.hubDomain }}'
         # ADR-108: the *.<previewDomain> wildcard is issued by DNS-01 too.
-        - '{{ .Values.global.previewDomain }}'
+        # Required: an empty zone would match every domain.
+        - '{{ required "global.previewDomain is required (ADR-108)" .Values.global.previewDomain }}'
 
 - kind: Gateway
   name: tenant-gateway
