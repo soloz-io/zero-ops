@@ -87,9 +87,17 @@ TMPL
     # Rendered with the values a cluster supplies, because the templated
     # objects need them: rendering without would count zero and delete a
     # chart that is correct.
-    objects=$(helm template "$name" "$chart" \
+    # global.previewDomain is one of them since ADR-108 made it required (an
+    # empty one would widen external-dns to every zone).
+    #
+    # Helm's own error is kept: discarding it reported a missing value as
+    # "renders no objects", which names the symptom and hides the cause.
+    if ! rendered=$(helm template "$name" "$chart" \
         --set spokeName=probe --set global.provider="$prov" \
-        2>/dev/null | grep -c '^kind:' || true)
+        --set global.previewDomain=example-preview.test 2>&1); then
+        echo "$name: does not render: ${rendered}" >&2; rm -rf "$chart"; exit 1
+    fi
+    objects=$(grep -c '^kind:' <<< "$rendered" || true)
     [[ "${objects:-0}" -gt 0 ]] || { echo "$name: renders no objects; refusing" >&2; rm -rf "$chart"; exit 1; }
     echo "packaged $name -> $chart ($objects object(s))"
 done
