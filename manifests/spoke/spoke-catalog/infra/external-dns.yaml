@@ -126,12 +126,16 @@ spec:
           #                             never be able to write prod records.
           #   args[1] --txt-owner-id    TXT registry ownership; two spokes sharing
           #                             an owner id would fight over records.
+          #   args[2] --domain-filter   the box's preview domain (ADR-108): the
+          #                             one other zone it may write, for the
+          #                             *.<previewDomain> listener's record.
           # Note: spoke-catalog is KUSTOMIZE-rendered, not Helm — `{{ .Values.x }}`
           # does NOT resolve here (see certificates.yaml, whose commonName still
           # carries literal braces on the live cluster). Hence index patching.
           args:
             - --domain-filter=PLACEHOLDER
             - --txt-owner-id=PLACEHOLDER
+            - --domain-filter=PLACEHOLDER
             - --source=gateway-httproute
             - --source=gateway-grpcroute
             - --provider=webhook

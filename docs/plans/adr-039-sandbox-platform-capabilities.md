@@ -213,7 +213,7 @@ proposed to the user and waits for consent.
 ## Round 7: product asks for Kind as a target for ADR-107 and ADR-108 (2026-10-20)
 
 **ADR-107 local: BUILT, not yet run.**
-- `manifests/local/kind/{operator,runtime}`, `scripts/local/kind-profile.sh`.
+- `scripts/local/kind/{operator,runtime}` (moved from `manifests/local/kind/` on 2026-10-22), `scripts/local/kind-profile.sh`.
 - The operator gained the required `--network-policy=cilium|none`.
 - Found and fixed: the per-job CiliumNetworkPolicies would have failed every
   storage-using job on Kind (no `cilium.io/v2`).

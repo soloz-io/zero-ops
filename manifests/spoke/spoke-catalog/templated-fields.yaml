@@ -110,6 +110,9 @@
       value: '--domain-filter={{ .Values.global.hubDomain }}'
     - path: [spec, template, spec, containers, 0, args, 1]
       value: '--txt-owner-id={{ .Values.spokeName }}'
+    # ADR-108: the preview domain is the one other zone this box writes.
+    - path: [spec, template, spec, containers, 0, args, 2]
+      value: '--domain-filter={{ .Values.global.previewDomain }}'
 
 - kind: ClusterSecretStore
   name: infisical-backend
@@ -149,6 +152,8 @@
     - path: [spec, acme, solvers, 0, selector, dnsZones]
       value:
         - '{{ .Values.global.hubDomain }}'
+        # ADR-108: the *.<previewDomain> wildcard is issued by DNS-01 too.
+        - '{{ .Values.global.previewDomain }}'
 
 - kind: ClusterIssuer
   name: letsencrypt-staging
@@ -162,6 +167,8 @@
     - path: [spec, acme, solvers, 0, selector, dnsZones]
       value:
         - '{{ .Values.global.hubDomain }}'
+        # ADR-108: the *.<previewDomain> wildcard is issued by DNS-01 too.
+        - '{{ .Values.global.previewDomain }}'
 
 - kind: Gateway
   name: tenant-gateway

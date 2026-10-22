@@ -1,0 +1,6 @@
+# ADR-108: preview-access as every install shares it: ServiceAccount,
+# Deployment, Service and its cluster-wide read RBAC. No mode, no webhook, no
+# network policy: those are the platform layer's (..) or the local profile's.
+resources:
+  - deployment.yaml
+  - rbac.yaml

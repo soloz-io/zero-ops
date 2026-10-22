@@ -85,7 +85,7 @@ in-place edit.
 
 ### 6. Local Kind is a supported target
 
-The same component runs on Kind (`manifests/local/kind/runtime`), installed with
+The same component runs on Kind (`scripts/local/kind/runtime`), installed with
 `scripts/local/kind-profile.sh`. The script:
 
 1. applies the runtime;
@@ -100,7 +100,7 @@ The installer asks a node for only `curl`, `systemctl` and `crictl`. Checksum
 verification and extraction run in its own pinned container, because node images
 differ: the Kind node image has no `bzip2`.
 
-The operator for Kind is `manifests/local/kind/operator`: `config/default` with
+The operator for Kind is `scripts/local/kind/operator`: `config/default` with
 `--network-policy=none`. The flag is required on every install and never detected
 (ADR-106), and Kind enforces no network policy.
 

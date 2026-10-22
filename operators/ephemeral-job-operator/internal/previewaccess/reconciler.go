@@ -40,6 +40,11 @@ type Reconciler struct {
 	// sandbox-side ingress rule.
 	Namespace string
 	PodLabels map[string]string
+
+	// RenderPolicies is whether this cluster enforces network policy through
+	// Cilium (--network-policy=cilium). On a cluster that enforces none there
+	// is no sandbox ingress deny to open, and no CRD to write one to.
+	RenderPolicies bool
 }
 
 var ciliumNetworkPolicyGVK = schema.GroupVersionKind{Group: "cilium.io", Version: "v2", Kind: "CiliumNetworkPolicy"}
@@ -79,8 +84,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	meta.SetStatusCondition(&want.Conditions, cond)
 
-	if err := r.reconcileIngress(ctx, &rec, cond.Status == metav1.ConditionTrue); err != nil {
-		return ctrl.Result{}, err
+	if r.RenderPolicies {
+		if err := r.reconcileIngress(ctx, &rec, cond.Status == metav1.ConditionTrue); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if !equality.Semantic.DeepEqual(&rec.Status, want) {

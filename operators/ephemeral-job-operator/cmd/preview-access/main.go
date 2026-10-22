@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,6 +47,7 @@ import (
 
 	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
 	"github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/internal/previewaccess"
+	"github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/internal/previewaccess/localmode"
 )
 
 const (
@@ -65,52 +67,125 @@ func init() {
 }
 
 func main() {
-	var apiAddr, previewAddr, probeAddr string
-	flag.StringVar(&apiAddr, "api-bind-address", ":8080", "App API (tenant gateways only).")
+	var apiAddr, previewAddr, probeAddr, mode, networkPolicy string
+	flag.StringVar(&apiAddr, "api-bind-address", ":8080", "App API.")
 	flag.StringVar(&previewAddr, "preview-bind-address", ":8081", "Preview hosts.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8082", "Health probes.")
+	// Both REQUIRED, with no default: each wrong default is silent. A default
+	// of "platform" fails on a Kind cluster with nothing saying why; a default
+	// of "local" would serve previews without login. The install states them.
+	flag.StringVar(&mode, "mode", "", "platform (gateway identity, handoff and cookie) or local (Kind-only development mode). Required.")
+	flag.StringVar(&networkPolicy, "network-policy", "", "cilium (render per-preview CiliumNetworkPolicies) or none (a cluster enforcing no network policy). Required.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("preview-access")
 
+	fail := func(err error, msg string, kv ...any) {
+		log.Error(err, msg, kv...)
+		os.Exit(1)
+	}
+	if mode != "platform" && mode != "local" {
+		fail(fmt.Errorf("--mode=%q", mode), "--mode must be platform or local")
+	}
+	if networkPolicy != "cilium" && networkPolicy != "none" {
+		fail(fmt.Errorf("--network-policy=%q", networkPolicy), "--network-policy must be cilium or none")
+	}
+
 	// Required configuration fails startup, by name. A missing issuer cannot
 	// be guessed, and a default here would be right in one environment only.
-	env := func(k string, required bool) string {
+	env := func(k string) string {
 		v := os.Getenv(k)
-		if v == "" && required {
-			log.Error(errors.New("missing"), "required environment variable is not set", "name", k)
-			os.Exit(1)
+		if v == "" {
+			fail(errors.New("missing"), "required environment variable is not set", "name", k)
 		}
 		return v
 	}
-	ns := env("POD_NAMESPACE", true)
-	issuer := env("OIDC_ISSUER", true)
-	jwks := env("OIDC_JWKS_URL", true)
+	ns := env("POD_NAMESPACE")
 	// Required: without a preview domain there is nowhere a preview can be
 	// served from, and serving it from any other domain is the exposure
 	// ADR-108 exists to prevent.
-	domain := env("PREVIEW_DOMAIN", true)
+	domain := env("PREVIEW_DOMAIN")
 
 	// Sandbox pods only: the request path reads a job's pod for its address,
 	// and caching every pod on the cluster would be the operator's whole pod
 	// set in this process's memory for nothing.
 	sandboxPods, _ := labels.NewRequirement("compute.nutgraf.in/ephemeraljob-uid", selection.Exists, nil)
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mopts := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                server.Options{BindAddress: "0"},
 		HealthProbeBindAddress: probeAddr,
-		WebhookServer:          webhook.NewServer(webhook.Options{Port: 9443}),
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
 			&corev1.Pod{}: {Label: labels.NewSelector().Add(*sandboxPods)},
 		}},
-	})
+	}
+	if mode == "platform" {
+		mopts.WebhookServer = webhook.NewServer(webhook.Options{Port: 9443})
+	}
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mopts)
 	if err != nil {
-		log.Error(err, "unable to create manager")
-		os.Exit(1)
+		fail(err, "unable to create manager")
 	}
 
+	index := &previewaccess.Index{Client: mgr.GetClient()}
+	if err := (&previewaccess.Reconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Index: index,
+		Domain: domain, Namespace: ns, PodLabels: map[string]string{"app": "preview-access"},
+		RenderPolicies: networkPolicy == "cilium",
+	}).SetupWithManager(mgr); err != nil {
+		fail(err, "unable to set up the PreviewAccess controller")
+	}
+
+	// The two environment-specific decisions (mechanism.go), chosen here and
+	// nowhere else.
+	var identity previewaccess.Identity
+	var session previewaccess.Session
+	switch mode {
+	case "platform":
+		identity, session = platformMechanisms(mgr, index, ns, log, env("OIDC_ISSUER"), env("OIDC_JWKS_URL"))
+		mgr.GetWebhookServer().Register(previewaccess.PathValidate,
+			&webhook.Admission{Handler: &previewaccess.Admission{Reader: mgr.GetClient()}})
+		_ = mgr.AddReadyzCheck("readyz", mgr.GetWebhookServer().StartedChecker())
+	case "local":
+		cfg, err := localmode.ConfigFromEnv()
+		if err != nil {
+			fail(err, "local mode configuration")
+		}
+		if err := localmode.RequireKind(context.Background(), mgr.GetAPIReader()); err != nil {
+			fail(err, "local mode refused")
+		}
+		identity, session = localmode.Identity{Config: cfg}, localmode.Session{Config: cfg}
+		_ = mgr.AddReadyzCheck("readyz", func(*http.Request) error { return nil })
+		log.Info("LOCAL DEVELOPMENT MODE: no login, no handoff, no preview cookie; Kind cluster confirmed",
+			"namespace", cfg.Namespace, "appOrigin", cfg.AppOrigin, "previewBase", cfg.PreviewBase)
+	}
+
+	srv := &previewaccess.Server{Reader: mgr.GetClient(), Index: index, Identity: identity, Session: session, Log: log}
+	for _, s := range []*http.Server{
+		{Addr: apiAddr, Handler: srv.AppAPI(), ReadHeaderTimeout: 10 * time.Second},
+		// No write timeout: a WebSocket to the dev server is long-lived.
+		{Addr: previewAddr, Handler: srv.Previews(), ReadHeaderTimeout: 10 * time.Second},
+	} {
+		if err := mgr.Add(httpRunnable{s}); err != nil {
+			fail(err, "unable to add server", "addr", s.Addr)
+		}
+	}
+	_ = mgr.AddHealthzCheck("healthz", func(*http.Request) error { return nil })
+
+	log.Info("starting", "mode", mode, "networkPolicy", networkPolicy, "previewDomain", domain)
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		log.Error(err, "manager exited")
+		os.Exit(1)
+	}
+}
+
+// platformMechanisms are the platform's Identity and Session (ADR-108 §3,
+// §4): tenant-gateway callers with a verified session credential, and the
+// single-use handoff with a signed partitioned cookie.
+func platformMechanisms(mgr manager.Manager, index *previewaccess.Index, ns string, log logr.Logger,
+	issuer, jwks string,
+) (previewaccess.Identity, previewaccess.Session) {
 	key, err := signingKey(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), ns)
 	if err != nil {
 		log.Error(err, "preview signing key unavailable")
@@ -121,48 +196,19 @@ func main() {
 		log.Error(err, "preview signing key unusable")
 		os.Exit(1)
 	}
-
-	index := &previewaccess.Index{Client: mgr.GetClient()}
-	selfLabels := map[string]string{"app": "preview-access"}
-	if err := (&previewaccess.Reconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Index: index,
-		Domain: domain, Namespace: ns, PodLabels: selfLabels,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "unable to set up the PreviewAccess controller")
-		os.Exit(1)
-	}
-	mgr.GetWebhookServer().Register(previewaccess.PathValidate,
-		&webhook.Admission{Handler: &previewaccess.Admission{Reader: mgr.GetClient()}})
-
 	callers, err := newGatewayCallers(mgr)
 	if err != nil {
 		log.Error(err, "unable to watch tenant gateway pods")
 		os.Exit(1)
 	}
-
-	srv := &previewaccess.Server{
-		Reader: mgr.GetClient(), Index: index, Codes: &previewaccess.Codes{}, Signer: signer,
+	identity := &previewaccess.GatewayIdentity{
+		Reader:  mgr.GetClient(),
+		Callers: callers,
 		Verify:  &previewaccess.Verifier{Issuer: issuer, JWKSURL: jwks, HTTP: &http.Client{Timeout: 10 * time.Second}},
-		Callers: callers, Log: log,
+		Log:     log,
 	}
-	for _, s := range []*http.Server{
-		{Addr: apiAddr, Handler: srv.AppAPI(), ReadHeaderTimeout: 10 * time.Second},
-		// No write timeout: a WebSocket to the dev server is long-lived.
-		{Addr: previewAddr, Handler: srv.Previews(), ReadHeaderTimeout: 10 * time.Second},
-	} {
-		if err := mgr.Add(httpRunnable{s}); err != nil {
-			log.Error(err, "unable to add server", "addr", s.Addr)
-			os.Exit(1)
-		}
-	}
-	_ = mgr.AddHealthzCheck("healthz", func(*http.Request) error { return nil })
-	_ = mgr.AddReadyzCheck("readyz", mgr.GetWebhookServer().StartedChecker())
-
-	log.Info("starting", "previewDomain", domain, "issuer", issuer)
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		log.Error(err, "manager exited")
-		os.Exit(1)
-	}
+	session := &previewaccess.CookieSession{Index: index, Codes: &previewaccess.Codes{}, Signer: signer, Log: log}
+	return identity, session
 }
 
 // signingKey reads the environment's cookie-signing key, creating it on first

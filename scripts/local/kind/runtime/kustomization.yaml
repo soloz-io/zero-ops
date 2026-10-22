@@ -3,4 +3,4 @@
 # kube-proxy resolves Service addresses per packet, which is what gVisor pods
 # need.
 resources:
-  - ../../../spoke/spoke-catalog/infra/sandbox-runtime
+  - ../../../../manifests/spoke/spoke-catalog/infra/sandbox-runtime

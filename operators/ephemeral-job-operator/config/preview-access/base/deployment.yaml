@@ -1,4 +1,9 @@
-# ADR-108: the preview-access service. Same image as the operator (both
+# ADR-108: the preview-access service, as every install shares it. The
+# platform layer (../kustomization.yaml) adds its mode, the admission webhook
+# and its certificate; the local profile (zero-ops/scripts/local/kind/
+# preview-access) adds local mode instead.
+#
+# The preview-access service. Same image as the operator (both
 # kustomizations are pinned to one digest by CI); see cmd/preview-access.
 #
 # ONE replica, Recreate: handoff codes are single-use and held in memory, so a
@@ -73,10 +78,6 @@ spec:
             httpGet: {path: /readyz, port: 8082}
             initialDelaySeconds: 5
             periodSeconds: 10
-          volumeMounts:
-            - name: webhook-cert
-              mountPath: /tmp/k8s-webhook-server/serving-certs
-              readOnly: true
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {cpu: "1", memory: 256Mi}
@@ -85,10 +86,6 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-      volumes:
-        - name: webhook-cert
-          secret:
-            secretName: preview-access-webhook-tls
 ---
 apiVersion: v1
 kind: Service

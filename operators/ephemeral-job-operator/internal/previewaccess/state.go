@@ -56,14 +56,8 @@ func HostFor(uid types.UID, domain string) string {
 type Index struct {
 	Client client.Reader // the manager's cache
 
-	mu       sync.Mutex
-	redeemed map[redeemKey]time.Time // newest cookie expiry per (record, subject)
-	ended    map[string]endedHost    // tombstones: host -> namespace, for refusal pages
-}
-
-type redeemKey struct {
-	record  types.UID
-	subject string
+	mu    sync.Mutex
+	ended map[string]endedHost // tombstones: host -> namespace, for refusal pages
 }
 
 type endedHost struct {
@@ -72,26 +66,6 @@ type endedHost struct {
 }
 
 const tombstoneTTL = 24 * time.Hour
-
-// noteRedeemed records that subject now holds a cookie for rec until exp.
-func (x *Index) noteRedeemed(rec types.UID, subject string, exp time.Time) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	if x.redeemed == nil {
-		x.redeemed = map[redeemKey]time.Time{}
-	}
-	k := redeemKey{rec, subject}
-	if exp.After(x.redeemed[k]) {
-		x.redeemed[k] = exp
-	}
-}
-
-func (x *Index) redeemedUntil(rec types.UID, subject string) (time.Time, bool) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	t, ok := x.redeemed[redeemKey{rec, subject}]
-	return t, ok
-}
 
 // noteEnded keeps a deleted record's host for a day, so a refusal page for
 // it can still address the app that embedded it.
@@ -170,15 +144,15 @@ func (x *Index) Resolve(ctx context.Context, rec *computev1alpha1.PreviewAccess)
 
 // StateFor is the caller's state for one preview, as the state endpoint
 // answers it (ADR-108 §3a). rec is nil when no such record exists in the
-// caller's namespace.
-func (x *Index) StateFor(ctx context.Context, rec *computev1alpha1.PreviewAccess, subject string) (string, *time.Time, error) {
+// caller's namespace. Whether the caller is admitted, and was ever admitted,
+// is the Session's to say.
+func (x *Index) StateFor(ctx context.Context, rec *computev1alpha1.PreviewAccess, subject string, session Session) (string, *time.Time, error) {
 	now := time.Now()
 	if rec == nil || RecordEnded(rec, now) {
 		return StateEnded, nil, nil
 	}
-	until, redeemed := x.redeemedUntil(rec.UID, subject)
 	if !Allowed(rec, subject) {
-		if redeemed {
+		if session.WasAdmitted(rec, subject) {
 			return StateRevoked, nil, nil
 		}
 		return StateDenied, nil, nil
@@ -188,8 +162,8 @@ func (x *Index) StateFor(ctx context.Context, rec *computev1alpha1.PreviewAccess
 	} else if !ok {
 		return StateUnavailable, nil, nil
 	}
-	if redeemed && now.Before(until) {
-		return StateActive, &until, nil
+	if held, until := session.Holds(rec, subject, now); held {
+		return StateActive, until, nil
 	}
 	return StateExpired, nil, nil
 }

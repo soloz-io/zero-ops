@@ -1,0 +1,19 @@
+# Local mode refuses to start unless every node is a Kind node
+# (localmode.RequireKind), which needs to list nodes. Granted to the local
+# profile only: the platform service never reads nodes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: preview-access-local-kind-guard
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: preview-access-local-kind-guard
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: preview-access-local-kind-guard}
+subjects:
+  - {kind: ServiceAccount, name: preview-access, namespace: platform-ops}

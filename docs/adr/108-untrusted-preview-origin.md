@@ -304,15 +304,61 @@ No preview is ever served from a domain other than the declared one.
 
 ### Enabling previews in an environment
 
-1. Buy the preview registrable domain and delegate it to the DNS service the ACME
-   dns01 solver writes to. Add it to that solver's `dnsZones` in
-   `spoke-catalog/infra/acme-cluster-issuer.yaml`, for both issuers.
-2. Set `previewDomain` for the environment manager (the box's bootstrap values).
-   The chart refuses a domain that equals, contains or sits inside the platform's
-   own domain.
-3. For each app: set `previewAccess.enabled: true`, and grant its SDK
-   `previewaccesses` (create, get, list, watch, patch, update, delete) in
-   `workloadRbac`.
+1. Buy the preview registrable domain, and **delegate it to the DNS account the
+   platform writes to**: the one holding the hub domain's zone, which the ACME
+   dns01 solver and external-dns use. Until it's delegated, no wildcard
+   certificate can be issued and no `*.<previewDomain>` record can be published.
+2. Release a bundle that carries the preview-domain plumbing:
+   - the dns01 solver's `dnsZones` and external-dns's `args[2]`
+     `--domain-filter` both follow `global.previewDomain`
+     (`spoke-catalog/templated-fields.yaml`);
+   - no per-box edit is needed.
+3. Then set `previewDomain` for the environment manager (in the box's values).
+   - The chart refuses a domain that equals, contains or sits inside the
+     platform's own domain.
+   - This step is what turns previews on: preview-access starts, and the
+     listener, certificate and route render.
+4. For each app: set `previewAccess.enabled: true`, and grant its SDK
+   `previewaccesses` in `workloadRbac`.
+5. The app's frontend allows the preview origin in its own
+   Content-Security-Policy (`frame-src https://*.<previewDomain>`). Otherwise
+   the browser blocks the embedded preview.
+
+Dev's preview domain is `nutgraf.top` (2026-10-22).
+
+## Local development mode (2026-10-22)
+
+So that developers can verify code builds and the preview logic on a local Kind
+stack, preview-access has a second mode, `--mode=local`. It's the user's
+decision (2026-10-22) that local should skip the multi-domain setup. Origin
+isolation, login and the preview cookie are verified in dev only.
+
+| | `--mode=platform` (every real environment) | `--mode=local` (Kind only) |
+|---|---|---|
+| Preview host | `p…<previewDomain>`, HTTPS | `p….preview.localhost:<port>`, HTTP |
+| Who is calling the app API | tenant-gateway pod address, plus a verified issuer token (§3) | a configured development subject, for one configured namespace and origin |
+| Browser admission | single-use handoff, then `__Host-zo-preview` (§4) | none: a preview request is admitted when the record admits the development subject |
+| Admission webhook | yes | no (no certificate). The reconciler still never makes a second record on one target Ready; the `expiresAt` rule isn't enforced. |
+| Per-preview network policy | `--network-policy=cilium` | `--network-policy=none` |
+
+Everything else is one implementation in both modes:
+- the records, hosts and Ready ranking;
+- the state machine and the refusal shapes;
+- proxying, WebSocket included.
+
+**Where the code differs:** the two points where they differ are interfaces in
+`internal/previewaccess/mechanism.go`: `Identity` and `Session`.
+- The platform implementations are in `platform.go`.
+- Local mode's are in their own package, `internal/previewaccess/localmode`.
+- Nothing in `internal/previewaccess` branches on the mode.
+
+**Guards:**
+- **Kind only.** Local mode refuses to start unless every node's `providerID`
+  starts with `kind://` (`localmode.RequireKind`).
+- **No defaults.** Both `--mode` and `--network-policy` are required and have no
+  default.
+
+The manifests and installer are under `scripts/local/` (see its README).
 
 ## Ownership
 
