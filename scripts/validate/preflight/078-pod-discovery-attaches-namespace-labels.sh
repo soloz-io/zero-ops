@@ -13,7 +13,12 @@
 #          takes its targets from a discovery.kubernetes block that sets
 #          attach_metadata { namespace = true };
 #   078-2  every grafana/alloy image in a manifest carrying such a block is
-#          v1.12 or later.
+#          v1.12 or later;
+#   078-3  a Grafana Cloud writer appends its push path to the URL secret, which
+#          holds the URL as Grafana Cloud shows it (Loki: the host; Prometheus:
+#          …/api/prom). Used bare, every write is refused (405);
+#   078-4  pod logs reach the box's own store (loki.write "platform"), never
+#          only an external destination (§7.1).
 
 validate_pod_discovery_attaches_namespace_labels() {
     section "ADR-078: pod discovery attaches the namespace labels its filter reads"
@@ -61,6 +66,14 @@ for root in ROOTS:
                 print(f'FAIL {path}: discovery.relabel "{m.group(1)}" reads namespace labels, but '
                       f'discovery.kubernetes "{src.group(1)}" has no attach_metadata {{ namespace = true }}; '
                       f'its keep rule drops every pod')
+        for var, suffix in (("LOKI_URL", "/loki/api/v1/push"), ("PROMETHEUS_URL", "/push")):
+            for u in re.finditer(r'url\s*=\s*sys\.env\("' + var + r'"\)([^\n]*)', text):
+                if f'+ "{suffix}"' not in u.group(1):
+                    print(f'FAIL {path}: url = sys.env("{var}") must append "{suffix}"; the secret holds the URL Grafana Cloud shows, not its write endpoint')
+        for s in re.finditer(r'loki\.source\.file\s+"([^"]+)"\s*\{', text):
+            fb = body(text, s.end() - 1)
+            if "loki.write.platform.receiver" not in fb:
+                print(f'FAIL {path}: loki.source.file "{s.group(1)}" does not forward to loki.write.platform; the in-box store must always receive pod logs (ADR-078 §7.1)')
         for im in IMAGE.finditer(text):
             if (int(im.group(1)), int(im.group(2))) < (1, 12):
                 print(f"FAIL {path}: {im.group(0)} predates attach_metadata namespace (Alloy v1.12)")

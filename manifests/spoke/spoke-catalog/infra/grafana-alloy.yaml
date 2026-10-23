@@ -140,7 +140,9 @@ data:
     // terminates nowhere."
     prometheus.remote_write "grafanacloud" {
       endpoint {
-        url = sys.env("PROMETHEUS_URL")
+        // PROMETHEUS_URL is the stack's Prometheus URL as Grafana Cloud shows
+        // it (…/api/prom); remote write is its /push.
+        url = sys.env("PROMETHEUS_URL") + "/push"
 
         basic_auth {
           username = sys.env("PROMETHEUS_USER")
@@ -167,7 +169,9 @@ data:
     // ------------------------------------------------------------------
     loki.write "grafanacloud" {
       endpoint {
-        url = sys.env("LOKI_URL")
+        // LOKI_URL is the stack's Loki URL as Grafana Cloud shows it (the host
+        // alone); the push API is under it. Used bare, every batch is 405.
+        url = sys.env("LOKI_URL") + "/loki/api/v1/push"
 
         basic_auth {
           username = sys.env("LOKI_USER")
@@ -273,9 +277,12 @@ data:
       path_targets = discovery.relabel.pod_logs.output
     }
 
+    // ADR-078 §7.1: the box's own store always, Grafana Cloud in addition.
+    // Shipping only to Grafana Cloud left the spoke's logs nowhere the box can
+    // read, and nowhere at all while that destination refused them.
     loki.source.file "pod_logs" {
       targets    = local.file_match.pod_logs.targets
-      forward_to = [loki.write.grafanacloud.receiver]
+      forward_to = [loki.write.platform.receiver, loki.write.grafanacloud.receiver]
     }
 ---
 apiVersion: apps/v1
