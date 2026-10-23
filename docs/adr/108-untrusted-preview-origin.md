@@ -57,6 +57,7 @@ spec:
   port: <app server port>      # HTTP and WebSocket
   ownerSubject: <issuer sub>   # issuer subject IDs, not emails or usernames
   sharedWith: [<issuer sub>, ...]
+  embeddableBy: [<appId>, ...] # optional: further apps of this tenant that may embed it (§3b)
   expiresAt: <RFC 3339>        # required when there is no ownerReference
 status:
   host: <previewHost>.<preview-domain>   # fixed for the record's whole life
@@ -140,6 +141,41 @@ GET https://<app host>/_platform/preview-access/v1/previews/<previewId>
 - A record that doesn't exist in the caller's tenant is `ended`. The endpoint
   never says whether it exists in another tenant.
 
+### 3b. Embedding by another application of the tenant (2026-10-22)
+
+A record lives in the namespace of the application whose SDK runs the session.
+A sibling application of the same tenant can embed it when the record names
+that application:
+
+```yaml
+spec:
+  embeddableBy: [oranger]      # ADR-088 app ids: each application namespace's app-id label
+```
+
+- **Shape.** A set of at most 16 app ids, each a DNS label. Omitted means only
+  the record's own application may embed it.
+- **Scope.** The tenant is the record namespace's `tenant-id` label (ADR-088). A
+  listed app id resolves to the namespace with that `tenant-id` and that
+  `app-id`. A record can never be embedded by another tenant's application. An
+  app id with no namespace in the tenant embeds nothing.
+- **Finding the record.** The §3 and §3a endpoints look `previewId` up in the
+  caller's own namespace, and among the records of its tenant that name the
+  caller's app in `embeddableBy`. The caller's application is its gateway's
+  namespace, never a value in the request.
+- **Who may open it does not change.** `ownerSubject` and `sharedWith` decide,
+  exactly as for the record's own application. The code, handoff and cookie
+  carry the embedding application's origin, so its refusal pages post to it.
+- **Admission.** A record is refused when:
+  - `embeddableBy` names the record's own application (422);
+  - `embeddableBy` is set outside an application namespace (422);
+  - another record already answers its name for its own application or for any
+    application it names (`409 Conflict`, reason `PreviewNameInUse`, naming that
+    record). Each application that may embed a record must find exactly one
+    record under each name.
+- **Races.** Admission can race. If two records answer one name for one
+  application, §3 and §3a refuse that name with `409` and an error body rather
+  than pick one.
+
 ### 4. Redemption and the cookie
 
 The UI sets the iframe `src` to `handoffUrl`. The preview host routes `/_handoff` to
@@ -189,7 +225,7 @@ from an app error.
 
 | Request | Response |
 |---------|----------|
-| Document (`Sec-Fetch-Dest: iframe` or `document`) | `401` (`expired`) or `403` (others), a platform page that posts `{type: "zero-ops.preview-access", state, previewId}` to the parent, targeted at the application's origin only |
+| Document (`Sec-Fetch-Dest: iframe` or `document`) | `401` (`expired`) or `403` (others), a platform page that posts `{type: "zero-ops.preview-access", state, previewId}` to the parent, targeted only at the origins of the applications that may embed it: its own and those in `embeddableBy` (§3b). A browser delivers it only to the actual parent. A refusal reached through a code or cookie posts to that embedder alone |
 | Asset or fetch | same status, body `{"previewAccess": "<state>"}` |
 | WebSocket upgrade | same status. The browser exposes only a failed connection, so the canvas learns the state when the dev server's client reloads the document |
 
@@ -266,6 +302,12 @@ the record, so deleting the record deletes it.
    While the target isn't Running, requests get `503 unavailable`.
 10. A second record on the same (`jobRef`, `port`) is refused with
     `409 PreviewTargetInUse`. In a race, only one of the two records becomes Ready.
+11. A record in one application's namespace that names a sibling app in
+    `embeddableBy` is opened by its owner in that sibling's UI. The same record
+    is `ended` (§3a) and `not-found` (§3) for an application it doesn't name,
+    and for any application of another tenant.
+12. A record whose name another record already answers, for an application that
+    may embed both, is refused with `409 PreviewNameInUse`.
 
 ## Implementation
 
@@ -336,7 +378,7 @@ isolation, login and the preview cookie are verified in dev only.
 | | `--mode=platform` (every real environment) | `--mode=local` (Kind only) |
 |---|---|---|
 | Preview host | `p…<previewDomain>`, HTTPS | `p….preview.localhost:<port>`, HTTP |
-| Who is calling the app API | tenant-gateway pod address, plus a verified issuer token (§3) | a configured development subject, for one configured namespace and origin |
+| Who is calling the app API | tenant-gateway pod address, plus a verified issuer token (§3) | a configured development subject, for one configured namespace; the application is whichever configured origin (`LOCAL_APP_ORIGINS`, one per local app) the request's `Origin` names, and a refusal page posts to each configured origin |
 | Browser admission | single-use handoff, then `__Host-zo-preview` (§4) | none: a preview request is admitted when the record admits the development subject |
 | Admission webhook | yes | no (no certificate). The reconciler still never makes a second record on one target Ready; the `expiresAt` rule isn't enforced. |
 | Per-preview network policy | `--network-policy=cilium` | `--network-policy=none` |

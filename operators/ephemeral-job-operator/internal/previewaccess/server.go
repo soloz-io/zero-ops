@@ -61,6 +61,40 @@ func (s *Server) caller(w http.ResponseWriter, r *http.Request) (Caller, bool) {
 	return Caller{}, false
 }
 
+// errAmbiguous: more than one record answers the caller's previewId.
+// Admission refuses the records that would collide; this is the race it can
+// lose, refused rather than resolved by picking one.
+var errAmbiguous = errors.New("previewId names more than one preview this application may embed")
+
+// lookup finds the record previewId name names for c: in its own namespace,
+// or one a sibling app of its tenant declared embeddable by it (ADR-108 §3b).
+func (s *Server) lookup(ctx context.Context, c Caller, name string) (*computev1alpha1.PreviewAccess, error) {
+	if c.App == "" {
+		return s.record(ctx, c.Namespace, name)
+	}
+	found, err := Reachable(ctx, s.Reader, c.Tenant, c.App, name)
+	if err != nil {
+		return nil, err
+	}
+	switch len(found) {
+	case 0:
+		return nil, nil
+	case 1:
+		return found[0], nil
+	}
+	s.Log.Info("audit", "event", "lookup-refused", "namespace", c.Namespace, "preview", name, "matches", len(found), "reason", errAmbiguous.Error())
+	return nil, errAmbiguous
+}
+
+// lookupFailed answers a failed lookup.
+func lookupFailed(w http.ResponseWriter, err error) {
+	if errors.Is(err, errAmbiguous) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	http.Error(w, "record lookup failed", http.StatusServiceUnavailable)
+}
+
 func (s *Server) record(ctx context.Context, ns, name string) (*computev1alpha1.PreviewAccess, error) {
 	var rec computev1alpha1.PreviewAccess
 	if err := s.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &rec); err != nil {
@@ -81,7 +115,7 @@ func (s *Server) handleCodes(w http.ResponseWriter, r *http.Request) {
 	// Same-origin JSON only: a cross-site form cannot set this content type,
 	// and a cross-site fetch carries a foreign Origin.
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" ||
-		r.Header.Get("Origin") != c.Origin {
+		c.Origin == "" || r.Header.Get("Origin") != c.Origin {
 		writeJSON(w, http.StatusForbidden, map[string]string{"previewAccess": StateDenied})
 		return
 	}
@@ -92,9 +126,9 @@ func (s *Server) handleCodes(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"previewId is required"}`, http.StatusBadRequest)
 		return
 	}
-	rec, err := s.record(r.Context(), c.Namespace, body.PreviewID)
+	rec, err := s.lookup(r.Context(), c, body.PreviewID)
 	if err != nil {
-		http.Error(w, "record lookup failed", http.StatusServiceUnavailable)
+		lookupFailed(w, err)
 		return
 	}
 	now := time.Now()
@@ -132,9 +166,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	rec, err := s.record(r.Context(), c.Namespace, id)
+	rec, err := s.lookup(r.Context(), c, id)
 	if err != nil {
-		http.Error(w, "record lookup failed", http.StatusServiceUnavailable)
+		lookupFailed(w, err)
 		return
 	}
 	state, until, err := s.Index.StateFor(r.Context(), rec, c.Subject, s.Session)
@@ -246,16 +280,18 @@ func stripCookie(h http.Header, name string) {
 
 var refusalPage = template.Must(template.New("r").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Preview unavailable</title></head><body>
-{{if .Origin}}<script nonce="{{.Nonce}}">
-parent.postMessage({type: "zero-ops.preview-access", state: {{.State}}, previewId: {{.Preview}}}, {{.Origin}});
-</script>{{end}}
+{{if .Origins}}<script nonce="{{.Nonce}}">
+{{range .Origins}}parent.postMessage({type: "zero-ops.preview-access", state: {{$.State}}, previewId: {{$.Preview}}}, {{.}});
+{{end}}</script>{{end}}
 </body></html>
 `))
 
 // refuse writes the refusal for state, in the shape ADR-108 §6 fixes: the
 // header on every refusal; for a document, a page posting the state to the
 // embedding app (a hint -- the canvas confirms against the state endpoint);
-// otherwise a JSON body.
+// otherwise a JSON body. When the embedder is not known from the request, the
+// page posts to every origin that may embed it: postMessage with a non-matching
+// targetOrigin is dropped by the browser, so only the actual parent receives it.
 func (s *Server) refuse(w http.ResponseWriter, r *http.Request, host, state, origin string) {
 	code := http.StatusForbidden
 	switch state {
@@ -265,6 +301,10 @@ func (s *Server) refuse(w http.ResponseWriter, r *http.Request, host, state, ori
 		code = http.StatusServiceUnavailable
 	}
 	preview, ns := "", ""
+	var origins, embeddableBy []string
+	if origin != "" {
+		origins = []string{origin}
+	}
 	rec, err := s.Index.ByHost(r.Context(), host)
 	if err != nil {
 		s.Log.Error(err, "refusal: record lookup failed", "host", host)
@@ -272,12 +312,12 @@ func (s *Server) refuse(w http.ResponseWriter, r *http.Request, host, state, ori
 		return
 	}
 	if rec != nil {
-		preview, ns = rec.Name, rec.Namespace
-	} else if n, ok := s.Index.endedNamespace(host); ok {
-		ns = n
+		preview, ns, embeddableBy = rec.Name, rec.Namespace, rec.Spec.EmbeddableBy
+	} else if n, e, ok := s.Index.endedRecord(host); ok {
+		ns, embeddableBy = n, e
 	}
-	if origin == "" && ns != "" {
-		if origin, err = s.Identity.AppOrigin(r.Context(), ns); err != nil {
+	if len(origins) == 0 && ns != "" {
+		if origins, err = s.Identity.AppOrigins(r.Context(), ns, embeddableBy); err != nil {
 			s.Log.Error(err, "refusal: app origin lookup failed", "namespace", ns)
 			http.Error(w, "preview lookup failed", http.StatusServiceUnavailable)
 			return
@@ -294,7 +334,7 @@ func (s *Server) refuse(w http.ResponseWriter, r *http.Request, host, state, ori
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'", n))
 		w.WriteHeader(code)
-		_ = refusalPage.Execute(w, map[string]string{"State": state, "Preview": preview, "Origin": origin, "Nonce": n})
+		_ = refusalPage.Execute(w, map[string]any{"State": state, "Preview": preview, "Origins": origins, "Nonce": n})
 		return
 	}
 	writeJSON(w, code, map[string]string{"previewAccess": state})

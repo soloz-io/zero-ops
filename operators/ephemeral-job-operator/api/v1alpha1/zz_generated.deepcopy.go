@@ -343,6 +343,11 @@ func (in *PreviewAccessSpec) DeepCopyInto(out *PreviewAccessSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.EmbeddableBy != nil {
+		in, out := &in.EmbeddableBy, &out.EmbeddableBy
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.ExpiresAt != nil {
 		in, out := &in.ExpiresAt, &out.ExpiresAt
 		*out = (*in).DeepCopy()

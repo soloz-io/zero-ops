@@ -56,6 +56,19 @@ type PreviewAccessSpec struct {
 	// +listType=set
 	SharedWith []string `json:"sharedWith,omitempty"`
 
+	// EmbeddableBy are further applications of this tenant that may embed the
+	// preview: ADR-088 app ids (each application namespace's `app-id` label).
+	// The record's own application always may. A listed app's gateway finds
+	// the record by name exactly as the owning app's does; who may open it is
+	// still ownerSubject and sharedWith. An app id with no namespace in this
+	// tenant embeds nothing.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=63
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	EmbeddableBy []string `json:"embeddableBy,omitempty"`
+
 	// ExpiresAt bounds the preview. Required when the record has no
 	// ownerReference, so a record the product forgets to delete cannot outlive
 	// it. Cookies never outlive it either.

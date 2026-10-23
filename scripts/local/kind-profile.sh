@@ -7,7 +7,7 @@
 #   5-6  ADR-108: preview-access in local development mode.
 #
 #   KUBECONFIG=<file> OPERATOR_IMAGE=<image> \
-#   LOCAL_NAMESPACE=<ns> LOCAL_APP_ORIGIN=<origin> LOCAL_SUBJECT=<sub> \
+#   LOCAL_NAMESPACE=<ns> LOCAL_APP_ORIGINS=<origin>[,<origin>...] LOCAL_SUBJECT=<sub> \
 #   LOCAL_PREVIEW_BASE='http://{host}:<port>' scripts/local/kind-profile.sh
 #
 # Every variable is required and named if missing. Idempotent. Fails, naming the
@@ -23,7 +23,7 @@ LABEL="sandbox.zero-ops.io/runtime=sandboxed"
 log() { echo "[kind-profile] $*"; }
 fail() { echo "[kind-profile] FAILED: $*" >&2; exit 1; }
 
-for v in OPERATOR_IMAGE LOCAL_NAMESPACE LOCAL_APP_ORIGIN LOCAL_SUBJECT LOCAL_PREVIEW_BASE; do
+for v in OPERATOR_IMAGE LOCAL_NAMESPACE LOCAL_APP_ORIGINS LOCAL_SUBJECT LOCAL_PREVIEW_BASE; do
     [[ -n "${!v:-}" ]] || fail "$v is required (see scripts/local/README.md)"
 done
 [[ "$LOCAL_PREVIEW_BASE" == *"{host}"* ]] || fail "LOCAL_PREVIEW_BASE must contain {host}, e.g. http://{host}:3010"
@@ -92,7 +92,7 @@ patches:
   - target: {kind: Deployment, name: preview-access}
     patch: |
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: LOCAL_NAMESPACE, value: "$LOCAL_NAMESPACE"}}
-      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: LOCAL_APP_ORIGIN, value: "$LOCAL_APP_ORIGIN"}}
+      - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: LOCAL_APP_ORIGINS, value: "$LOCAL_APP_ORIGINS"}}
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: LOCAL_SUBJECT, value: "$LOCAL_SUBJECT"}}
       - {op: add, path: /spec/template/spec/containers/0/env/-, value: {name: LOCAL_PREVIEW_BASE, value: "$LOCAL_PREVIEW_BASE"}}
 YAML

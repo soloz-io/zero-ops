@@ -2,9 +2,11 @@ package previewaccess
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -49,13 +51,15 @@ func (g *GatewayIdentity) Caller(r *http.Request) (Caller, error) {
 		g.Log.Info("audit", "event", "api-refused", "reason", "not a tenant gateway", "remote", ip)
 		return Caller{}, &Refused{Status: http.StatusForbidden, Reason: "not a tenant gateway"}
 	}
-	origin, err := g.AppOrigin(r.Context(), ns)
-	if err != nil {
-		return Caller{}, err
+	var n corev1.Namespace
+	if err := g.Reader.Get(r.Context(), client.ObjectKey{Name: ns}, &n); err != nil {
+		return Caller{}, fmt.Errorf("reading the caller's namespace %s: %w", ns, err)
 	}
-	if origin == "" {
-		g.Log.Info("audit", "event", "api-refused", "reason", "namespace declares no app origin", "namespace", ns)
-		return Caller{}, &Refused{Status: http.StatusForbidden, Reason: "namespace declares no app origin"}
+	origin := n.Annotations[AppOriginAnnotation]
+	tenant, app := n.Labels[LabelTenant], n.Labels[LabelApp]
+	if origin == "" || tenant == "" || app == "" {
+		g.Log.Info("audit", "event", "api-refused", "reason", "namespace is not a preview-enabled application", "namespace", ns)
+		return Caller{}, &Refused{Status: http.StatusForbidden, Reason: "namespace declares no app origin, tenant or app"}
 	}
 	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok {
@@ -66,17 +70,48 @@ func (g *GatewayIdentity) Caller(r *http.Request) (Caller, error) {
 		g.Log.Info("audit", "event", "api-refused", "reason", err.Error(), "namespace", ns)
 		return Caller{}, &Refused{Status: http.StatusUnauthorized, Reason: err.Error()}
 	}
-	return Caller{Namespace: ns, Origin: origin, Subject: claims.Subject}, nil
+	return Caller{Namespace: ns, Tenant: tenant, App: app, Origin: origin, Subject: claims.Subject}, nil
 }
 
-// AppOrigin reads the origin the universal-tenant chart declares on the
-// namespace. A namespace that is gone, or declares none, has no app to post to.
-func (g *GatewayIdentity) AppOrigin(ctx context.Context, namespace string) (string, error) {
+// AppOrigins reads the origin the universal-tenant chart declares on each
+// application namespace that may embed the preview: the record's own, and
+// those of the apps of its tenant it names in embeddableBy. On the platform
+// each application has its own namespace. One that is gone, or declares no
+// origin, has no app to post to.
+func (g *GatewayIdentity) AppOrigins(ctx context.Context, namespace string, embeddableBy []string) ([]string, error) {
 	var n corev1.Namespace
 	if err := g.Reader.Get(ctx, client.ObjectKey{Name: namespace}, &n); err != nil {
-		return "", client.IgnoreNotFound(err)
+		return nil, client.IgnoreNotFound(err)
 	}
-	return n.Annotations[AppOriginAnnotation], nil
+	var origins []string
+	add := func(n *corev1.Namespace) {
+		if o := n.Annotations[AppOriginAnnotation]; o != "" && !slices.Contains(origins, o) {
+			origins = append(origins, o)
+		}
+	}
+	add(&n)
+	tenant := n.Labels[LabelTenant]
+	if tenant == "" {
+		return origins, nil
+	}
+	for _, app := range embeddableBy {
+		ns, err := AppNamespace(ctx, g.Reader, tenant, app)
+		if err != nil {
+			return nil, err
+		}
+		if ns == "" {
+			continue
+		}
+		var sib corev1.Namespace
+		if err := g.Reader.Get(ctx, client.ObjectKey{Name: ns}, &sib); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				continue
+			}
+			return nil, err
+		}
+		add(&sib)
+	}
+	return origins, nil
 }
 
 // ─── Session: single-use handoff, then a signed partitioned cookie ─────────

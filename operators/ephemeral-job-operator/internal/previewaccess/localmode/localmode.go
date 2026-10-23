@@ -18,7 +18,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,9 +35,11 @@ import (
 type Config struct {
 	// Namespace is where the local application's records live.
 	Namespace string
-	// AppOrigin is the local application's origin, e.g. http://localhost:3002:
-	// the only Origin the codes endpoint accepts, and where refusal pages post.
-	AppOrigin string
+	// AppOrigins are the local applications' origins, e.g.
+	// http://localhost:3002 and http://localhost:3007: the Origins the codes
+	// endpoint accepts, and where refusal pages post. Several applications
+	// share one local namespace and one development identity.
+	AppOrigins []string
 	// Subject is the identity every local request acts as: the subject of the
 	// application's development identity.
 	Subject string
@@ -48,17 +52,34 @@ type Config struct {
 func ConfigFromEnv() (Config, error) {
 	c := Config{
 		Namespace:   os.Getenv("LOCAL_NAMESPACE"),
-		AppOrigin:   os.Getenv("LOCAL_APP_ORIGIN"),
 		Subject:     os.Getenv("LOCAL_SUBJECT"),
 		PreviewBase: os.Getenv("LOCAL_PREVIEW_BASE"),
 	}
+	origins := os.Getenv("LOCAL_APP_ORIGINS")
 	for name, v := range map[string]string{
-		"LOCAL_NAMESPACE": c.Namespace, "LOCAL_APP_ORIGIN": c.AppOrigin,
+		"LOCAL_NAMESPACE": c.Namespace, "LOCAL_APP_ORIGINS": origins,
 		"LOCAL_SUBJECT": c.Subject, "LOCAL_PREVIEW_BASE": c.PreviewBase,
 	} {
 		if v == "" {
 			return Config{}, fmt.Errorf("local mode requires %s", name)
 		}
+	}
+	// Comma-separated, each an exact origin: scheme, host and port, no path.
+	// An origin is compared byte for byte with the browser's Origin header,
+	// so anything else would never match and is refused here instead.
+	seen := map[string]bool{}
+	for _, o := range strings.Split(origins, ",") {
+		o = strings.TrimSpace(o)
+		u, err := url.Parse(o)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+			u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return Config{}, fmt.Errorf("LOCAL_APP_ORIGINS: %q is not an origin (scheme://host[:port], nothing after)", o)
+		}
+		if seen[o] {
+			return Config{}, fmt.Errorf("LOCAL_APP_ORIGINS lists %q twice", o)
+		}
+		seen[o] = true
+		c.AppOrigins = append(c.AppOrigins, o)
 	}
 	if !strings.Contains(c.PreviewBase, "{host}") {
 		return Config{}, fmt.Errorf("LOCAL_PREVIEW_BASE %q must contain {host}", c.PreviewBase)
@@ -85,14 +106,24 @@ func RequireKind(ctx context.Context, r client.Reader) error {
 }
 
 // Identity is local mode's previewaccess.Identity: every caller is the
-// configured development identity of the configured application.
+// configured development identity, and the application is whichever
+// configured origin the request names. A request naming none, or another, has
+// no application: the codes endpoint then refuses it. Every local app shares
+// one namespace, so the caller carries no tenant or app: a record's
+// embeddableBy has nothing to widen locally.
 type Identity struct{ Config Config }
 
-func (i Identity) Caller(*http.Request) (previewaccess.Caller, error) {
-	return previewaccess.Caller{Namespace: i.Config.Namespace, Origin: i.Config.AppOrigin, Subject: i.Config.Subject}, nil
+func (i Identity) Caller(r *http.Request) (previewaccess.Caller, error) {
+	c := previewaccess.Caller{Namespace: i.Config.Namespace, Subject: i.Config.Subject}
+	if o := r.Header.Get("Origin"); slices.Contains(i.Config.AppOrigins, o) {
+		c.Origin = o
+	}
+	return c, nil
 }
 
-func (i Identity) AppOrigin(context.Context, string) (string, error) { return i.Config.AppOrigin, nil }
+func (i Identity) AppOrigins(context.Context, string, []string) ([]string, error) {
+	return i.Config.AppOrigins, nil
+}
 
 // Session is local mode's previewaccess.Session: no handoff and no cookie.
 // A preview request is admitted when the record admits the development
@@ -110,10 +141,13 @@ func (Session) ServeOwn(http.ResponseWriter, *http.Request, string, previewacces
 }
 
 func (s Session) Admit(_ *http.Request, rec *computev1alpha1.PreviewAccess) (string, string, string) {
+	// No embedder is known from a preview request (there is no cookie to
+	// carry it), so the origin is left to the server, which posts a refusal
+	// to every configured application.
 	if !previewaccess.Allowed(rec, s.Config.Subject) {
-		return s.Config.Subject, s.Config.AppOrigin, previewaccess.StateDenied
+		return s.Config.Subject, "", previewaccess.StateDenied
 	}
-	return s.Config.Subject, s.Config.AppOrigin, ""
+	return s.Config.Subject, "", ""
 }
 
 // Holds: with no cookie, an allowed identity is always admitted.

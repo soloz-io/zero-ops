@@ -42,7 +42,7 @@ with `kind://`**. Local mode can't run anywhere but Kind.
    KUBECONFIG=<kind kubeconfig> \
    OPERATOR_IMAGE=<locally built operator image, name:tag> \
    LOCAL_NAMESPACE=<namespace the app's SDK creates PreviewAccess in> \
-   LOCAL_APP_ORIGIN=<the app's origin, e.g. http://localhost:3002> \
+   LOCAL_APP_ORIGINS=<the apps' origins, comma-separated, e.g. http://localhost:3002,http://localhost:3007> \
    LOCAL_SUBJECT=<the app's development identity subject> \
    LOCAL_PREVIEW_BASE='http://{host}:<preview port>' \
    zero-ops/scripts/local/kind-profile.sh
@@ -54,8 +54,10 @@ with `kind://`**. Local mode can't run anywhere but Kind.
    entry.
 4. **Reach the app API:** route `/_platform/preview-access/` on the app's origin
    to `preview-access.platform-ops.svc.cluster.local:8080`. The codes and state
-   endpoints accept only `LOCAL_APP_ORIGIN` as `Origin`, and act as
-   `LOCAL_SUBJECT`. Set the PreviewAccess `ownerSubject` to that subject.
+   endpoints accept only an origin listed in `LOCAL_APP_ORIGINS` as `Origin`
+   (each exactly `scheme://host[:port]`), and act as `LOCAL_SUBJECT` in
+   `LOCAL_NAMESPACE` for every app. A refusal page posts to each listed origin;
+   the browser delivers it only to the actual parent. Set the PreviewAccess `ownerSubject` to that subject.
 
 The profile is idempotent. Re-running it after changing the installer re-runs
 the installer, because its ConfigMap name carries a hash of its content.

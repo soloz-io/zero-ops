@@ -67,6 +67,21 @@ spec:
           spec:
             description: PreviewAccessSpec is the product's statement of one preview.
             properties:
+              embeddableBy:
+                description: |-
+                  EmbeddableBy are further applications of this tenant that may embed the
+                  preview: ADR-088 app ids (each application namespace's `app-id` label).
+                  The record's own application always may. A listed app's gateway finds
+                  the record by name exactly as the owning app's does; who may open it is
+                  still ownerSubject and sharedWith. An app id with no namespace in this
+                  tenant embeds nothing.
+                items:
+                  maxLength: 63
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  type: string
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: set
               expiresAt:
                 description: |-
                   ExpiresAt bounds the preview. Required when the record has no

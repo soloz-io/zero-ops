@@ -158,7 +158,7 @@ func main() {
 		identity, session = localmode.Identity{Config: cfg}, localmode.Session{Config: cfg}
 		_ = mgr.AddReadyzCheck("readyz", func(*http.Request) error { return nil })
 		log.Info("LOCAL DEVELOPMENT MODE: no login, no handoff, no preview cookie; Kind cluster confirmed",
-			"namespace", cfg.Namespace, "appOrigin", cfg.AppOrigin, "previewBase", cfg.PreviewBase)
+			"namespace", cfg.Namespace, "appOrigins", cfg.AppOrigins, "previewBase", cfg.PreviewBase)
 	}
 
 	srv := &previewaccess.Server{Reader: mgr.GetClient(), Index: index, Identity: identity, Session: session, Log: log}

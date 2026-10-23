@@ -51,6 +51,7 @@ var ciliumNetworkPolicyGVK = schema.GroupVersionKind{Group: "cilium.io", Version
 
 const (
 	ReasonTargetInUse       = "PreviewTargetInUse"
+	ReasonNameInUse         = "PreviewNameInUse"
 	ReasonServing           = "Serving"
 	labelJobUID             = "compute.nutgraf.in/ephemeraljob-uid"
 	labelPreviewAccessOwner = "compute.nutgraf.in/previewaccess"
@@ -203,6 +204,16 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}); err != nil {
 		return err
 	}
+	if err := fi.IndexField(ctx, pa, IndexEmbeddableBy, func(o client.Object) []string {
+		rec := o.(*computev1alpha1.PreviewAccess)
+		keys := make([]string, 0, len(rec.Spec.EmbeddableBy))
+		for _, app := range rec.Spec.EmbeddableBy {
+			keys = append(keys, EmbedKey(app, rec.Name))
+		}
+		return keys
+	}); err != nil {
+		return err
+	}
 
 	byJob := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 		var l computev1alpha1.PreviewAccessList
@@ -234,11 +245,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// A record usually goes by garbage collection (its ownerReference), which
 	// never shows this controller a deletion timestamp. The delete event is the
 	// one place its host can be kept, so a refusal page for it can still
-	// address the app that embedded it.
+	// address the apps that may have embedded it.
 	tombstone := handler.Funcs{
 		DeleteFunc: func(_ context.Context, e event.TypedDeleteEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			if rec, ok := e.Object.(*computev1alpha1.PreviewAccess); ok && rec.Status.Host != "" {
-				r.Index.noteEnded(rec.Status.Host, rec.Namespace)
+				r.Index.noteEnded(rec.Status.Host, rec.Namespace, rec.Spec.EmbeddableBy)
 			}
 		},
 	}

@@ -19,9 +19,15 @@ import (
 
 // Caller is who is asking the app API, and from which application.
 type Caller struct {
-	Namespace string // the application's namespace: records are looked up here
-	Origin    string // the application's origin: the only Origin accepted
-	Subject   string // the issuer subject the request acts as
+	Namespace string // the application's namespace: its own records are here
+	// Tenant and App are the application's ADR-088 identity, by which records
+	// of sibling apps that declare it in spec.embeddableBy are found. Both
+	// empty when the caller has no application identity (one namespace, no
+	// siblings): then only Namespace is searched.
+	Tenant  string
+	App     string
+	Origin  string // the application's origin: the only Origin accepted
+	Subject string // the issuer subject the request acts as
 }
 
 // Refused turns an app-API caller away with Status.
@@ -36,9 +42,10 @@ func (r *Refused) Error() string { return r.Reason }
 type Identity interface {
 	// Caller identifies r's caller, or returns a *Refused.
 	Caller(r *http.Request) (Caller, error)
-	// AppOrigin is the origin of the application in namespace — where a
-	// refusal page posts its state. "" when the namespace declares none.
-	AppOrigin(ctx context.Context, namespace string) (string, error)
+	// AppOrigins are the origins of the applications that may embed a
+	// preview held in namespace and declared embeddable by embeddableBy —
+	// where a refusal page posts its state. Empty when none declares one.
+	AppOrigins(ctx context.Context, namespace string, embeddableBy []string) ([]string, error)
 }
 
 // RefuseFunc writes a refusal for state, addressed to origin.
