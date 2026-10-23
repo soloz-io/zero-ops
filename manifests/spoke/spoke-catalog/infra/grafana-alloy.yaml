@@ -291,6 +291,9 @@ metadata:
   name: grafana-alloy
   namespace: platform-observability
   annotations:
+    # A config change shipped by a release rolls the agents: Alloy reads its
+    # config only at start (2026-10-23: rc.159's config sat unloaded).
+    configmap.reloader.stakater.com/reload: "alloy-config"
     # ADR-030 #3: a rotated credential MUST trigger a rolling update. ESO
     # rewrites this Secret in place and the process would otherwise keep the
     # value it read at startup until something unrelated restarted it.

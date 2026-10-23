@@ -38,6 +38,9 @@ resources:
   - crossplane-provider-sql.yaml
   - crossplane-provider-kubernetes.yaml
   - cluster-secret-store.yaml
+  # ADR-030 #3: makes the catalogue's reload annotations act (Alloy config and
+  # credentials, external-dns, the query endpoint, tenant gateway OIDC secrets).
+  - reloader/controller.yaml
   - grafana-alloy.yaml
   # The cluster's own observability backend (ADR-078 §1, ADR-083 decision 1).
   # Ordered after grafana-alloy so a reader meets the collector before its
