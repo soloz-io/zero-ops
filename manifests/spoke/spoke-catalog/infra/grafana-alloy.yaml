@@ -176,8 +176,21 @@ data:
       }
     }
 
+    // This node's pods only: their log files are the only ones this agent can
+    // read, and discovering every pod in the cluster resolves paths that never
+    // exist here.
     discovery.kubernetes "pods" {
       role = "pod"
+      selectors {
+        role  = "pod"
+        field = "spec.nodeName=" + sys.env("NODE_NAME")
+      }
+      // The platform-namespace filter below reads the namespace's labels; pod
+      // discovery carries them only with this (Alloy >= v1.12). Without it the
+      // label is always empty and the keep rule drops every pod.
+      attach_metadata {
+        namespace = true
+      }
     }
 
     discovery.relabel "pod_logs" {
@@ -287,7 +300,7 @@ spec:
       serviceAccountName: grafana-alloy
       containers:
         - name: alloy
-          image: grafana/alloy:v1.5.1
+          image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
           args:
             - run
             - /etc/alloy/config.alloy
@@ -306,6 +319,10 @@ spec:
             # literal keeps the manifest applicable by hand.
             - name: TENANT_ID
               value: "platform"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           envFrom:
             - secretRef:
                 name: grafana-cloud-credentials
@@ -360,6 +377,8 @@ rules:
       - services
       - endpoints
       - pods
+      # Pod discovery's namespace metadata (the platform-namespace log filter).
+      - namespaces
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources:

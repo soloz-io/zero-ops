@@ -77,6 +77,12 @@ data:
         role  = "pod"
         field = "spec.nodeName=" + sys.env("NODE_NAME")
       }
+      // The platform-namespace filter below reads the namespace's labels; pod
+      // discovery carries them only with this (Alloy >= v1.12). Without it the
+      // label is always empty and the keep rule drops every pod.
+      attach_metadata {
+        namespace = true
+      }
     }
 
     // kubelet and cAdvisor, through the apiserver proxy (§3). Named endpoints on
@@ -284,6 +290,12 @@ data:
 
     discovery.kubernetes "pods" {
       role = "pod"
+      // The platform-namespace filter below reads the namespace's labels; pod
+      // discovery carries them only with this (Alloy >= v1.12). Without it the
+      // label is always empty and the keep rule drops every pod.
+      attach_metadata {
+        namespace = true
+      }
     }
 
     // Platform-owned namespaces, selected by the label ADR-077 already relies on
@@ -458,7 +470,7 @@ spec:
       serviceAccountName: grafana-alloy
       containers:
       - name: alloy
-        image: grafana/alloy:v1.5.1
+        image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
         args:
         - run
         - /etc/alloy/config.alloy
@@ -537,7 +549,7 @@ spec:
       serviceAccountName: grafana-alloy
       containers:
       - name: alloy
-        image: grafana/alloy:v1.5.1
+        image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
         args:
         - run
         - /etc/alloy/config.alloy
