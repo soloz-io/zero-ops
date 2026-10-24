@@ -70,6 +70,8 @@ require_tools kubectl || exit 1
 ARGOCD_NS="${ARGOCD_NS:-platform-ops}"
 ROOT_APP="${ROOT_APP:-nutgraf-hub-root}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
+# How long a ComparisonError must last before it counts as persistent.
+COMPARISON_GRACE="${COMPARISON_GRACE:-120}"
 # How long the root may take to rewrite a child's targetRevision after it syncs.
 # Shorter than WAIT_TIMEOUT: this is one controller writing one field, not a
 # workload converging, and a child that has not been touched in this long has not
@@ -188,7 +190,7 @@ wait_for_regeneration() {
 }
 
 wait_for() {
-  local app="$1" want="${2:-}" deadline rev sync health
+  local app="$1" want="${2:-}" deadline rev sync health cmp_since=""
   deadline=$(( $(date +%s) + WAIT_TIMEOUT ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     rev="$(app_field "$app" .spec.source.targetRevision)"
@@ -202,13 +204,24 @@ wait_for() {
       [ "$health" = "Healthy" ] || echo "   WARN health=${health} -- read its conditions; a resync will not change it"
       return 0
     fi
-    # A ComparisonError means ArgoCD cannot even diff this Application -- a stuck
-    # admission webhook, an unrenderable source. Waiting the rest of the timeout
-    # cannot change that, so stop now and say which it is instead of reporting a
-    # generic TIMEOUT five minutes later.
+    # A ComparisonError means ArgoCD cannot diff this Application. A PERSISTENT
+    # one -- an unrenderable source, a webhook that is down -- will not clear by
+    # waiting, so it stops the wait early and names itself instead of a generic
+    # TIMEOUT later. A TRANSIENT one clears on ArgoCD's own retry: rc.158 failed
+    # its promotion on a webhook call that timed out once and succeeded 72s
+    # later. So it is a failure only once it has lasted COMPARISON_GRACE seconds.
     if [ "$sync" = "Unknown" ] && app_field "$app" .status.conditions 2>/dev/null | grep -q ComparisonError; then
-      echo "   COMPARISON ERROR ${app}: ArgoCD cannot diff it (sync=Unknown) -- waiting will not help"
-      return 1
+      if [ -z "$cmp_since" ]; then
+        cmp_since=$(date +%s)
+        echo "   ${app}: ComparisonError -- rechecking for up to ${COMPARISON_GRACE}s before treating it as persistent"
+      elif [ $(( $(date +%s) - cmp_since )) -ge "$COMPARISON_GRACE" ]; then
+        echo "   COMPARISON ERROR ${app}: ArgoCD has not been able to diff it for ${COMPARISON_GRACE}s (sync=Unknown) -- waiting will not help"
+        app_field "$app" .status.conditions 2>/dev/null | grep -o '"message":"[^"]*' | head -1 | sed 's/^"message":"/   /'
+        return 1
+      fi
+    elif [ -n "$cmp_since" ]; then
+      echo "   ${app}: ComparisonError cleared after $(( $(date +%s) - cmp_since ))s"
+      cmp_since=""
     fi
     sleep 5
   done

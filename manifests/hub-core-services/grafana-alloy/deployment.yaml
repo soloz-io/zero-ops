@@ -112,7 +112,11 @@ data:
       }
     }
 
+    // Conventional job names (kubelet, cadvisor, node-exporter,
+    // kube-state-metrics), which the pinned upstream mixins select on and the
+    // spoke uses too (ADR-078 add.2 §2).
     prometheus.scrape "kubelet" {
+      job_name          = "kubelet"
       targets           = discovery.relabel.kubelet.output
       forward_to        = [prometheus.remote_write.platform.receiver]
       scheme            = "https"
@@ -148,6 +152,7 @@ data:
     }
 
     prometheus.scrape "cadvisor" {
+      job_name          = "cadvisor"
       targets           = discovery.relabel.cadvisor.output
       forward_to        = [prometheus.remote_write.platform.receiver]
       scheme            = "https"
@@ -162,12 +167,39 @@ data:
     // Node exporter series, from the agent's own process (§3). No extra
     // DaemonSet: Alloy is already on every node, which is the placement §5's
     // table gives node-exporter.
+    //
+    // It reads the HOST's /proc, /sys and / (mounted read-only below); without
+    // them it reported the container's view under the node's name. Network
+    // collectors are off: the agent is not in the host network namespace, so
+    // they would report the pod's interfaces. Node network traffic is read from
+    // cAdvisor (ADR-078 add.2 review: no host networking for metrics).
     prometheus.exporter.unix "node" {
-      rootfs_path = "/host/root"
+      procfs_path        = "/host/proc"
+      sysfs_path         = "/host/sys"
+      rootfs_path        = "/host/root"
+      disable_collectors = ["netdev", "netstat", "netclass", "sockstat", "conntrack", "arp"]
+    }
+
+    // The exporter's targets carry their own `job` (integrations/unix), which
+    // job_name does not override; it is set here.
+    discovery.relabel "node_exporter" {
+      targets = prometheus.exporter.unix.node.targets
+      rule {
+        target_label = "job"
+        replacement  = "node-exporter"
+      }
+      rule {
+        target_label = "instance"
+        replacement  = sys.env("NODE_NAME")
+      }
+      rule {
+        target_label = "node"
+        replacement  = sys.env("NODE_NAME")
+      }
     }
 
     prometheus.scrape "node_exporter" {
-      targets         = prometheus.exporter.unix.node.targets
+      targets         = discovery.relabel.node_exporter.output
       forward_to      = [prometheus.remote_write.platform.receiver]
       scrape_interval = "30s"
     }
@@ -397,7 +429,8 @@ data:
     // ADR-078 §8 forbids. This address must match
     // manifests/argocd/components/03/kube-state-metrics.yaml and the allowlist.
     prometheus.scrape "kube_state_metrics" {
-      targets = [
+      job_name = "kube-state-metrics"
+      targets  = [
         {"__address__" = "kube-state-metrics.platform-ops.svc.cluster.local:8080"},
       ]
       forward_to      = [prometheus.relabel.platform_namespaces_only.receiver]
@@ -468,6 +501,14 @@ spec:
         app: grafana-alloy
     spec:
       serviceAccountName: grafana-alloy
+      # A node agent belongs on every node, the control plane included: without
+      # this the hub's control-plane node had no kubelet, cAdvisor, node or log
+      # collection at all (2026-10-24, collection-floor C2). The cluster agent
+      # stays on the workers (ADR-046).
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
       containers:
       - name: alloy
         image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
@@ -503,6 +544,17 @@ spec:
         - name: varlogcontainers
           mountPath: /var/log/containers
           readOnly: true
+        # The host's view for the node exporter, read-only.
+        - name: host-proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: host-sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: host-root
+          mountPath: /host/root
+          mountPropagation: HostToContainer
+          readOnly: true
         resources:
           requests:
             cpu: 100m
@@ -522,6 +574,15 @@ spec:
       - name: varlogcontainers
         hostPath:
           path: /var/log/containers
+      - name: host-proc
+        hostPath:
+          path: /proc
+      - name: host-sys
+        hostPath:
+          path: /sys
+      - name: host-root
+        hostPath:
+          path: /
 ---
 apiVersion: apps/v1
 kind: Deployment

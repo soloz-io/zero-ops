@@ -228,7 +228,8 @@ data path and not to a query path.
 
 **Decision.** Every cluster runs its own `VMSingle`, `VictoriaLogs` and `VMAlert`.
 **Grafana runs on the hub only**, holding one datasource pair per cluster, and
-reaches each spoke's query API through that spoke's own ingress with mTLS.
+reaches each spoke's query API through that spoke's own endpoint, authenticated
+by the viewer's OIDC token (ADR-083 addendum 1 §1; addendum 2 §10).
 
 **ADR-083 owns this topology.** It records the architecture the placement belongs to
 — Grafana's documented cross-cluster query federation pattern, a central query layer
@@ -649,6 +650,327 @@ does not exist. The rule §4 states — no component named here exists only as a
 is what holds this ADR at Proposed until they are applied.
 
 
+## Addendum 2: platform standards and tenant observability as code (2026-10-24)
+
+The decisions above give the box a backend, a collection floor and an ingest path.
+They do not say how a tenant uses them without hand-authoring dashboards, copying
+JSON or wiring evaluators, nor what keeps a tenant's dashboards and alerts working
+across bundle upgrades. This addendum records that contract. Every decision here
+sits inside addendum 1's topology (ADR-083): each cluster is an independent
+observability domain, Grafana runs only on the hub, and nothing is aggregated.
+
+### 1. Trust model
+
+The box belongs to one customer (ADR-065), and every cluster to exactly one tenant
+(ADR-062, ADR-064). Isolation between tenants is by cluster, never inside one. App
+teams within a box are one organisation's teams: addendum 1 §4 stands, and the
+platform ships no query isolation between them. Every decision below assumes this
+and would be wrong under mutually untrusted tenants sharing a cluster.
+
+### 2. Platform standards are one generated artifact set
+
+**Decision.** The platform's dashboards, recording rules and alerts are generated
+from one platform mixin: pinned upstream mixins (kubernetes, node-exporter,
+kube-state-metrics, and the per-component mixins where upstream publishes them)
+plus platform-authored ones (workload, GenAI), configured in one place — job names,
+`clusterLabel: cluster`, multi-cluster on, datasource, the §3 namespace scope.
+
+- Upstream mixins are pinned by tag in a jsonnet lock file. A pin is upgraded on
+  purpose, never followed.
+- Generation runs in CI. The output is committed so a release diff shows what
+  changed, and a preflight fails when regeneration does not reproduce it.
+- A preflight fails when a generated query names a job or metric the platform's
+  collection does not produce. A dashboard that renders empty is a release defect,
+  not a runtime discovery.
+- Dashboards land in a read-only **Platform** folder; rules and alerts are `VMRule`
+  objects carrying `app.kubernetes.io/managed-by: platform` (§6), reconciled with
+  `selfHeal`.
+- Jsonnet is the one authoring toolchain, for upstream and platform dashboards
+  alike. Grafana 12's Git Sync is not used: it is a second writer beside ArgoCD.
+
+### 3. Published recording rules are a contract, versioned by the bundle
+
+**Decision.** The platform's recording rules are the stable building blocks tenant
+dashboards and rules are written against. Upstream names are kept where upstream
+defines them; platform-added rules are keyed on the ADR-088 identity labels
+(`tenant-id`, `app-id`, `workload`).
+
+- Every bundle ships a machine-readable contract manifest: each published rule's
+  name, labels, semantics and unit; the standard alert templates and their values;
+  the dashboard library's exports. The contract version is the bundle version.
+- No compatibility shims. A rule that is renamed or reshaped is replaced in the same
+  release; old and new are never evaluated side by side.
+- A release preflight compares the manifest with the previous release's and fails
+  on any removal, rename, label change or semantic change that the release notes do
+  not declare, with its replacement and the exact edit a tenant makes.
+- The ADR-064 promotion pull request runs the tenant's CI (§9) against the incoming
+  bundle's manifest. A tenant asset that the upgrade would break fails that pull
+  request; the tenant corrects it there or does not promote.
+
+### 4. Application telemetry: scrape or OTLP, one contract
+
+**Decision.** An application exposes metrics in either of two ways, chosen through
+platform-workload chart values (ADR-102). It never writes collection configuration.
+
+- **Scrape.** `ports.metrics` (and a path, when not `/metrics`) yields a container
+  port named `metrics`. Alloy discovers that port in opted-in namespaces (§5) and
+  scrapes it at a platform-set interval.
+- **OTLP.** A chart value injects the standard OpenTelemetry endpoint and protocol
+  variables for the cluster-local receiver (addendum 1 §3). Metrics go to the local
+  VMSingle, logs to the local VictoriaLogs. Traces remain excluded.
+- **Identity is the platform's.** `cluster`, `tenant-id`, `app-id`, `namespace`,
+  `pod` and `workload` are derived from Kubernetes metadata — discovery labels for
+  scrapes, the sending pod resolved by connection address for OTLP — and overwrite
+  whatever the application sent. Telemetry that cannot be attributed to a pod in an
+  opted-in namespace is rejected.
+- **Limits.** A per-target sample cap; no per-request label (`trace_id` stays in
+  the log body, read at query time); GenAI prompt and response content never leaves
+  the box (ADR-066), and is dropped from every path bound outside it.
+- **GenAI.** Applications that call models emit the OpenTelemetry GenAI conventions'
+  metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`) at a
+  pinned convention version; the platform's GenAI dashboards and rules are written
+  against that version. The conventions' span tree needs traces and is out of
+  scope under §2 until a decision brings traces in.
+
+### 5. One namespace opt-in; alerts are enabled one by one
+
+**Decision.** The §7.2 namespace label is the single gate for collection, tenant
+rule evaluation and app alert routing. Opting in enables no alert.
+
+| State | Collected | Rules evaluated | Routed |
+|---|---|---|---|
+| not opted in | no | no | no |
+| opted in, no alert enabled | yes | no | no |
+| opted in, alerts enabled | yes | yes | yes |
+
+- Standard alerts are enabled individually (`alerts.<name>.enabled`, with their
+  documented values). The platform template renders them as the tenant's own
+  `VMRule` objects. Custom alerts are the tenant's `VMRule` objects in their own
+  namespaces.
+- Every other state is refused, naming the reason, at the earliest layer that can
+  see it: the chart refuses to render alerts or app routes for a namespace that is
+  not opted in; admission denies a `VMRule` or `VMAlertmanagerConfig` there; tenant
+  CI rejects rules whose inputs are neither a published rule (§3) nor a metric the
+  app declares.
+- A rule that is deployed but blind is detected, not tolerated: platform alerts fire
+  on tenant rule evaluation errors, on a rule whose input series do not exist at all
+  (`absent()` over its selectors), and on an app with alerts enabled whose namespace
+  ingests no samples. An empty result over series that exist is healthy and never an
+  incident.
+
+### 6. Alert evaluation is cluster-local, and the platform runs every evaluator
+
+**Decision.** Each cluster evaluates its own rules against its own store, so a spoke
+alerts on its workloads while the hub or the hub link is down. There is no central
+evaluation: addendum 1 has no aggregated store to evaluate against.
+
+- Each cluster runs two evaluators, both platform-deployed and platform-configured:
+  one for platform rules, one for tenant rules. A broken or expensive tenant rule set
+  cannot stall platform evaluation. Tenants never choose, deploy or wire either.
+- The tenant evaluator selects tenant `VMRule` objects in opted-in namespaces only.
+
+### 7. Tenant rules run inside enforced limits
+
+**Decision.** Tenants may write arbitrary PromQL. Published recording rules are
+recommended, not mandatory. The platform bounds execution; it never rewrites or
+disables a tenant's rule logic.
+
+- **Admission**, in tenant namespaces: a minimum group `interval` (rejected, not
+  raised); group `concurrency` of 1; a query `timeout` on every group through its
+  datasource `params`; caps on rules per group and groups per namespace; every rule's
+  `labels.namespace` overwritten with the namespace the `VMRule` lives in (§8).
+- **Tenant CI**: syntax and expression checks, the §5 input check, and a lint that
+  rejects selectors with no label matcher, ranges beyond the platform maximum, and
+  unanchored regexes on high-cardinality labels, naming the published rule to use
+  instead.
+- **The shared store**: the tenant evaluator queries VMSingle through a vmauth path
+  with a concurrency cap below VMSingle's own `-search.maxConcurrentRequests`; the
+  platform evaluator queries directly, so platform evaluation always has headroom.
+  VMSingle's global query limits remain the backstop.
+- **Detection**: platform alerts on tenant evaluation pressure — iterations near
+  their interval, missed iterations, datasource timeouts, store query pressure —
+  routed to the owning app for its rules and to the box's platform receiver for the
+  shared store.
+
+### 8. Alert routing: values in, Alertmanager config out
+
+**Decision.** Each cluster runs a platform-managed Alertmanager, shipped with no
+receivers (§6 stands: the platform holds no paging or chat credentials). Tenants
+declare routing as documented, versioned values; the platform renders the native
+configuration. No routing CRD or controller is added.
+
+- **Box level** — the box's values under `alerting:`: receivers by name and type,
+  credentials as secret references, and the binding of platform alert categories to
+  receivers. One logical policy per box, rendered into every cluster's Alertmanager
+  beneath the platform-owned root route. A per-cluster override is the exception,
+  made in that cluster's values.
+- **App level** — the app's `environments/<env>/<app>/values.yaml`: the app's own
+  receivers and routes, which the universal-tenant chart renders as a
+  `VMAlertmanagerConfig` in the app's namespace, on the cluster where the app runs.
+- **The routing boundary is configured, not assumed.** The platform pins on every
+  `VMAlertmanager`: `disableNamespaceMatcher: false`, so each app config's top route
+  matches only its own namespace; `disableRouteContinueEnforce: false`, so no app
+  route can stop an alert reaching the platform root; and a config namespace
+  selector naming opted-in namespaces only. A preflight asserts all three.
+- **The alert's namespace label is enforced.** The namespace matcher reads the
+  alert's label, which a rule can drop or forge, and `VMAlert` has no enforced
+  namespace label. Admission therefore overwrites `labels.namespace` on every tenant
+  rule (§7), and tenant CI rejects rules that set it.
+- **Credentials** live in the tenant's secret store and arrive through
+  ExternalSecrets. A spoke reads only its own cell path (ADR-031), so a box-level
+  receiver's key is materialised per cell. The platform declares the keys each cell
+  needs; a missing one fails that cluster's sync, naming the key.
+
+### 9. Tenant dashboards and rules are authored in the tenant's repository
+
+**Decision.** Tenants author in their gitops repository; the platform renders and
+provisions. The tenant's responsibility ends at the declaration.
+
+- **Dashboards**: `environments/<env>/<app>/dashboards.yaml`, under `dashboards:`,
+  each entry a dashboard's JSON (valid YAML). The ApplicationSet that already renders
+  the universal-tenant chart on the hub for each app adds the file as an optional
+  value file; the chart renders one labelled ConfigMap per dashboard into the app's
+  hub namespace, in that app's folder. The hub Grafana sidecar watches platform and
+  tenant-app namespaces, filtered by the chart's label.
+- **Render-time validation**: `uid` and `title` required; `uid` prefixed by the app
+  id, so no app overwrites another's or a platform dashboard; datasources limited to
+  the platform's; count and size bounded.
+- **Git is the source of truth.** A UI edit is overwritten at the next sync. Folders
+  organise ownership; they do not isolate queries (§1).
+- **Authoring aids**: a jsonnet library, versioned with the bundle, exports the
+  platform's selectors, variables and panels, so tenant dashboards match the
+  platform's without copied JSON. Plain JSON remains valid.
+- **Tenant CI**, shipped in the tenant gitops template: `promtool check rules` and
+  rule unit tests, a dashboard lint, the §5 input check and the §7 query lint, run
+  on every pull request and on every promotion pull request against the incoming
+  contract (§3).
+
+### 10. Grafana reaches each cluster through that cluster's endpoint
+
+**Decision** (ADR-083, restated as the contract the dashboards rely on). Grafana
+holds one datasource pair per cluster and no federation:
+
+- the hub's own pair queries the hub's stores in-cluster;
+- each spoke's pair — `<cell>-metrics` (`prometheus`) at
+  `https://victoriametrics.<cell>.<subdomain>.<domain>/prometheus` and `<cell>-logs`
+  (`victoriametrics-logs-datasource`) at `…/logs` — queries that spoke's
+  `spoke-query-endpoint`, which authenticates the caller and forwards to the spoke's
+  own stores;
+- authentication is the viewer's OIDC token from the box's issuer, forwarded with
+  `oauthPassThru` (ADR-083 addendum 1 §1), so revocation at the issuer stops a
+  query;
+- the pairs are generated from the cluster registry, one per spoke; a spoke without
+  a pair fails the render;
+- dashboards select a cluster through the `cluster` variable. Cross-cluster PromQL
+  is not offered.
+
+### 11. Evidence that shaped these decisions (2026-10-23 to 2026-10-24)
+
+Each fault below was silent — every component reported healthy — which is why the
+decisions above put a check, not a convention, behind each invariant.
+
+| Fault | Fixed by | Guard |
+|---|---|---|
+| The platform-namespace filter read namespace labels that Alloy v1.5.1's pod discovery never attaches; no platform pod log was shipped from any cluster | Alloy v1.20.1, `attach_metadata { namespace = true }` | preflight 078 |
+| Spoke pod logs went only to the external destination, which refused every batch (no push path) | in-box store always; push paths appended | preflight 078 |
+| The spoke ran no Reloader, so every reload annotation there — including credential-rotation triggers — was inert, and a release's config change was never loaded | Reloader in the spoke catalogue | preflight 030 |
+| The spoke agent's `CELL_ID` came from a pod label nothing set; spoke telemetry carried no `cluster` | substituted from the spoke's name | preflight 078 |
+
+### 12. Gaps these decisions require closing
+
+Found on the dev box and recorded as acceptance gates, not open design:
+
+- the spoke collects no cluster metrics: no kube-state-metrics, kubelet, cAdvisor or
+  node-exporter scrape, and the CNPG scrape is down;
+- the §7.2 namespace opt-in is not read by spoke collection;
+- the OTLP path attaches no Kubernetes identity; it trusts what the sender sends;
+- the chart has no OTLP endpoint value;
+- both evaluators select only platform rules and have no notifier, and no
+  Alertmanager exists;
+- the Grafana sidecar watches one namespace;
+- the spoke query endpoint's listener and route are withheld (ADR-051, 2026-09-21
+  amendment), and nothing generates spoke datasource pairs;
+- job names are the collector's component names, not the conventional ones the
+  mixins select on.
+
+### 13. Verified before implementation, at the deployed versions
+
+The decisions depend on behaviour that must be confirmed in the reference source at
+the deployed tag before the component that relies on it is built: vmauth per-user
+concurrency limits; `VMRule` group `params` reaching the datasource; VMSingle's
+search-limit flags; Kyverno mutation of nested rule lists; that the hub-side
+ApplicationSet yields an Application for every app; ArgoCD's handling of an optional
+value file; the k8s-sidecar's namespace selection; Alloy's Kubernetes-attributes
+processor for OTLP. The routing-boundary fields of §8 are confirmed in the vendored
+VictoriaMetrics operator CRDs (v0.49.1).
+
+### 14. Delivery order
+
+Each step depends on the one before; a dashboard or alert is not operationally ready
+until the telemetry beneath it is.
+
+1. Spoke collection floor: kube-state-metrics, kubelet, cAdvisor, node-exporter, the
+   CNPG scrape; conventional job names.
+2. Namespace opt-in in spoke collection.
+3. OTLP identity: pod association and label overwrite; the chart's endpoint value.
+4. Tenant scrape and OTLP through the chart contract.
+5. The platform mixin and the published recording-rule contract manifest.
+6. Alerting: the tenant evaluator, Alertmanager, the routing values, the admission
+   and CI guards.
+7. Tenant dashboards through the hub-side render.
+8. Spoke datasources in the hub Grafana, once the query endpoint is routed.
+
+### 15. A step is accepted on end-to-end evidence, never on a green sync
+
+A synced Application and a rendered config prove nothing about telemetry: every
+fault in §11 shipped green. Each delivery step is accepted only when its path is
+exercised end to end on a real box, and the checks become cluster validation
+scripts named for this ADR, so they rerun on every release:
+
+- **Collection**: every expected target is `up`, and a known series from each job
+  is present in the cluster's own store, with a non-empty `cluster` label.
+- **Logs**: a known platform pod's lines are queryable in the cluster's store, and
+  in each additional destination the box has added.
+- **Identity**: a test pod sending OTLP with forged `tenant-id`, `app-id` and
+  `namespace` lands with the platform's values; a sender in a namespace that is not
+  opted in is rejected.
+- **Evaluation**: a test rule fires in each evaluator; a tenant rule that forges
+  `labels.namespace` reaches only its own app's route; a tenant rule that exceeds
+  its timeout is cut off while platform evaluation keeps its interval.
+- **Routing**: the always-firing heartbeat (§16) reaches the box's heartbeat
+  receiver from every cluster.
+- **Locality**: with the hub link cut, a spoke still evaluates and delivers its
+  alerts.
+- **Promotion**: a bundle carrying a declared breaking contract change fails a
+  tenant's promotion pull request that uses the removed name, and names the
+  replacement.
+
+### 16. The observability stack reports its own degradation
+
+The platform must know when observability is degraded, not only observe
+applications through it. Platform-owned rules, in the platform evaluator, cover the
+stack itself:
+
+- **A heartbeat.** One always-firing alert per cluster, routed to a heartbeat
+  receiver the box declares in its routing values (§8). Its *absence* is the signal:
+  a dead evaluator, Alertmanager or delivery path stops the heartbeat, which no
+  firing alert can report. A box that declares no heartbeat receiver fails its
+  routing render.
+- **Collection**: a target down, a job with no targets, a collector's dropped or
+  failed sends, a destination refusing writes.
+- **Storage and query**: store ingestion stalls, disk pressure, query timeouts and
+  concurrency saturation (§7).
+- **Evaluation**: evaluator errors and missed iterations, for both evaluators.
+- **Delivery**: Alertmanager notification failures by receiver, and a receiver whose
+  credential is missing (§8).
+- **Visualisation**: a datasource the hub cannot reach, per cluster (§10).
+
+These route to the box's platform receiver. They are the platform's evidence for the
+capability it operates (addendum 1 §8), and they come into scope with the step that
+introduces each component (§14).
+
+This ADR stays Proposed (addendum 1 §14) until these are applied.
+
 ## References
 
 - **ADR-064**: Promotion via Renovate — how dashboards and rules reach a tenant
@@ -659,3 +981,8 @@ is what holds this ADR at Proposed until they are applied.
 - **ADR-071**: How This Platform Differs from Kubefirst — every capability ships to every tenant
 - **ADR-077**: The Support Agent — the other side of §8
 - **ADR-083**: Cross-Cluster Observability Federation — the architecture behind addendum 1 decision 1
+- **ADR-030**: Autonomous Credential Rotation Lifecycle — why the spoke runs Reloader (addendum 2 §11)
+- **ADR-031**: Tenant Secret Isolation Topology — why receiver keys are materialised per cell
+- **ADR-051**: Environment DNS Naming and Public Gateway TLS — the query endpoint's host and its withheld listener
+- **ADR-088**: The Tenant and the Application Are Different Axes — the identity labels
+- **ADR-102**: The Platform Workload Library Chart — the application-facing telemetry values

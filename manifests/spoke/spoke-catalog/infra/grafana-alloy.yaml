@@ -6,30 +6,184 @@ metadata:
   namespace: platform-observability
 data:
   config.alloy: |
-    // Kubernetes State Metrics.
+    // The NODE agent (ADR-078 add.1 §5): node-local targets only -- kubelet,
+    // cAdvisor, the host's node metrics, this node's CNPG instances, and this
+    // node's pod logs. Cluster-scoped targets (kube-state-metrics) are the
+    // cluster agent's (alloy-cluster-config below): scraped from every node
+    // they would be stored once per node.
     //
-    // platform-ops, not kube-system: it is required collection machinery
-    // (ADR-066 add.4) deployed with the platform's own components, and the
-    // Support Agent's node-pressure collector reads it there (ADR-077 add.4
-    // §13). The kube-system address was aspirational -- nothing installed
-    // kube-state-metrics on a spoke at all, verified absent on nutgraf-01, so
-    // every kube_* series this cluster should report has been missing and the
-    // alert rules reading them evaluated against nothing.
-    prometheus.scrape "kube_state_metrics" {
-      targets = [{
-        __address__ = "kube-state-metrics.platform-ops.svc:8080",
-      }]
-      forward_to = [prometheus.relabel.platform_namespaces_only.receiver]
+    // Job names are the conventional ones -- kubelet, cadvisor, node-exporter,
+    // cnpg -- which the pinned upstream mixins select on (ADR-078 add.2 §2).
+
+    discovery.kubernetes "nodes" {
+      role = "node"
     }
 
-    // SERIES-LEVEL tenant exclusion (ADR-078 add.1 §6).
+    // kubelet and cAdvisor through the apiserver proxy, THIS node only: node
+    // discovery returns every node, and without the keep each agent would
+    // scrape all of them.
+    discovery.relabel "kubelet" {
+      targets = discovery.kubernetes.nodes.targets
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc.cluster.local:443"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/$1/proxy/metrics"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+    }
+
+    prometheus.scrape "kubelet" {
+      job_name          = "kubelet"
+      targets           = discovery.relabel.kubelet.output
+      forward_to        = [prometheus.relabel.platform_namespaces_only.receiver]
+      scheme            = "https"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "30s"
+      tls_config {
+        ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        insecure_skip_verify = true
+      }
+    }
+
+    discovery.relabel "cadvisor" {
+      targets = discovery.kubernetes.nodes.targets
+      rule {
+        target_label = "__address__"
+        replacement  = "kubernetes.default.svc.cluster.local:443"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+        replacement   = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        target_label  = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+    }
+
+    // cAdvisor describes every container on the node, tenants' included, so
+    // its series pass the same namespace filter as kube-state-metrics. The
+    // ADR-098 metering carve-out for tenant container usage is not applied
+    // here; it lands with the metering lane, not with the collection floor.
+    prometheus.scrape "cadvisor" {
+      job_name          = "cadvisor"
+      targets           = discovery.relabel.cadvisor.output
+      forward_to        = [prometheus.relabel.platform_namespaces_only.receiver]
+      scheme            = "https"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      scrape_interval   = "30s"
+      tls_config {
+        ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        insecure_skip_verify = true
+      }
+    }
+
+    // The host's node metrics, from the agent's own process: Alloy is already
+    // on every node. It reads the HOST's /proc, /sys and / (mounted read-only
+    // below); without them it would report the container's view.
     //
-    // kube-state-metrics is cluster-scoped: one endpoint describes objects in
-    // EVERY namespace, so keeping or dropping the target is all-or-nothing and
-    // the pod-log path's namespace selector cannot reach it. On a SPOKE that is
-    // the sharp case -- a workload cluster is where the tenant's applications
-    // actually run, so without this every tenant pod name, workload name and
-    // object label leaves the cluster.
+    // Network collectors are off. The agent does not run in the host network
+    // namespace, so they would report the pod's interfaces as the node's --
+    // wrong data under the node's name, which is worse than none. Host network
+    // metrics need a decision about host networking; until then node network
+    // traffic is read from cAdvisor.
+    prometheus.exporter.unix "node" {
+      procfs_path       = "/host/proc"
+      sysfs_path        = "/host/sys"
+      rootfs_path       = "/host/root"
+      disable_collectors = ["netdev", "netstat", "netclass", "sockstat", "conntrack", "arp"]
+    }
+
+    // The exporter's targets carry their own `job` (integrations/unix), which
+    // job_name does not override; it is set here, with the node's name as the
+    // instance the node mixin joins on.
+    discovery.relabel "node_exporter" {
+      targets = prometheus.exporter.unix.node.targets
+      rule {
+        target_label = "job"
+        replacement  = "node-exporter"
+      }
+      rule {
+        target_label = "instance"
+        replacement  = sys.env("NODE_NAME")
+      }
+      rule {
+        target_label = "node"
+        replacement  = sys.env("NODE_NAME")
+      }
+    }
+
+    prometheus.scrape "node_exporter" {
+      targets         = discovery.relabel.node_exporter.output
+      forward_to      = [prometheus.relabel.add_cell_id.receiver]
+      scrape_interval = "30s"
+    }
+
+    // CNPG instances on THIS node, by their declared metrics port. The
+    // cluster's -rw Service exposes only 5432, so the old Service address was
+    // down for the life of the cluster (up=0, verified 2026-10-24).
+    discovery.relabel "cnpg" {
+      targets = discovery.kubernetes.pods.targets
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex         = "platform-data"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_cnpg_io_podRole"]
+        regex         = "instance"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_port_name"]
+        regex         = "metrics"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_cnpg_io_cluster"]
+        target_label  = "cnpg_cluster"
+      }
+    }
+
+    prometheus.scrape "cnpg" {
+      job_name        = "cnpg"
+      targets         = discovery.relabel.cnpg.output
+      forward_to      = [prometheus.relabel.add_cell_id.receiver]
+      scrape_interval = "30s"
+    }
+
+    // SERIES-LEVEL tenant exclusion (ADR-078 add.1 §6), for the node-local
+    // sources that describe every namespace (kubelet, cAdvisor). The cluster
+    // agent applies the same rule to kube-state-metrics; the two lists must
+    // stay identical (preflight 078).
     //
     // ONE rule, not two: consecutive `keep` relabels are ANDed, so a second
     // would only narrow what the first left. The leading empty alternative
@@ -43,14 +197,6 @@ data:
         regex         = "|platform-.*|cert-manager|cnpg-system|kyverno|crossplane-system|external-secrets|argo-rollouts|cilium-secrets|kube-system"
         action        = "keep"
       }
-    }
-
-    // CNPG metrics scraping
-    prometheus.scrape "cnpg" {
-      targets = [{
-        __address__ = "shared-cnpg-rw.platform-data.svc:9187",
-      }]
-      forward_to = [prometheus.relabel.add_cell_id.receiver]
     }
 
     // PostgREST was removed from the tenant platform on 2026-09-24 -- it was the
@@ -320,10 +466,12 @@ spec:
             - containerPort: 12345
               name: http
           env:
+            # The cluster label on everything this agent sends (ADR-078 add.1
+            # §7): this spoke's name, substituted from spokeName by the spoke
+            # catalogue's templated-fields. It was read from a `cell-id` pod
+            # label nothing ever set, so every spoke sent no cluster at all.
             - name: CELL_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.labels['cell-id']
+              value: "PLACEHOLDER"
             # The box this spoke belongs to (ADR-078 add.1 §7). Substituted from
             # global.tenantId by the spoke catalogue's templated-fields; the
             # literal keeps the manifest applicable by hand.
@@ -349,6 +497,17 @@ spec:
             - name: varlogcontainers
               mountPath: /var/log/containers
               readOnly: true
+            # The host's view for the node exporter, read-only.
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: host-root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -368,6 +527,139 @@ spec:
         - name: varlogcontainers
           hostPath:
             path: /var/log/containers
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-root
+          hostPath:
+            path: /
+---
+# The CLUSTER agent (ADR-078 add.1 §5): one replica for cluster-scoped targets,
+# which the node agents must not scrape -- each would store the same series
+# once per node. kube-state-metrics today.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-cluster-config
+  namespace: platform-observability
+data:
+  config.alloy: |
+    // kube-state-metrics in platform-ops (infra/kube-state-metrics/): required
+    // collection machinery (ADR-066 add.4), and the address the Support
+    // Agent's node-pressure collector reads (ADR-077 add.4 §13).
+    prometheus.scrape "kube_state_metrics" {
+      job_name        = "kube-state-metrics"
+      targets         = [{
+        __address__ = "kube-state-metrics.platform-ops.svc:8080",
+      }]
+      forward_to      = [prometheus.relabel.platform_namespaces_only.receiver]
+      scrape_interval = "30s"
+    }
+
+    // SERIES-LEVEL tenant exclusion (ADR-078 add.1 §6). kube-state-metrics is
+    // cluster-scoped: one endpoint describes objects in EVERY namespace, and a
+    // spoke is where tenants' applications run, so without this every tenant
+    // pod name, workload name and object label would be collected. The list
+    // must stay identical to the node agent's (preflight 078).
+    prometheus.relabel "platform_namespaces_only" {
+      forward_to = [prometheus.relabel.add_cell_id.receiver]
+
+      rule {
+        source_labels = ["namespace"]
+        regex         = "|platform-.*|cert-manager|cnpg-system|kyverno|crossplane-system|external-secrets|argo-rollouts|cilium-secrets|kube-system"
+        action        = "keep"
+      }
+    }
+
+    prometheus.relabel "add_cell_id" {
+      forward_to = [prometheus.remote_write.platform.receiver]
+
+      rule {
+        target_label = "cell_id"
+        replacement  = sys.env("CELL_ID")
+      }
+      rule {
+        target_label = "cluster"
+        replacement  = sys.env("CELL_ID")
+      }
+      rule {
+        target_label = "tenant"
+        replacement  = sys.env("TENANT_ID")
+      }
+    }
+
+    prometheus.remote_write "platform" {
+      endpoint {
+        url = "http://vmsingle-platform.platform-observability.svc.cluster.local:8429/api/v1/write"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-alloy-cluster
+  namespace: platform-observability
+  annotations:
+    configmap.reloader.stakater.com/reload: "alloy-cluster-config"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana-alloy-cluster
+  template:
+    metadata:
+      labels:
+        app: grafana-alloy-cluster
+    spec:
+      serviceAccountName: grafana-alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy/data
+            - --server.http.listen-addr=0.0.0.0:12345
+          ports:
+            - containerPort: 12345
+              name: http
+          env:
+            # Substituted per spoke by templated-fields, as on the node agent.
+            - name: CELL_ID
+              value: "PLACEHOLDER"
+            - name: TENANT_ID
+              value: "platform"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: data
+              mountPath: /var/lib/alloy/data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 473
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-cluster-config
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: ServiceAccount

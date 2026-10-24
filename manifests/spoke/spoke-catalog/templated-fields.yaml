@@ -194,13 +194,23 @@
     - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
 
 # ADR-078 add.1 §7: Alloy stamps `cluster` and `tenant` on everything it sends.
-# cluster comes from the cell-id label at runtime; tenant is a fact about the
-# box and has to be substituted, or every spoke reports tenant="platform" and
-# the label identifies nothing -- the same defect the constant cluster="hub"
+# Both are facts about this spoke and box and have to be substituted: cluster
+# is the spoke's name (env[0], CELL_ID), tenant the box's (env[1], TENANT_ID).
+# Left at their literals every spoke would report the same values and the
+# labels would identify nothing -- the same defect the constant cluster="hub"
 # was on the hub.
 - kind: DaemonSet
   name: grafana-alloy
   fields:
+    - path: [spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ .Values.spokeName }}'
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ .Values.global.tenantId }}'
+- kind: Deployment
+  name: grafana-alloy-cluster
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ .Values.spokeName }}'
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
 
