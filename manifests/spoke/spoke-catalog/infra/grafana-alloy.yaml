@@ -674,14 +674,16 @@ metadata:
     secret.reloader.stakater.com/reload: "grafana-cloud-credentials"
 spec:
   replicas: 1
-  # One writer to a ReadWriteOnce buffer: the old pod releases it first.
+  # One writer to a ReadWriteOnce buffer: the old pod stops before the new one
+  # starts. Expressed as RollingUpdate with no surge rather than Recreate: the
+  # live Deployment already carries RollingUpdate, and server-side apply cannot
+  # switch the type -- it drops a null `rollingUpdate`, and the API server then
+  # refuses the defaulted one beside Recreate (rc.163, rc.166).
   strategy:
-    type: Recreate
-    # Explicit null: the live Deployment still carries the API server's
-    # RollingUpdate defaults, and server-side apply refuses `rollingUpdate`
-    # beside Recreate (rc.163: "may not be specified when strategy type is
-    # 'Recreate'") unless the field is cleared.
-    rollingUpdate: null
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: grafana-alloy-cluster
