@@ -30,6 +30,18 @@ fi
 # host:port of the SDK, from the address the workload is given.
 SDK_HOST=$(echo "$WAYPOINT_SDK_BASE_URL" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
 
+# The session's own renderer, when the session has an app preview: an exact
+# in-cluster host:port, never a pattern. Anything else is refused here rather
+# than registered, so a bad address cannot open the vault to another host.
+RENDERER_HOST=""
+if [ -n "$APP_RENDERER_URL" ]; then
+  if ! echo "$APP_RENDERER_URL" | grep -Eq '^http://[a-z0-9]([a-z0-9-]*[a-z0-9])?-renderer-svc\.[a-z0-9]([a-z0-9-]*[a-z0-9])?\.svc\.cluster\.local:[0-9]{1,5}$'; then
+    echo "FATAL: APP_RENDERER_URL is not a renderer service address: $APP_RENDERER_URL"
+    exit 1
+  fi
+  RENDERER_HOST=$(echo "$APP_RENDERER_URL" | sed -e 's|^http://||')
+fi
+
 # The SDK is an in-cluster Service, on a private address agent-vault refuses to
 # dial by default. Opening private ranges reaches only hosts with a registered
 # service below (an unmatched host is refused before any dial), so it reaches
@@ -135,6 +147,19 @@ if [ -n "$AI_GATEWAY_API_KEY" ]; then
     --header='Content-Type: application/json' \
     --header="Authorization: Bearer $TOKEN" \
     http://localhost:14321/v1/vaults/sandbox/services >/dev/null 2>&1
+fi
+
+# The renderer: allowed, with nothing injected (agent-vault "passthrough").
+# Lives in this pod's vault only, so it ends with the session's pod.
+if [ -n "$RENDERER_HOST" ]; then
+  if ! wget -qO- --post-data='{"services":[{"name":"app-renderer","host":"'"$RENDERER_HOST"'","auth":{"type":"passthrough"}}]}' \
+    --header='Content-Type: application/json' \
+    --header="Authorization: Bearer $TOKEN" \
+    http://localhost:14321/v1/vaults/sandbox/services >/dev/null 2>&1; then
+    echo "FATAL: could not register the renderer $RENDERER_HOST"
+    kill "$SERVER_PID"
+    exit 1
+  fi
 fi
 
 wget -qO- --post-data='{"services":[{"name":"waypoint-sdk","host":"'"$SDK_HOST"'","auth":{"type":"api-key","key":"WAYPOINT_INTERNAL_TOKEN","header":"x-waypoint-internal-token"}}]}' \
