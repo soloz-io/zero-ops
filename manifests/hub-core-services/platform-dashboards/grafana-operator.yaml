@@ -1,13 +1,19 @@
-# Grafana Operator v5.25.0 -- reconciles this box's dashboards into the owner's
+# Grafana Operator v5.24.0 -- reconciles this box's dashboards into the owner's
 # Grafana Cloud stack, which it manages as an EXTERNAL instance (ADR-078 add.3 §4).
 # It runs no Grafana: the only Grafana is the stack's.
-# Source: https://grafana.github.io/helm-charts (chart grafana-operator 5.25.0)
-# Source chart sha256: 4a5319f9796a4460
-# Vendored from `helm template grafana-operator grafana-operator-5.25.0.tgz
+# Source: https://grafana.github.io/helm-charts (chart grafana-operator 5.24.0)
+# Source chart sha256: ffde0a5b1efab88d
+# Vendored from `helm template grafana-operator grafana-operator-5.24.0.tgz
 # -n platform-observability --include-crds` with resources set, Helm bookkeeping
 # labels removed and the image pinned by digest (ADR-021).
-# Upgrade: re-render from the new chart version and update this header, crds.yaml
-# in lockstep.
+#
+# Pinned BELOW 5.25.0 deliberately: 5.25.0's CRDs validate with the CEL `format`
+# library (format.uuid()), which Kubernetes 1.31 does not have -- the hub's API
+# server rejected grafanadashboards.grafana.integreatly.org on rc.163. Move up
+# only with the clusters on a Kubernetes that has it.
+#
+# Upgrade: re-render from the new chart version, check its CRDs compile on the
+# clusters' Kubernetes, and update this header and the CRDs file in lockstep.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -228,7 +234,7 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
           runAsNonRoot: true
-        image: ghcr.io/grafana/grafana-operator:v5.25.0@sha256:bc572995823fcfc32d2e960a47324a87baae8e4c9f821b8564026243e73624f3
+        image: ghcr.io/grafana/grafana-operator:v5.24.0@sha256:e72d11ac579a000fe0ddcc0c3341a5103a1c93a28fbc394dc7c7009ed071d1a7
         imagePullPolicy: IfNotPresent
         env:
         - name: WATCH_NAMESPACE
@@ -251,7 +257,6 @@ spec:
         - --default-resync-period=10m
         - --leader-elect
         - --max-concurrent-reconciles=1
-        - --gomemlimit-ratio=0.9
         volumeMounts:
         - name: dashboards-dir
           mountPath: /tmp/dashboards

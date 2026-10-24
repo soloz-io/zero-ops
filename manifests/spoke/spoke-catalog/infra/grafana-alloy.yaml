@@ -677,6 +677,11 @@ spec:
   # One writer to a ReadWriteOnce buffer: the old pod releases it first.
   strategy:
     type: Recreate
+    # Explicit null: the live Deployment still carries the API server's
+    # RollingUpdate defaults, and server-side apply refuses `rollingUpdate`
+    # beside Recreate (rc.163: "may not be specified when strategy type is
+    # 'Recreate'") unless the field is cleared.
+    rollingUpdate: null
   selector:
     matchLabels:
       app: grafana-alloy-cluster

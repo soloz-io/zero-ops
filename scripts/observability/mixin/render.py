@@ -13,6 +13,7 @@ import json, os, sys, yaml
 DASHBOARDS = {
     "k8s-resources-cluster.json", "k8s-resources-multicluster.json",
     "k8s-resources-namespace.json", "k8s-resources-node.json",
+    "k8s-resources-nodes-overview.json",
     "k8s-resources-pod.json", "k8s-resources-workload.json",
     "k8s-resources-workloads-namespace.json", "kubelet.json",
     "cluster-total.json", "namespace-by-pod.json", "namespace-by-workload.json",
