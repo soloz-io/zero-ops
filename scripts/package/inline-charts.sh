@@ -148,6 +148,10 @@ package_path platform-storage manifests/hub-core-services/storage
 # bundle-completeness.py exists to catch, and the reason this script exists.
 package_path grafana-alloy manifests/hub-core-services/grafana-alloy
 
+# ADR-078 add.3 §4: the Grafana Operator and the dashboards it reconciles into
+# the box owner's stack, inline and capability-gated with grafana-alloy.
+package_path platform-dashboards manifests/hub-core-services/platform-dashboards
+
 # ADR-077's agent, inline for the same reason as grafana-alloy: its presence is a
 # function of capabilities.support.enabled. Leaving it out here would publish a
 # bundle naming a chart no release produced.

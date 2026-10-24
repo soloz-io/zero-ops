@@ -1,6 +1,10 @@
-# ADR-078 add.3 §4: the stack this box provisions into is a per-box fact.
+# ADR-078 add.3 §4: the stack this box provisions into is a per-box fact. It is
+# required where the box's values enter -- the environment-manager refuses to
+# render without grafanaCloudStackUrl -- and the Grafana CRD rejects an empty
+# URL at apply (pattern ^https?://.+$). Not `required` here: a component chart is
+# also rendered without a box's values, at packaging, and would render nothing.
 - kind: Grafana
   name: grafana-cloud
   fields:
     - path: [spec, external, url]
-      value: '{{ required "global.grafanaCloudStackUrl is required: the box owner''s Grafana Cloud stack (https://<stack>.grafana.net) is the observability backend (ADR-078 add.3)" .Values.global.grafanaCloudStackUrl }}'
+      value: '{{ .Values.global.grafanaCloudStackUrl }}'

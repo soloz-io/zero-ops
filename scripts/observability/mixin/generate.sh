@@ -7,7 +7,7 @@
 #
 # The upstream mixin is pinned in jsonnetfile.json (a tag, never a branch); the
 # tools are pinned below. Output:
-#   manifests/hub-core-services/platform-dashboards/dashboards/*.yaml
+#   manifests/hub-core-services/platform-dashboards/dashboard-*.yaml
 #       one GrafanaDashboard per selected upstream dashboard, in the Platform folder
 #   manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml
 #   manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml
@@ -43,10 +43,10 @@ if [[ "$CHECK" == "--check" ]]; then
     while IFS= read -r f; do
         rel="${f#"$ROOT/"}"
         [[ -f "$out/root/$rel" ]] || { echo "DRIFT $rel: no longer generated; run $0" >&2; status=1; }
-    done < <(find "$ROOT/manifests/hub-core-services/platform-dashboards/dashboards" -type f -name '*.yaml' | sort)
+    done < <(find "$ROOT/manifests/hub-core-services/platform-dashboards" -maxdepth 1 -type f -name 'dashboard-*.yaml' | sort)
     exit "$status"
 fi
 
-rm -f "$ROOT"/manifests/hub-core-services/platform-dashboards/dashboards/*.yaml
+rm -f "$ROOT"/manifests/hub-core-services/platform-dashboards/dashboard-*.yaml
 cp -R "$out/root/." "$ROOT/"
 echo "generated $(find "$out/root" -type f | wc -l | tr -d ' ') file(s)"

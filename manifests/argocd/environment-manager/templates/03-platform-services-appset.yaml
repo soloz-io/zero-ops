@@ -156,8 +156,8 @@ spec:
 
           # ADR-078 add.3 §4: the Grafana Operator and the dashboards it
           # reconciles into the box owner's Grafana Cloud stack. Gated with the
-          # capability for the reason grafana-alloy is; recursive because the
-          # operator and the generated dashboards are subdirectories.
+          # capability for the reason grafana-alloy is. Flat: the bundle packages
+          # a directory component's top-level files only.
           {{- $_ := required "grafanaCloudStackUrl is required while observability is enabled: the box owner's Grafana Cloud stack is the backend and UI (ADR-078 add.3)" .Values.grafanaCloudStackUrl }}
           - boundary: '03'
             appName: 'platform-dashboards'
@@ -167,7 +167,7 @@ spec:
             targetRevision: ''
             path: 'manifests/hub-core-services/platform-dashboards'
             chart: ''
-            directoryRecurse: 'true'
+            directoryRecurse: ''
             directoryInclude: ''
             helmValues: |
               {{- if $released }}

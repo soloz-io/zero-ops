@@ -64,6 +64,10 @@ MAPPINGS=(
   "GRAFANA_CLOUD_PROMETHEUS_URL:grafana-cloud/prometheus-url:${SHARED}"
   "GRAFANA_CLOUD_PROMETHEUS_USER:grafana-cloud/prometheus-user:${SHARED}"
   "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:${SHARED}"
+  # ADR-078 add.3 §6: the hub reads these at the root (its ExternalSecrets have
+  # no cell prefix); the dashboards token is the hub's alone.
+  "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:/"
+  "GRAFANA_CLOUD_DASHBOARDS_TOKEN:grafana-cloud/dashboards-token:/"
   "hcloud-token:hetzner/token:/"
 )
 
