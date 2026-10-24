@@ -70,8 +70,18 @@ for i in json.load(sys.stdin)["items"]:
 ' "$FINALIZER")
 fi
 
-# 2. The operator: its release, its webhook, its cluster RBAC.
-for obj in deploy/"$OPERATOR" svc/"$OPERATOR" sa/"$OPERATOR" \
+# 1c. The stores' data. The operator does not delete a store's PVC with the
+#     store (hub, rc.167 cleanup: both left Bound and unmounted).
+for obj in pvc/vmsingle-platform pvc/vlogs-platform; do
+    have -n "$NS" "$obj" && run -n "$NS" delete "$obj" --ignore-not-found
+done
+
+# 2. The operator: its release, its webhook, its cluster RBAC. The webhook's
+#    Secrets are cert-manager's: the Certificates and Issuers go first, or
+#    cert-manager re-creates the Secrets seconds after they are deleted.
+for obj in certificate/"$OPERATOR"-root-ca certificate/"$OPERATOR"-validation \
+           issuer/"$OPERATOR"-issuer issuer/"$OPERATOR"-root \
+           deploy/"$OPERATOR" svc/"$OPERATOR" sa/"$OPERATOR" \
            secret/"$OPERATOR"-root-ca secret/"$OPERATOR"-validation; do
     have -n "$NS" "$obj" && run -n "$NS" delete "$obj" --ignore-not-found
 done
