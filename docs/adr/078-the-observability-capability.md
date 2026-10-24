@@ -6,6 +6,8 @@
 
 *Constrained by: ADR-065 (The Control Plane Ships Into the Box), ADR-066 (The Platform Boundary), ADR-069 (The Maintenance Promise), ADR-070 (The Minimum Supported Box), ADR-071 (How This Platform Differs from Kubefirst), ADR-077 (The Support Agent)*
 
+*Amended by: addendum 3 (2026-10-24) — the backend and UI move to the box owner's Grafana Cloud stack; the in-box stores, Grafana and ADR-083's federation are removed.*
+
 *Amended by: ADR-098 (Metering Sources over Spoke Egress and Records in Lago) — add.1
 §6's tenant series exclusion gains a metering carve-out: in-cluster container
 usage series for `tenant-*` namespaces are collected as accounting data.
@@ -140,11 +142,7 @@ capabilities:
   - observability
 components:
   - grafana-alloy
-  - victoriametrics
-  - victoriametrics-alerts
-  - victoria-logs
-  - vmalert
-  - grafana
+  - platform-alerts
 ```
 
 ## Alternatives considered
@@ -482,12 +480,7 @@ components:
   - grafana-alloy
   - kube-state-metrics
   - node-exporter
-  - victoriametrics-operator
-  - victoriametrics
-  - victoria-logs
-  - vmalert
-  - victoriametrics-alerts
-  - grafana
+  - platform-alerts
 ```
 
 `kube-state-metrics` and `node-exporter` are registered as required machinery
@@ -970,6 +963,129 @@ capability it operates (addendum 1 §8), and they come into scope with the step 
 introduces each component (§14).
 
 This ADR stays Proposed (addendum 1 §14) until these are applied.
+
+## Addendum 3: the backend is the box owner's Grafana Cloud stack (2026-10-24)
+
+**Supersedes** §1, §4 and §5; addendum 1 §1, §9 and §10; ADR-083's federation
+(Grafana querying per-cluster stores); and addendum 2 §6, §7's store-side guard,
+§8's in-box Alertmanager, §9's ConfigMap delivery and §10. Everything else in this
+ADR stands, including §3's collection rules, the tenant exclusion of addendum 1 §6,
+and addendum 2's contracts for telemetry identity, opt-in, the recording-rule
+manifest and tenant authoring — now applied against Grafana Cloud.
+
+### 1. Decision
+
+The box's observability backend and UI is a **Grafana Cloud stack owned by the box's
+owner**. Every cluster sends its metrics and logs there; dashboards, recording rules
+and alert rules are provisioned there as code. The box runs no telemetry database
+and no Grafana.
+
+The stack is the customer's account, not the platform's: telemetry goes to the
+destination its owner chose, which is ADR-066's line. The platform still decides
+*what* is collected (§3, addendum 1 §6): tenant namespaces stay excluded unless
+opted in.
+
+**This makes a Grafana Cloud stack a precondition** of the observability capability,
+the trade §1 had rejected. It is accepted as a product decision. A box without the
+required credentials (§6) fails its observability render, naming each missing key.
+
+### 2. Clusters hold telemetry only until it is delivered
+
+Each agent's on-disk state is the transit buffer, deleted once delivered — not a
+store anyone queries:
+
+| Signal | Buffer | Deleted |
+|---|---|---|
+| Metrics | the `prometheus.remote_write` WAL | every 15m (`truncate_frequency`), below the lowest sample successfully sent, once at least 5m old (`min_keepalive_time`) |
+| Logs | the node's container log files, read from Alloy's persisted positions | by kubelet's rotation; Alloy resumes from the last position delivered |
+
+**Outage tolerance:** metrics unsent for 24h (`max_keepalive_time`) are dropped;
+logs are lost once rotation removes a file Alloy has not delivered. Both losses are
+counted and alerted (§5).
+
+The buffer must survive restarts, or it buffers nothing: node agents keep their
+storage path on the node (`hostPath`), cluster agents on a persistent volume. The
+earlier `emptyDir` lost the WAL and the positions on every restart.
+
+**Removed:** VMSingle, VictoriaLogs, VMAlert and the VictoriaMetrics operator on every
+cluster; the hub Grafana, its datasources and route; the spoke query endpoint and its
+certificate. The ADR-051 listener conflict that blocked the query endpoint no longer
+applies.
+
+### 3. Rules are synced per cluster and pinned to it
+
+Recording and alert rules are `PrometheusRule` objects in the cluster they describe.
+Each cluster's cluster agent syncs them to the stack's ruler (`mimir.rules.kubernetes`):
+
+- its ruler namespace prefix is the cluster's name, so one cluster's sync never
+  replaces another's rules;
+- every query is pinned to `cluster="<name>"` and every rule stamped with it, so a
+  rule evaluates only its own cluster's series in a store every cluster shares;
+- platform rules carry `app.kubernetes.io/managed-by: platform`; tenant rules are
+  selected only in opted-in namespaces (addendum 2 §5), with `labels.namespace`
+  enforced at admission (addendum 2 §7).
+
+**Evaluation moves to Grafana Cloud.** A cluster that loses its link still buffers
+(§2) but raises no alert itself; its silence is detected in the stack (§5).
+
+### 4. Dashboards are reconciled into the stack
+
+Dashboards — the generated platform mixin (addendum 2 §2) and tenants' own — are
+`GrafanaDashboard` objects reconciled into the stack by the Grafana Operator on the
+hub, targeting the stack as an external instance. Platform dashboards go to a
+**Platform** folder; each app's to its own. The operator corrects drift, so a UI
+edit is reverted and Git stays the source of truth. Each dashboard selects its
+cluster through the `cluster` variable.
+
+### 5. The pipeline reports its own failure, from outside the cluster
+
+- **Silence.** A per-cluster rule evaluated in the stack fires when a cluster's
+  `up` series are absent: the link, the agent or the credential has failed. This is
+  the heartbeat (addendum 2 §16), now detected where the data lands.
+- **Loss.** Agents' dropped samples, WAL samples dropped at `max_keepalive_time`,
+  failed log sends and rule-sync errors are alerted per cluster.
+
+### 6. Credentials, least privilege
+
+| Key | Scope | Where |
+|---|---|---|
+| `GRAFANA_CLOUD_API_KEY` | `metrics:write`, `logs:write` | every cluster's agents |
+| `GRAFANA_CLOUD_RULES_TOKEN` | `rules:read`, `rules:write` | every cluster's cluster agent |
+| `GRAFANA_CLOUD_DASHBOARDS_TOKEN` | a stack service account (Editor) | the hub's Grafana Operator |
+
+The stack's Grafana URL is not a secret: it is a per-box value,
+`global.grafanaCloudStackUrl` in the box's cluster values, required like the
+domain.
+| `GRAFANA_CLOUD_READ_TOKEN` | `metrics:read`, `logs:read` | validation only (§15), never in a cluster |
+
+Spoke keys are materialised per cell (ADR-031), as the existing Grafana Cloud keys
+are. The token in use on 2026-10-24 was write-only (every read returned 401), which
+is why the rules, dashboard and read keys are new.
+
+### 7. Consequences
+
+- **ADR-098 loses its quantity source.** Its metering agent queried the local
+  VMSingle for CPU and memory (Decision 7). Metering must source quantities itself
+  — scraping cAdvisor directly — or keep a store of its own. ADR-098 decides; it is
+  still planned, so nothing deployed breaks.
+- **Telemetry costs are the stack owner's,** in series and log volume. Collection
+  stays bounded (§3) so the bill is.
+- **No local query** during a link outage. Data is buffered, not viewable, until
+  delivered.
+- **§15 checks query the stack** with the read token, from outside the cluster.
+
+```architecture
+capabilities:
+  - observability
+components:
+  - grafana-alloy
+  - kube-state-metrics
+  - node-exporter
+  - platform-alerts
+acceptance:
+  - scripts/validate/cluster/078-collection-floor.sh
+  - scripts/validate/preflight/078-pod-discovery-attaches-namespace-labels.sh
+```
 
 ## References
 

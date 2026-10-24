@@ -48,6 +48,7 @@ while read -r env; do
             --set instanceRepoURL=https://github.com/example-org/example-gitops \
             --set hubDomain=dev.example.test \
             --set previewDomain=example-preview.test \
+            --set grafanaCloudStackUrl=https://example.grafana.net \
             --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
             --set bundleVersion="$VERSION" 2>&1) && ok=0 || ok=1
 

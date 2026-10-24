@@ -18,23 +18,18 @@ import (
 // if a derived host stops matching what the manifests actually serve.
 
 func TestDeriveHubEndpointsFromZone(t *testing.T) {
-	cases := []struct{ zone, api, auth, grafana string }{
-		{"dev.nutgraf.in", "api.dev.nutgraf.in", "auth.dev.nutgraf.in", "grafana.dev.nutgraf.in"},
-		{"stg.nutgraf.in", "api.stg.nutgraf.in", "auth.stg.nutgraf.in", "grafana.stg.nutgraf.in"},
+	cases := []struct{ zone, api, auth string }{
+		{"dev.nutgraf.in", "api.dev.nutgraf.in", "auth.dev.nutgraf.in"},
+		{"stg.nutgraf.in", "api.stg.nutgraf.in", "auth.stg.nutgraf.in"},
 		// Production uses the apex unlabelled (ADR-051 env-as-zone), so the same
 		// derivation applies with no special case.
-		{"nutgraf.in", "api.nutgraf.in", "auth.nutgraf.in", "grafana.nutgraf.in"},
+		{"nutgraf.in", "api.nutgraf.in", "auth.nutgraf.in"},
 	}
 	for _, c := range cases {
 		got := DeriveHubEndpoints(c.zone)
-		// Grafana at the ordinary <service>.<zone> shape. It derived
-		// victoriametrics.hub.<zone> -- an extra label no other host used, for a
-		// service nothing deployed. ADR-083 decision 1 settles what the hub
-		// publishes: Grafana alone. The stores are reached in-cluster on the hub
-		// and, on a spoke, at victoriametrics.<cell>.<zone> behind vmauth.
-		if got.API != c.api || got.Auth != c.auth || got.Grafana != c.grafana {
-			t.Errorf("zone %q derived api=%q auth=%q grafana=%q; want %q %q %q",
-				c.zone, got.API, got.Auth, got.Grafana, c.api, c.auth, c.grafana)
+		if got.API != c.api || got.Auth != c.auth {
+			t.Errorf("zone %q derived api=%q auth=%q; want %q %q",
+				c.zone, got.API, got.Auth, c.api, c.auth)
 		}
 	}
 }
@@ -70,7 +65,7 @@ func TestDerivationCoversEveryHubHostnameLiteral(t *testing.T) {
 		}
 		e := DeriveHubEndpoints(zone)
 		for _, h := range []string{e.API, e.Auth, e.ID, e.Console, e.ArgoCD, e.Infisical,
-			e.MCP, e.Dashboard, e.ZitadelOrg, e.Grafana, e.Zone} {
+			e.MCP, e.Dashboard, e.ZitadelOrg, e.Zone} {
 			derived[h] = true
 		}
 	}

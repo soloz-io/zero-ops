@@ -85,6 +85,7 @@ helm template descriptor-check "$env_mgr" \
   --set instanceRepoURL=https://github.com/example-org/example-gitops \
   --set hubDomain=dev.example.test \
   --set previewDomain=example-preview.test \
+  --set grafanaCloudStackUrl=https://example.grafana.net \
   --set topology=single \
   --set publicTlsIssuer=letsencrypt-prod \
   --set oidcIssuer=https://auth.example.invalid \

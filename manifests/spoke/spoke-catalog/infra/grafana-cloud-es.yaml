@@ -36,3 +36,8 @@ spec:
     - secretKey: API_KEY
       remoteRef:
         key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_API_KEY
+    # ADR-078 add.3 §6: rules:read and rules:write, for the cluster agent's
+    # rule sync. Separate from API_KEY, which is write-only.
+    - secretKey: RULES_TOKEN
+      remoteRef:
+        key: /spoke-pool/PLACEHOLDER/shared/GRAFANA_CLOUD_RULES_TOKEN

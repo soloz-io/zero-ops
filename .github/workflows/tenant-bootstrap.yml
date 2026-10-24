@@ -113,21 +113,28 @@ on:
           the tenant's data. Nothing to do with support -- ADR-067 makes support
           telemetry a separate channel with its own enrolment (ADR-077), and
           conflating the two is how a tenant's private monitoring account came to
-          look like a licence check. A destination: absent, observability still
-          runs and simply has no remote target.
-        required: false
+          look like a licence check. Required: the tenant's Grafana Cloud stack is
+          the box's observability backend (ADR-078 add.3). metrics:write and
+          logs:write.
+        required: true
       GRAFANA_CLOUD_PROMETHEUS_URL:
-        description: The tenant's Prometheus remote-write endpoint.
-        required: false
+        description: The tenant's stack Prometheus URL (…/api/prom).
+        required: true
       GRAFANA_CLOUD_PROMETHEUS_USER:
         description: The matching Prometheus user.
-        required: false
+        required: true
       GRAFANA_CLOUD_LOKI_URL:
-        description: The tenant's Loki push endpoint.
-        required: false
+        description: The tenant's stack Loki URL (the host).
+        required: true
       GRAFANA_CLOUD_LOKI_USER:
         description: The matching Loki user.
-        required: false
+        required: true
+      GRAFANA_CLOUD_RULES_TOKEN:
+        description: A stack token with rules:read and rules:write, for rule sync.
+        required: true
+      GRAFANA_CLOUD_DASHBOARDS_TOKEN:
+        description: A stack service-account token (Editor), for dashboard provisioning.
+        required: true
       ZITADEL_SMTP_URL:
         description: >-
           The identity provider's outbound mail, as an SMTP URL
@@ -250,6 +257,8 @@ jobs:
           GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
           GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}
           GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
+          GRAFANA_CLOUD_RULES_TOKEN: ${{ secrets.GRAFANA_CLOUD_RULES_TOKEN }}
+          GRAFANA_CLOUD_DASHBOARDS_TOKEN: ${{ secrets.GRAFANA_CLOUD_DASHBOARDS_TOKEN }}
           ZITADEL_SMTP_URL: ${{ secrets.ZITADEL_SMTP_URL }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

@@ -31,3 +31,9 @@
       value: '{{ .Values.global.clusterName }}'
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
+
+- kind: PersistentVolumeClaim
+  name: grafana-alloy-cluster-data
+  fields:
+    - path: [spec, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

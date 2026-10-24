@@ -85,6 +85,8 @@
       value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_USER'
     - path: [spec, data, 4, remoteRef, key]
       value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_API_KEY'
+    - path: [spec, data, 5, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_RULES_TOKEN'
 
 - kind: Deployment
   name: preview-access
@@ -214,52 +216,10 @@
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
 
-# The query endpoint's hostname and issuer -- per-box facts that ADR-063 keeps
-# out of a published chart, and per-CLUSTER facts on top of that.
-#
-# ADR-051's 2026-09-19 amendment: <service>.<cluster>.<subdomain>.<domain>. The
-# cluster segment is what stops two spokes in one box racing for a single DNS
-# record, and spokeName is already resolved per generated Application.
-- kind: Certificate
-  name: spoke-query-endpoint-tls
+# ADR-078 add.3 §2: the cluster agent's transit buffer. A hybrid box's workers
+# are on-prem and a Hetzner volume attaches only to a Hetzner server.
+- kind: PersistentVolumeClaim
+  name: grafana-alloy-cluster-data
   fields:
-    - replaceAll: {from: CELL_NAME.SUBDOMAIN_DOMAIN, with: '{{ .Values.spokeName }}.{{ .Values.global.hubDomain }}'}
-
-# The spoke's single :443 Gateway (ADR-051 amendment 2026-09-21). It was
-# `spoke-query-gateway` until that amendment made a port the property of ONE
-# Gateway: a Cilium hostNetwork Gateway binds a real host port, so a second
-# claimant of :443 is NACKed by envoy for the life of the cluster. This object
-# now carries the query endpoint as a LISTENER and tenant-public-tls adds one
-# listener per tenant hostname to the same object.
-#
-# The hostname substitution is unchanged and still applies to the listener this
-# The query endpoint's Gateway and HTTPRoute are absent from this component
-# while the capability is blocked (see infra/victoriametrics/query-ingress.yaml
-# and ADR-051's amendment of 2026-09-21). A declaration naming content that is
-# not rendered fails the packaging gate, which is the behaviour that caught the
-# last stale entry here -- so the declarations go when the objects do, and both
-# return together with the ListenerSet.
-- kind: ConfigMap
-  name: spoke-query-endpoint-config
-  fields:
-    - replaceAll: {from: SUBDOMAIN_DOMAIN, with: '{{ .Values.global.hubDomain }}'}
-
-# The telemetry stores' storage class, per box.
-#
-# A hybrid box's only worker is on-prem and a Hetzner volume attaches to a
-# Hetzner server, so the cluster default (hcloud-volumes) leaves the PVC Pending
-# forever -- verified on the live hub 2026-09-19. This is the same provider
-# split the platform's database and Redis already carry in
-# manifests/hub-core-services/providers/<provider>/.
-
-- kind: VMSingle
-  name: platform
-  fields:
-    - path: [spec, storage, storageClassName]
-      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
-
-- kind: VLogs
-  name: platform
-  fields:
-    - path: [spec, storage, storageClassName]
+    - path: [spec, storageClassName]
       value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

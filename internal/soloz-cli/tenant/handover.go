@@ -86,6 +86,9 @@ type Secrets struct {
 	GrafanaCloudPrometheusUser string
 	GrafanaCloudLokiURL        string
 	GrafanaCloudLokiUser       string
+	// ADR-078 add.3 §6: rule sync, and dashboard provisioning into the stack.
+	GrafanaCloudRulesToken      string
+	GrafanaCloudDashboardsToken string
 
 	// The issuer's outbound mail, as an SMTP URL (smtps://user:password@host:port).
 	ZitadelSMTPURL string

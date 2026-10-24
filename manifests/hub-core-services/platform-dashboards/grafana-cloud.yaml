@@ -1,0 +1,56 @@
+# ADR-078 add.3 §4: the box owner's Grafana Cloud stack, managed by the Grafana
+# Operator as an EXTERNAL instance. The operator provisions this box's folders
+# and dashboards into it and reverts drift, so Git stays the source of truth.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-cloud-dashboards
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: grafana-cloud-dashboards
+    creationPolicy: Owner
+  data:
+    # A stack service-account token (Editor), limited to provisioning
+    # (ADR-078 add.3 §6). Required: without it nothing reaches the stack.
+    - secretKey: token
+      remoteRef:
+        key: GRAFANA_CLOUD_DASHBOARDS_TOKEN
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: grafana-cloud
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    dashboards: grafana-cloud
+spec:
+  external:
+    # The stack's Grafana URL, a per-box value (global.grafanaCloudStackUrl),
+    # substituted by templated-fields.yaml. Required: the render fails without it.
+    url: PLACEHOLDER_STACK_URL
+    apiKey:
+      name: grafana-cloud-dashboards
+      key: token
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaFolder
+metadata:
+  name: platform
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  title: Platform
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana-cloud

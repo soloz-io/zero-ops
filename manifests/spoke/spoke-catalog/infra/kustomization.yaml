@@ -45,20 +45,15 @@ resources:
   - kube-state-metrics/controller.yaml
   - grafana-alloy.yaml
   # The cluster's own observability backend (ADR-078 §1, ADR-083 decision 1).
-  # Ordered after grafana-alloy so a reader meets the collector before its
-  # destination; kustomize does not order applies, ArgoCD sync waves do.
-  # The cluster's own observability backend (ADR-078 §1, ADR-083 decision 1).
-  # CRDs before the controller before the CRs, matching every other operator in
-  # this catalogue.
-  - victoriametrics/crd.yaml
-  - victoriametrics/controller.yaml
-  - victoriametrics/storage.yaml
-  - victoriametrics/query-endpoint.yaml
-  - victoriametrics/query-ingress.yaml
-  - victoriametrics/network-policy.yaml
+  # Ingress to the observability namespace is default-deny (ADR-078 add.1 §9).
+  - observability-network-policy.yaml
+  # ADR-078 add.3 §3: the rule format the cluster agent syncs to the stack.
+  - crds/prometheusrule-crd.yaml
   # ADR-014 recovery contract made observable: every rule here fires on a
   # condition CNPG itself reports as "Cluster in healthy state".
-  - victoriametrics/cnpg-backup-alerts.yaml
+  - platform-alerts/cnpg-backup-alerts.yaml
+  # ADR-078 add.3 §5: the pipeline's own failure, detected in the stack.
+  - platform-alerts/pipeline-health.yaml
   - grafana-cloud-es.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml

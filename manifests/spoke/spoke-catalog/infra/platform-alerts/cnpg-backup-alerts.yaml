@@ -28,13 +28,12 @@
 # `time() - last_available > threshold` fires immediately and identically for a
 # thirty-second-old cluster and a month-abandoned one, and an alert that cries on
 # every fresh install is an alert that gets silenced.
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMRule
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
 metadata:
   name: cnpg-backup-alerts
   namespace: platform-observability
   labels:
-    app: victoriametrics
     component: alerting
     # ADR-078 §6: platform rules are selected by this label. Without it VMAlert's
     # ruleSelector matches nothing and this file is evaluated by no one.

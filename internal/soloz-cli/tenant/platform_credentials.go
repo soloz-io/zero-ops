@@ -132,7 +132,7 @@ func platformCredentials() []platformCredential {
 		{
 			Secret: "GRAFANA_CLOUD_API_KEY", Tier: tierDestination,
 			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_API_KEY (optional; where YOUR metrics go): ",
+			Prompt:     "GRAFANA_CLOUD_API_KEY (metrics:write and logs:write on your stack): ",
 			Field:      func(s *Secrets) *string { return &s.GrafanaCloudAPIKey },
 			Needed:     always,
 		},
@@ -162,6 +162,20 @@ func platformCredentials() []platformCredential {
 			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
 			Prompt:     "GRAFANA_CLOUD_LOKI_USER: ",
 			Field:      func(s *Secrets) *string { return &s.GrafanaCloudLokiUser },
+			Needed:     always,
+		},
+		{
+			Secret: "GRAFANA_CLOUD_RULES_TOKEN", Tier: tierDestination,
+			Capability: "syncing this box's alert and recording rules to your Grafana Cloud stack",
+			Prompt:     "GRAFANA_CLOUD_RULES_TOKEN (rules:read and rules:write): ",
+			Field:      func(s *Secrets) *string { return &s.GrafanaCloudRulesToken },
+			Needed:     always,
+		},
+		{
+			Secret: "GRAFANA_CLOUD_DASHBOARDS_TOKEN", Tier: tierDestination,
+			Capability: "provisioning this box's dashboards into your Grafana Cloud stack",
+			Prompt:     "GRAFANA_CLOUD_DASHBOARDS_TOKEN (a stack service-account token, Editor): ",
+			Field:      func(s *Secrets) *string { return &s.GrafanaCloudDashboardsToken },
 			Needed:     always,
 		},
 		{

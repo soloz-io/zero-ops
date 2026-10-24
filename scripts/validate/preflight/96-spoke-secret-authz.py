@@ -104,6 +104,7 @@ rendered = run(["helm", "template", CHART,
                 "--set", "hubDomain=example.test",
                 "--set", "global.hubDomain=example.test",
                 "--set", "previewDomain=example-preview.test",
+                "--set", "grafanaCloudStackUrl=https://example.grafana.net",
                 "--set", "global.previewDomain=example-preview.test"],
                "environment-manager chart does not render")
 

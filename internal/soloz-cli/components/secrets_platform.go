@@ -69,9 +69,12 @@ func optionalSecrets() []optionalSecret {
 				"prometheus-user": "GRAFANA_CLOUD_PROMETHEUS_USER",
 				"loki-url":        "GRAFANA_CLOUD_LOKI_URL",
 				"loki-user":       "GRAFANA_CLOUD_LOKI_USER",
+				// ADR-078 add.3 §6.
+				"rules-token":      "GRAFANA_CLOUD_RULES_TOKEN",
+				"dashboards-token": "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
 			},
 			secType:     corev1.SecretTypeOpaque,
-			what:        "shipping this box's metrics and logs to the tenant's own Grafana Cloud",
+			what:        "the box's observability backend: the tenant's own Grafana Cloud stack (ADR-078 add.3)",
 			destination: true,
 		},
 		{

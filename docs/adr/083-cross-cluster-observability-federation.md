@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-19
 
-**Status:** Proposed
+**Status:** Superseded by ADR-078 addendum 3 (2026-10-24): the box's backend and UI are the owner's Grafana Cloud stack, so there are no per-cluster stores to federate and no spoke query endpoint. Its blocks below are kept as the record of the decision and claim nothing.
 
 *Constrained by: ADR-065 (The Control Plane Ships Into the Box), ADR-070 (The Minimum Supported Box), ADR-077 (The Support Agent), ADR-078 (The Observability Capability)*
 
@@ -296,7 +296,7 @@ Two consequences follow, and both are the point:
 This ADR introduces no component. It decides where the components ADR-078 already
 declares are placed, and what the connection between them is.
 
-```architecture
+```text
 capabilities:
   - observability
 acceptance:
@@ -595,7 +595,7 @@ would have forced the hostname question (2), the certificate's consumer and life
 (1), and the authentication mechanism that turned out not to exist (1). They were
 missed because nothing made them be answered.
 
-```architecture
+```text
 capabilities:
   - observability
 components:
@@ -657,7 +657,7 @@ cannot poison a store.
 so every `kube_*` series a workload cluster should report has been missing, and
 the alert rules reading them evaluated against nothing.
 
-```architecture
+```text
 capabilities:
   - observability
 components:

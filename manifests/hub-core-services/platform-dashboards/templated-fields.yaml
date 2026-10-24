@@ -1,0 +1,6 @@
+# ADR-078 add.3 §4: the stack this box provisions into is a per-box fact.
+- kind: Grafana
+  name: grafana-cloud
+  fields:
+    - path: [spec, external, url]
+      value: '{{ required "global.grafanaCloudStackUrl is required: the box owner''s Grafana Cloud stack (https://<stack>.grafana.net) is the observability backend (ADR-078 add.3)" .Values.global.grafanaCloudStackUrl }}'

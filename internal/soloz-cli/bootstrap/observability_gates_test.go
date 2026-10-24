@@ -380,56 +380,6 @@ func max(a, b int) int {
 	return b
 }
 
-// Every observability PVC names its storage class, and the webhook port is
-// reachable.
-//
-// Both were found on a live hub on 2026-09-19, and both are silent:
-//
-//   * A PVC with no storageClassName takes the cluster default, which is
-//     hcloud-volumes. On a hybrid box the only worker is on-prem and a Hetzner
-//     volume attaches to a Hetzner server, so it sat Pending with the CSI
-//     retrying forever while every other platform PVC on the same box was Bound
-//     on local-path. The platform's database and Redis already carry this split
-//     in manifests/hub-core-services/providers/<provider>/.
-//   * A default-deny ingress policy with no rule for 9443 blocks the API server
-//     from calling the operator's admission webhook. Every VMSingle, VLogs and
-//     VMAlert apply then fails dry-run with "context deadline exceeded" and the
-//     stores cannot be created at all. The API server does not call from a pod,
-//     so no namespaceSelector can admit it -- the rule has to be portwise with
-//     an empty `from`.
-func TestObservabilityStorageAndWebhookAreReachable(t *testing.T) {
-	root := repoRoot(t)
-
-	for _, rel := range []string{
-		"manifests/hub-core-services/victoriametrics",
-		"manifests/spoke/spoke-catalog/infra/victoriametrics",
-	} {
-		storage, err := os.ReadFile(filepath.Join(root, rel, "storage.yaml"))
-		if err != nil {
-			t.Fatalf("read %s/storage.yaml: %v", rel, err)
-		}
-		// Every `storage:` block must be followed by a storageClassName.
-		body := string(storage)
-		blocks := strings.Count(body, "\n  storage:\n")
-		classes := strings.Count(body, "storageClassName:")
-		if classes < blocks {
-			t.Errorf("%s/storage.yaml: %d storage block(s) but %d storageClassName. "+
-				"A PVC without one takes the cluster default (hcloud-volumes), which "+
-				"cannot bind on a hybrid box.", rel, blocks, classes)
-		}
-
-		np, err := os.ReadFile(filepath.Join(root, rel, "network-policy.yaml"))
-		if err != nil {
-			t.Fatalf("read %s/network-policy.yaml: %v", rel, err)
-		}
-		if !strings.Contains(string(np), "port: 9443") {
-			t.Errorf("%s/network-policy.yaml has a default-deny and no rule admitting "+
-				"9443. The API server cannot reach the operator's admission webhook, "+
-				"and every store CR fails dry-run.", rel)
-		}
-	}
-}
-
 // A descriptor's helmValues may only read values the environment-manager has.
 //
 // _distribution.tpl:55 runs `tpl` over helmValues in the ENVIRONMENT-MANAGER's
@@ -471,53 +421,6 @@ func TestDescriptorHelmValuesReadEnvironmentManagerValues(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walking %s: %v", dir, err)
-	}
-}
-
-// An operator whose admission webhook blocks its own CRs must not generate its
-// own certificate.
-//
-// The VictoriaMetrics operator defaults to generating a self-signed webhook
-// certificate and patching the caBundle through helm hooks. ArgoCD does not run
-// those the way `helm install` does, so the served certificate and the caBundle
-// the API server trusts drift apart. The failure is not a rejection -- it is a
-// TLS handshake the API server abandons:
-//
-//	operator: http: TLS handshake error from 10.244.0.159: EOF
-//	apply:    failed calling webhook "vmsingle.victoriametrics.com":
-//	          context deadline exceeded
-//
-// With the chart's default policy: Fail on every CRD, that blocks creation of
-// the stores the operator exists to reconcile. Observed on the live hub
-// 2026-09-19 with the operator Running and its endpoints populated -- which is
-// why it is worth a gate: every signal short of an actual apply looked healthy.
-//
-// cert-manager issues and injects by controller, which is what survives a sync
-// (ADR-025).
-func TestVMOperatorWebhookUsesCertManager(t *testing.T) {
-	root := repoRoot(t)
-
-	desc, err := os.ReadFile(filepath.Join(root,
-		"manifests/argocd/components/03/victoriametrics-operator.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !regexp.MustCompile(`(?s)admissionWebhooks:.*?certManager:.*?enabled:\s*true`).Match(desc) {
-		t.Error("the hub's operator descriptor does not enable admissionWebhooks.certManager. " +
-			"The chart will generate its own webhook certificate through helm hooks, which " +
-			"ArgoCD does not run, and every store CR will fail on a TLS handshake.")
-	}
-
-	// The spoke is vendored, so the evidence is the injection annotation.
-	ctl, err := os.ReadFile(filepath.Join(root,
-		"manifests/spoke/spoke-catalog/infra/victoriametrics/controller.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(ctl), "cert-manager.io/inject-ca-from") {
-		t.Error("the spoke's vendored operator has no cert-manager.io/inject-ca-from " +
-			"annotation, so it was rendered with the chart's own cert generation. " +
-			"Re-render with --set admissionWebhooks.certManager.enabled=true.")
 	}
 }
 
@@ -603,7 +506,8 @@ func TestAppSetHelmValuesDeclareGlobalOnce(t *testing.T) {
 //
 // The list is what has been verified, not a guess. Adding an image is a claim
 // that it runs as root, checkable with:
-//   docker inspect --format '{{.Config.User}}' <image>
+//
+//	docker inspect --format '{{.Config.User}}' <image>
 func TestRootImagesCarryRunAsUser(t *testing.T) {
 	root := repoRoot(t)
 
@@ -683,101 +587,6 @@ func TestRootImagesCarryRunAsUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("walking %s: %v", dir, err)
 		}
-	}
-}
-
-// The spoke query endpoint's auth config has the shape vmauth accepts.
-//
-// Three startup refusals were paid to establish it, one publish each:
-//
-//	v1.115.0  "field jwt not found in type main.UserInfo"
-//	v1.137.0  jwt accepted; "field oidc not found in type main.JWTConfig"
-//	          and match_claims was nested beside jwt rather than inside it
-//	v1.152.0  accepted -- "started vmauth in 2.752 seconds"
-//
-// Every one was a startup failure, so the endpoint CrashLooped rather than
-// serving the telemetry store with no verification. That is the right way round
-// for a security control to fail (ADR-083 addendum 1 §1), and it is why these
-// were cheap to find and expensive only in round trips.
-//
-// This gate is about the round trips. It asserts the structure without needing
-// the binary, so the next change to this config fails in CI rather than on a
-// cluster three publishes later.
-func TestSpokeQueryEndpointAuthConfigShape(t *testing.T) {
-	root := repoRoot(t)
-	raw, err := os.ReadFile(filepath.Join(root,
-		"manifests/spoke/spoke-catalog/infra/victoriametrics/victoriametrics",
-	))
-	if err != nil {
-		raw, err = os.ReadFile(filepath.Join(root,
-			"manifests/spoke/spoke-catalog/infra/victoriametrics/query-endpoint.yaml"))
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	var cfgDoc map[string]any
-	var image string
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	for {
-		var doc map[string]any
-		if err := dec.Decode(&doc); err != nil {
-			break
-		}
-		switch doc["kind"] {
-		case "ConfigMap":
-			data, _ := doc["data"].(map[string]any)
-			body, _ := data["auth.yml"].(string)
-			if body != "" {
-				if err := yaml.Unmarshal([]byte(body), &cfgDoc); err != nil {
-					t.Fatalf("auth.yml is not valid YAML: %v", err)
-				}
-			}
-		case "Deployment":
-			spec, _ := doc["spec"].(map[string]any)
-			tmpl, _ := spec["template"].(map[string]any)
-			pspec, _ := tmpl["spec"].(map[string]any)
-			cs, _ := pspec["containers"].([]any)
-			if len(cs) > 0 {
-				c, _ := cs[0].(map[string]any)
-				image, _ = c["image"].(string)
-			}
-		}
-	}
-
-	if cfgDoc == nil {
-		t.Fatal("no auth.yml in the query endpoint's ConfigMap")
-	}
-
-	users, _ := cfgDoc["users"].([]any)
-	if len(users) == 0 {
-		t.Fatal("auth.yml declares no users, so nothing is authenticated")
-	}
-	u, _ := users[0].(map[string]any)
-
-	jwt, ok := u["jwt"].(map[string]any)
-	if !ok {
-		t.Fatal("the user carries no jwt block: the endpoint would fall back to an " +
-			"unauthenticated or password scheme, which ADR-083 addendum 1 §1 rejects")
-	}
-	if _, ok := jwt["oidc"]; !ok {
-		t.Error("jwt carries no oidc block, so tokens are not verified against the " +
-			"box's own issuer")
-	}
-	// The nesting that cost a publish: inside jwt, not beside it.
-	if _, beside := u["match_claims"]; beside {
-		t.Error("match_claims sits beside jwt; vmauth refuses to start with " +
-			`"field match_claims not found in type main.UserInfo". It belongs inside jwt.`)
-	}
-	if _, inside := jwt["match_claims"]; !inside {
-		t.Error("jwt carries no match_claims, so any token from the issuer is accepted " +
-			"whatever client it was minted for")
-	}
-
-	// The image has to be new enough for the shape above.
-	if image != "" && !strings.Contains(image, "v1.15") {
-		t.Errorf("vmauth image is %q; the oidc block needs v1.15x or later. "+
-			"v1.137.0 accepts jwt and rejects oidc.", image)
 	}
 }
 

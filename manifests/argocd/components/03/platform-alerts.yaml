@@ -1,0 +1,21 @@
+---
+# ADR-078 §6 and add.3 §3: the platform's own health rules, and the
+# PrometheusRule CRD they are declared with. The cluster agent syncs every
+# platform-labelled rule here to the stack's ruler, pinned to this cluster.
+#
+# syncWave 3: after the agents (wave 2 and earlier) that sync them.
+boundary: '03'
+appName: platform-alerts
+destinationNamespace: platform-observability
+isPlatformOwned: 'true'
+syncWave: '3'
+repoURL: ''
+targetRevision: ''
+path: manifests/hub-core-services/platform-alerts
+chart: ''
+directoryRecurse: ''
+directoryInclude: ''
+helmValues: ''
+helmReleaseName: ''
+ignoreDifferencesNamespace: ''
+extraManifestsPath: ''

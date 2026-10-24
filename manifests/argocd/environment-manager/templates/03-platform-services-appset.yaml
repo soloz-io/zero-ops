@@ -153,6 +153,31 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
+
+          # ADR-078 add.3 §4: the Grafana Operator and the dashboards it
+          # reconciles into the box owner's Grafana Cloud stack. Gated with the
+          # capability for the reason grafana-alloy is; recursive because the
+          # operator and the generated dashboards are subdirectories.
+          {{- $_ := required "grafanaCloudStackUrl is required while observability is enabled: the box owner's Grafana Cloud stack is the backend and UI (ADR-078 add.3)" .Values.grafanaCloudStackUrl }}
+          - boundary: '03'
+            appName: 'platform-dashboards'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/platform-dashboards'
+            chart: ''
+            directoryRecurse: 'true'
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              platform-dashboards:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
           {{- end }}
 
           {{- if include "environment-manager.burstSpokePool" $ }}
@@ -713,6 +738,9 @@ spec:
                 - op: replace
                   path: /spec/data/4/remoteRef/key
                   value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_API_KEY'
+                - op: replace
+                  path: /spec/data/5/remoteRef/key
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_RULES_TOKEN'
             # WS3: external-dns blast-radius + record ownership.
             # --domain-filter scopes which zone this spoke may write, so a dev
             # spoke can never touch prod records. --txt-owner-id keys the TXT

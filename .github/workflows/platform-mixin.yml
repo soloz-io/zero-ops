@@ -1,0 +1,63 @@
+name: Platform mixin
+
+# ADR-078 add.2 §2, add.3 §3-4: the platform's dashboards and recording rules are
+# generated from pinned upstream mixins and COMMITTED, so a release diff shows
+# what changes. A change to the mixin's pin or configuration is regenerated and
+# committed here; a pull request whose committed output differs from a
+# regeneration fails.
+
+on:
+  push:
+    paths:
+      - 'scripts/observability/mixin/**'
+      - '.github/workflows/platform-mixin.yml'
+  pull_request:
+    paths:
+      - 'scripts/observability/mixin/**'
+      - 'manifests/hub-core-services/platform-dashboards/dashboards/**'
+      - 'manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml'
+      - 'manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Regenerate
+        run: scripts/observability/mixin/generate.sh
+      - name: Commit the regenerated output
+        run: |
+          set -euo pipefail
+          git add manifests/hub-core-services/platform-dashboards/dashboards \
+                  manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml \
+                  manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml \
+                  manifests/spoke/spoke-catalog/infra/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "already generated; nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(observability): regenerate the platform mixin"
+          git push
+
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: The committed output is a regeneration
+        run: scripts/observability/mixin/generate.sh --check

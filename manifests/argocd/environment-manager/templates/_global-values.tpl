@@ -102,6 +102,8 @@ global:
   {{- /* ADR-108: the registrable domain session previews are served from. The
          preview-access service refuses to start without it. */}}
   previewDomain: {{ $root.Values.previewDomain | quote }}
+  {{- /* ADR-078 add.3: the stack dashboards are provisioned into. */}}
+  grafanaCloudStackUrl: {{ $root.Values.grafanaCloudStackUrl | quote }}
   clusterName: {{ include "environment-manager.clusterName" $root | quote }}
   {{- /*
     The box's own tenant id, for ADR-078 add.1 §7: Alloy stamps `cluster` AND

@@ -48,9 +48,6 @@ spec:
     # Service had an endpoint, the pod was 3/3 Running, and every request
     # returned 503 because the proxy could not open a connection. Narrowed by
     # port instead, and 3000 serves Grafana, which has its own authentication.
-    - ports:
-        - protocol: TCP
-          port: 3000
     # The API SERVER, calling the operator's admission webhook on 9443.
     #
     # This is the rule the first version of this policy did not have, and its
@@ -64,9 +61,6 @@ spec:
     # server does not call from a pod: it reaches the webhook from the control
     # plane's own address, which no namespaceSelector or podSelector can match.
     # Narrowed by PORT instead, and 9443 serves nothing but admission review.
-    - ports:
-        - protocol: TCP
-          port: 9443
     # Everything inside platform-observability: Alloy writing, VMAlert reading
     # and writing, and the query endpoint reading. They are one another's only
     # in-namespace clients and the set is closed.

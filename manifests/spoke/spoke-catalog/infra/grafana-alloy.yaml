@@ -180,6 +180,28 @@ data:
       scrape_interval = "30s"
     }
 
+    // The agent's own health -- WAL drops, failed sends, rule-sync errors --
+    // which the pipeline-health rules read (ADR-078 add.3 §5).
+    prometheus.exporter.self "agent" { }
+
+    discovery.relabel "agent_self" {
+      targets = prometheus.exporter.self.agent.targets
+      rule {
+        target_label = "job"
+        replacement  = "alloy"
+      }
+      rule {
+        target_label = "instance"
+        replacement  = constants.hostname
+      }
+    }
+
+    prometheus.scrape "agent_self" {
+      targets         = discovery.relabel.agent_self.output
+      forward_to      = [prometheus.relabel.add_cell_id.receiver]
+      scrape_interval = "60s"
+    }
+
     // SERIES-LEVEL tenant exclusion (ADR-078 add.1 §6), for the node-local
     // sources that describe every namespace (kubelet, cAdvisor). The cluster
     // agent applies the same rule to kube-state-metrics; the two lists must
@@ -229,21 +251,48 @@ data:
       }
     }
 
-    // THIS CLUSTER'S OWN STORE (ADR-078 §1, ADR-083 decision 1).
+    // ── Destination: the box owner's Grafana Cloud stack (ADR-078 add.3) ───
     //
-    // A spoke retains its own telemetry and never writes it to the hub: "data
-    // stays in the cluster that produced it. Only the query travels." Writing
-    // to the hub would make the hub's capacity the fleet's ceiling and a hub
-    // outage lose spoke data rather than merely the view of it.
+    // The cluster keeps no telemetry database. The WAL below is the transit
+    // buffer: data is deleted once delivered (truncated every 15m below the
+    // lowest sample sent, once 5m old) and dropped, counted, after 24h unsent.
+    // Its directory is on the node (storage.path, hostPath), so a restart
+    // resumes the buffer instead of losing it.
     prometheus.remote_write "platform" {
       endpoint {
-        url = "http://vmsingle-platform.platform-observability.svc.cluster.local:8429/api/v1/write"
+        // PROMETHEUS_URL is the stack's Prometheus URL as Grafana Cloud shows
+        // it (…/api/prom); remote write is its /push.
+        url = sys.env("PROMETHEUS_URL") + "/push"
+
+        basic_auth {
+          username = sys.env("PROMETHEUS_USER")
+          password = sys.env("API_KEY")
+        }
+      }
+
+      wal {
+        truncate_frequency = "15m"
+        min_keepalive_time = "5m"
+        max_keepalive_time = "24h"
       }
     }
 
+    // Logs: the node's container log files are the buffer; Alloy resumes from
+    // its persisted positions (storage.path) after a restart or an outage.
+    //
+    // The label set is deliberately small and closed. trace_id is NOT a label:
+    // it is per-request, and indexing it would make the index unbounded. It is
+    // read at query time out of the JSON line: {tenant="…"} | json | trace_id="…"
     loki.write "platform" {
       endpoint {
-        url = "http://vlogs-platform.platform-observability.svc.cluster.local:9428/insert/loki/api/v1/push"
+        // LOKI_URL is the stack's Loki URL as Grafana Cloud shows it (the host
+        // alone); the push API is under it. Used bare, every batch is 405.
+        url = sys.env("LOKI_URL") + "/loki/api/v1/push"
+
+        basic_auth {
+          username = sys.env("LOKI_USER")
+          password = sys.env("API_KEY")
+        }
       }
     }
 
@@ -275,55 +324,6 @@ data:
 
     otelcol.exporter.loki "tenant" {
       forward_to = [loki.write.platform.receiver]
-    }
-
-    // Remote write to Grafana Cloud (Mimir).
-    //
-    // ADR-078 §7.1: a tenant destination is ADDITIVE, never a replacement. It
-    // stays because a box that has one should keep sending there; it is no
-    // longer the ONLY destination, which is the defect §1 exists to close --
-    // "a tenant without a Grafana Cloud account receives collection that
-    // terminates nowhere."
-    prometheus.remote_write "grafanacloud" {
-      endpoint {
-        // PROMETHEUS_URL is the stack's Prometheus URL as Grafana Cloud shows
-        // it (…/api/prom); remote write is its /push.
-        url = sys.env("PROMETHEUS_URL") + "/push"
-
-        basic_auth {
-          username = sys.env("PROMETHEUS_USER")
-          password = sys.env("API_KEY")
-        }
-      }
-    }
-
-    // ------------------------------------------------------------------
-    // Pod log collection.
-    //
-    // Ships to the same Grafana Cloud stack as metrics, using LOKI_URL and
-    // LOKI_USER from grafana-cloud-credentials — already delivered by the
-    // ExternalSecret beside this file and, until now, unused.
-    //
-    // The label set is deliberately small and closed. trace_id is NOT a label:
-    // it is per-request, and indexing it would make Loki's index unbounded.
-    // It is read at query time out of the JSON line instead:
-    //
-    //   {tenant="waypoint"} | json | trace_id="..."
-    //
-    // which is what makes one API call readable in one place across the spoke,
-    // ephemeral Hetzner jobs and RunPod — all three write the same field.
-    // ------------------------------------------------------------------
-    loki.write "grafanacloud" {
-      endpoint {
-        // LOKI_URL is the stack's Loki URL as Grafana Cloud shows it (the host
-        // alone); the push API is under it. Used bare, every batch is 405.
-        url = sys.env("LOKI_URL") + "/loki/api/v1/push"
-
-        basic_auth {
-          username = sys.env("LOKI_USER")
-          password = sys.env("API_KEY")
-        }
-      }
     }
 
     // This node's pods only: their log files are the only ones this agent can
@@ -423,12 +423,9 @@ data:
       path_targets = discovery.relabel.pod_logs.output
     }
 
-    // ADR-078 §7.1: the box's own store always, Grafana Cloud in addition.
-    // Shipping only to Grafana Cloud left the spoke's logs nowhere the box can
-    // read, and nowhere at all while that destination refused them.
     loki.source.file "pod_logs" {
       targets    = local.file_match.pod_logs.targets
-      forward_to = [loki.write.platform.receiver, loki.write.grafanacloud.receiver]
+      forward_to = [loki.write.platform.receiver]
     }
 ---
 apiVersion: apps/v1
@@ -519,8 +516,12 @@ spec:
         - name: config
           configMap:
             name: alloy-config
+        # The transit buffer (ADR-078 add.3 §2): the metrics WAL and the log
+        # positions. On the node, so a restart resumes them; emptyDir lost both.
         - name: data
-          emptyDir: {}
+          hostPath:
+            path: /var/lib/zero-ops/alloy-node
+            type: DirectoryOrCreate
         - name: varlogpods
           hostPath:
             path: /var/log/pods
@@ -574,6 +575,28 @@ data:
       }
     }
 
+    // The agent's own health -- WAL drops, failed sends, rule-sync errors --
+    // which the pipeline-health rules read (ADR-078 add.3 §5).
+    prometheus.exporter.self "agent" { }
+
+    discovery.relabel "agent_self" {
+      targets = prometheus.exporter.self.agent.targets
+      rule {
+        target_label = "job"
+        replacement  = "alloy"
+      }
+      rule {
+        target_label = "instance"
+        replacement  = constants.hostname
+      }
+    }
+
+    prometheus.scrape "agent_self" {
+      targets         = discovery.relabel.agent_self.output
+      forward_to      = [prometheus.relabel.add_cell_id.receiver]
+      scrape_interval = "60s"
+    }
+
     prometheus.relabel "add_cell_id" {
       forward_to = [prometheus.remote_write.platform.receiver]
 
@@ -591,9 +614,53 @@ data:
       }
     }
 
+    // The stack, through this agent's WAL on its persistent volume (add.3 §2).
     prometheus.remote_write "platform" {
       endpoint {
-        url = "http://vmsingle-platform.platform-observability.svc.cluster.local:8429/api/v1/write"
+        url = sys.env("PROMETHEUS_URL") + "/push"
+
+        basic_auth {
+          username = sys.env("PROMETHEUS_USER")
+          password = sys.env("API_KEY")
+        }
+      }
+
+      wal {
+        truncate_frequency = "15m"
+        min_keepalive_time = "5m"
+        max_keepalive_time = "24h"
+      }
+    }
+
+    // This cluster's PrometheusRules, synced to the stack's ruler (add.3 §3):
+    // prefixed with this cluster's name so no cluster replaces another's
+    // rules, every query pinned to this cluster and every rule stamped with
+    // it. Platform rules only; tenant rules follow the tenant opt-in.
+    mimir.rules.kubernetes "platform" {
+      address                = string.trim_suffix(sys.env("PROMETHEUS_URL"), "/api/prom")
+      prometheus_http_prefix = "/api/prom"
+      mimir_namespace_prefix = sys.env("CELL_ID")
+      external_labels        = {
+        cluster = sys.env("CELL_ID"),
+      }
+
+      basic_auth {
+        username = sys.env("PROMETHEUS_USER")
+        password = sys.env("RULES_TOKEN")
+      }
+
+      rule_selector {
+        match_labels = {
+          "app.kubernetes.io/managed-by" = "platform",
+        }
+      }
+
+      extra_query_matchers {
+        matcher {
+          name       = "cluster"
+          match_type = "="
+          value      = sys.env("CELL_ID")
+        }
       }
     }
 ---
@@ -604,8 +671,12 @@ metadata:
   namespace: platform-observability
   annotations:
     configmap.reloader.stakater.com/reload: "alloy-cluster-config"
+    secret.reloader.stakater.com/reload: "grafana-cloud-credentials"
 spec:
   replicas: 1
+  # One writer to a ReadWriteOnce buffer: the old pod releases it first.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: grafana-alloy-cluster
@@ -632,6 +703,9 @@ spec:
               value: "PLACEHOLDER"
             - name: TENANT_ID
               value: "platform"
+          envFrom:
+            - secretRef:
+                name: grafana-cloud-credentials
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
@@ -658,8 +732,23 @@ spec:
         - name: config
           configMap:
             name: alloy-cluster-config
+        # The transit buffer (ADR-078 add.3 §2): the WAL survives a restart.
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: grafana-alloy-cluster-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-alloy-cluster-data
+  namespace: platform-observability
+spec:
+  accessModes: [ReadWriteOnce]
+  # Substituted per spoke by templated-fields.yaml (local-path on hybrid).
+  storageClassName: PLACEHOLDER_STORAGE_CLASS
+  resources:
+    requests:
+      storage: 2Gi
 ---
 apiVersion: v1
 kind: ServiceAccount

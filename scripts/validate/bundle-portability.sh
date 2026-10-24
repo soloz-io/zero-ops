@@ -24,5 +24,6 @@ helm template platform-bundle "$CHART" \
     --set instanceRepoURL=https://github.com/example-org/example-gitops \
     --set hubDomain=dev.example.test \
     --set previewDomain=example-preview.test \
+    --set grafanaCloudStackUrl=https://example.grafana.net \
     --set publicTlsIssuer=letsencrypt-prod --set bundleVersion="$VERSION" 2>/dev/null \
 | python3 scripts/validate/bundle-portability.py

@@ -227,6 +227,20 @@ var CLISecretMappings = []SecretMapping{
 		InfisicalKey:    "GRAFANA_CLOUD_LOKI_USER",
 		Description:     "Grafana Cloud Loki user id",
 	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "rules-token",
+		InfisicalKey:    "GRAFANA_CLOUD_RULES_TOKEN",
+		Description:     "Grafana Cloud token with rules:read and rules:write (rule sync)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "dashboards-token",
+		InfisicalKey:    "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
+		Description:     "Grafana Cloud stack service-account token (dashboard provisioning)",
+	},
 
 	// ========================================================================
 	// 6. GITHUB CONTAINER REGISTRY PULL SECRET

@@ -131,7 +131,8 @@ func TestSecretNamesMatchWhatDayZeroReads(t *testing.T) {
 		"S3_ACCESS_KEY_ID": true, "S3_SECRET_ACCESS_KEY": true,
 		"GRAFANA_CLOUD_API_KEY": true, "GRAFANA_CLOUD_PROMETHEUS_URL": true,
 		"GRAFANA_CLOUD_PROMETHEUS_USER": true, "GRAFANA_CLOUD_LOKI_URL": true,
-		"GRAFANA_CLOUD_LOKI_USER": true,
+		"GRAFANA_CLOUD_LOKI_USER": true, "GRAFANA_CLOUD_RULES_TOKEN": true,
+		"GRAFANA_CLOUD_DASHBOARDS_TOKEN": true,
 		"ZITADEL_SMTP_URL":        true,
 		"GHCR_USERNAME":           true, "GHCR_TOKEN": true,
 		// Read by internal/soloz-cli/infisical (Day-0) and by hub-operator, which

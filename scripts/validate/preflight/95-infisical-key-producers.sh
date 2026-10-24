@@ -35,6 +35,8 @@ EXTERNAL = {
     "GRAFANA_CLOUD_LOKI_USER":       "k8-secrets/grafana-cloud/loki-user",
     "GRAFANA_CLOUD_PROMETHEUS_URL":  "k8-secrets/grafana-cloud/prometheus-url",
     "GRAFANA_CLOUD_PROMETHEUS_USER": "k8-secrets/grafana-cloud/prometheus-user",
+    "GRAFANA_CLOUD_RULES_TOKEN":     "k8-secrets/grafana-cloud/rules-token — rules:read + rules:write (ADR-078 add.3 §6)",
+    "GRAFANA_CLOUD_DASHBOARDS_TOKEN": "k8-secrets/grafana-cloud/dashboards-token — stack service-account token (Editor)",
     # Uploaded from the zitadel-smtp Secret as the URL's PASSWORD only, to the
     # owner's /<tenant>-mgmt folder (CLISecretMappings, TransformURLPassword).
     "zitadel_smtp_password":         "k8-secrets/smtp/resend (or ZITADEL_SMTP_URL) — the Resend SMTP URL, smtps://resend:<api-key>@smtp.resend.com:465",
