@@ -3008,10 +3008,26 @@ now closed:**
   `x-waypoint-internal-token`, and no longer in the workload's environment.
   The two blockers this section named are gone: `NO_PROXY` no longer exempts
   `.svc.cluster.local` or `waypoint-sdk`, and `api-key` sets the custom header.
-  agent-vault refuses private upstreams by default, so it starts with
-  `AGENT_VAULT_ALLOW_PRIVATE_RANGES` when the token is configured; that reaches
-  only registered services (an unmatched host is refused before any dial), and
-  cloud metadata stays blocked.
+  *Corrected 2026-10-24.* agent-vault (v0.38.0) forwards a host that matches
+  no registered service by default (`PolicyPassthrough` is its system-wide
+  default), and `AGENT_VAULT_ALLOW_PRIVATE_RANGES` opens every private and
+  cluster range to its dialer -- so the earlier claim that "an unmatched host
+  is refused before any dial" was false: locally the sandbox reached
+  unregistered in-cluster services, the API server and Redis through it.
+  **Decision:** the sidecar does not set `AGENT_VAULT_ALLOW_PRIVATE_RANGES`.
+  It sets `AGENT_VAULT_NETWORK_ALLOWLIST` to exactly the in-cluster addresses
+  the sandbox may reach through it -- the SDK Service and, for an app-preview
+  session, that session's own renderer Service -- each resolved at start-up to
+  its ClusterIP as a /32, start-up failing if either cannot be resolved. Every
+  other private or cluster address is refused at dial (netguard's
+  private-range block), cloud metadata is always refused, and public hosts
+  pass through as before: an unmatched-host `deny` would also refuse the
+  package registries and research hosts a session needs. The network layer
+  bounds the same path independently in a real cluster: a sandbox pod's egress
+  is DNS, the SDK, the poolers, `world` on 443 plus named hosts, and its own
+  session peer only, through the per-session pairing policy the EphemeralJob
+  operator writes (ADR-106) -- another session's renderer is not reachable.
+  Kind runs no network policy, so there the allowlist is the only bound.
 - **`DATABASE_URL`** carries a Postgres password into the workload container
   and **cannot** move to agent-vault at all: agent-vault is an HTTP/HTTPS MITM
   proxy and the Postgres wire protocol is not HTTP. There is no version of the
