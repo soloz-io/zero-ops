@@ -52,6 +52,24 @@ if have crd vmsingles.operator.victoriametrics.com; then
     done
 fi
 
+# 1b. The operator puts its finalizer on what it creates, not only on its own
+#     resources: Services, PVCs, ServiceAccounts, Secrets, ConfigMaps. With the
+#     operator gone those sit in Terminating forever (nutgraf-01, rc.167 cleanup).
+#     Release it from every object in the namespace that still carries it.
+if ! have -n "$NS" deploy "$OPERATOR"; then
+    while IFS=' ' read -r ref fins; do
+        [[ -z "$ref" ]] && continue
+        keep=$(python3 -c 'import json,sys; print(json.dumps([f for f in json.loads(sys.argv[1]) if f != sys.argv[2]]))' "$fins" "$FINALIZER")
+        run -n "$NS" patch "$ref" --type=merge -p "{\"metadata\":{\"finalizers\":$keep}}"
+    done < <(kubectl -n "$NS" get svc,pvc,deploy,sts,sa,secret,cm,role,rolebinding -o json 2>/dev/null | python3 -c '
+import json, sys
+for i in json.load(sys.stdin)["items"]:
+    f = i["metadata"].get("finalizers") or []
+    if sys.argv[1] in f:
+        print(i["kind"].lower() + "/" + i["metadata"]["name"], json.dumps(f))
+' "$FINALIZER")
+fi
+
 # 2. The operator: its release, its webhook, its cluster RBAC.
 for obj in deploy/"$OPERATOR" svc/"$OPERATOR" sa/"$OPERATOR" \
            secret/"$OPERATOR"-root-ca secret/"$OPERATOR"-validation; do
@@ -80,7 +98,8 @@ done
 
 # What is left is a finding, not a pass.
 $DRY && exit 0
-left=$(kubectl -n "$NS" get deploy,svc,pvc -o name 2>/dev/null | grep -E 'vmsingle|vlogs|vmalert|victoria|/grafana$' || true)
+left=$(kubectl -n "$NS" get deploy,svc,pvc,sa,secret,cm -o name 2>/dev/null \
+    | grep -E 'vmsingle|vlogs|vmalert|victoria|vm-platform-rulefiles|/grafana$' || true)
 crds=$(kubectl get crd -o name 2>/dev/null | grep -c 'operator\.victoriametrics\.com$' || true)
 if [[ -n "$left" || "$crds" != "0" ]]; then
     echo "NOT CLEAN: still present:"; echo "$left" | sed 's/^/  /'; echo "  victoriametrics CRDs: $crds"
