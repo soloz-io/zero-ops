@@ -54,6 +54,8 @@ resources:
   - platform-alerts/cnpg-backup-alerts.yaml
   # ADR-078 add.3 §5: the pipeline's own failure, detected in the stack.
   - platform-alerts/pipeline-health.yaml
+  # Generated: the kubernetes-mixin recording rules (ADR-078 add.3 §3).
+  - platform-alerts/kubernetes-mixin-rules.yaml
   - grafana-cloud-es.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml
