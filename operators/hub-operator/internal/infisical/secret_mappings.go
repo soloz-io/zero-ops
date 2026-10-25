@@ -241,6 +241,27 @@ var CLISecretMappings = []SecretMapping{
 		InfisicalKey:    "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
 		Description:     "Grafana Cloud stack service-account token (dashboard provisioning)",
 	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "alerts-token",
+		InfisicalKey:    "GRAFANA_CLOUD_ALERTS_TOKEN",
+		Description:     "Grafana Cloud token with alerts:read and alerts:write (Alertmanager routing)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "irm-alertmanager-url",
+		InfisicalKey:    "GRAFANA_IRM_ALERTMANAGER_URL",
+		Description:     "Grafana IRM Alertmanager integration URL (critical and warning alerts)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "irm-heartbeat-url",
+		InfisicalKey:    "GRAFANA_IRM_HEARTBEAT_URL",
+		Description:     "Grafana IRM heartbeat URL (the alert path's dead-man's switch)",
+	},
 
 	// ========================================================================
 	// 6. GITHUB CONTAINER REGISTRY PULL SECRET

@@ -179,6 +179,27 @@ func platformCredentials() []platformCredential {
 			Needed:     always,
 		},
 		{
+			Secret: "GRAFANA_CLOUD_ALERTS_TOKEN", Tier: tierDestination,
+			Capability: "routing this box's alerts through your Grafana Cloud stack's Alertmanager",
+			Prompt:     "GRAFANA_CLOUD_ALERTS_TOKEN (alerts:read and alerts:write on your stack's Alertmanager): ",
+			Field:      func(s *Secrets) *string { return &s.GrafanaCloudAlertsToken },
+			Needed:     always,
+		},
+		{
+			Secret: "GRAFANA_IRM_ALERTMANAGER_URL", Tier: tierDestination,
+			Capability: "paging on this box's critical and warning alerts through your Grafana IRM",
+			Prompt:     "GRAFANA_IRM_ALERTMANAGER_URL (your IRM Alertmanager integration's URL): ",
+			Field:      func(s *Secrets) *string { return &s.GrafanaIRMAlertmanagerURL },
+			Needed:     always,
+		},
+		{
+			Secret: "GRAFANA_IRM_HEARTBEAT_URL", Tier: tierDestination,
+			Capability: "being paged when this box's alert path itself stops",
+			Prompt:     "GRAFANA_IRM_HEARTBEAT_URL (the same integration's heartbeat URL): ",
+			Field:      func(s *Secrets) *string { return &s.GrafanaIRMHeartbeatURL },
+			Needed:     always,
+		},
+		{
 			// A destination: the issuer runs without it, and simply cannot send
 			// verification or password-reset mail.
 			Secret: "ZITADEL_SMTP_URL", Tier: tierDestination,

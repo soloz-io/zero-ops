@@ -135,6 +135,15 @@ on:
       GRAFANA_CLOUD_DASHBOARDS_TOKEN:
         description: A stack service-account token (Editor), for dashboard provisioning.
         required: true
+      GRAFANA_CLOUD_ALERTS_TOKEN:
+        description: A stack token with alerts:read and alerts:write, for alert routing.
+        required: true
+      GRAFANA_IRM_ALERTMANAGER_URL:
+        description: The stack's IRM Alertmanager integration URL.
+        required: true
+      GRAFANA_IRM_HEARTBEAT_URL:
+        description: The same integration's heartbeat URL.
+        required: true
       ZITADEL_SMTP_URL:
         description: >-
           The identity provider's outbound mail, as an SMTP URL
@@ -259,6 +268,9 @@ jobs:
           GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
           GRAFANA_CLOUD_RULES_TOKEN: ${{ secrets.GRAFANA_CLOUD_RULES_TOKEN }}
           GRAFANA_CLOUD_DASHBOARDS_TOKEN: ${{ secrets.GRAFANA_CLOUD_DASHBOARDS_TOKEN }}
+          GRAFANA_CLOUD_ALERTS_TOKEN: ${{ secrets.GRAFANA_CLOUD_ALERTS_TOKEN }}
+          GRAFANA_IRM_ALERTMANAGER_URL: ${{ secrets.GRAFANA_IRM_ALERTMANAGER_URL }}
+          GRAFANA_IRM_HEARTBEAT_URL: ${{ secrets.GRAFANA_IRM_HEARTBEAT_URL }}
           ZITADEL_SMTP_URL: ${{ secrets.ZITADEL_SMTP_URL }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

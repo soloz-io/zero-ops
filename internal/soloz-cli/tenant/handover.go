@@ -89,6 +89,10 @@ type Secrets struct {
 	// ADR-078 add.3 §6: rule sync, and dashboard provisioning into the stack.
 	GrafanaCloudRulesToken      string
 	GrafanaCloudDashboardsToken string
+	// ADR-078 add.4: alert routing through the stack's Alertmanager and IRM.
+	GrafanaCloudAlertsToken   string
+	GrafanaIRMAlertmanagerURL string
+	GrafanaIRMHeartbeatURL    string
 
 	// The issuer's outbound mail, as an SMTP URL (smtps://user:password@host:port).
 	ZitadelSMTPURL string

@@ -104,7 +104,7 @@ rendered = run(["helm", "template", CHART,
                 "--set", "hubDomain=example.test",
                 "--set", "global.hubDomain=example.test",
                 "--set", "previewDomain=example-preview.test",
-                "--set", "grafanaCloudStackUrl=https://example.grafana.net",
+                "--set", "grafanaCloudStackUrl=https://example.grafana.net", "--set", "alerting.alertmanagerUrl=https://alertmanager.example.test", "--set", "alerting.alertmanagerId=1", "--set", "alerting.emailTo[0]=alerts@example.test",
                 "--set", "global.previewDomain=example-preview.test"],
                "environment-manager chart does not render")
 

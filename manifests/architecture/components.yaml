@@ -48,6 +48,14 @@ components:
   # kube-state-metrics for the node capacity ADR-067 names for upgrade
   # pre-flight -- and ADR-078 §8 forbids the observability capability from being
   # a dependency of support.
+  - name: platform-alert-routing
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/hub-core-services/platform-alert-routing
+    note: >-
+      The box owner's Grafana Cloud Alertmanager configuration, rendered from
+      the box's values and loaded by a CronJob on the hub (ADR-078 add.4).
+
   - name: kube-state-metrics
     declared_by: [078-the-observability-capability.md]
     status: shipped
@@ -247,7 +255,7 @@ capabilities:
     declared_by:
       - 078-the-observability-capability.md
       - 098-metering-sources-over-spoke-egress-and-records-in-lago.md
-    components: [grafana-alloy, kube-state-metrics, node-exporter, platform-alerts]
+    components: [grafana-alloy, kube-state-metrics, node-exporter, platform-alerts, platform-alert-routing]
     note: >-
       ADR-078. `declared` rather than `supported`: the collection half ships and
       the store, query, visualisation and rule evaluation do not, so there is

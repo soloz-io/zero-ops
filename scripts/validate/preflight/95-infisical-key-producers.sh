@@ -37,6 +37,9 @@ EXTERNAL = {
     "GRAFANA_CLOUD_PROMETHEUS_USER": "k8-secrets/grafana-cloud/prometheus-user",
     "GRAFANA_CLOUD_RULES_TOKEN":     "k8-secrets/grafana-cloud/rules-token — rules:read + rules:write (ADR-078 add.3 §6)",
     "GRAFANA_CLOUD_DASHBOARDS_TOKEN": "k8-secrets/grafana-cloud/dashboards-token — stack service-account token (Editor)",
+    "GRAFANA_CLOUD_ALERTS_TOKEN":    "k8-secrets/grafana-cloud/alerts-token — alerts:read + alerts:write (ADR-078 add.4)",
+    "GRAFANA_IRM_ALERTMANAGER_URL":  "k8-secrets/grafana-cloud/irm-alertmanager-url — IRM Alertmanager integration URL",
+    "GRAFANA_IRM_HEARTBEAT_URL":     "k8-secrets/grafana-cloud/irm-heartbeat-url — IRM heartbeat URL",
     # Uploaded from the zitadel-smtp Secret as the URL's PASSWORD only, to the
     # owner's /<tenant>-mgmt folder (CLISecretMappings, TransformURLPassword).
     "zitadel_smtp_password":         "k8-secrets/smtp/resend (or ZITADEL_SMTP_URL) — the Resend SMTP URL, smtps://resend:<api-key>@smtp.resend.com:465",

@@ -73,7 +73,7 @@ def main() -> int:
                       # Required since ADR-108 (an empty one would widen
                       # external-dns to every zone); a probe value, like the rest.
                       "--set", "global.previewDomain=example-preview.test",
-                      "--set", "global.grafanaCloudStackUrl=https://example.grafana.net"]
+                      "--set", "global.grafanaCloudStackUrl=https://example.grafana.net", "--set", "global.alerting.alertmanagerUrl=https://alertmanager.example.test", "--set", "global.alerting.alertmanagerId=1", "--set", "global.alerting.emailTo[0]=alerts@example.test"]
             # A component that renders one TENANT'S one APP needs both named
             # (ADR-088), the same way spokeName=probe is named above: they are
             # required rather than defaulted, because an appId falling back to
@@ -100,7 +100,7 @@ def main() -> int:
                 "--set", f"global.environmentSlug={env}",
                 "--set", f"global.provider={provider}",
                 "--set", "global.previewDomain=example-preview.test",
-            "--set", "global.grafanaCloudStackUrl=https://example.grafana.net",
+            "--set", "global.grafanaCloudStackUrl=https://example.grafana.net", "--set", "global.alerting.alertmanagerUrl=https://alertmanager.example.test", "--set", "global.alerting.alertmanagerId=1", "--set", "global.alerting.emailTo[0]=alerts@example.test",
             ])
             if err:
                 print(f"  ERROR   {component} [{env}+{provider}]: {err}")

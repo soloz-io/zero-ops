@@ -152,6 +152,9 @@ package_path grafana-alloy manifests/hub-core-services/grafana-alloy
 # the box owner's stack, inline and capability-gated with grafana-alloy.
 package_path platform-dashboards manifests/hub-core-services/platform-dashboards
 
+# ADR-078 add.4: the stack's alert routing, inline and capability-gated likewise.
+package_path platform-alert-routing manifests/hub-core-services/platform-alert-routing
+
 # ADR-077's agent, inline for the same reason as grafana-alloy: its presence is a
 # function of capabilities.support.enabled. Leaving it out here would publish a
 # bundle naming a chart no release produced.

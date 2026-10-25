@@ -132,9 +132,10 @@ func TestSecretNamesMatchWhatDayZeroReads(t *testing.T) {
 		"GRAFANA_CLOUD_API_KEY": true, "GRAFANA_CLOUD_PROMETHEUS_URL": true,
 		"GRAFANA_CLOUD_PROMETHEUS_USER": true, "GRAFANA_CLOUD_LOKI_URL": true,
 		"GRAFANA_CLOUD_LOKI_USER": true, "GRAFANA_CLOUD_RULES_TOKEN": true,
-		"GRAFANA_CLOUD_DASHBOARDS_TOKEN": true,
-		"ZITADEL_SMTP_URL":        true,
-		"GHCR_USERNAME":           true, "GHCR_TOKEN": true,
+		"GRAFANA_CLOUD_DASHBOARDS_TOKEN": true, "GRAFANA_CLOUD_ALERTS_TOKEN": true,
+		"GRAFANA_IRM_ALERTMANAGER_URL": true, "GRAFANA_IRM_HEARTBEAT_URL": true,
+		"ZITADEL_SMTP_URL": true,
+		"GHCR_USERNAME":    true, "GHCR_TOKEN": true,
 		// Read by internal/soloz-cli/infisical (Day-0) and by hub-operator, which
 		// both used to default them to a personal email and "Password@123" --
 		// identical on every box, on the account that can read every secret the

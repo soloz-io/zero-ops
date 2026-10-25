@@ -72,6 +72,10 @@ func optionalSecrets() []optionalSecret {
 				// ADR-078 add.3 §6.
 				"rules-token":      "GRAFANA_CLOUD_RULES_TOKEN",
 				"dashboards-token": "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
+				// ADR-078 add.4: alert routing.
+				"alerts-token":         "GRAFANA_CLOUD_ALERTS_TOKEN",
+				"irm-alertmanager-url": "GRAFANA_IRM_ALERTMANAGER_URL",
+				"irm-heartbeat-url":    "GRAFANA_IRM_HEARTBEAT_URL",
 			},
 			secType:     corev1.SecretTypeOpaque,
 			what:        "the box's observability backend: the tenant's own Grafana Cloud stack (ADR-078 add.3)",

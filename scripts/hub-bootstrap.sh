@@ -1232,7 +1232,7 @@ step6_wait_infisical() {
 # nothing, while the values sat in the environment the whole time.
 SEED_SPECS=(
     "s3|platform-ops/s3-object-storage|access-key-id=access-key-id=S3_ACCESS_KEY_ID,secret-access-key=secret-access-key=S3_SECRET_ACCESS_KEY"
-    "grafana-cloud|platform-ops/grafana-cloud|api-key=api-key=GRAFANA_CLOUD_API_KEY,prometheus-url=prometheus-url=GRAFANA_CLOUD_PROMETHEUS_URL,prometheus-user=prometheus-user=GRAFANA_CLOUD_PROMETHEUS_USER,loki-url=loki-url=GRAFANA_CLOUD_LOKI_URL,loki-user=loki-user=GRAFANA_CLOUD_LOKI_USER,rules-token=rules-token=GRAFANA_CLOUD_RULES_TOKEN,dashboards-token=dashboards-token=GRAFANA_CLOUD_DASHBOARDS_TOKEN"
+    "grafana-cloud|platform-ops/grafana-cloud|api-key=api-key=GRAFANA_CLOUD_API_KEY,prometheus-url=prometheus-url=GRAFANA_CLOUD_PROMETHEUS_URL,prometheus-user=prometheus-user=GRAFANA_CLOUD_PROMETHEUS_USER,loki-url=loki-url=GRAFANA_CLOUD_LOKI_URL,loki-user=loki-user=GRAFANA_CLOUD_LOKI_USER,rules-token=rules-token=GRAFANA_CLOUD_RULES_TOKEN,dashboards-token=dashboards-token=GRAFANA_CLOUD_DASHBOARDS_TOKEN,alerts-token=alerts-token=GRAFANA_CLOUD_ALERTS_TOKEN,irm-alertmanager-url=irm-alertmanager-url=GRAFANA_IRM_ALERTMANAGER_URL,irm-heartbeat-url=irm-heartbeat-url=GRAFANA_IRM_HEARTBEAT_URL"
     # The issuer's outbound mail: the owner's Resend SMTP URL,
     # smtps://resend:<api-key>@smtp.resend.com:465. hub-operator uploads only its
     # password, to /<tenant>-mgmt, where zitadel-smtp-config reads it.

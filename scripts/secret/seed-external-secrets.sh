@@ -68,6 +68,10 @@ MAPPINGS=(
   # no cell prefix); the dashboards token is the hub's alone.
   "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:/"
   "GRAFANA_CLOUD_DASHBOARDS_TOKEN:grafana-cloud/dashboards-token:/"
+  # ADR-078 add.4: the hub's alert routing, at the root.
+  "GRAFANA_CLOUD_ALERTS_TOKEN:grafana-cloud/alerts-token:/"
+  "GRAFANA_IRM_ALERTMANAGER_URL:grafana-cloud/irm-alertmanager-url:/"
+  "GRAFANA_IRM_HEARTBEAT_URL:grafana-cloud/irm-heartbeat-url:/"
   "hcloud-token:hetzner/token:/"
 )
 

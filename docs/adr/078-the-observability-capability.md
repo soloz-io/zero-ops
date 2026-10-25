@@ -1087,6 +1087,54 @@ acceptance:
   - scripts/validate/preflight/078-pod-discovery-attaches-namespace-labels.sh
 ```
 
+## Addendum 4: alert routing through the stack's Alertmanager (2026-10-25)
+
+**Supersedes** addendum 2 §8's in-box Alertmanager and its per-cluster routing;
+its rule -- tenants declare routing as values, the platform renders the native
+configuration -- stands.
+
+### 1. Decision
+
+The platform's alert rules evaluate in the stack's ruler (addendum 3 §3), whose
+alerts go to the stack's own Alertmanager. That Alertmanager's configuration is
+platform-rendered from Git and loaded with Grafana's `mimirtool alertmanager load`
+(pinned 3.2.3), by a CronJob on the hub every 10 minutes. The stack's
+Alertmanager has no watch to react to; a periodic load is what makes Git
+authoritative -- a change, a rotated credential, or an edit in the stack's UI is
+corrected within one interval. The stack validates an upload and keeps its
+configuration when one is refused, so a bad change cannot unroute alerts.
+
+Alloy's `mimir.alerts.kubernetes` would do the same from a CRD, and was not
+chosen: it is experimental at v1.20.1.
+
+### 2. The route tree is the platform's; the receivers are the box's
+
+| Alerts | Delivered to |
+|---|---|
+| `PlatformHeartbeat` (always firing) | the box's Grafana IRM heartbeat, every 50s. Its **absence** pages: the alert path itself has failed |
+| `severity` critical or warning | email and the box's Grafana IRM Alertmanager integration |
+| anything else | email |
+
+Every alert is grouped by `cluster` and `alertname`.
+
+### 3. Values and credentials
+
+- **Box values** (required while observability is enabled; the render fails,
+  naming the missing one): `alerting.alertmanagerUrl` and
+  `alerting.alertmanagerId` (the stack's Alertmanager, from its details), and
+  `alerting.emailTo` (at least one address).
+- **Credentials** (Infisical, hub root): `GRAFANA_CLOUD_ALERTS_TOKEN`
+  (`alerts:read`, `alerts:write`), `GRAFANA_IRM_ALERTMANAGER_URL`,
+  `GRAFANA_IRM_HEARTBEAT_URL`. An empty one fails the load, naming it.
+- **Email** uses the box's one outbound-mail credential -- the SMTP account the
+  identity provider already sends with -- from `no-reply@<hubDomain>`. The stack's
+  Alertmanager has no SMTP of its own.
+
+```architecture
+components:
+  - platform-alert-routing
+```
+
 ## References
 
 - **ADR-064**: Promotion via Renovate — how dashboards and rules reach a tenant

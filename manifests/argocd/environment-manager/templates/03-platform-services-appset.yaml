@@ -159,6 +159,9 @@ spec:
           # capability for the reason grafana-alloy is. Flat: the bundle packages
           # a directory component's top-level files only.
           {{- $_ := required "grafanaCloudStackUrl is required while observability is enabled: the box owner's Grafana Cloud stack is the backend and UI (ADR-078 add.3)" .Values.grafanaCloudStackUrl }}
+          {{- $_ := required "alerting.alertmanagerUrl is required while observability is enabled: the stack's Alertmanager receives the platform's alerts (ADR-078 add.4)" .Values.alerting.alertmanagerUrl }}
+          {{- $_ := required "alerting.alertmanagerId is required while observability is enabled: the stack's Alertmanager instance ID (ADR-078 add.4)" .Values.alerting.alertmanagerId }}
+          {{- if not .Values.alerting.emailTo }}{{ fail "alerting.emailTo is required while observability is enabled: at least one address receives platform alerts (ADR-078 add.4)" }}{{ end }}
           - boundary: '03'
             appName: 'platform-dashboards'
             destinationNamespace: 'platform-observability'
@@ -172,6 +175,27 @@ spec:
             helmValues: |
               {{- if $released }}
               platform-dashboards:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
+          # ADR-078 add.4: the stack's Alertmanager configuration, from Git.
+          - boundary: '03'
+            appName: 'platform-alert-routing'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/platform-alert-routing'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              platform-alert-routing:
                 enabled: true
               {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- end }}
