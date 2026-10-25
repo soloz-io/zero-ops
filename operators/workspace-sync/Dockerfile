@@ -3,7 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /workspace-sync ./cmd/main.go
+RUN CGO_ENABLED=0 go build -o /workspace-sync ./cmd
 
 # debian-slim rather than distroless, because §14.2 needs real FUSE tooling.
 #

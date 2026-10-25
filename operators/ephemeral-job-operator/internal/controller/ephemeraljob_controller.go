@@ -1144,6 +1144,8 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 					// shared tree. See SharedWorkspaceReadOnly for the data loss
 					// this exists to stop.
 					readOnly: ej.Spec.WorkspacePersistence.SharedWorkspaceReadOnly,
+					// On-demand refresh of that read-only tree (ADR-052 §14.9).
+					refresh: ej.Spec.WorkspacePersistence.SharedWorkspaceRefresh,
 				}))
 		}
 	}

@@ -525,6 +525,7 @@ type PeerSpec struct {
 // is the same question answered "everything" (§14.8).
 //
 // +kubebuilder:validation:XValidation:rule="!(has(self.keepCheckpoints) && has(self.retainAllCheckpoints) && self.retainAllCheckpoints)",message="set keepCheckpoints or retainAllCheckpoints, not both"
+// +kubebuilder:validation:XValidation:rule="!(has(self.sharedWorkspaceRefresh) && self.sharedWorkspaceRefresh) || (has(self.sharedWorkspaceId) && self.sharedWorkspaceId != '' && has(self.sharedWorkspaceReadOnly) && self.sharedWorkspaceReadOnly)",message="sharedWorkspaceRefresh needs a sharedWorkspaceId read with sharedWorkspaceReadOnly: only a reader of the shared workspace refreshes it"
 type WorkspacePersistenceSpec struct {
 	// WorkspaceID identifies the WORKSPACE, not this request.
 	//
@@ -741,6 +742,19 @@ type WorkspacePersistenceSpec struct {
 	//
 	// +optional
 	SharedWorkspaceReadOnly bool `json:"sharedWorkspaceReadOnly,omitempty"`
+
+	// SharedWorkspaceRefresh lets a READER of the shared workspace ask, from
+	// inside the pod, for the latest save of it (ADR-052 §14.9): POST /refresh on
+	// the shared instance. The whole newer tree replaces the old one in one
+	// switch, or nothing changes; a refresh never writes to the shared
+	// workspace. Requires SharedWorkspaceID and SharedWorkspaceReadOnly.
+	//
+	// It changes the layout at pod start -- /workspace/.global becomes a link to
+	// a restored generation -- so it is chosen per session and is off unless
+	// asked for; a session without it behaves exactly as before.
+	//
+	// +optional
+	SharedWorkspaceRefresh bool `json:"sharedWorkspaceRefresh,omitempty"`
 
 	// PinnedCheckpoints are exempt from retention however old they become
 	// (ADR-052 §14.3): a live deployment was built from them.

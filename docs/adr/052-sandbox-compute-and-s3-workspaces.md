@@ -2274,6 +2274,48 @@ snapshot for its whole life, because images do not share blocks (§14.2); its
 storage is the workload's choice and cost. A prune costs one extra list of a
 small prefix.
 
+#### §14.9 A reader may refresh its shared workspace in place (Amendment 2026-10-25)
+
+**The gap.** A sandbox that reads a shared workspace (`sharedWorkspaceId` with
+`sharedWorkspaceReadOnly`) restores it once, at start. A writer's later
+checkpoint reaches it only through a new sandbox, so a long-lived reader works
+from a tree that is older than the shared workspace for the rest of its life.
+
+**Decision.** The workspace spec gains `sharedWorkspaceRefresh`, admitted only
+together with a `sharedWorkspaceId` read with `sharedWorkspaceReadOnly` (a CEL
+rule on the EphemeralJob). The operator passes it to the shared workspace's
+sidecar as `WORKSPACE_REFRESH=true`; the sidecar refuses to start with it on a
+writable, pinned or archive-mounted workspace.
+
+- **Layout.** The shared root (`/workspace/.global`) is a relative symlink to
+  one complete file-by-file restore, a *generation*, under
+  `/workspace/.global-gen/<n>`. At start, generation 1 holds `LATEST`, or is
+  empty for a workspace never checkpointed.
+- **`POST /refresh`**, on the sidecar's loopback port like `/checkpoint`,
+  serialised with every other save and restore. It reads `LATEST`; if that is
+  the checkpoint the reader holds it answers `200 {"outcome":"unchanged"}`.
+  Otherwise it restores that checkpoint into generation n+1, hands it to the
+  workload's uid, and repoints the link with a rename, answering
+  `200 {"outcome":"refreshed","checkpoint":<id>,"files":<n>}`. Any failure
+  answers non-2xx `{"outcome":"failed","error":...}`, removes the partial
+  generation, and leaves the link and the tree it names unchanged.
+- **Visibility.** A writer's `/checkpoint` answers 200 only after the manifest
+  and `LATEST` are written, so a refresh issued after that answer sees it.
+- **No tree is rewritten under a reader.** A generation is never modified once
+  the link names it. The swap is atomic, so a reader sees the whole old tree or
+  the whole new one. The generation just replaced is kept, so a process that
+  resolved the link before the swap still reads a tree that exists; the one
+  before it is removed. This is what keeps refresh clear of §14.7's objection
+  to operations that rewrite a running sandbox's tree.
+- **Never checkpointed.** The session snapshot skips symlinks, and
+  `.global-gen` joins `.global` in the derived-tree exclusions, for both the
+  file walk and the archive.
+
+A reader's local edits to its tree are not saved, as before, and a refresh
+replaces them with the newer checkpoint. When §14.7's storage layer replaces the
+sidecar, refresh is carried over as a reader's request to materialise a newer
+generation and switch to it. It is not a write path.
+
 ### 15. A workload queue (Kueue) and a durable agentic state machine (Amendment 2026-09-06)
 
 **The gap, in this ADR's own words, from §"Negative / Trade-offs" above:**

@@ -420,6 +420,7 @@ func (s *Store) checkpointArchiveKey(id string) string {
 // — see the comment there.
 var skipDir = map[string]bool{
 	".global":      true,
+	".global-gen":  true, // a refreshing reader's generations of .global (cmd/refresh.go, §14.9)
 	"node_modules": true,
 	".expo":        true,
 	".next":        true,

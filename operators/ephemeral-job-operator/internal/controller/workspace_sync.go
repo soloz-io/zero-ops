@@ -242,6 +242,10 @@ type workspaceSyncTarget struct {
 	// nest inside a mount it does not own, and skipping it is what allows the
 	// container to run unprivileged.
 	noArchive bool
+
+	// refresh enables POST /refresh and the generation layout it needs (ADR-052
+	// §14.9). Only for the shared instance of a session that reads it.
+	refresh bool
 }
 
 func workspaceSyncContainerFor(
@@ -523,6 +527,9 @@ func workspaceSyncContainerFor(
 	// overwrites another session's newer copy.
 	if ws.ReadOnly || target.readOnly {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
+	}
+	if target.refresh {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_REFRESH", Value: "true"})
 	}
 	// ALWAYS, for every instance (§14.7).
 	//

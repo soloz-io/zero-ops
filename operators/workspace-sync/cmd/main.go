@@ -480,7 +480,22 @@ func runServe(root string) error {
 	// STARTS. A sandbox that refuses to run is the correct outcome when its
 	// workspace could not be restored — the alternative is an agent editing an
 	// empty tree that will be checkpointed over the real one.
-	if !notConfigured {
+	//
+	// A reader that may refresh (§14.9) lays its workspace out as generations
+	// instead: the same file-by-file restore, behind a link /refresh can swap.
+	refresh, err := refreshEnabled(s)
+	if err != nil {
+		return err
+	}
+	var gens *generations
+	if refresh {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		gens, err = startGenerations(ctx, root, s)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("restore on startup: %w", err)
+		}
+	} else if !notConfigured {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		fused, rErr := restoreWorkspace(ctx, root, s)
 		cancel()
@@ -826,6 +841,69 @@ func runServe(root string) error {
 		stateMu.Unlock()
 		log.Printf("restored to checkpoint %s (%d files)", target, len(m.Entries))
 		writeJSON(w, http.StatusOK, map[string]any{"restored": true, "checkpoint": target})
+	})
+
+	// POST /refresh — a reader moves to the shared workspace's newest checkpoint
+	// (§14.9), without a restart.
+	//
+	// The answer is one of three outcomes, so a caller can tell "already
+	// current" from "moved" from "could not":
+	//
+	//	200 {"outcome":"unchanged","checkpoint":id}
+	//	200 {"outcome":"refreshed","checkpoint":id,"files":n}
+	//	non-2xx {"outcome":"failed","error":...}  -- the workspace is as it was
+	//
+	// A checkpoint the writer finished (its /checkpoint answered 200) is LATEST
+	// by then, so a refresh after it sees it. Serialised with the same slot as
+	// every other save or restore.
+	mux.HandleFunc("/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if gens == nil {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"outcome": "failed",
+				"error":   "refresh is not enabled for this workspace (sharedWorkspaceRefresh, on a read-only, unpinned shared workspace)",
+			})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		if err := acquire(ctx, checkpointWait); err != nil {
+			out := busy()
+			out["outcome"] = "failed"
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, out)
+			return
+		}
+		defer release()
+
+		id, err := s.Latest(ctx)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"outcome": "failed", "error": fmt.Sprintf("reading LATEST pointer: %v", err)})
+			return
+		}
+		if id == gens.id {
+			writeJSON(w, http.StatusOK, map[string]any{"outcome": "unchanged", "checkpoint": id})
+			return
+		}
+		if id == "" {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"outcome": "failed",
+				"error":   fmt.Sprintf("the shared workspace has no LATEST checkpoint, but this reader holds %s", gens.id),
+			})
+			return
+		}
+		files, err := gens.advance(ctx, s, id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"outcome": "failed", "error": err.Error()})
+			return
+		}
+		log.Printf("refreshed shared workspace to checkpoint %s (%d files, generation %d)", id, files, gens.n)
+		writeJSON(w, http.StatusOK, map[string]any{"outcome": "refreshed", "checkpoint": id, "files": files})
 	})
 
 	// GET /list-checkpoints — returns checkpoint IDs in reverse chronological
