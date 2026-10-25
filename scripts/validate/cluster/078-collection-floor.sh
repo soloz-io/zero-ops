@@ -42,6 +42,7 @@ _c078_check() {
 
     out=$(C078_JOBS="$jobs" C078_CLUSTER="$expected" C078_NODES="$nodes" python3 - <<'PY'
 import base64, json, os, time, urllib.error, urllib.parse, urllib.request
+import yaml
 
 cluster = os.environ["C078_CLUSTER"]
 jobs = os.environ["C078_JOBS"].split()
@@ -58,11 +59,11 @@ KNOWN = {
     "cnpg": "cnpg_collector_up",
 }
 
-def get(url, user, token):
+def get(url, user, token, parse=json.load):
     req = urllib.request.Request(url)
     req.add_header("Authorization", "Basic " + base64.b64encode(f"{user}:{token}".encode()).decode())
     with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+        return parse(r)
 
 def q(expr):
     return get(prom + "/api/v1/query?" + urllib.parse.urlencode({"query": expr}), puser, read)["data"]["result"]
@@ -107,14 +108,15 @@ except urllib.error.HTTPError as e:
     print(f"FAIL C5 the stack refused a log query ({e.code}): GRAFANA_CLOUD_READ_TOKEN needs logs:read")
 
 try:
-    groups = get(prom + "/config/v1/rules", puser, rules)
+    # The ruler's configuration API answers in YAML (namespace -> groups).
+    groups = get(prom + "/config/v1/rules", puser, rules, parse=yaml.safe_load)
     names = [ns for ns in (groups or {}) if ns.startswith(cluster + "/")]
     print(f"PASS C6 {len(names)} rule namespace(s) under {cluster}/ in the ruler" if names
           else f"FAIL C6 no rules under {cluster}/ in the ruler -- the cluster agent's rule sync has not run or is failing")
 except urllib.error.HTTPError as e:
     print(f"FAIL C6 the ruler refused a read ({e.code}): GRAFANA_CLOUD_RULES_TOKEN needs rules:read")
-except json.JSONDecodeError:
-    print("FAIL C6 the ruler answered with something other than JSON; check GRAFANA_CLOUD_PROMETHEUS_URL")
+except yaml.YAMLError:
+    print("FAIL C6 the ruler answered with something that is not its rule configuration; check GRAFANA_CLOUD_PROMETHEUS_URL")
 PY
 )
     while IFS= read -r line; do
