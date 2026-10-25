@@ -45,7 +45,7 @@ spec:
     rules:
     - alert: HighMemoryUsage
       expr: |
-        (container_memory_working_set_bytes / container_spec_memory_limit_bytes) * 100 > 85
+        (container_memory_working_set_bytes{container!=""} / (container_spec_memory_limit_bytes{container!=""} > 0)) * 100 > 85
       for: 5m
       labels:
         severity: warning
@@ -56,7 +56,7 @@ spec:
 
     - alert: CriticalMemoryUsage
       expr: |
-        (container_memory_working_set_bytes / container_spec_memory_limit_bytes) * 100 > 95
+        (container_memory_working_set_bytes{container!=""} / (container_spec_memory_limit_bytes{container!=""} > 0)) * 100 > 95
       for: 2m
       labels:
         severity: critical

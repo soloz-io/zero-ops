@@ -34,8 +34,12 @@ missing = sorted(DASHBOARDS - found)
 if missing:
     sys.exit(f"render: the pinned mixin no longer produces {missing}; update DASHBOARDS")
 
+# The shipped dashboards' raw JSON, for the metric allowlist (allowlist.py).
+selected_dir = os.path.join(work, "selected")
+os.makedirs(selected_dir, exist_ok=True)
 for fname in sorted(DASHBOARDS):
     board = json.load(open(os.path.join(work, "dashboards", fname)))
+    json.dump(board, open(os.path.join(selected_dir, fname), "w"))
     name = "platform-" + fname[:-len(".json")]
     obj = {
         "apiVersion": "grafana.integreatly.org/v1beta1",

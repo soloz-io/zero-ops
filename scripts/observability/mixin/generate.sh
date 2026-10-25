@@ -12,12 +12,18 @@
 #   manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml
 #   manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml
 #       the recording rules those dashboards read, synced per cluster
+#   scripts/observability/mixin/metrics-allowlist.json
+#       every metric a shipped dashboard or PrometheusRule reads, by Grafana's
+#       mimirtool (allowlist.py); metric-allowlist.py renders it into the agents
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 JB="github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@v0.6.0"
 JSONNET="github.com/google/go-jsonnet/cmd/jsonnet@v0.21.0"
+# mimirtool, pinned by its release asset's digest. linux/amd64: generation runs in CI.
+MIMIRTOOL_URL="https://github.com/grafana/mimir/releases/download/mimir-3.2.3/mimirtool-linux-amd64"
+MIMIRTOOL_SHA256="17a134ffb41e7953aa139e568e72c10629519593f9f93054fb1a75c1f456639d"
 CHECK="${1:-}"
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
@@ -30,6 +36,12 @@ go run "$JSONNET" -J "$HERE/vendor" \
 
 out="$work/out"
 python3 "$HERE/render.py" "$work" "$out"
+
+[[ "$(uname -s)-$(uname -m)" == "Linux-x86_64" ]] || { echo "generate: runs on linux/amd64 (CI); mimirtool is pinned for it" >&2; exit 1; }
+curl -sSfL -o "$work/mimirtool" "$MIMIRTOOL_URL"
+echo "$MIMIRTOOL_SHA256  $work/mimirtool" | sha256sum -c - >/dev/null
+chmod +x "$work/mimirtool"
+python3 "$HERE/allowlist.py" "$work/mimirtool" "$work" "$out/root" "$ROOT"
 
 if [[ "$CHECK" == "--check" ]]; then
     status=0

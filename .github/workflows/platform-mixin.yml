@@ -10,10 +10,17 @@ on:
   push:
     paths:
       - 'scripts/observability/mixin/**'
+      - 'scripts/observability/metric-allowlist.py'
+      # A hand-written rule reads metrics too: the allowlist follows it.
+      - 'manifests/hub-core-services/platform-alerts/**'
+      - 'manifests/spoke/spoke-catalog/infra/platform-alerts/**'
       - '.github/workflows/platform-mixin.yml'
   pull_request:
     paths:
       - 'scripts/observability/mixin/**'
+      - 'scripts/observability/metric-allowlist.py'
+      - 'manifests/hub-core-services/platform-alerts/**'
+      - 'manifests/spoke/spoke-catalog/infra/platform-alerts/**'
       - 'manifests/hub-core-services/platform-dashboards/dashboard-*.yaml'
       - 'manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml'
       - 'manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml'
@@ -35,13 +42,14 @@ jobs:
           go-version: '1.26'
       - name: Regenerate
         run: |
-          scripts/observability/mixin/generate.sh
           python3 -m pip install --quiet pyyaml
+          scripts/observability/mixin/generate.sh
           scripts/observability/metric-allowlist.py
       - name: Commit the regenerated output
         run: |
           set -euo pipefail
           git add manifests/hub-core-services/platform-dashboards \
+                  scripts/observability/mixin/metrics-allowlist.json \
                   manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml \
                   manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml \
                   manifests/spoke/spoke-catalog/infra/kustomization.yaml \
@@ -66,6 +74,6 @@ jobs:
           go-version: '1.26'
       - name: The committed output is a regeneration
         run: |
-          scripts/observability/mixin/generate.sh --check
           python3 -m pip install --quiet pyyaml
+          scripts/observability/mixin/generate.sh --check
           scripts/observability/metric-allowlist.py --check
