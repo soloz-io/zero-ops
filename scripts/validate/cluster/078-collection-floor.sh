@@ -56,8 +56,15 @@ KNOWN = {
     "cadvisor": "container_cpu_usage_seconds_total",
     "node-exporter": "node_cpu_seconds_total",
     "kube-state-metrics": "kube_node_info",
-    "cnpg": "cnpg_collector_up",
+    # The series the CNPG recovery alerts read (cnpg-backup-alerts).
+    "cnpg": "cnpg_collector_pg_wal_archive_status",
 }
+# Each probe must be a metric the agents send (ADR-078 add.3 §7): a probe for a
+# series the allowlist drops fails for a reason that is not a fault.
+allowed = set(json.load(open(os.environ["C078_ALLOWLIST"]))["metrics"])
+for job, m in KNOWN.items():
+    if m not in allowed:
+        print(f"FAIL C3 {job}: this check probes {m}, which the metric allowlist does not send; probe an allowlisted series")
 
 def get(url, user, token, parse=json.load):
     req = urllib.request.Request(url)
@@ -148,7 +155,8 @@ validate_adr078_collection_floor() {
         hard_fail "Grafana Cloud credentials missing: ${missing[*]} (environment, or k8-secrets/grafana-cloud/)"
         return 0
     fi
-    export C078_PROM_URL C078_PROM_USER C078_LOKI_URL C078_LOKI_USER C078_READ_TOKEN C078_RULES_TOKEN
+    C078_ALLOWLIST="$VALIDATE_ROOT/scripts/observability/mixin/metrics-allowlist.json"
+    export C078_PROM_URL C078_PROM_USER C078_LOKI_URL C078_LOKI_USER C078_READ_TOKEN C078_RULES_TOKEN C078_ALLOWLIST
 
     _c078_check hub "$HUB_KUBECONFIG" CLUSTER_NAME kubelet cadvisor node-exporter kube-state-metrics
 
