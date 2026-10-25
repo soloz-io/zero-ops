@@ -34,14 +34,19 @@ jobs:
         with:
           go-version: '1.26'
       - name: Regenerate
-        run: scripts/observability/mixin/generate.sh
+        run: |
+          scripts/observability/mixin/generate.sh
+          python3 -m pip install --quiet pyyaml
+          scripts/observability/metric-allowlist.py
       - name: Commit the regenerated output
         run: |
           set -euo pipefail
           git add manifests/hub-core-services/platform-dashboards \
                   manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml \
                   manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml \
-                  manifests/spoke/spoke-catalog/infra/kustomization.yaml
+                  manifests/spoke/spoke-catalog/infra/kustomization.yaml \
+                  manifests/hub-core-services/grafana-alloy/deployment.yaml \
+                  manifests/spoke/spoke-catalog/infra/grafana-alloy.yaml
           if git diff --cached --quiet; then
             echo "already generated; nothing to do"
             exit 0
@@ -60,4 +65,7 @@ jobs:
         with:
           go-version: '1.26'
       - name: The committed output is a regeneration
-        run: scripts/observability/mixin/generate.sh --check
+        run: |
+          scripts/observability/mixin/generate.sh --check
+          python3 -m pip install --quiet pyyaml
+          scripts/observability/metric-allowlist.py --check

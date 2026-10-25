@@ -28,14 +28,18 @@
 #          list, so no agent admits a namespace another excludes;
 #   078-7  every node-agent DaemonSet tolerates the control-plane taint (in its
 #          manifest, or by its catalogue's kustomization patch), so no node goes
-#          unwatched (2026-10-24: the hub's control plane had no agent).
+#          unwatched (2026-10-24: the hub's control plane had no agent);
+#   078-8  the agents send exactly the metrics a shipped dashboard or rule reads
+#          (scripts/observability/metric-allowlist.py --check): no fewer, or a
+#          panel renders empty; no more, or the stack refuses series at its
+#          active-series limit (rc.167, HTTP 429).
 
 validate_pod_discovery_attaches_namespace_labels() {
     section "ADR-078: pod discovery attaches the namespace labels its filter reads"
 
     local out
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
-import pathlib, re
+import pathlib, re, sys
 
 ROOTS = ["manifests", "internal/platform/embedded/manifests"]
 BLOCK = re.compile(r'discovery\.kubernetes\s+"([^"]+)"\s*\{')
@@ -122,7 +126,13 @@ for path, patched in ((pathlib.Path("manifests/hub-core-services/grafana-alloy/d
             if not patched and CP not in (d["spec"]["template"]["spec"].get("tolerations") or []):
                 print(f"FAIL {path}: DaemonSet/grafana-alloy does not tolerate the control-plane taint; that node gets no agent and no collection")
 
-print(f"PASS {checked} namespace-label filter(s) read labels their discovery attaches; spoke cluster and tenant labels are substituted; node agents reach every node")
+import subprocess
+r = subprocess.run([sys.executable, "scripts/observability/metric-allowlist.py", "--check"], capture_output=True, text=True)
+if r.returncode != 0:
+    for line in (r.stdout + r.stderr).strip().splitlines():
+        print("FAIL " + line)
+
+print(f"PASS {checked} namespace-label filter(s) read labels their discovery attaches; spoke cluster and tenant labels are substituted; node agents reach every node; the metric allowlist matches what is shipped")
 PY
     )
 

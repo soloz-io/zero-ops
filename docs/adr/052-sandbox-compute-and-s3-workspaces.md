@@ -3028,6 +3028,13 @@ now closed:**
   session peer only, through the per-session pairing policy the EphemeralJob
   operator writes (ADR-106) -- another session's renderer is not reachable.
   Kind runs no network policy, so there the allowlist is the only bound.
+  **A workload reaches an `http://` address through the vault with a plain
+  HTTP proxy request, not a CONNECT tunnel.** The vault's proxy port treats a
+  CONNECT tunnel as TLS to intercept, so a client that tunnels plain HTTP --
+  Node's built-in proxy support (`NODE_USE_ENV_PROXY=1`) does, for every
+  target -- has the connection dropped, registered services included. Any
+  workload calling an in-cluster `http://` service through the vault must send
+  it as an ordinary proxy request.
 - **`DATABASE_URL`** carries a Postgres password into the workload container
   and **cannot** move to agent-vault at all: agent-vault is an HTTP/HTTPS MITM
   proxy and the Postgres wire protocol is not HTTP. There is no version of the
