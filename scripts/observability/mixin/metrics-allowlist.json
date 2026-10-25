@@ -75,7 +75,6 @@
     "pg_up",
     "process_cpu_seconds_total",
     "process_resident_memory_bytes",
-    "prometheus",
     "prometheus_remote_storage_samples_dropped_total",
     "prometheus_remote_storage_samples_failed_total",
     "rest_client_request_duration_seconds_bucket",
