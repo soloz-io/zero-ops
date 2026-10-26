@@ -68,6 +68,14 @@ on:
       GITOPS_TOKEN:
         description: Write access to this repository, so Day-0 can commit the artifacts it generates.
         required: true
+      INFISICAL_ADMIN_EMAIL:
+        description: >-
+          The administrator of this box's own Infisical. Day-0 creates it, and
+          hub-operator signs in as it; there is no default.
+        required: true
+      INFISICAL_ADMIN_PASSWORD:
+        description: That administrator's password.
+        required: true
       INFISICAL_ESCROW_URL:
         description: >-
           An Infisical the TENANT controls and this box does not host -- usually

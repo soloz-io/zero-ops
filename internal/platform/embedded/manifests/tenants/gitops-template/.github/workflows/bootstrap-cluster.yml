@@ -20,6 +20,8 @@
 #   GHCR_USERNAME   your container registry, for pulling YOUR private images.
 #   GHCR_TOKEN      The platform's own images are public; your workloads are
 #                   yours (ADR-066) and this is what runs them.
+#   INFISICAL_ADMIN_EMAIL     the administrator of this box's own Infisical,
+#   INFISICAL_ADMIN_PASSWORD  set by the handover. There is no default.
 #
 # STRONGLY RECOMMENDED -- absent, the box bootstraps and runs, and says what it
 # is missing:
@@ -100,6 +102,9 @@ jobs:
     secrets:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+      # The administrator of this box's own Infisical, set by the handover.
+      INFISICAL_ADMIN_EMAIL: ${{ secrets.INFISICAL_ADMIN_EMAIL }}
+      INFISICAL_ADMIN_PASSWORD: ${{ secrets.INFISICAL_ADMIN_PASSWORD }}
       # Read only when on-prem is enabled. Set it on this repository if this
       # cluster accepts nodes on your own premises: the control plane and those
       # nodes join your tailnet from this one key (ADR-046, ADR-075).
