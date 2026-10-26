@@ -47,6 +47,10 @@ kind: CiliumNetworkPolicy
 metadata:
   name: probe-intended-sandbox-egress
   namespace: adr106-probe
+  annotations:
+    # Its CRD arrives with the CAPI ClusterResourceSet addon (ADR-041); without
+    # this, a fresh spoke's dry-run rejects the whole catalogue.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   endpointSelector:
     matchLabels:
