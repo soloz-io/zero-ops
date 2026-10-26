@@ -12,6 +12,8 @@ THE CODEBASE IS SPLITTED INTO PLATFORM AND PRODUCT. Product teams write no infra
 
 I WILL SHARE THE PROPOSAL WHEN YOU ARE READY.
 
+Your focus is on design approval only and not code verification or analysis.
+
 --------------------
 
 ## Team Lead
