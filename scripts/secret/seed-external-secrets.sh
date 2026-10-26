@@ -78,6 +78,7 @@ MAPPINGS=(
   "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:${SHARED}"
   # ADR-078 add.3 §6: the hub reads these at the root (its ExternalSecrets have
   # no cell prefix); the dashboards token is the hub's alone.
+  "GRAFANA_CLOUD_TELEMETRY_TOKEN:grafana-cloud/telemetry-token:/"
   "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:/"
   "GRAFANA_CLOUD_DASHBOARDS_TOKEN:grafana-cloud/dashboards-token:/"
   # ADR-078 add.4: the hub's alert routing, at the root.
