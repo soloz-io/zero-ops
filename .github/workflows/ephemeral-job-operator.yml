@@ -55,13 +55,18 @@ jobs:
 
       - name: Update Kustomization with new image
         run: |
-          cd operators/ephemeral-job-operator/config/manager
-          kustomize edit set image ephemeral-job-operator=ghcr.io/soloz-io/ephemeral-job-operator@${{ steps.build.outputs.digest }}
+          # Both components ship the same image (ADR-108): the operator and
+          # the preview-access service. Pinned together so they cannot drift.
+          for d in manager preview-access; do
+            (cd operators/ephemeral-job-operator/config/$d && \
+              kustomize edit set image ephemeral-job-operator=ghcr.io/soloz-io/ephemeral-job-operator@${{ steps.build.outputs.digest }})
+          done
 
       - name: Commit and push image update
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add operators/ephemeral-job-operator/config/manager/kustomization.yaml
+          git add operators/ephemeral-job-operator/config/manager/kustomization.yaml \
+                  operators/ephemeral-job-operator/config/preview-access/kustomization.yaml
           git commit -m "chore(ephemeral-job-operator): update image to ${{ github.sha }}" || exit 0
           git push

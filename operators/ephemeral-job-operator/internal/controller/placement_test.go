@@ -117,3 +117,32 @@ func TestEmptyPlacementClassDefaultsToBurst(t *testing.T) {
 		t.Error("default placement must be burst")
 	}
 }
+
+// The home class must select a label value the platform actually writes.
+//
+// This asserts a literal, which is usually a smell — the point is that the
+// literal is a CONTRACT with provision-flatcar-worker.sh, not an internal
+// choice. It read "home" for as long as this file existed, nothing anywhere set
+// that, and the consequence was invisible in every test: the pod was
+// well-formed, passed admission, and sat Pending forever while the EphemeralJob
+// reported WaitingForCapacity — a message about capacity for a label mismatch.
+//
+// If the node label ever legitimately changes, this test changes with it, and
+// whoever changes it is told what else has to move.
+func TestHomePlacementSelectsTheLabelTheJoinScriptWrites(t *testing.T) {
+	p, ok := ResolvePlacement("home")
+	if !ok {
+		t.Fatal("home placement class is not registered")
+	}
+	if got := p.NodeSelector[WorkloadLocationKey]; got != "on-prem" {
+		t.Errorf("home selects %s=%q, want %q — provision-flatcar-worker.sh joins Flatcar "+
+			"home-lab nodes with on-prem, and the hybrid composition, both CSI addons, "+
+			"hub-bootstrap.sh and the bootstrap postconditions all agree",
+			WorkloadLocationKey, got, "on-prem")
+	}
+	// ADR-046 §11: the location label is never sufficient on its own.
+	if _, has := p.NodeSelector[NodeRoleWorkerKey]; !has {
+		t.Errorf("home placement omits %s; without it a pod can land on a control-plane "+
+			"node that happens to carry the location label", NodeRoleWorkerKey)
+	}
+}

@@ -26,6 +26,10 @@ const (
 	PathCertificateAuthoritiesCreate   = "/api/v1/cert-manager/ca/internal"
 	PathCACertificate                  = "/api/v1/cert-manager/ca/internal/%s/certificate"
 	PathSecretsRaw                     = "/api/v3/secrets/raw/%s"
+	// PathSecretsRawList lists a folder. Unlike PathSecretsRaw it names no key,
+	// so it answers "what is here" rather than "is this here" -- which is the
+	// question `soloz fleet secrets status` asks.
+	PathSecretsRawList = "/api/v3/secrets/raw"
 
 	// Used by getExistingOrgData to recover from the already-bootstrapped
 	// case without destructively resetting the database. These return

@@ -8,17 +8,19 @@ const (
 	CAPIVersion = "v1.10.0"
 
 	// Bootstrap & Control Plane Providers
-	KubeadmBootstrapProviderVersion    = "v1.10.0"
-	KubeadmControlPlaneProviderVersion = "v1.10.0"
-	TalosBootstrapProviderVersion      = "v0.7.0"
-	TalosControlPlaneProviderVersion   = "v0.7.0"
+	//
+	// Authoritative for the versions deployed by the CAPI operator manifests in
+	// internal/assets/manifests/core/capi-operator/providers/.
+	// Divergence between these constants and the provider manifests is caught by
+	// TestProviderManifestVersionParity.
+	KubeadmBootstrapProviderVersion    = "v1.8.5"
+	KubeadmControlPlaneProviderVersion = "v1.8.5"
 
 	// Infrastructure Providers
-	HetznerInfraProviderVersion = "v1.0.0-beta.47"
+	HetznerInfraProviderVersion = "v1.0.7"
 
 	// Binaries
 	ClusterctlVersion = "v1.10.0"
-	TalosctlVersion   = "v1.12.0"
 	PackerVersion     = "1.11.2"
 
 	// Prerequisites
@@ -32,8 +34,8 @@ const (
 	// so a mismatch makes ArgoCD upgrade itself while the rest of boundary 01 is
 	// still syncing, restarting the application-controller and repo-server at the
 	// worst possible moment. It was 7.7.12 here against 7.8.0 in Git until
-	// 2026-09-05.
+	// 2026-09-05; 7.8.0 against 7.9.1 until 2026-09-20.
 	//
 	// scripts/validate/argocd-version-parity.sh enforces the equality in CI.
-	ArgoCDChartVersion = "7.8.0"
+	ArgoCDChartVersion = "7.9.1"
 )

@@ -1,4 +1,4 @@
-import { createEventEmitter, type AuthEventListener } from "./events.js";
+import { type AuthEventListener, createEventEmitter } from "./events.js";
 import type { AuthState, AuthTransport, UserIdentity } from "./types.js";
 
 /** Where the aggregation boundary serves the current identity. */
@@ -37,6 +37,13 @@ export interface AuthClient {
    * being signed out. Returns a function that stops the polling.
    */
   startSessionWatch(intervalMs?: number): () => void;
+  /**
+   * Report an unauthorized response from an external action.
+   *
+   * Called on any 401 from an ordinary endpoint and whenever an EventSource
+   * closes (ADR-050 amendment 2026-10-21).
+   */
+  reportUnauthorized(): void;
 }
 
 /**
@@ -70,6 +77,7 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
 
   let state: AuthState = { status: "unknown", user: null, error: null };
   let inFlight: Promise<AuthState> | null = null;
+  let ended = false;
   const listeners = new Set<(s: AuthState) => void>();
   const events = createEventEmitter();
 
@@ -89,12 +97,11 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     for (const listener of listeners) listener(state);
 
     if (next.status === "authenticated" && previous.status !== "authenticated") {
+      ended = false;
       events.emit({ event: "signedIn", data: next.user as UserIdentity });
-    } else if (
-      next.status === "unauthenticated" &&
-      previous.status === "authenticated"
-    ) {
+    } else if (next.status === "unauthenticated" && previous.status === "authenticated") {
       // The only transition that means a live session ended on its own.
+      ended = true;
       events.emit({ event: "sessionExpired" });
     } else if (next.status === "error" && next.error) {
       events.emit({ event: "checkFailed", data: { error: next.error } });
@@ -112,9 +119,7 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     }
 
     try {
-      const headers = transport.authHeaders
-        ? await transport.authHeaders()
-        : undefined;
+      const headers = transport.authHeaders ? await transport.authHeaders() : undefined;
 
       const res = await doFetch(`${base}${IDENTITY_PATH}`, {
         credentials,
@@ -130,12 +135,15 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
         // With redirect: "manual" that same 302 arrives as an opaque response —
         // type "opaqueredirect", status 0 — which is a reliable, same-origin
         // signal meaning exactly "the gateway wants us to authenticate".
+        // From agentgateway v1.6.0 (ADR-050), the gateway can also answer with
+        // a direct 401. Both are handled below.
         redirect: "manual",
       });
 
-      // Treated identically to 401. The gateway expresses "not authenticated"
-      // as a redirect; the API expresses it as a status. Both mean signed out,
-      // and an application should not have to know which layer answered.
+      // The gateway answers either a 302, which arrives as opaqueredirect, or,
+      // from agentgateway v1.6.0 (ADR-050), a 401. Both are already handled:
+      // both mean signed out, and an application should not have to know which
+      // layer answered.
       if (res.type === "opaqueredirect" || res.status === 0) {
         return set({ status: "unauthenticated", user: null, error: null });
       }
@@ -171,6 +179,14 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
     }
   }
 
+  function refresh(): Promise<AuthState> {
+    if (inFlight) return inFlight;
+    inFlight = check().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -186,25 +202,64 @@ export function createAuthClient(transport: AuthTransport = {}): AuthClient {
       // `sessionExpired` from the same transition. The person asked to leave,
       // and telling the application their session expired would have it show a
       // warning and try to recover a session nobody wants.
-      if (wasAuthenticated) events.emit({ event: "signedOut" });
+      if (wasAuthenticated) {
+        ended = true;
+        events.emit({ event: "signedOut" });
+      }
     },
     startSessionWatch(intervalMs = 60_000) {
       // Only meaningful while signed in, but the check is cheap and the state
       // may change under it, so it simply re-checks and lets set() decide
       // whether anything happened.
       const id = setInterval(() => {
-        void this.refresh();
+        void refresh();
       }, intervalMs);
       return () => clearInterval(id);
     },
-    refresh() {
-      if (inFlight) return inFlight;
-      inFlight = check().finally(() => {
-        inFlight = null;
-      });
-      return inFlight;
+    reportUnauthorized() {
+      if (ended || inFlight) return;
+      void refresh();
     },
+    refresh,
   };
+}
+
+let sharedClient: AuthClient | undefined;
+let sharedTransport: AuthTransport | undefined;
+
+/**
+ * A module-scoped shared AuthClient instance.
+ *
+ * The first call creates the instance with `createAuthClient(transport ?? {})`
+ * and records the transport. A later call with transport that isn't undefined
+ * and isn't the same object reference throws an Error.
+ *
+ * Create the transport once (a module-level constant) and pass that same object
+ * everywhere. An inline object is a new transport on every render, and React
+ * StrictMode and hot reload render twice.
+ */
+export function sharedAuthClient(transport?: AuthTransport): AuthClient {
+  if (!sharedClient) {
+    sharedTransport = transport;
+    sharedClient = createAuthClient(transport ?? {});
+    return sharedClient;
+  }
+  if (transport !== undefined && transport !== sharedTransport) {
+    throw new Error(
+      "sharedAuthClient: already created with a different transport. Create the transport once (a module-level constant) and pass that same object everywhere. An inline object is a new transport on every render, and React StrictMode and hot reload render twice.",
+    );
+  }
+  return sharedClient;
+}
+
+/**
+ * Report an unauthorized response to the shared AuthClient instance.
+ *
+ * Called on any 401 from an ordinary endpoint and whenever an EventSource
+ * closes (ADR-050 amendment 2026-10-21).
+ */
+export function reportUnauthorized(): void {
+  sharedAuthClient().reportUnauthorized();
 }
 
 /**

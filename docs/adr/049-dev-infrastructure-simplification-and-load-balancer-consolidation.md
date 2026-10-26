@@ -66,7 +66,7 @@ Create the following **5 secrets**:
 | `GRAFANA_CLOUD_PROMETHEUS_USER` | Numerical Prometheus Instance ID / Username | `1234567` |
 | `GRAFANA_CLOUD_LOKI_URL` | Grafana Cloud Loki push URL | `https://logs-prod-012.grafana.net/loki/api/v1/push` |
 | `GRAFANA_CLOUD_LOKI_USER` | Numerical Loki Instance ID / Username | `7654321` |
-| `GRAFANA_CLOUD_API_KEY` | Grafana Cloud Access Policy token (with `metrics:write` & `logs:write` scopes) | `glc_eyJ...` |
+| `GRAFANA_CLOUD_TELEMETRY_TOKEN` | Grafana Cloud Access Policy token (with `metrics:write` & `logs:write` scopes) | `glc_eyJ...` |
 
 ---
 

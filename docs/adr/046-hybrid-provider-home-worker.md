@@ -1,7 +1,8 @@
 # ADR-046: Hybrid Provider Cell (Hetzner Control Plane + Home-Lab Workers)
 
 **Date:** 2026-08-12
-**Status:** Accepted
+**Status:** Accepted (corrected 2026-09-25 — the home class selects
+`workload-location: on-prem`; see Placement classes)
 
 *Amended by: ADR-075 (On-Prem Nodes are a Capability, Not a Provider)*
 
@@ -80,7 +81,9 @@ The shared ClusterClass exposes two variables:
   (`ControlPlaneEndpointSet` condition).
 
 Burst workers carry kubelet label `workload-location=hetzner`; home workers are
-labeled `workload-location=home` by the join script.
+labeled `workload-location=on-prem` by the join script (`provision-flatcar-worker.sh`).
+See the correction under Placement classes: the CLASS is named `home`, the label
+VALUE is `on-prem`, and this sentence said `home` for both until 2026-09-25.
 
 ### Home-Worker Lifecycle (Unmanaged)
 
@@ -123,7 +126,7 @@ Home workers never appear in the ClusterClass topology.
 
 ### Scheduling Contract
 
-- Default workloads: `nodeSelector: workload-location: home`.
+- Default workloads: `nodeSelector: workload-location: on-prem`.
 - Burst workloads: explicit `nodeSelector: workload-location: hetzner`.
 
 ### Cilium CNI — Flatcar-Native Datapath
@@ -484,7 +487,7 @@ unchanged: every stateful workload runs on **worker nodes only**
 (`nodeSelector: node-role.kubernetes.io/worker: ""` — key-only label, never
 `"true"`), control-plane nodes keep `control-plane:NoSchedule`, and placement is
 declared, never inferred from storage binding. Hybrid adds one orthogonal axis:
-`workload-location` (home vs hetzner), which determines the storage class a
+`workload-location` (`on-prem` vs `hetzner`), which determines the storage class a
 stateful workload may use.
 
 **Failure that motivated this model.** On `spoke-pool-hybrid-dev-01`,
@@ -499,9 +502,30 @@ class ADR-014 now bans.
 
 #### Placement classes (one per location)
 
+> **Correction 2026-09-25 — the label value is `on-prem`, not `home`.** The
+> CLASS is called `home`; the label it selects on is `workload-location=on-prem`.
+> This document used `home` for both in most places and `on-prem` in one, and the
+> implementation has always written `on-prem`: `provision-flatcar-worker.sh` at
+> join time, the hybrid composition's default nodeSelector, both CSI addons'
+> node affinity, `hub-bootstrap.sh`'s worker selector and the bootstrap
+> postconditions. No live object anywhere selects `workload-location=home`.
+>
+> Every PRESCRIPTIVE mention is corrected: this table, the definition above, the
+> `workload-location` axis, and the CSI/local-path addon affinities that §Codified
+> specifies. What is left as written is narrative — incident accounts and
+> postmortems that describe what a selector said at the time, where changing it
+> would falsify the record.
+>
+> The cost of the ambiguity, so it is not repeated: `ephemeral-job-operator`
+> implemented the class from this table and selected `workload-location=home`.
+> Every sandbox pod it built was well-formed and admissible and matched no node,
+> so it sat Pending while its EphemeralJob reported `WaitingForCapacity` — a
+> message about capacity for what was a label mismatch, which sends the reader
+> looking for nodes rather than for a typo.
+
 | Class | nodeSelector (BOTH required) | StorageClass | Nodes |
 |---|---|---|---|
-| home | `node-role.kubernetes.io/worker: ""` + `workload-location: home` | `local-path` | Flatcar home workers |
+| home | `node-role.kubernetes.io/worker: ""` + `workload-location: on-prem` | `local-path` | Flatcar home workers |
 | hetzner | `node-role.kubernetes.io/worker: ""` + `workload-location: hetzner` | `hcloud-volumes` | burst pool (`replicas: 0` default in dev) |
 
 - A stateful workload is **bound to exactly one location at creation**; the
@@ -567,9 +591,9 @@ in a new hybrid-cell addon `manifests/providers/hybrid/k8s/csi-addon-hybrid.yaml
 `cilium-addon-hybrid`):
 
 1. `hcloud-csi-node` DaemonSet: add `nodeAffinity required NotIn
-   workload-location: home` (exclude home workers).
+   workload-location: on-prem` (exclude home workers).
 2. `local-path-provisioner` DaemonSet: `nodeAffinity required In
-   workload-location: home`, hostPath `/opt/local-path-provisioner`.
+   workload-location: on-prem`, hostPath `/opt/local-path-provisioner`.
 3. `local-path` StorageClass (`WaitForFirstConsumer`, `reclaimPolicy: Delete`,
    **not** default).
 
@@ -594,7 +618,7 @@ spec:
     topologyKey: kubernetes.io/hostname
     nodeSelector:
       node-role.kubernetes.io/worker: ""
-      workload-location: home
+      workload-location: on-prem
 ```
 
 - Instances, the Pooler, barman WAL-archiver jobs, and Atlas migration jobs all
@@ -1094,7 +1118,7 @@ so the `issuerRef` switch lands there, not in this repo.
 
 **Context & Scope Expansion.**
 The hybrid home-lab pattern established in ADR-046 initially targeted Spoke tenant clusters. To eliminate cloud compute costs on the Hub management plane, the pattern is extended to the Hub cluster:
-1. Home-lab Flatcar VMs (`flatcar-hub-node-1`) join the Hub cluster over Tailscale as primary workload nodes with `hub-role=worker` and `workload-location=home`.
+1. Home-lab Flatcar VMs (`flatcar-hub-node-1`) join the Hub cluster over Tailscale as primary workload nodes with `hub-role=worker` and `workload-location=on-prem`.
 2. Cloud Hetzner worker MachineDeployment (`hub-hybrid-dev-md-0`) scales to `replicas: 0`.
 
 **Durability Invariant: Mandatory S3 Barman Backups for Home-Located Stateful Workloads.**
@@ -1102,7 +1126,7 @@ Because home-lab Flatcar nodes utilize ephemeral local disk (`local-path-provisi
 1. **S3 Backup Destination**: All CNPG PostgreSQL clusters (`platform-db` on Hub, `shared-cnpg` on Spokes) MUST configure `spec.backup.barmanObjectStore` targeting S3-compatible Hetzner Object Storage (`https://hel1.your-objectstorage.com`) with isolated bucket/prefix paths (e.g. `s3://hub-db-backups/<hub-name>/` for Hub, `s3://spoke-pool-backups/<spoke-name>/` for Spokes).
 2. **Continuous WAL Archiving**: CNPG streams write-ahead logs (WAL) continuously to S3 with compression (`gzip`), enabling Point-In-Time Recovery (PITR).
 3. **Scheduled & Immediate Base Backups**: `ScheduledBackup` resources with `immediate: true` ensure a baseline physical backup is taken immediately upon cluster creation and retained for `30d`.
-4. **Worker-Only Placement**: All CNPG database pods MUST declare worker node affinity (`nodeSelector: node-role.kubernetes.io/worker: ""` / `workload-location: home`) to guarantee separation from the control plane.
+4. **Worker-Only Placement**: All CNPG database pods MUST declare worker node affinity (`nodeSelector: node-role.kubernetes.io/worker: ""` / `workload-location: on-prem`) to guarantee separation from the control plane.
 
 ### 20. Per-environment hostname scheme and DNS automation (2026-08-20)
 
@@ -1321,7 +1345,10 @@ from the cause and name nothing that would lead an operator back to it:
 - Cilium's VXLAN tunnel endpoint is derived from that same `InternalIP`, so cross-node
   pod traffic stops;
 - a pod therefore loses CoreDNS whenever the DNS replicas sit on the other node,
-  surfacing inside the container as `EAI_AGAIN`.
+  surfacing inside the container as `EAI_AGAIN`. (§34: `EAI_AGAIN` is not
+  diagnostic of this. It also occurs with the tunnel entirely healthy, every time
+  a query crosses it — which was the normal case until the local redirect landed.
+  Reaching for invariant 6 on seeing it sends you to a tunnel that is fine.)
 
 What was actually visible was Infisical in `CrashLoopBackOff` on *"Boot up migration
 failed"*, with `platform-db` reporting *"Cluster in healthy state"* and its pooler
@@ -1345,7 +1372,7 @@ Flatcar node, where there is no Hetzner metadata service, and crash-looped
 indefinitely (151 restarts observed). The controller reached it by a second route:
 its Hetzner `nodeAffinity` was only `preferred`, which does not exclude anything.
 
-Both now carry the same `workload-location NotIn home` requirement as the spoke addon.
+Both now carry the same `workload-location NotIn on-prem` requirement as the spoke addon.
 A consequence appears here that cannot arise on a spoke: **the controller must
 tolerate `control-plane:NoSchedule`**, because on a hybrid hub the only Hetzner node
 *is* the control plane, and without the toleration the guard merely converts a crash
@@ -1659,7 +1686,7 @@ becoming Ready.
 **Readiness is measured on Nodes, never on CAPI Machines.** A home worker has no
 Machine — CAPI did not create it — so a Machine count is structurally blind to the
 thing being gated. The predicate requires a Node that is `Ready` **and** carries both
-`node-role.kubernetes.io/worker` and `workload-location=home`, which is the ADR-014 +
+`node-role.kubernetes.io/worker` and `workload-location=on-prem`, which is the ADR-014 +
 §11 contract the workloads are scheduled against.
 
 **Fabricated success removed.** The previous Step 10e counted Machines, warned either
@@ -2211,7 +2238,7 @@ box-a (Dell,   2C/4T, 15W)  → spoke  2 nodes x  6 GB, 5 vCPU,  1.25:1
 ```
 
 The hub carries the platform — ArgoCD, Crossplane, CAPI/CAPH, cert-manager,
-ESO, Infisical, VictoriaMetrics, ClickHouse, OpenMeter, NATS, CNPG, Kyverno,
+ESO, Infisical, OpenMeter, NATS, CNPG, Kyverno,
 identity — roughly 58 pods and ~1840m of requests. That is concurrency, not a
 latency-sensitive path, so it belongs on the box with more physical cores and
 more power headroom. box-a's Skylake cores are quicker per thread, but that is
@@ -2491,7 +2518,11 @@ CoreDNS (2 replicas) and node-local-dns (2) were `Running` for 32 hours across
 the window and logged no error. `10.96.0.10` is the kube-dns ClusterIP, which on
 this platform is bound on every node by the `hostNetwork` node-local-dns
 DaemonSet, so the query was answered locally and only a cache miss forwards
-upstream.
+upstream. **[Corrected by §34: this premise is false. The binding existed and
+nothing reached it — Cilium's socket load balancer rewrites the ClusterIP before
+a packet exists, so every query went to a cluster-wide CoreDNS endpoint. The
+suspect below, and this section's revisit trigger, both name a cache that was
+answering nothing.]**
 
 The placement is the part that belongs to this ADR. Both the ArgoCD
 application-controller and the repo-server it could not resolve run on
@@ -2545,6 +2576,194 @@ Hetzner placement class on the same reasoning §24.5 applies to other
 availability-sensitive components — a control loop for the whole cell should not
 depend on the least reliable node in it.
 
+### 34. Cluster DNS is answered on the node that asked; the cache reaches pods through a local redirect (2026-09-22)
+
+**Decision — NodeLocal DNSCache is put in the DNS path by a
+`CiliumLocalRedirectPolicy`, not by binding the kube-dns ClusterIP on the host.**
+
+A pod's query to `10.96.0.10:53` is served by the `node-local-dns` pod on that
+pod's own node. Misses forward to `kube-dns-upstream` over TCP, where loss is
+retried by the transport. The node-to-node overlay carries cluster DNS only on a
+cache miss, and never carries a query that a local cache could have answered.
+
+The agent's service table is where this is true or false, and it is the only
+place that distinguishes the two states:
+
+```
+7  10.96.0.10:53/UDP  LocalRedirect  1 => 10.244.1.41:53/UDP (active)
+```
+
+One backend, on this node, `LocalRedirect`. `ClusterIP` with two cluster-wide
+CoreDNS backends is the unclaimed form and means the cache is bypassed.
+
+**Why the host-bound arrangement could not work here.** NodeLocal DNSCache ships
+in two mutually exclusive shapes. The upstream one runs `hostNetwork: true`,
+binds `169.254.20.10` and the kube-dns ClusterIP on the node, and installs its
+own dummy interface and NOTRACK rules. It relies on the service proxy leaving a
+locally bound ClusterIP alone — true under kube-proxy, and false here. §24 makes
+`kube-proxy-replacement: true` an invariant, and Cilium's socket load balancer
+rewrites the destination inside `connect()`, in the pod's own network namespace,
+**before a packet exists**. A listener on the host is never consulted. The
+socket LB picks a cluster-wide CoreDNS endpoint, and on this topology half of
+them are across the tailnet.
+
+So the redirect is expressed to the datapath that is actually deciding. This is
+Cilium's documented arrangement for this component — setup 1, "full kube-proxy
+replacement", in `Documentation/network/kubernetes/local-redirect-policy.rst`.
+It costs three consequential changes, all in
+`manifests/hub-core-services/dns/coredns-nodelocal.yaml`: the DaemonSet runs in
+the pod namespace (`hostNetwork: false`, because a host-networked pod is not a
+Cilium endpoint and the policy would match no backend), the cache no longer
+provisions the address or the NOTRACK rules (`-setupinterface=false`,
+`-setupiptables=false`, `-skipteardown=true`; conntrack exemption moves to the
+`policy.cilium.io/no-track-port` annotation), and the Corefile binds `0.0.0.0`
+because there is no dummy interface to bind.
+
+`enable-local-redirect-policy: 'true'` joins the §6/§14 datapath invariants in
+both providers' `cilium-config-base.yaml`. With it false the policy object is
+accepted and inert — which is the state this section was written from.
+
+**What this corrects in §33, and why that section could not find its cause.**
+§33 states:
+
+> `10.96.0.10` is the kube-dns ClusterIP, which on this platform is bound on
+> every node by the `hostNetwork` node-local-dns DaemonSet, so the query was
+> answered locally and only a cache miss forwards upstream.
+
+That premise is false and was false when written. The DaemonSet did bind the
+address; nothing reached the binding. Every pod's DNS was going to whichever
+CoreDNS replica the socket LB chose, per connection — so §33's leading suspect,
+*"a stale negative cache entry in node-local-dns"*, named a component that was
+never in the path, and its revisit trigger sends the next investigator to raise
+log verbosity on a cache that was answering nothing. §33's own honesty about
+being unverified is what makes it recoverable; the NXDOMAIN it could not explain
+remains unexplained, and this section does not claim to close it.
+
+The same misattribution appears earlier in this ADR, where `EAI_AGAIN` inside
+application containers is listed as a downstream consequence of the invariant-6
+InternalIP rebind. That mechanism is real and is a different one: it breaks the
+VXLAN tunnel outright. `EAI_AGAIN` also occurs with the tunnel entirely healthy,
+whenever a query crosses it, which is the case here.
+
+**Evidence.** Measured from a pod on `flatcar-hub-node-1`, 40 lookups per target:
+
+| target | ok | fail |
+|---|---|---|
+| `169.254.20.10` — the cache directly | 40 | 0 |
+| `10.96.0.10` — the kube-dns ClusterIP | 38 | 2 |
+| CoreDNS on the same node | 40 | 0 |
+| CoreDNS on the control plane (207ms RTT) | 37 | 3 |
+
+ICMP across the same path showed 0% loss at a stable 207ms, so the path is not
+lossy — it stalls, past a 2s resolver timeout, several percent of the time. The
+ClusterIP column is the average of the two CoreDNS columns because the socket LB
+was splitting across both, which is the signature of the cache being bypassed.
+
+**What it surfaced as.** A Zitadel sign-in at `waypoint.dev.nutgraf.in`
+reporting **"Could not create session for user"**. The login app's
+`createSession` gRPC call failed to resolve `zitadel`; a `ConnectError` carries
+no `failedAttempts` field, so `apps/login/src/lib/server/password.ts` falls to
+`errors.couldNotCreateSessionForUser` — the same string a genuine credential
+failure never produces. The tenant's account was correct throughout: active, in
+the tenant's organisation, email verified, password set, project role granted.
+Four hours went into the identity provisioner before the login pod's own log was
+read, where 35 of 270 lines were `getaddrinfo EAI_AGAIN zitadel`.
+
+That distance between cause and symptom is the argument for the gates below,
+not the fix itself.
+
+**Gates.** Both are in the ADR's own validators (`scripts/validate/*/046-*`):
+
+- preflight `validate_adr046_nodelocal_dns_local_redirect` asserts the manifests
+  are in the local-redirect shape — `hostNetwork: false`, the three flags, named
+  `dns`/`dns-tcp` ports, and a policy whose frontend is `kube-dns/kube-system`
+  and whose backend selects the cache. Reverting any one of them to the upstream
+  default would look entirely reasonable in review.
+- cluster `validate_nodelocal_dns_redirect_programmed` reads `cilium-dbg service
+  list` on **every** agent and requires `LocalRedirect`. The redirect is
+  programmed per node, and a node whose agent missed it is a node whose pods are
+  silently back on the overlay.
+
+The static gate asserts the manifests; the cluster gate asserts the datapath.
+Only the second one would have caught this, because every other surface —
+DaemonSet Ready 2/2, pods Running, `platform-dns` Synced/Healthy — reported
+correct throughout.
+
+**Every cluster, not only the hub.** This applies to a spoke identically, and
+the spoke is worse placed: kubeadm put both CoreDNS replicas on the control
+plane while every tenant workload runs on a home worker, so every lookup crossed
+the overlay. Measured from a tenant pod on nutgraf-01: 48 of 50. It surfaced as
+the BFF answering "SDK notification service unavailable: fetch failed" and a
+schema migration dying on EAI_AGAIN for shared-cnpg-rw -- an application error
+and a database error, neither naming DNS. The manifests therefore live in the
+spoke catalogue as well as in hub-core-services.
+
+**Delivery note.** The hub's `kube-system/cilium-config` is delivered by a
+ClusterResourceSet with strategy `ApplyOnce` and is reconciled by nothing
+afterwards, so the invariant above governs the next hub and had to be patched by
+hand on this one. The spoke-side base in `platform-capi` is ArgoCD-managed and
+follows the file. That asymmetry is not specific to this setting: **any** §6/§14
+datapath invariant changed after a hub exists needs the same manual step, and
+the cluster gate is what makes the drift visible rather than the file.
+
+Restart **`deploy/cilium-operator` as well as `ds/cilium`**. The operator is what
+registers `ciliumlocalredirectpolicies.cilium.io`, and the agents refuse to
+become ready until that CRD exists — `Still waiting for Cilium Operator to
+register the following CRDs`, once per second, forever. Restarting only the
+DaemonSet therefore takes every agent on the cell to `0/1` and leaves it there,
+because the operator still holds the pre-patch config and will never register
+what the agents are waiting for. This is not specific to this flag either: it is
+the shape of any Cilium feature whose enablement introduces a CRD.
+
+
+### 35. An addon fix never reaches a cluster that already exists (2026-10-05)
+
+The CCM addon shipped the upstream chart's PodDisruptionBudget verbatim:
+`minAvailable: 1` beside `replicas: 1`, which can **never** permit an eviction. The
+eviction API refuses with 429, and `kubectl drain` does not fail on that — it retries,
+indefinitely. So the symptom is not an error but a node that never finishes draining,
+and on a control plane that is a roll that cannot complete.
+
+It cost two rolls in one day. `nutgraf-01` replaced its control-plane node correctly
+and the OLD Machine then sat in `Deleting`, draining `kube-system/ccm-ccm-hetzner`
+with nothing to time out. The hub hit the identical wall hours later — and there it
+was worse: the stall left **two control-plane nodes live with different encryption
+providers**, so a Secret written through the new one was unreadable through the old,
+on the cluster holding the secret store's and the identity provider's own credentials.
+
+`spoke-addons/ccm-addon-template.yaml` now carries `maxUnavailable: 1`. A
+single-replica controller has no availability for a PDB to protect; what a PDB is for
+is bounding *simultaneous* disruption, which `maxUnavailable` expresses without
+forbidding the one eviction a drain needs.
+
+**THE GAP THAT REMAINS, AND IT IS NOT THE PDB.** Both clusters had to be patched by
+hand, because the `ClusterResourceSet` carrying these addons has no `strategy` and so
+defaults to **`ApplyOnce`**: addon content is applied when a cluster is CREATED and
+never again. **Fixing an addon manifest therefore changes nothing for any cluster that
+already exists**, and that is true of every addon here — CCM, CSI, Cilium — not just
+this PDB.
+
+`strategy: Reconcile` would close it, and is deliberately not adopted here:
+
+- it makes the CRS re-assert every addon's full content, reverting anything edited
+  in-cluster. Whether any such edit is load-bearing today is not knowable from this
+  repository, and finding out by overwriting it is the wrong order;
+- `spec.strategy` may be immutable on an existing ClusterResourceSet, in which case
+  closing the gap means deleting and recreating the CRS on a live fleet — a different
+  and much larger operation than editing a field.
+
+So the gap is recorded rather than quietly fixed, and the mitigation is to make it
+VISIBLE instead: `validate_pdb_permits_eviction` in
+`scripts/validate/cluster/046-hybrid-provider.sh` reads live PDBs and fails one that
+can never permit an eviction, before a roll is attempted rather than from inside a
+drain that will not end. Its static counterpart,
+`preflight/046-pdb-permits-eviction.py`, reads the manifests — and had to learn to
+parse resources embedded in a Secret's `stringData`, because that is how a
+ClusterResourceSet ships them and why `kind: PodDisruptionBudget` appeared nowhere a
+document-level scan would look.
+
+Choosing a CRS strategy for the fleet is its own decision and wants its own ADR.
+
 ## References
 
 - ADR-036 (pluggable providers) — §3 superseded.
@@ -2553,3 +2772,12 @@ depend on the least reliable node in it.
 - ADR-014 (Platform-Wide Placement Rule & Stateful Infrastructure) — §Backup and restore contract.
 - PRD: hybrid home-lab cluster integration using Hetzner and Tailscale.
 
+## Amendment (2026-09-13) — NATS removed
+
+This ADR gated NATS out of `02-platform-data` for the on-prem placement class, and recorded that the NATS leaf node had no placement in any of the six overlays. Both are now moot: NATS is removed from the platform entirely (ADR-080). The observation that drove the gating — *"NATS has no consumer inside `hub-core-services`"* — turned out to be true of every box, not only hybrid ones.
+
+The `volumeClaimTemplates` incident recorded in §22 stands as the example it always was: an immutable field edited in place under a continuously-reconciling controller. It recurred on `platform-nats` before the removal.
+
+## Amendment (2026-10-12) — Bounding home-lab worker guest disk growth
+
+The 2026-09-25 and 2026-10-11 outages occurred because kubelet eviction thresholds (default 85%) only measured the guest filesystem, while the dynamic VHDX on the Windows host grew until C: reached 0 bytes free, causing Hyper-V to pause the VM on "Disk Full". Remediation bounds guest disk consumption to ~60% of virtual disk size (~31 GB on 60 GB spoke nodes, ~52 GB on 100 GB hub node) by setting early image GC (high 50%, low 40%) and evictionHard (nodefs.available 40%, imagefs.available 40%, inodes 5%, memory 100Mi) via `/etc/kubernetes/kubelet.conf.d/50-host-disk.conf`. The provisioner rejects node creation if C: free space cannot support the bounded growth with a 20 GB reserve, `free-spoke.sh` applies the bound to existing nodes, and cluster validation (`046-home-host-disk-headroom.sh`) alerts when host free space drops below 20 GB.

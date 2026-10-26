@@ -30,6 +30,27 @@
   fields:
     - path: [spec, backup, barmanObjectStore, destinationPath]
       value: 's3://spoke-pool-backups/{{ .Values.spokeName }}/'
+    # The SAME prefix on the RECOVERY source, and it is a SECOND, independent
+    # copy of the object-store configuration: externalClusters inherits nothing
+    # from spec.backup above. Templating only the backup path leaves recovery
+    # reading the bucket ROOT -- s3://spoke-pool-backups/<incarnation>/ rather
+    # than s3://spoke-pool-backups/<spoke>/<incarnation>/ -- where no spoke has
+    # ever written anything, and CNPG fails the restore with
+    #
+    #   Recovering from external cluster ... sourceName=shared-cnpg-v3
+    #   Error while restoring a backup: no target backup found
+    #
+    # which names the source it could not find and says nothing about the path
+    # it searched, so it reads as a missing BACKUP rather than a wrong PREFIX.
+    # Observed on the 2026-09-25 restore, against an archive that was intact and
+    # listable throughout.
+    #
+    # The index is why externalClusters is declared in EVERY state, including the
+    # steady one where bootstrap is initdb and nothing reads it: this assignment
+    # resolves a concrete path, so an entry that only existed during a recovery
+    # would fail packaging for every spoke in between.
+    - path: [spec, externalClusters, 0, barmanObjectStore, destinationPath]
+      value: 's3://spoke-pool-backups/{{ .Values.spokeName }}/'
 
 - kind: ExternalSecret
   name: s3-credentials
@@ -63,7 +84,21 @@
     - path: [spec, data, 3, remoteRef, key]
       value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_USER'
     - path: [spec, data, 4, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_API_KEY'
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_TELEMETRY_TOKEN'
+    - path: [spec, data, 5, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_RULES_TOKEN'
+
+- kind: Deployment
+  name: preview-access
+  # ADR-108: the issuer this box's tenants sign in at, and the box's preview
+  # domain. env[1..3] by contract (config/preview-access/deployment.yaml).
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: 'https://id.{{ .Values.global.hubDomain }}'
+    - path: [spec, template, spec, containers, 0, env, 2, value]
+      value: 'https://id.{{ .Values.global.hubDomain }}/oauth/v2/keys'
+    - path: [spec, template, spec, containers, 0, env, 3, value]
+      value: '{{ .Values.global.previewDomain }}'
 
 - kind: Deployment
   name: external-dns
@@ -77,6 +112,12 @@
       value: '--domain-filter={{ .Values.global.hubDomain }}'
     - path: [spec, template, spec, containers, 0, args, 1]
       value: '--txt-owner-id={{ .Values.spokeName }}'
+    # ADR-108: the preview domain is the one other zone this box writes.
+    # REQUIRED: an empty --domain-filter matches EVERY zone in the DNS
+    # account, so an unset preview domain must fail the render, never widen
+    # what external-dns may write.
+    - path: [spec, template, spec, containers, 0, args, 2]
+      value: '--domain-filter={{ required "global.previewDomain is required: external-dns would otherwise be given an empty filter, which matches every zone (ADR-108)" .Values.global.previewDomain }}'
 
 - kind: ClusterSecretStore
   name: infisical-backend
@@ -90,21 +131,15 @@
 # ── The hub this spoke belongs to (ADR-051) ────────────────────────────────
 #
 # A spoke reaches its own hub, and every address below was the PLATFORM's: the
-# NATS leaf node dialled the platform's argocd-principal, the secret store read
-# the platform's Infisical, and the ACME issuer requested certificates in the
-# platform's zone with the platform's account. ADR-065 and ADR-066 make that a
+# secret store read the platform's Infisical, and the ACME issuer requested
+# certificates in the platform's zone with the platform's account. ADR-065 and
+# ADR-066 make that a
 # boundary violation rather than a misconfiguration -- a tenant's spoke must not
 # depend on the vendor at runtime.
 #
 # NOT the API groups. compute.nutgraf.in, tenantdatabases.nutgraf.in and
 # nutgraf.in/v1alpha1 identify the platform's CRDs, in the same sense as
 # cluster.x-k8s.io, and are the same on every box by design.
-
-- kind: ConfigMap
-  name: nats-config
-  # tls://argocd-principal.<zone>:7422 -- the leaf node's remote.
-  fields:
-    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
 
 - kind: ClusterSecretStore
   name: infisical-backend
@@ -122,6 +157,9 @@
     - path: [spec, acme, solvers, 0, selector, dnsZones]
       value:
         - '{{ .Values.global.hubDomain }}'
+        # ADR-108: the *.<previewDomain> wildcard is issued by DNS-01 too.
+        # Required: an empty zone would match every domain.
+        - '{{ required "global.previewDomain is required (ADR-108)" .Values.global.previewDomain }}'
 
 - kind: ClusterIssuer
   name: letsencrypt-staging
@@ -135,6 +173,9 @@
     - path: [spec, acme, solvers, 0, selector, dnsZones]
       value:
         - '{{ .Values.global.hubDomain }}'
+        # ADR-108: the *.<previewDomain> wildcard is issued by DNS-01 too.
+        # Required: an empty zone would match every domain.
+        - '{{ required "global.previewDomain is required (ADR-108)" .Values.global.previewDomain }}'
 
 - kind: Gateway
   name: tenant-gateway
@@ -143,3 +184,42 @@
   # workload route on the spoke is dead.
   fields:
     - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
+- kind: CiliumClusterwideNetworkPolicy
+  name: tenant-identity-endpoint-egress
+  # The identity endpoints a tenant workload may reach: its OWN hub's, not the
+  # platform's. This object named the hub by IP until 2026-09-24 and was absent
+  # from this list, so the published catalogue carried one box's address to
+  # every box -- which both failed to allow that box's hub and granted its
+  # tenants egress to a machine belonging to someone else.
+  fields:
+    - replaceAll: {from: dev.nutgraf.in, with: '{{ .Values.global.hubDomain }}'}
+
+# ADR-078 add.1 §7: Alloy stamps `cluster` and `tenant` on everything it sends.
+# Both are facts about this spoke and box and have to be substituted: cluster
+# is the spoke's name (env[0], CELL_ID), tenant the box's (env[1], TENANT_ID).
+# Left at their literals every spoke would report the same values and the
+# labels would identify nothing -- the same defect the constant cluster="hub"
+# was on the hub.
+- kind: DaemonSet
+  name: grafana-alloy
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ .Values.spokeName }}'
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ .Values.global.tenantId }}'
+- kind: Deployment
+  name: grafana-alloy-cluster
+  fields:
+    - path: [spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ .Values.spokeName }}'
+    - path: [spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ .Values.global.tenantId }}'
+
+# ADR-078 add.3 §2: the cluster agent's transit buffer. A hybrid box's workers
+# are on-prem and a Hetzner volume attaches only to a Hetzner server.
+- kind: PersistentVolumeClaim
+  name: grafana-alloy-cluster-data
+  fields:
+    - path: [spec, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

@@ -3,6 +3,7 @@ package tenant
 import (
 	"bufio"
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -112,5 +113,50 @@ func TestHandoverNamesTheTailnetKeyOnlyWhereItIsRead(t *testing.T) {
 	}
 	if !(Secrets{ProviderToken: "a", GitopsToken: "b"}).CompleteFor("hetzner") {
 		t.Error("hetzner needs only two secrets")
+	}
+}
+
+// The credential an application build needs is set once, at the ORGANISATION,
+// and never per application repository.
+//
+// This is the defect the arrangement exists to prevent, and it is not
+// hypothetical: waypoint's bff published a chart on every commit for months and
+// pinned a version not once, because its deploy job read a GITOPS_TOKEN that
+// nothing had set. `publish` was green every time, so the workflow looked
+// healthy while the thing it existed to do never happened.
+//
+// A repository-level secret cannot fix that, because `soloz tenant scaffold`
+// knows exactly one repository -- <tenant>-gitops -- and applications are
+// created, renamed and retired by the tenant long afterwards. The platform must
+// not track that set (it would fall behind, silently); it publishes one
+// credential the whole organisation inherits instead.
+func TestGitopsTokenIsPublishedToTheOrganisationNotPerRepository(t *testing.T) {
+	src, err := os.ReadFile("handover.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+
+	if !strings.Contains(s, `"--org", org, "--visibility", "all"`) {
+		t.Error("GITOPS_TOKEN must be set at the organisation with visibility all, " +
+			"so an application repository created after scaffolding inherits it")
+	}
+
+	// Not fatal. The box being scaffolded is complete without it; aborting here
+	// would destroy a working repository over a credential no cluster reads.
+	i := strings.Index(s, "func setOrgGitopsToken")
+	if i < 0 {
+		t.Fatal("setOrgGitopsToken is gone: the organisation-level publish is the mechanism")
+	}
+	body := s[i:]
+	if j := strings.Index(body, "\nfunc "); j > 0 {
+		body = body[:j]
+	}
+	if strings.Contains(body, "return fmt.Errorf") {
+		t.Error("a failure to set the organisation secret must be reported, not fatal: " +
+			"the cluster does not read this credential, a future application build does")
+	}
+	if !strings.Contains(body, "gh secret set GITOPS_TOKEN --org") {
+		t.Error("the failure path must print the one command that completes it by hand")
 	}
 }

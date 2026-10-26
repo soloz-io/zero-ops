@@ -13,8 +13,8 @@
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean           # tear the last run down
 #   scripts/dev/local-e2e.sh 0.1.16-rc.2 clean publish cli scaffold bootstrap
 #
-# Phases: clean  publish  cli  scaffold  bootstrap  verify
-#         (default: the last five. `clean` is opt-in: it destroys a running
+# Phases: clean  publish  cli  escrow  scaffold  bootstrap  workload  verify  adr
+#         (default: all but clean. `clean` is opt-in: it destroys a running
 #          cluster and deletes a GitHub repository, so it is never implied.)
 #
 # Credentials are read from k8-secrets/, one file per credential, never prompted
@@ -28,11 +28,73 @@ ROOT="$PWD"
 
 # ── What is being built ─────────────────────────────────────────────────────
 # Overridable from the environment; the defaults describe a throwaway dev box.
-TENANT="${TENANT:-acme}"
 GIT_ORG="${GIT_ORG:-soloz-io}"
-DOMAIN="${DOMAIN:-acme.example}"
-CLUSTER="${CLUSTER:-acme-hub}"
+# MANDATORY. No default, and `acme.example` is not one.
+#
+# It used to default to acme.example, which is an RFC 2606 reserved TLD: it
+# cannot resolve, for anyone, ever. A box scaffolded on it can never publish a
+# DNS record, never obtain a certificate, and fails the public-endpoint gate by
+# construction -- so the loop whose purpose is to exercise the whole path could
+# not complete, and the reason was a default nobody chose.
+#
+# Worse, the default was silent. DOMAIN is read ONLY by the scaffold phase, so
+# passing DOMAIN=example.org to a run without that phase set a variable that was
+# never used, while the box went on publishing the domain it was scaffolded with.
+# An input accepted and discarded is worse than one refused.
+# It is mandatory for EVERY phase, not just scaffold, because the box's identity
+# now derives from it -- see TENANT below. A phase that does not scaffold still
+# has to know which box it is talking about, and the domain is the only input
+# that says so.
+DOMAIN="${DOMAIN:-}"
+if [[ -z "$DOMAIN" ]]; then
+    echo "local-e2e: DOMAIN is required." >&2
+    echo "  It is the base domain the box publishes on, every public hostname derives" >&2
+    echo "  from it (ADR-051), and it names the box: the tenant and cluster are taken" >&2
+    echo "  from it. There is no default." >&2
+    echo "    DOMAIN=example.org ./scripts/dev/local-e2e.sh $*" >&2
+    exit 1
+fi
+case "$DOMAIN" in
+    *.example|*.test|*.invalid|*.localhost)
+        echo "local-e2e: DOMAIN=$DOMAIN is a reserved domain (RFC 2606) and cannot resolve." >&2
+        echo "  Use a domain whose zone you control, or the box cannot publish." >&2
+        exit 1 ;;
+esac
+
+# The tenant IS the domain. Derived, never given.
+#
+# TENANT and CLUSTER were two independent literals defaulting to acme and
+# acme-hub, and CLUSTER did not even derive from TENANT -- setting TENANT=foo
+# still produced acme-hub. So a run carrying DOMAIN=nutgraf.in scaffolded a box
+# that published on nutgraf.in while every path, repository and cluster name in
+# the run said acme. Three names for one box, agreeing only by coincidence, and
+# the logs showed .local-e2e/acme-gitops for a domain nobody had called acme.
+#
+# One input, one identity. A name that cannot disagree with the domain cannot
+# point a phase at the wrong box.
+TENANT="${DOMAIN%%.*}"
+if ! printf '%s' "$TENANT" | grep -Eq '^[a-z]([-a-z0-9]*[a-z0-9])?$'; then
+    echo "local-e2e: DOMAIN=$DOMAIN yields tenant '$TENANT', which is not a DNS label." >&2
+    echo "  The tenant names a repository and a cluster; it must be lowercase" >&2
+    echo "  alphanumeric with hyphens, starting with a letter." >&2
+    exit 1
+fi
+# Refused rather than ignored. An explicit TENANT that disagrees with the domain
+# is the exact split this removes, and silently overriding it would restore it.
+if [[ -n "${TENANT_OVERRIDE:-}" && "$TENANT_OVERRIDE" != "$TENANT" ]]; then
+    echo "local-e2e: TENANT_OVERRIDE=$TENANT_OVERRIDE disagrees with DOMAIN=$DOMAIN (tenant '$TENANT')." >&2
+    echo "  The tenant is derived from the domain. Change the domain." >&2
+    exit 1
+fi
+CLUSTER="$TENANT-hub"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
+# The DNS label this box sits under, declared rather than derived (ADR-051
+# amendment 2026-09-18). It defaults to ENVIRONMENT because that is what every
+# run has published on -- dev.nutgraf.in -- and a scaffold that quietly moved to
+# the apex would take every hostname, certificate and DNS record with it.
+#
+# Pass SUBDOMAIN= explicitly to publish on the apex.
+SUBDOMAIN="${SUBDOMAIN-$ENVIRONMENT}"
 PROVIDER="${PROVIDER:-hetzner}"
 REGION="${REGION:-hel1}"
 # The GHCR namespace. soloz-io rather than a personal one because visibility is a
@@ -58,12 +120,12 @@ phases=()
 for arg in "$@"; do
     case "$arg" in
         --dry|--skip-push) DRY=1 ;;
-        clean|publish|cli|scaffold|bootstrap|verify) phases+=("$arg") ;;
+        clean|publish|cli|escrow|scaffold|bootstrap|workload|verify|adr) phases+=("$arg") ;;
         -h|--help) usage 0 ;;
         *) echo "unknown argument: $arg" >&2; usage 1 ;;
     esac
 done
-[ ${#phases[@]} -gt 0 ] || phases=(publish cli scaffold bootstrap verify)
+[ ${#phases[@]} -gt 0 ] || phases=(publish cli escrow scaffold bootstrap workload verify adr)
 
 wants() { printf '%s\n' "${phases[@]}" | grep -qx "$1"; }
 say()   { printf '\n\033[1m[local-e2e] %s\033[0m\n' "$*"; }
@@ -103,12 +165,105 @@ load_credentials() {
     # produces an operator that attempts a backup every reconcile and fails.
     ESCROW_URL="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_URL" \
         "the escrow Infisical URL" "https://app.infisical.com")"
+    # Read AFTER the escrow phase has had its chance to create it, because that
+    # phase is what produces this file. Demanded up front it would refuse every
+    # first run of a new tenant -- the value does not exist until the project is
+    # created, and creating it is the point of the phase.
+    #
+    # Still required: load_credentials is called again below, and a run reaching
+    # scaffold without it stops there.
     ESCROW_PROJECT_ID="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_PROJECT_ID" \
-        "the escrow project id")"
+        "the escrow project id" "${ESCROW_PROJECT_ID_OPTIONAL:-}")"
     ESCROW_CLIENT_ID="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_ID" \
         "the escrow machine identity client id")"
     ESCROW_CLIENT_SECRET="$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
         "the escrow machine identity client secret")"
+
+    # The box's own Infisical administrator. Required: the defaults these replace
+    # were a personal email and the literal "Password@123", identical on every box.
+    INFISICAL_ADMIN_EMAIL="$(read_secret "$SECRETS/infisical/INFISICAL_ADMIN_EMAIL" \
+        "the Infisical administrator's email")"
+    INFISICAL_ADMIN_PASSWORD="$(read_secret "$SECRETS/infisical/INFISICAL_ADMIN_PASSWORD" \
+        "the Infisical administrator's password")"
+    # Exported, not passed as flags. fillFromEnvironment reads them by the same
+    # name scaffolding stores on the repository and Day-0 reads at bootstrap --
+    # one spelling for all three, which is what the credential registry is for.
+    export INFISICAL_ADMIN_EMAIL INFISICAL_ADMIN_PASSWORD
+
+    # Exported, under the names Day-0 reads.
+    #
+    # These four were collected for `tenant scaffold`, which takes them as FLAGS
+    # and satisfies RequireEscrow with them. Day-0 reads them from the
+    # ENVIRONMENT, and nothing put them there -- so every box built by this
+    # script passed the escrow gate during scaffolding and was then bootstrapped
+    # without one. It printed "no escrow configured" and carried on.
+    #
+    # The dispatch path never had the bug: scaffolding writes these as repository
+    # secrets and the workflow passes them to the bootstrap step as env. Only the
+    # local path collected them and dropped them, which is why the platform's own
+    # runs hid it.
+    export INFISICAL_ESCROW_URL="$ESCROW_URL"
+    export INFISICAL_ESCROW_PROJECT_ID="$ESCROW_PROJECT_ID"
+    export INFISICAL_ESCROW_CLIENT_ID="$ESCROW_CLIENT_ID"
+    export INFISICAL_ESCROW_CLIENT_SECRET="$ESCROW_CLIENT_SECRET"
+
+    # The tenant's registry credential (ADR-066: workloads are theirs).
+    #
+    # Mandatory, and it used to surface three seconds INTO bootstrap -- after the
+    # cloud cluster existed -- because nothing loaded it here. A credential the
+    # run cannot finish without belongs in this function, where a missing one
+    # stops the run before it spends a version or provisions anything.
+    #
+    # k8-secrets/ghcr/ if present. Otherwise the GitHub PAT already loaded above,
+    # which carries write:packages and therefore read, with the login taken from
+    # gh. That is a convenience for THIS loop only: a tenant supplies a token
+    # scoped to pulling their own images, and scaffolding collects it.
+    # Read directly: these two are OPTIONAL inputs with a fallback, and
+    # read_secret is for required ones -- it reports a missing file, which is
+    # exactly what an absent optional credential is not.
+    GHCR_USERNAME=""; GHCR_TOKEN=""
+    [ -r "$SECRETS/ghcr/username" ] && GHCR_USERNAME="$(tr -d '\r\n' < "$SECRETS/ghcr/username")"
+    [ -r "$SECRETS/ghcr/token" ]    && GHCR_TOKEN="$(tr -d '\r\n' < "$SECRETS/ghcr/token")"
+    if [ -z "$GHCR_USERNAME" ]; then
+        GHCR_USERNAME="$(env -u GITHUB_TOKEN -u GH_TOKEN gh api user --jq .login 2>/dev/null || true)"
+    fi
+    [ -n "$GHCR_TOKEN" ] || GHCR_TOKEN="$GITOPS_TOKEN"
+    if [ -z "$GHCR_USERNAME" ] || [ -z "$GHCR_TOKEN" ]; then
+        echo "local-e2e: no registry credential for pulling this tenant's private images." >&2
+        echo "  put a username and token under ${SECRETS}/ghcr/, or run: gh auth login" >&2
+        return 1
+    fi
+    export GHCR_USERNAME GHCR_TOKEN
+
+    # Destination credentials: where this box sends backups and telemetry.
+    #
+    # These are tierDestination, not tierCapability -- a box without them
+    # bootstraps and runs, it just has nowhere to put backups or metrics. That is
+    # the right behaviour and it is also why their absence is SILENT: the CLI
+    # reports it in one line among many and the run continues. Loading them here
+    # makes the run say up front what it will and will not configure, instead of
+    # leaving an operator to notice afterwards that this box has no backups.
+    #
+    # Exported rather than left to the CLI's own k8-secrets lookup. That lookup
+    # resolves against the platform checkout while Day-0 runs from the tenant's
+    # workspace, so it works by a path relationship rather than by anything this
+    # script states -- the same implicitness that let the registry credential go
+    # unnoticed until it failed mid-bootstrap.
+    local d
+    for d in "$SECRETS/s3:S3" "$SECRETS/grafana-cloud:GRAFANA_CLOUD"; do
+        local dir="${d%%:*}" prefix="${d##*:}" f key
+        if [ ! -d "$dir" ]; then
+            say "no ${dir}: this box will bootstrap without $( [ "$prefix" = S3 ] \
+                && echo "database backups" || echo "a telemetry destination" )"
+            continue
+        fi
+        for f in "$dir"/*; do
+            [ -f "$f" ] || continue
+            # access-key-id -> S3_ACCESS_KEY_ID, loki-url -> GRAFANA_CLOUD_LOKI_URL
+            key="${prefix}_$(basename "$f" | tr 'a-z-' 'A-Z_')"
+            export "$key=$(tr -d '\r\n' < "$f")"
+        done
+    done
 
     # Hybrid only. ADR-046 invariant 6 wants a tailnet IP on every node carrying
     # pod traffic; nothing reads this under any other provider.
@@ -116,86 +271,29 @@ load_credentials() {
     if [ "$PROVIDER" = "hybrid" ]; then
         TAILSCALE_AUTHKEY="$(read_secret "$SECRETS/tailscale/authkey" "a Tailscale auth key")"
     fi
+    # Exported, not only passed to scaffold.
+    #
+    # bootstrap runs from the TENANT CLONE, and readTailscaleAuthkey reads
+    # "k8-secrets/tailscale/authkey" relative to the working directory -- which is
+    # the clone, not this checkout. The key sits in $ROOT/k8-secrets, so the file
+    # lookup missed it, the control plane was staged with an EMPTY authkey, and
+    # the ClusterClass's `if [ -s /etc/tailscale-hostname ]` guard skipped
+    # `tailscale up` entirely. Both nodes came up Ready and pod traffic between
+    # them died in one direction (ADR-046 invariant 6); the visible symptom was
+    # cert-manager's webhook timing out from the API server.
+    #
+    # The env var is read before the file, so exporting it here makes the key
+    # reach bootstrap wherever it runs from.
+    [ -n "$TAILSCALE_AUTHKEY" ] && export TS_AUTHKEY="$TAILSCALE_AUTHKEY"
     export HCLOUD_TOKEN
 }
 
 # ── Toolchain ───────────────────────────────────────────────────────────────
 
-# Helm 3, specifically. kustomize's HelmChartInflationGenerator shells out to
-# `helm version -c`, which Helm 4 removed, so a Helm 4 toolchain fails every
-# component that inflates a chart from its kustomization -- headlamp and infisical
-# -- and the release workflow pins v3.16.4 for the same reason.
-#
-# Installed here if absent, into a private directory, and never onto PATH beyond
-# this process: a machine's `helm` is the operator's choice and this script has no
-# business changing it. HELM3=/path/to/helm skips the download entirely.
-
-# helm3_pin reads the version from the workflow rather than restating it, so the
-# toolchain this installs cannot drift from the runner's. A packaging difference
-# between a laptop and CI is exactly what this whole path exists to remove.
-helm3_pin() {
-    local v
-    v="$(sed -n '/azure\/setup-helm/,/version:/s/.*version: *//p' \
-         .github/workflows/publish-platform-charts.yml | head -1)"
-    printf '%s' "${v:-v3.16.4}"
-}
-
-is_helm3() { [ -x "$1" ] && "$1" version --short 2>/dev/null | grep -q '^v3\.'; }
-
-install_helm3() {
-    local ver dir os arch url tgz want got
-    ver="$(helm3_pin)"
-    dir="$HOME/.local/helm3"
-    case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;;
-        *) echo "local-e2e: no Helm 3 build for $(uname -s); install it yourself" >&2; return 1 ;; esac
-    case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;;
-        *) echo "local-e2e: no Helm 3 build for $(uname -m); install it yourself" >&2; return 1 ;; esac
-
-    url="https://get.helm.sh/helm-${ver}-${os}-${arch}.tar.gz"
-    say "installing Helm ${ver} (${os}-${arch}) into ${dir}"
-
-    tgz="$(mktemp -d)/helm.tar.gz"
-    curl -fsSL -o "$tgz" "$url" || {
-        echo "local-e2e: could not download ${url}" >&2; return 1; }
-
-    # Verified, because this is a binary fetched over the network and then run.
-    # The publisher's checksum is the only thing that makes that defensible.
-    want="$(curl -fsSL "${url}.sha256sum" | awk '{print $1}')"
-    got="$(shasum -a 256 "$tgz" | awk '{print $1}')"
-    if [ -z "$want" ] || [ "$want" != "$got" ]; then
-        echo "local-e2e: checksum mismatch for ${url}" >&2
-        echo "  published: ${want:-<none>}" >&2
-        echo "  received:  ${got}" >&2
-        rm -rf "$(dirname "$tgz")"
-        return 1
-    fi
-
-    mkdir -p "$dir"
-    tar -xz -C "$dir" --strip-components=1 -f "$tgz" "${os}-${arch}/helm"
-    rm -rf "$(dirname "$tgz")"
-    is_helm3 "$dir/helm" || {
-        echo "local-e2e: installed ${dir}/helm but it does not report v3" >&2; return 1; }
-    echo "Helm $("$dir/helm" version --short) ready"
-}
-
-require_helm3() {
-    if [ -n "${HELM3:-}" ]; then
-        is_helm3 "$HELM3" || { echo "local-e2e: HELM3=$HELM3 is not a Helm 3" >&2; return 1; }
-        PATH="$(cd "$(dirname "$HELM3")" && pwd):$PATH"; export PATH
-        return 0
-    fi
-    if command -v helm >/dev/null && helm version --short 2>/dev/null | grep -q '^v3\.'; then
-        return 0
-    fi
-    for c in "$HOME/.local/helm3/helm" /usr/local/opt/helm@3/bin/helm; do
-        if is_helm3 "$c"; then
-            PATH="$(dirname "$c"):$PATH"; export PATH
-            return 0
-        fi
-    done
-    install_helm3 || return 1
-    PATH="$HOME/.local/helm3:$PATH"; export PATH
-}
+# Helm 3, shared with publish.sh so the local loop and a release package
+# through the same toolchain.
+# shellcheck source=scripts/dev/helm3.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helm3.sh"
 
 require_ghcr_login() {
     local scopes
@@ -227,7 +325,48 @@ do_clean() {
     # The cloud cluster first: teardown needs the kubeconfig the clone holds, so
     # removing the clone before it would strand the servers with nothing left
     # that knows their names.
-    "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm 2>&1 | sed 's/^/  /' || true
+    # NOT `|| true`. The exit code was discarded, which threw away the one warning
+    # that says records were orphaned -- at the exact moment the evidence is being
+    # deleted, because the lines below remove the workspace and the kubeconfig with
+    # it. A teardown that could not reach the cluster cannot read the box's DNS
+    # ownership, and external-dns ignores a record whose owner does not match, so
+    # an orphan is permanent: no later box can claim it.
+    #
+    # Reported and continued rather than fatal: `clean` exists to get back to a
+    # buildable state, and a box that is already half-gone must not become
+    # unremovable. But it says so, loudly, while the zone can still be checked.
+    # --spoke is what this box DECLARES, and it is passed because the hub is the
+    # thing being destroyed. teardown asks the hub which spokes it owns, which is
+    # the right source right up until the hub is unreachable -- and then it
+    # returns nothing, the spoke servers go unclaimed, and they are left running
+    # and billing. That is the orphan that had to be deleted by hand after every
+    # run. The declaration answers the same question and survives the cluster.
+    local pool=""
+    pool=$(spoke_pool_for) || {
+        echo "local-e2e: cannot name the declared SpokePool; teardown will not be" >&2
+        echo "  able to reclaim spoke servers if the hub is already gone." >&2
+    }
+
+    # --tenant is the reliable one. --spoke reads the tenant repository, which the
+    # lines below delete and which never existed if scaffolding failed; the hub's
+    # own spoke list dies with the hub. TENANT is derived from DOMAIN and is
+    # present whatever state the box is in, and every cluster this box creates is
+    # named from it (ADR-082), so it matches the hub's servers and the spokes'
+    # alike. Without it, a run that provisioned a spoke and then failed left those
+    # servers running and billing.
+    if ! "$ROOT/bin/soloz" teardown --name "$CLUSTER" --force --confirm \
+             --tenant "$TENANT" \
+             --gitops-dir "$WORKSPACE/$repo" \
+             ${pool:+--spoke "$pool"} 2>&1 | sed 's/^/  /'; then
+        echo "local-e2e: teardown did not complete cleanly." >&2
+        echo "  Records this box published may be left in the zone. They cannot be" >&2
+        echo "  reclaimed by a later box -- check now, and release them with:" >&2
+        echo "    soloz teardown --name $CLUSTER --confirm --dns-only \\" >&2
+        echo "      --dns-owner <owner> --dns-zone <zone>" >&2
+        echo "  Spoke servers may also be left running. Check and remove with:" >&2
+        echo "    soloz teardown --name $CLUSTER --force --confirm --tenant $TENANT \\" >&2
+        echo "      --gitops-dir $WORKSPACE/$repo${pool:+ --spoke $pool}" >&2
+    fi
 
     # The ephemeral bootstrap cluster. Left behind, `kind create cluster`
     # short-circuits on the next run and writes no kubeconfig, and every kubectl
@@ -343,6 +482,43 @@ workspace_is_clear() {
     return 1
 }
 
+# The escrow project this tenant's boxes back up to.
+#
+# Before scaffold, because scaffold verifies the escrow and refuses a box whose
+# escrow does not work -- and the thing it verifies is what this creates.
+#
+# Idempotent by the id file, which is the record of what exists. An Infisical
+# project is not a box: it belongs to the tenant, outlives every cluster built
+# against it, and holds the master keys of any box still running. Creating a
+# second one per run would leave those keys reachable by nothing, which is why
+# `soloz escrow init` refuses an id that is already recorded. This skips instead,
+# the same way a completed bootstrap phase does.
+#
+# What stays manual is the Infisical ACCOUNT and its first machine identity. That
+# cannot be otherwise: the escrow account is the tenant's and the platform holds
+# no credential to it (ADR-076). It is one-time per tenant, not per box.
+do_escrow() {
+    local id_file="$SECRETS/infisical/INFISICAL_ESCROW_PROJECT_ID"
+
+    if [ -s "$id_file" ]; then
+        echo "[local-e2e] escrow project already recorded: $(cat "$id_file")"
+        return 0
+    fi
+
+    say "creating the escrow project for $TENANT"
+    "$ROOT/bin/soloz" escrow init \
+        --url "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_URL" \
+                   "the escrow Infisical URL" "https://app.infisical.com")" \
+        --client-id "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_ID" \
+                         "the escrow machine identity client id")" \
+        --client-secret "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_CLIENT_SECRET" \
+                             "the escrow machine identity client secret")" \
+        --name "soloz-escrow-$TENANT" \
+        --owner-email "$(read_secret "$SECRETS/infisical/INFISICAL_ESCROW_OWNER_EMAIL" \
+                           "the Infisical account that should own the escrow project")" \
+        --out "$SECRETS/infisical"
+}
+
 do_scaffold() {
     local repo="$TENANT-gitops"
     mkdir -p "$WORKSPACE"
@@ -352,6 +528,7 @@ do_scaffold() {
     ( cd "$WORKSPACE" && "$ROOT/bin/soloz" tenant scaffold --local \
         --tenant "$TENANT" --org "$GIT_ORG" --domain "$DOMAIN" \
         --cluster "$CLUSTER" --environment "$ENVIRONMENT" --provider "$PROVIDER" \
+        --subdomain "$SUBDOMAIN" \
         --region "$REGION" \
         --bundle-version "$VERSION" \
         --bundle-registry "ghcr.io/$OWNER/charts" \
@@ -367,7 +544,7 @@ do_scaffold() {
     # `repoURL: https://github.com/...` with a `path:`; a released one renders the
     # OCI chart. Checked here rather than left to the eye, because the bootstrap
     # that follows takes twenty minutes to tell you the same thing.
-    local bundle="$WORKSPACE/$repo/clusters/$CLUSTER/bundle.yaml"
+    local bundle="$WORKSPACE/$repo/registry/clusters/$CLUSTER/bundle.yaml"
     if ! grep -q "ghcr.io/$OWNER/charts" "$bundle"; then
         echo "local-e2e: $bundle does not name the published registry." >&2
         echo "  this is the development shape, not the released one -- re-run the cli phase." >&2
@@ -380,6 +557,40 @@ do_scaffold() {
         return 1
     fi
     echo "bundle names oci://ghcr.io/$OWNER/charts at $VERSION"
+
+    # The workload cluster, declared by the box rather than shipped in the bundle.
+    #
+    # Scaffolding writes the MANAGEMENT cluster; a repository holds one of those
+    # and as many workload clusters as it declares, each hydrated from
+    # templates/workload-cluster (kubefirst's layout). The bundle used to ship a
+    # SpokePool whose name was a literal, so every box provisioned its workload
+    # cluster under the same name -- and the CNPG archive prefix derived from that
+    # name collided across boxes, which is why barman refused every WAL with
+    # "Expected empty archive" and no backup ever completed anywhere.
+    #
+    # Named from the cell, not the provider: CELL is the box's to choose and is
+    # what the fleet ApplicationSets select on (ADR-047).
+    local cell="${CELL:-$TENANT-01}"
+    say "declaring workload cluster $cell"
+    "$ROOT/bin/soloz" tenant add-cluster \
+        --gitops-dir "$WORKSPACE/$repo" \
+        --mgmt-cluster "$CLUSTER" --name "$cell" \
+        --provider "$PROVIDER" --region "$REGION" --environment "$ENVIRONMENT" \
+        --tenant "$TENANT" --bundle-version "$VERSION" \
+        --bundle-registry "ghcr.io/$OWNER/charts" \
+        --gitops-repo-url "https://github.com/$GIT_ORG/$repo" \
+        || return 1
+
+    ( cd "$WORKSPACE/$repo" \
+      && git add registry/clusters \
+      && git commit -q -m "feat: declare workload cluster $cell" \
+      && git push -q ) || {
+        echo "local-e2e: could not commit the workload cluster declaration." >&2
+        echo "  The management cluster reads it from git; an uncommitted claim" >&2
+        echo "  provisions nothing." >&2
+        return 1
+    }
+    echo "workload cluster $cell declared and pushed"
 }
 
 # The bundle names charts by version and ArgoCD pulls them itself. If they are not
@@ -429,9 +640,98 @@ do_bootstrap() {
     # From the clone, exactly as the tenant workflow does. Correct only because
     # the binary carries its platform content; a development build would resolve
     # manifests/ against this directory and find nothing.
-    ( cd "$WORKSPACE/$repo" && "$ROOT/bin/soloz" bootstrap \
-        --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \
-        --environment "$ENVIRONMENT" --gitops-dir . )
+    # --on-prem without a tailnet is refused by the CLI (ADR-046 invariant 6), so
+    # pass the name alongside the flag rather than leaving it for the operator to
+    # discover. TAILNET_NAME overrides; home-lab.env is where a developer's
+    # tailnet is already recorded, so it is read rather than restated here.
+    # The SpokePool this box declares. hub-bootstrap.sh refuses to continue
+    # without one -- main() error_exits immediately before step10_wait_spokepool
+    # -- and this was the only phase that never supplied it. The run therefore
+    # completed every step up to the spoke wait and then died on an unset
+    # variable, unless the caller happened to have SPOKEPOOL_NAME exported.
+    local pool; pool=$(spoke_pool_for)
+
+    local on_prem_flag=""
+    if [ "$PROVIDER" = "hybrid" ]; then
+        on_prem_flag="--on-prem"
+        local tailnet="${TAILNET_NAME:-}"
+        if [ -z "$tailnet" ] && [ -r "$ROOT/scripts/hybrid/home-lab.env" ]; then
+            tailnet=$(. "$ROOT/scripts/hybrid/home-lab.env" >/dev/null 2>&1; printf '%s' "${TAILNET_NAME:-}")
+        fi
+        [ -n "$tailnet" ] && on_prem_flag="$on_prem_flag --tailnet-name $tailnet"
+    fi
+    # hub-bootstrap.sh, not the CLI directly.
+    #
+    # The CLI builds the management cluster and stops there. The ten steps that
+    # decide whether the box is usable -- secrets present, Infisical reachable,
+    # ESO wired, the database provisioned, the workload cluster actually up --
+    # live in that script, with the state tracking and the error_exit gates that
+    # make a failure stop the run.
+    #
+    # Calling the CLI here skipped all of it. That is why on 2026-09-15 a
+    # workload cluster whose control plane never started sat Ready=False for
+    # sixteen hours behind a bootstrap that reported success: nothing was
+    # waiting on it, because the thing that waits was never invoked.
+    #
+    # The script runs the CLI itself, as its first step.
+    ( cd "$WORKSPACE/$repo" \
+      && ZERO_OPS_DIR="$WORKSPACE/$repo" SOLOZ_BINARY="$ROOT/bin/soloz" \
+         bash "$ROOT/scripts/hub-bootstrap.sh" \
+           --name "$CLUSTER" --provider "$PROVIDER" --region "$REGION" \
+           --environment "$ENVIRONMENT" --gitops-dir . \
+           --spoke "$pool" \
+           $on_prem_flag )
+}
+
+# The workload cluster alone, against a management cluster that already exists.
+#
+# Calls hub-bootstrap.sh's own step functions rather than reimplementing them:
+# the script is sourced, which loads the functions without running the ten-step
+# sequence, and the two workload gates are invoked directly. Those gates are
+# where a workload cluster that never came up is caught -- on 2026-09-15 one sat
+# Ready=False for sixteen hours because nothing invoked them.
+#
+# Separate from do_bootstrap because it is separately re-runnable: a workload
+# cluster that failed can be retried without rebuilding the management cluster,
+# which is thirty minutes and a fresh set of servers.
+do_workload() {
+    local repo="$TENANT-gitops"
+    local ws="$WORKSPACE/$repo"
+    local kc="$ws/k8-secrets/kubeconfig/$CLUSTER.kubeconfig"
+    [ -r "$kc" ] || {
+        echo "local-e2e: no kubeconfig at $kc; the management cluster must exist first" >&2
+        return 1
+    }
+
+    # Resolved the same way every other phase resolves it: from the manifests
+    # that declare it. This read the live cluster instead, which is a second
+    # answer to one question -- and the two could disagree, with `bootstrap`
+    # having provisioned the pool the manifests name while `workload` waited on
+    # whichever one the cluster happened to list first.
+    local pool; pool=$(spoke_pool_for)
+
+    say "workload cluster: $pool"
+    CLUSTER_NAME="$CLUSTER" \
+    PROVIDER="$PROVIDER" \
+    ENVIRONMENT="$ENVIRONMENT" \
+    SPOKEPOOL_NAME="$pool" \
+    ZERO_OPS_DIR="$ws" \
+    SOLOZ_BINARY="$ROOT/bin/soloz" \
+    bash -c '
+        source "'"$ROOT"'/scripts/hub-bootstrap.sh"
+        read_kubeconfig_from_state
+        export KUBECONFIG="$KUBECONFIG_PATH"
+        step10_wait_spokepool || exit 1
+        # WORKLOAD_SKIP_NODES=1 gates on the cluster without joining its nodes.
+        # The node gate is live state, not a one-shot fact (ADR-046 §24.2), so
+        # skipping it is a deliberate narrowing rather than a shortcut.
+        [ -n "${WORKLOAD_SKIP_NODES:-}" ] || step10e_spoke_home_worker "$SPOKEPOOL_NAME"
+        # The database gate follows the workers, never precedes them: it needs a
+        # schedulable node, and 10e is what provides one. Skipped along with the
+        # nodes under WORKLOAD_SKIP_NODES, since a cluster deliberately left
+        # without workers has nowhere to run a database either.
+        [ -n "${WORKLOAD_SKIP_NODES:-}" ] || step10f_spoke_database
+    '
 }
 
 # Bootstrap returning success means every phase completed, not that the platform
@@ -450,7 +750,117 @@ do_verify() {
     # The same command the tenant's workflow runs, not a local re-implementation.
     # A second implementation would be a second thing to keep true, and the whole
     # point of this loop is that local and CI take one path.
-    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-15m}"
+    "$ROOT/bin/soloz" verify --kubeconfig "$kc" --timeout "${VERIFY_DEADLINE:-45m}" || return 1
+
+    # Then the component checks, which converging does not cover.
+    #
+    # `soloz verify` watches ArgoCD Applications reach Synced+Healthy -- a statement
+    # about reconciliation, not about the platform working. external-dns crash-looped
+    # 108 times on an invalid --provider while its Application sat Synced, so no
+    # hostname for the box was ever published and every hub URL was unreachable,
+    # with nothing reporting it.
+    #
+    # post-bootstrap-validate.sh checks that per component. hub-bootstrap.sh ran it
+    # as a FATAL gate, for the reason stated in its own source: "swallowing this
+    # into a warning is how a bootstrap 'succeeds' while leaving a platform that
+    # does not work."
+    #
+    # Run from HERE and not from the CLI, deliberately. ADR-063 fails a release that
+    # references the platform's repository at runtime, and these scripts live in it,
+    # so a tenant's released `soloz bootstrap-mgmt` cannot call them (ADR-072 moved Day-0
+    # into the tenant's own repository). This script IS a platform checkout, so the
+    # check runs where it is runnable without putting a repository reference into
+    # the artefact. Carrying these checks to tenants is separate work: they would
+    # have to travel inside the binary, as manifests/ already do.
+    # Through validate-all.sh, not post-bootstrap-validate.sh directly. It runs
+    # the same validator; what it adds is the record -- .state/validation.json,
+    # one entry per phase with its status, counts and log. Without it a verify
+    # that passed and a verify that was never reached look identical afterwards,
+    # which is the question this loop exists to answer.
+    local validator="$ROOT/scripts/validate-all.sh"
+    [ -r "$validator" ] || {
+        echo "local-e2e: $validator is missing; component validation cannot run" >&2
+        return 1
+    }
+    say "validating the platform"
+    # ZERO_OPS_DIR is the WORKSPACE, not the platform checkout. The report and its
+    # logs belong beside the box's own state, with everything else Day-0 wrote
+    # about it -- writing them into the platform repository put one box's record
+    # in a tree shared by every run.
+    ZERO_OPS_DIR="$WORKSPACE/$repo" KUBECONFIG="$kc" \
+        ENVIRONMENT="$ENVIRONMENT" \
+        CLUSTER_NAME="$CLUSTER" \
+        SPOKEPOOL_NAME="$(spoke_pool_for)" \
+        bash "$validator" --only=platform
+}
+
+# The spoke this environment+provider provisions, mirroring the burstSpokePool
+# table in environment-manager values.yaml. Wrong here means the validator checks
+# a spoke this box never creates, and reports a failure that is not one.
+# The workload clusters THIS BOX declares, newline-separated.
+#
+# Read from the tenant's repository, which is the only place they exist. They
+# used to be read from manifests/spoke/spoke-pools/<env>/<provider> in the
+# platform tree -- a SpokePool claim with a literal name, packaged into the
+# published bundle, so every box that pulled it provisioned a workload cluster
+# under the same name and every identity derived from that name collided across
+# boxes.
+#
+# A repository holds one management cluster and as many workload clusters as it
+# declares, each at clusters/<name>/infrastructure/spokepool.yaml (kubefirst's
+# layout; `soloz tenant add-cluster` writes them). So this returns a LIST, and
+# callers that can only act on one say which.
+#
+# Unknown is an error rather than a guess. A name this script invents is one the
+# platform never created, and every check downstream of it fails against the
+# wrong object.
+workload_clusters() {
+    local repo="$WORKSPACE/$TENANT-gitops"
+    local names=""
+
+    if [ -d "$repo/registry/clusters" ]; then
+        names=$(yq eval 'select(.kind == "SpokePool") | .metadata.name' \
+                   "$repo"/registry/clusters/*/infrastructure/spokepool.yaml 2>/dev/null \
+                 | grep -vx 'null' || true)
+    fi
+
+    if [ -z "$names" ]; then
+        echo "local-e2e: $repo declares no workload cluster." >&2
+        echo "  A management cluster provisions the workload clusters its repository" >&2
+        echo "  declares, and this one declares none. Add one:" >&2
+        echo "    $ROOT/bin/soloz tenant add-cluster --gitops-dir $repo \\" >&2
+        echo "      --mgmt-cluster $CLUSTER --name <cell> --provider $PROVIDER \\" >&2
+        echo "      --environment $ENVIRONMENT --tenant $TENANT \\" >&2
+        echo "      --bundle-version $VERSION --gitops-repo-url <url>" >&2
+        return 1
+    fi
+    printf '%s\n' "$names"
+}
+
+# The first workload cluster, for the steps that can only address one.
+#
+# hub-bootstrap.sh takes a single --spoke and waits on it; teardown reclaims one
+# at a time. Naming the first is honest about that limit -- it is not a claim
+# that a box has only one.
+spoke_pool_for() {
+    workload_clusters | head -1
+}
+
+# The acceptance pass. `verify` answers "did this converge"; this answers "does
+# what each decision promised actually hold" -- which is a different question, and
+# the one a run exists to settle. A box can converge perfectly while the bundle
+# names an unpublished chart or a capability switched off is still running.
+do_adr() {
+    local repo="$TENANT-gitops"
+    local kc="$WORKSPACE/$repo/k8-secrets/kubeconfig/$CLUSTER.kubeconfig"
+    [ -r "$kc" ] || {
+        echo "local-e2e: no kubeconfig at $kc; bootstrap has not produced one" >&2
+        return 1
+    }
+    say "asserting ADR-062 through ADR-070 against $CLUSTER"
+    ( cd "$ROOT" && PATH="$ROOT/bin:$PATH" \
+        ./scripts/dev/adr-acceptance.sh "$VERSION" "$WORKSPACE/$repo" "$kc" \
+            "ghcr.io/$OWNER/charts" )
 }
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -472,7 +882,14 @@ fi
 # published rather than after -- a version spent on a run that could not finish is
 # a version that cannot be reused (ADR-063).
 if wants scaffold || wants bootstrap || wants clean; then
+    # The escrow project id is the one value a run may legitimately not have yet:
+    # the escrow phase creates it. Tolerated here so that phase can run, and
+    # demanded again after it, where its absence is a real failure.
+    if wants escrow; then
+        ESCROW_PROJECT_ID_OPTIONAL="pending"
+    fi
     load_credentials
+    unset ESCROW_PROJECT_ID_OPTIONAL
 fi
 
 # Every requested phase's preconditions, checked before the first one runs.
@@ -482,6 +899,39 @@ fi
 # had already pushed. ADR-063 consumes a version by publishing it, so that cost a
 # version -- twice -- for a leftover directory a one-second test would have found.
 preflight() {
+    # DOMAIN is present and resolvable by the time anything runs -- it is checked
+    # where it is read, because the box's identity derives from it. What is left
+    # for preflight is the question only a scaffolded box can answer: does this
+    # domain match the box the run is about to touch?
+    if ! wants scaffold; then
+        # Read from `domain`, not `hubDomain`. A box now records the zone and the
+        # label under it as two fields and the chart joins them (ADR-051 amendment
+        # 2026-09-18), so the composed value is no longer in values.yaml at all --
+        # this grep silently matched nothing, and a check that matches nothing
+        # passes, which is how the mismatch it exists to catch would return.
+        #
+        # `domain` is the right half to compare anyway: DOMAIN names the zone.
+        local declared=""
+        local box_values="$WORKSPACE/$TENANT-gitops/registry/clusters/$CLUSTER/values.yaml"
+        if [[ -r "$box_values" ]]; then
+            declared=$(grep -m1 '^domain:' "$box_values" 2>/dev/null | awk '{print $2}')
+            # A box scaffolded before the split records only the joined value.
+            [[ -z "$declared" ]] && declared=$(grep -m1 '^hubDomain:' "$box_values" 2>/dev/null | awk '{print $2}')
+        fi
+        # This cost a full bootstrap once: the box kept dev.acme.example while
+        # every command carried DOMAIN=<something else>, and nothing said so
+        # until the public-endpoint gate failed on eleven hostnames twenty
+        # minutes in.
+        if [[ -n "$declared" && "$declared" != *"$DOMAIN"* ]]; then
+            echo "local-e2e: DOMAIN=$DOMAIN does not match the box at $WORKSPACE/$TENANT-gitops." >&2
+            echo "  $CLUSTER publishes on $declared, fixed when it was scaffolded." >&2
+            echo "  A box's domain cannot be changed afterwards: every certificate and" >&2
+            echo "  DNS record derives from it." >&2
+            echo "  Pass the domain this box was built on, or rebuild: clean scaffold ..." >&2
+            return 1
+        fi
+    fi
+
     if wants publish; then
         require_helm3
         if [ -z "$DRY" ]; then
@@ -511,7 +961,7 @@ preflight() {
     # bootstrap arm and demanded a clone that the very same run was about to make.
     if wants scaffold; then
         wants clean || workspace_is_clear
-    elif wants bootstrap || wants verify; then
+    elif wants bootstrap || wants verify || wants adr; then
         [ -d "$WORKSPACE/$TENANT-gitops" ] || {
             echo "local-e2e: $WORKSPACE/$TENANT-gitops does not exist; run the scaffold phase first" >&2
             return 1
@@ -526,8 +976,14 @@ preflight() {
 
 preflight
 
-for p in clean publish cli scaffold bootstrap verify; do
+for p in clean publish cli escrow scaffold bootstrap workload verify adr; do
     wants "$p" && "do_$p"
+    # The escrow phase writes the project id that scaffold is about to use, so the
+    # credentials are re-read once it has run. Without this the run would carry
+    # the placeholder it was started with and hand a box an escrow id of "pending".
+    if [ "$p" = escrow ] && wants escrow && { wants scaffold || wants bootstrap; }; then
+        load_credentials
+    fi
 done
 
 say "done: $VERSION"
@@ -536,7 +992,7 @@ if wants bootstrap; then
 
 Tear down when finished:
 
-  $ROOT/bin/soloz teardown --name $CLUSTER --force --confirm
+  $ROOT/bin/soloz teardown --name $CLUSTER --force --confirm --tenant $TENANT --gitops-dir $WORKSPACE/$TENANT-gitops
   rm -rf $WORKSPACE/$TENANT-gitops
   gh repo delete $GIT_ORG/$TENANT-gitops --yes
 EOF

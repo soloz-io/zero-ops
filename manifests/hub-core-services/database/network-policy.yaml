@@ -9,7 +9,7 @@
 #
 # Authorised callers on port 5432:
 #   - platform-identity   (Zitadel)
-#   - platform-billing    (OpenMeter)
+#   - platform-billing    (kube-sbt)
 #   - platform-ops        (hub-operator, infisical setup jobs)
 #   - platform-data       (internal CNPG cluster communication)
 #   - platform-security   (Infisical)

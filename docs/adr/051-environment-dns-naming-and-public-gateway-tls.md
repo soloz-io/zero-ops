@@ -6,6 +6,186 @@
 
 ---
 
+---
+
+> **Amendment 2026-09-21 — Listener ownership is delegated; the Gateway is
+> infrastructure.**
+>
+> **A host port is claimed by exactly one Gateway.** A Cilium Gateway in
+> hostNetwork mode (ADR-046 §8) binds a real host port, so a second Gateway on
+> that port is a port conflict rather than a merge: the proxy keeps the first and
+> rejects the rest for the life of the cluster, reporting nothing that any
+> Kubernetes status surfaces. The spoke therefore carries one Gateway on :443 and
+> one on :80, and a purpose is never a Gateway of its own.
+>
+> **Listeners and certificates are owned by the consumer that declares them, in
+> its own object.** Each fleet, and each platform capability serving a public
+> hostname, owns one ListenerSet carrying its hostname and its certificate
+> reference, and attaches to the shared Gateway. The platform owns the Gateway,
+> the GatewayClass, the load balancer and `spec.allowedListeners`, which is the
+> policy admitting attachments — a Gateway admits none by default.
+>
+>     platform        Gateway, GatewayClass, load balancer, allowedListeners
+>     each fleet      ListenerSet: hostname, certificate, its routes
+>     observability   ListenerSet, on the same footing as a fleet
+>
+> This is the requirement rather than a refinement of it: several independent
+> consumers contribute listeners to one shared Gateway without sharing write
+> ownership of the Gateway object. Arrangements in which two owners write one
+> Gateway's `spec.listeners` do not satisfy it, because ArgoCD applies every
+> Application under a single field manager — two Applications editing that field
+> are not two ServerSideApply owners, and the later apply removes the earlier
+> owner's listeners while the Gateway continues to report itself programmed. The
+> number of fleets a spoke can serve publicly is the number of distinct writers
+> the model allows, which under delegation is unbounded.
+
+> **Amendment 2026-09-29 — the arrangement this refused was still in the code,
+> and it broke.**
+>
+> The paragraph above is correct and was written on 2026-09-21. It was never
+> implemented. `tenant-public-tls` went on rendering the shared Gateway once per
+> APPLICATION, each copy declaring only its own listener, under a comment
+> asserting the opposite of what this ADR says:
+>
+> > *"spec.listeners is x-kubernetes-list-type: map keyed on name, so under
+> > ServerSideApply each contributor's entries survive the other's apply."*
+>
+> With one public hostname on the box both stories predicted the same behaviour,
+> so nothing reconciled them. The second application exposed it on 2026-09-29:
+> the two Applications overwrote each other every reconcile and external-dns
+> followed, deleting and recreating BOTH hostnames on a ~60 second cycle. The
+> application that had been working for weeks was the one whose DNS flapped; the
+> new one merely failed to appear, which is how it was noticed.
+>
+> The delegated model this ADR describes — a ListenerSet per fleet — remains the
+> target and is NOT what shipped. It is unavailable: there is no ListenerSet CRD
+> on the spoke and the Gateway CRD serves v1/v1beta1, so it waits on ADR-085's
+> Gateway API 1.6 / Cilium 1.20 upgrade.
+>
+> **ADR-096 is the interim implementation of this requirement** with today's
+> machinery: one platform-owned Application renders the complete listener set for
+> the spoke from a generated aggregate, and no tenant Application touches the
+> Gateway at all. It satisfies "two owners must not write one Gateway's
+> spec.listeners" by having exactly one, and is written to be deleted when
+> ListenerSets arrive.
+>
+> The table rows below that name `tenant-public-tls` as the renderer of the
+> TLS gateway and its listeners are superseded accordingly: that chart now
+> renders the Certificate and the HTTPRoute only.
+>
+> It is also the Gateway API expression of what one ingress controller gives by
+> aggregating many Ingress objects by host, which is the arrangement kubefirst
+> uses: infrastructure shared, ownership not.
+>
+> **Routing authority is unchanged.** This ADR continues to assign the hostname
+> route to the platform, and a tenant still cannot author a route reaching its
+> own backends without traversing the authenticating gateway. What is delegated
+> is listener and certificate ownership.
+>
+> **No alternate listener-coownership mechanism is introduced.** ListenerSet is
+> normative. Where it is unavailable the capability is BLOCKED rather than
+> approximated: a spoke serves the public hostnames of one fleet, and that is
+> recorded as a limitation rather than engineered around.
+>
+> This is a prohibition because every approximation is cheaper than the upgrade
+> and worse than the absence. A second listen port with its own load balancer
+> makes a version gap permanent infrastructure. One Application rendering every
+> listener, or an operator assembling them, resolves the write conflict by
+> making one component know every fleet's hostname and certificate — which is
+> the ownership model this ADR exists to prevent, reintroduced under another
+> name. Manipulating field managers so several Applications may write one
+> object treats the symptom and leaves the resource model wrong. None is a step
+> toward ListenerSet; each is work it deletes, and each would be load-bearing
+> before it could be removed.
+>
+> **Prerequisite.** ListenerSet requires Cilium 1.20 with Gateway API 1.6 and
+> the ListenerSet type delivered ahead of the operator; ADR-085 carries that
+> upgrade as a platform compatibility project, with ADR-046's networking
+> invariants regression-tested at each hop. It is not carried inside a Gateway
+> change.
+>
+> Port exclusivity is enforced by
+> `TestOneGatewayPerHostPortInTheSpokeCatalog`, which reads every tree that
+> renders a Gateway onto a spoke, and by the live check in the ADR-046
+> validator.
+
+---
+
+> **Amendment 2026-09-18 — The subdomain is declared, not derived from the environment.**
+> One correction. It does not change a single published hostname; it changes what
+> decides them.
+>
+> **Environment is no longer a DNS input.** A box declares `domain` and an optional
+> `subdomain`, and every public hostname is `<service>.<subdomain>.<domain>` — or
+> `<service>.<domain>` when no subdomain is given. A box that sets `subdomain: dev`
+> on `nutgraf.in` publishes `argocd.dev.nutgraf.in`, exactly as it does today.
+>
+> **Why.** The decision above makes the environment a DNS zone, which is sound as a
+> naming scheme and had a consequence nobody chose: if the zone is derived from the
+> environment, the MANAGEMENT cluster must have an environment, because it has
+> hostnames. Every other environment-shaped thing followed from that — the box's
+> Infisical slug, nine packaged chart variants (three hub-environment, six
+> spoke-catalog), and a spoke inheriting its hub's environment rather than
+> declaring its own.
+>
+> Those nine variants encode two values: a domain prefix and an Infisical slug. The
+> dev and prod spoke-catalog overlays differ only in a comment. The hub-environment
+> overlays carry `environment:` and `domain:`, and the file records that
+> `spec.domain` and `spec.tls` "have NO Go consumers today — these values are
+> declarative only".
+>
+> **kubefirst is the reference (ADR-071), and it already separates these.** Its
+> management cluster has no environment and its platform hostnames carry none:
+> `argocd.<domain>`, `vault.<domain>`. It has an install-wide `SubdomainName`,
+> applied as `fmt.Sprintf("%s.%s", SubdomainName, DomainName)` — the same shape as
+> this platform's `dev.nutgraf.in`, reached without making the environment a
+> property of the cluster. Its workloads carry the environment as a name suffix,
+> `metaphor-development.<domain>`, never as a DNS level.
+>
+> **What this does not change.** The zone-per-install property that justified this
+> ADR's rejected alternative still holds: one wildcard certificate covers every
+> tenant under a subdomain, because the subdomain is still one zone. Production
+> remains unlabelled by declaring no subdomain. Spoke-terminated ingress is
+> untouched.
+>
+> **What it enables.** The management cluster becomes environment-neutral, so a
+> workload cluster can declare its own environment instead of inheriting the hub's
+> — which is what ADR-082 already assumes when it makes a workload cluster's name
+> the cellId.
+
+> **Amendment 2026-09-19 — A hostname that belongs to one cluster carries that
+> cluster's name.**
+> The rule above answers "which box", and every hostname it produces is unique
+> within a box. That was sufficient while only the hub published anything.
+>
+> **A per-cluster service publishes at `<service>.<cluster>.<subdomain>.<domain>`.**
+> The hub keeps `<service>.<subdomain>.<domain>` unchanged -- there is one
+> management cluster per box, so its name adds nothing. A workload cluster's own
+> endpoints take its name as a label: `victoriametrics.nutgraf-01.dev.nutgraf.in`.
+>
+> **Why now.** ADR-083 has every workload cluster publish a query endpoint for its
+> own telemetry store. Under the unamended rule, two spokes in one box both resolve
+> `victoriametrics.<subdomain>.<domain>` and external-dns races for one record --
+> with no error, because both are legitimate claims on the same name. The spoke
+> Gateway's wildcard is `*.<zone>` where zone is `global.hubDomain`
+> (`manifests/spoke/spoke-catalog/templated-fields.yaml:133-139`), so the ingress a
+> spoke already runs cannot express a per-cluster name at all.
+>
+> **This ADR already recorded the gap.** Its Consequences say "a tenant spanning
+> multiple spokes has no answer here." That was written about round-robin records
+> and health awareness; the naming half of it is closed here.
+>
+> **It is not a new convention.** The cluster's name is the cell id, chosen by the
+> tenant (ADR-082: "Every per-cluster identity derives from the cluster's name"),
+> and this is the fourth identity derived from it -- after the CNPG archive prefix
+> (ADR-014), the cell label (ADR-047) and the ArgoCD cluster secret. The rule stays
+> "derived, not authored": no individual hostname is declared, and the derivation
+> gains one segment for resources that belong to a cluster rather than to a box.
+>
+> **What does not change.** Every hub hostname, every tenant workload hostname
+> served by a spoke's `*.<zone>` wildcard, and the production-apex exception this
+> ADR already carries.
+
 ## Context
 
 Public hostnames have no naming convention and no single owner, and the placement of the

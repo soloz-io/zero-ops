@@ -1,56 +1,68 @@
-{{- if and .Values.deployXR (ne (((.Values.database | default dict).enabled) | toString) "false") }}
-{{- $databaseName := ((.Values.database | default dict).name) | default (printf "tenant-%s-db" .Values.tenantId) -}}
+{{- if and .Values.deployXR (ne ((.Values.database.enabled) | toString) "false") }}
+{{- /* One logical database per APP (ADR-088). Being siblings grants nothing:
+       two apps of one customer are as separated in their data as two apps of
+       different customers. Sharing takes a `sharedData` declaration naming
+       both sides. */ -}}
+{{- $databaseName := (.Values.database.name) | default (include "universal-tenant.databaseName" .) -}}
 {{- $poolerMaxConn := 25 -}}
 {{- $poolerMode := "transaction" -}}
 {{- if .Values.pooler -}}
   {{- $poolerMaxConn = .Values.pooler.maxConnections | default 25 -}}
   {{- $poolerMode = .Values.pooler.poolMode | default "transaction" -}}
 {{- end -}}
-{{- $dbSchema := "public" -}}
-{{- $jwtCacheSize := 10000 -}}
-{{- if .Values.postgrest -}}
-  {{- $dbSchema = .Values.postgrest.dbSchema | default "public" -}}
-  {{- $jwtCacheSize = .Values.postgrest.jwtCacheSize | default 10000 -}}
-{{- end -}}
 ---
 apiVersion: nutgraf.in/v1alpha1
 kind: AINativeSaaS
 metadata:
-  name: {{ .Values.tenantId }}
-  namespace: tenant-{{ .Values.tenantId }}
+  name: {{ include "universal-tenant.tenantId" . }}-{{ include "universal-tenant.appId" . }}
+  namespace: {{ include "universal-tenant.namespace" . }}
   labels:
-    tenant-id: {{ .Values.tenantId }}
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
     tier: {{ .Values.tier }}
     cell-id: {{ .Values.cellId }}
 spec:
-  tenantId: {{ .Values.tenantId }}
+  tenantId: {{ include "universal-tenant.tenantId" . }}
+  appId: {{ include "universal-tenant.appId" . }}
+  # Combined once, here, rather than at every Crossplane patch site that builds
+  # a name or a path from it. Sixty-five two-field combines would be
+  # sixty-five chances to produce a plausible wrong name instead of an error.
+  scopeId: {{ include "universal-tenant.tenantId" . }}-{{ include "universal-tenant.appId" . }}
   tier: {{ .Values.tier }}
   cellId: {{ .Values.cellId }}
 
   database:
     name: {{ $databaseName }}
 
+  # Composed once, here, for the same reason scopeId is (above): every consumer
+  # reads this field instead of rebuilding the name. See the helper for why '_'
+  # delimits and why the length is a correctness property rather than a limit.
+  dbRoleName: {{ include "universal-tenant.dbRoleName" . }}
+
+  # The role that OWNS this app's objects and runs its migrations (ADR-093).
+  # Separate from dbRoleName above because a table's owner is exempt from its own
+  # row-level security policies: while the application owned its tables, every
+  # policy the baseline ships was inert.
+  dbOwnerRoleName: {{ include "universal-tenant.dbOwnerRoleName" . }}
+
   pooler:
     maxConnections: {{ $poolerMaxConn }}
     poolMode: {{ $poolerMode }}
 
-  postgrest:
-    dbSchema: {{ $dbSchema }}
-    jwtCacheSize: {{ $jwtCacheSize }}
-
-  {{- if .Values.resourceQuota }}
+  {{- /* Unconditional: values.yaml supplies resourceQuota and all four of its
+         fields, so neither a guard nor a `| default` beside them could ever
+         fire. The XRD carries the same four defaults as the API contract. */}}
   resourceQuota:
-    cpu: {{ .Values.resourceQuota.cpu | default "1000m" }}
-    memory: {{ .Values.resourceQuota.memory | default "2Gi" }}
-    storage: {{ .Values.resourceQuota.storage | default "10Gi" }}
-    pods: {{ .Values.resourceQuota.pods | default "10" | quote }}
-  {{- end }}
+    cpu: {{ .Values.resourceQuota.cpu }}
+    memory: {{ .Values.resourceQuota.memory }}
+    storage: {{ .Values.resourceQuota.storage }}
+    pods: {{ .Values.resourceQuota.pods | quote }}
 
   {{- if .Values.ownerEmail }}
   ownerEmail: {{ .Values.ownerEmail }}
   {{- end }}
 
-  {{- if (.Values.gateway | default dict).enabled }}
+  {{- if .Values.gateway.enabled }}
   gateway:
     enabled: true
     {{- with .Values.gateway.hostnames }}
@@ -62,10 +74,30 @@ spec:
     {{- end }}
   {{- end }}
 
-  {{- with .Values.identity }}
+  # Unconditional, and read directly. The chart's own values.yaml supplies
+  # `identity.selfRegistration: false`, so `.Values.identity` exists after every
+  # merge -- a `with` guard around it can never skip, and a `| default false`
+  # beside a value that already has a default can never change the output. Both
+  # only masked the case where the map genuinely went missing, which would emit
+  # no identity at all and read as a tenant that asked for nothing rather than
+  # as a broken values composition.
+  #
+  # Three layers, each with one job: values.yaml is the packaging default, the
+  # XRD's `default: false` is the API contract, and the tenant's own repository
+  # is the only place an override is written.
   identity:
-    selfRegistration: {{ .selfRegistration | default false }}
-  {{- end }}
+    selfRegistration: {{ .Values.identity.selfRegistration }}
+    {{- with .Values.identity.backendDependencies }}
+    # Other applications OF THIS TENANT this one may call with a user's
+    # credential (ADR-094 Part 2). Passed through verbatim: the platform
+    # resolves each appId to that application's project at RUNTIME, because the
+    # project id is allocated by the issuer and is not knowable when this chart
+    # renders. The same reason OIDC_CLIENT_ID travels the credential path.
+    backendDependencies:
+      {{- range . }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
 
   {{- with .Values.cache }}
   cache:
@@ -90,7 +122,7 @@ spec:
     created with no callback and login fails at the authorization endpoint.
     A fleet declaring no clients passes nothing and receives none.
   */}}
-  {{- with (.Values.oauth | default dict).clients }}
+  {{- with .Values.oauth.clients }}
   oauth:
     clients:
     {{- range . }}

@@ -615,6 +615,38 @@ identities), or Infisical stops being a single point of failure. Either would re
 one of the two forces holding the ceiling above 24h, and the workload default of
 24h should then extend to serving identities as well.
 
+## Addendum (2026-09-12): "platform" here means the tenant's platform
+
+This ADR predates ADR-065, and its vocabulary has not aged well. It was written
+when there was one fleet — one hub and its spokes — so "platform" and "tenant"
+named the same estate and the distinction never had to be made.
+
+Under ADR-065 each tenant runs its own box, its own Infisical, and therefore its
+own PKI. **Every occurrence of "platform" in this ADR means the tenant's
+platform.** In particular:
+
+- the **offline Root CA** is the tenant's, generated and held by them, and SOLOZ
+  is not in any tenant's trust chain and holds no issuing authority over it;
+- the **Fleet Intermediate CA** is one per box, not one across the estate, and
+  "fleet" means that box's hub and spokes;
+- **"sole issuing authority for all platform certificates"** is sole within one
+  box.
+
+This matters beyond wording. ADR-077 had to determine whether SOLOZ could
+validate a Support Agent's certificate by chaining to a root it already held. It
+cannot: it holds nothing, which is why enrolment there registers the tenant's CA
+explicitly. A reader who took "platform trust anchor" to mean SOLOZ's would have
+designed a support channel that silently depended on the platform being inside
+every tenant's trust chain — the opposite of what ADR-065 and ADR-076 promise.
+
+The blast-radius arithmetic follows the same correction: compromise of a Fleet
+Intermediate CA is fleet-wide **within one tenant**, not across the estate, which
+is what makes the central-signing concentration ADR-032's amendment flags
+tolerable rather than systemic.
+
+No decision in this ADR changes. What changes is that a reader after ADR-065 can
+tell whose PKI it is describing.
+
 ## References
 
 - ADR-015: Namespace Alignment

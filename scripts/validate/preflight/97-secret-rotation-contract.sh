@@ -17,7 +17,11 @@
 validate_secret_rotation_contract() {
     section "Secret rotation contract (ADR-030 #1, #3)"
 
-    local out
+    # rc is captured because an EMPTY result and a CRASHED checker are the same
+    # string. This check read `-z "$out"` as "no violations" and passed while
+    # python was exiting non-zero on every run, printing a traceback to stderr
+    # that no caller reads. A checker that cannot run has not found nothing.
+    local out rc=0
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
 import glob, yaml
 
@@ -28,6 +32,11 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
     except Exception:
         continue
     for d in docs:
+        # templated-fields.yaml and friends are top-level LISTS, not resources.
+        # Calling .get() on one raised AttributeError, python exited non-zero,
+        # and the empty stdout that produced was read below as "no violations".
+        if not isinstance(d, dict):
+            continue
         if d.get("kind") != "ExternalSecret":
             continue
         ri = d["spec"].get("refreshInterval")
@@ -60,6 +69,8 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
     except Exception:
         continue
     for d in docs:
+        if not isinstance(d, dict):
+            continue
         if d.get("kind") not in ("Deployment", "StatefulSet", "DaemonSet"):
             continue
         spec = (d.get("spec") or {}).get("template", {}).get("spec", {}) or {}
@@ -73,7 +84,11 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
                          "consumes rotating secret(s) %s with no rolling-update trigger"
                          % ",".join(sorted(rotating))]))
 PY
-)
+) || rc=$?
+    if (( rc != 0 )); then
+        hard_fail "the rotation checker exited ${rc} — it inspected nothing, and an empty result from a crashed checker is not a passing one"
+        return 1
+    fi
 
     if [[ -z "$out" ]]; then
         pass "every ExternalSecret reconciles, and every consumer rolls on rotation"

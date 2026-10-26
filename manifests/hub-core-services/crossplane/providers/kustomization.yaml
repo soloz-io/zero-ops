@@ -3,5 +3,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # Ahead of the packages: Crossplane defaults their runtimeConfigRef to a
+  # DeploymentRuntimeConfig named "default", and a package whose runtime
+  # config is missing fails to install.
+  - runtime-default.yaml
   - provider-kubernetes/provider.yaml
   - function/function.yaml

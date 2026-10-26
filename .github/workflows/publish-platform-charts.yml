@@ -180,6 +180,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ADR-069 makes the window a property of the version, so what the platform
+      # still owes is derivable from what each tenant runs. Derivable is not the
+      # same as derived: publishing a version changes the state of every OTHER
+      # version, and nobody re-evaluates them by hand. Printed into the run
+      # summary rather than gated, because a version ageing out is not a fault
+      # in the release being made -- it is the thing the promise says will
+      # happen, and the point is that someone can see it happening.
+      - name: Report the support state of every published version
+        if: github.event_name == 'release'
+        run: |
+          ./scripts/package/support-state.py | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Attach the CLI to the release
         if: github.event_name == 'release'
         run: gh release upload "${{ github.event.release.tag_name }}" dist/bin/* --clobber

@@ -1,0 +1,55 @@
+# ADR-078 add.3 §5: the pipeline reports its own failure, from where the data
+# lands. These rules are synced to the stack's ruler by THIS cluster's agent and
+# pinned to this cluster, so they keep evaluating in the stack when this cluster
+# goes silent -- which is the failure they exist to report.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-pipeline-health
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    component: alerting
+    app.kubernetes.io/managed-by: platform
+spec:
+  groups:
+    - name: platform.pipeline.health
+      interval: 1m
+      rules:
+        # Always firing. Its ABSENCE at a receiver means the alert path itself
+        # (ruler, Alertmanager, receiver) is broken -- which no other alert
+        # can report.
+        - alert: PlatformHeartbeat
+          expr: vector(1)
+          labels:
+            severity: none
+          annotations:
+            summary: "Heartbeat: this cluster's alert path is alive. Route it to a dead-man's-switch receiver."
+        - alert: ClusterTelemetrySilent
+          expr: absent_over_time(up{job="kubelet"}[10m])
+          labels:
+            severity: critical
+          annotations:
+            summary: "No telemetry from this cluster for 10 minutes: its agents, their credentials or its link to the stack have failed. An outage or a rate limit (429) is buffered on the cluster for up to 24h; a refused credential (401) is dropped, not buffered -- check the agents' logs first."
+        - alert: TelemetryDroppedUnsent
+          expr: sum(increase(prometheus_remote_storage_samples_dropped_total[15m])) + sum(increase(prometheus_remote_storage_samples_failed_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Metrics are being dropped or failing to send: the buffer is not draining to the stack."
+        - alert: LogsDroppedUnsent
+          expr: sum(increase(loki_write_dropped_entries_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Log entries are being dropped on their way to the stack."
+        - alert: TelemetryTargetDown
+          expr: up{job=~"kubelet|cadvisor|node-exporter|kube-state-metrics|cnpg"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} target {{ $labels.instance }} has been down for 10 minutes."

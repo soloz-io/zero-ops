@@ -23,6 +23,11 @@
 
 set -euo pipefail
 
+# A commit started from an editor or GUI gets a minimal PATH and would not
+# find these tools even when installed. See scripts/lib/tool-path.sh.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/tool-path.sh"
+
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 components_root="$repo_root/manifests/argocd/components"
 env_mgr="$repo_root/manifests/argocd/environment-manager"
@@ -79,6 +84,8 @@ helm template descriptor-check "$env_mgr" \
   --set provider=hybrid \
   --set instanceRepoURL=https://github.com/example-org/example-gitops \
   --set hubDomain=dev.example.test \
+  --set previewDomain=example-preview.test \
+  --set grafanaCloudStackUrl=https://example.grafana.net --set alerting.alertmanagerUrl=https://alertmanager.example.test --set alerting.alertmanagerId=1 --set 'alerting.emailTo[0]=alerts@example.test' \
   --set topology=single \
   --set publicTlsIssuer=letsencrypt-prod \
   --set oidcIssuer=https://auth.example.invalid \

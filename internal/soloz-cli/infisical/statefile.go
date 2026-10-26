@@ -10,14 +10,24 @@ import (
 const stateFileName = "infisical-bootstrap.json"
 
 func stateDir() string {
-	// Use the project-level .zero-ops directory (same as bootstrap-state.json).
+	// .state, the one place a box keeps what has been done to it. This was
+	// .zero-ops, which also held logs and a generated kind config, so a durable
+	// record sat among run artefacts and "delete the logs" could delete it.
 	cwd, err := os.Getwd()
 	if err != nil {
-		return ".zero-ops"
+		return ".state"
 	}
-	return filepath.Join(cwd, ".zero-ops")
+	return filepath.Join(cwd, ".state")
 }
 
+// stateFilePath is the one place this record lives.
+//
+// It briefly also read .zero-ops/, the directory this replaced, so a box
+// bootstrapped by an earlier build would still be found. That made the path
+// depend on what happened to exist on disk: nothing has written to .zero-ops
+// since the move, so a file still sitting there is stale by definition, and
+// preferring it silently reused Day-0 Infisical credentials the current box
+// never issued.
 func stateFilePath() string {
 	return filepath.Join(stateDir(), stateFileName)
 }

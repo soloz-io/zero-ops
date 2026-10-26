@@ -1,0 +1,57 @@
+# How long a published bundle version is maintained.
+#
+# ADR-069: "Every published bundle version is supported for a window declared
+# when it is published, expressed in versions, in time, or in both." That
+# sentence had nothing behind it -- no field, no gate, and no way to answer
+# "is what I am running still supported" for any tenant or for the platform.
+# This is the declaration; scripts/package/support-window.py turns it into the
+# dates a release states, and scripts/validate/release-discloses.sh refuses a
+# release that states none.
+#
+# The window is a property of the VERSION, not of the tenant. What any tenant is
+# entitled to is therefore derivable from what it runs, and no agreement is
+# negotiated per tenant -- which is the property that lets support be promised
+# at all by a platform with no per-tenant contract machinery.
+#
+# Both halves are stated because each fails alone. Time alone would strand a
+# tenant on a version six releases behind but still inside its window. Versions
+# alone would let a burst of releases expire a version a tenant adopted last
+# week. Whichever is LONGER governs, so neither can shorten the promise.
+
+policy_version: 1
+
+window:
+  supported:
+    # Within this many MINOR versions of the newest published version.
+    minors: 2
+    # And for at least this long from publication, whatever else is published.
+    days: 180
+    rule: whichever-is-longer
+    promise: >-
+      The full promise. The capability is available, current, recoverable and
+      correct as shipped, on every box running this version.
+
+  deprecated:
+    # After supported ends. The end date is announced, not discovered.
+    days: 90
+    promise: >-
+      Still maintained. Closed to nothing -- a tenant may adopt or stay. What
+      changes is that an end date now exists and has been stated.
+
+  unsupported:
+    promise: >-
+      Best effort, and no undertaking about outcome. Nothing stops running; the
+      cluster reconciles what it reconciled yesterday. What lapses is an
+      obligation, not a capability (ADR-069).
+
+  end_of_life:
+    promise: No undertaking at all.
+
+# ADR-069: "A security fix is proposed outside the cadence." There is no cadence
+# to be outside of -- the tenant's Renovate proposes every published version as
+# soon as it exists, and a security release is published as soon as it is ready
+# rather than held for a train. This is recorded so that introducing a schedule
+# later is visibly a change to this promise rather than a configuration tweak.
+security_fixes:
+  proposed: immediately-on-publication
+  held_for_a_train: false

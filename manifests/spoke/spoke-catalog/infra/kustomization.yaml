@@ -29,14 +29,34 @@ resources:
   - argo-rollouts/crd.yaml
   - argo-rollouts/controller.yaml
   - crossplane-admin-eso.yaml
+  # Ahead of every Provider and Function below: Crossplane defaults their
+  # runtimeConfigRef to a DeploymentRuntimeConfig named "default", and a
+  # package whose runtime config is missing fails to install.
+  - crossplane-runtime-default.yaml
   - crossplane-function-patch-and-transform.yaml
   - crossplane-providerconfig-sql.yaml
   - crossplane-provider-sql.yaml
   - crossplane-provider-kubernetes.yaml
   - cluster-secret-store.yaml
+  # ADR-030 #3: makes the catalogue's reload annotations act (Alloy config and
+  # credentials, external-dns, the query endpoint, tenant gateway OIDC secrets).
+  - reloader/controller.yaml
+  # ADR-078 add.2 §14 step 1: the cluster-state source of the collection floor.
+  - kube-state-metrics/controller.yaml
   - grafana-alloy.yaml
+  # The cluster's own observability backend (ADR-078 §1, ADR-083 decision 1).
+  # Ingress to the observability namespace is default-deny (ADR-078 add.1 §9).
+  - observability-network-policy.yaml
+  # ADR-078 add.3 §3: the rule format the cluster agent syncs to the stack.
+  - crds/prometheusrule-crd.yaml
+  # ADR-014 recovery contract made observable: every rule here fires on a
+  # condition CNPG itself reports as "Cluster in healthy state".
+  - platform-alerts/cnpg-backup-alerts.yaml
+  # ADR-078 add.3 §5: the pipeline's own failure, detected in the stack.
+  - platform-alerts/pipeline-health.yaml
+  # Generated: the kubernetes-mixin recording rules (ADR-078 add.3 §3).
+  - platform-alerts/kubernetes-mixin-rules.yaml
   - grafana-cloud-es.yaml
-  - nats-leaf-node.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml
   # ADR-035: Spoke-side cert-manager for certificate lifecycle management
@@ -65,17 +85,60 @@ resources:
   # CRS wrapper -> CAPI). It is intentionally NOT tracked here so ArgoCD never
   # prunes or empties the CRS-delivered object.
   - certificates.yaml
+  # ADR-077: one Support Agent per cluster, and this is the spoke's own. It
+  # reports about this spoke under this spoke's identity; a single hub-side
+  # collector reaching into every spoke is the coupling argocd-agent exists to
+  # remove, and it would need inbound access ADR-067 forbids.
+  #
+  # Inert until enrolled, like the hub's. This tree carries no capability
+  # toggle, so a spoke follows its hub: disabling support on the hub stops the
+  # catalogue being reconciled here in the first place.
+  - support-agent.yaml
   # ADR-047: agent-sandbox (Sandbox CRD + controller) for sandbox-capable fleets
   - agent-sandbox/crd.yaml
   - agent-sandbox/controller.yaml
   # ADR-047: platform-owned default-deny for sandbox pods
   - sandbox-network-policy.yaml
+  # ADR-106 §4: base posture for session peers (renderers)
+  - session-peer-network-policy.yaml
+  # ADR-107: the sandboxed RuntimeClass, its per-node installer and Cilium bypass
+  - sandbox-runtime
+  - sandbox-runtime-cilium.yaml
+  # ADR-021/ADR-047: the default-deny anchor for tenant workloads, and their
+  # egress to this box's identity endpoints. Provider-neutral since it stopped
+  # carrying the hub's address; it was under providers/hybrid/ for that reason
+  # alone, which left Hetzner tenants unenforced. See the file.
+  - tenant-identity-egress.yaml
+  # Cluster DNS for tenant workloads, granted by the platform rather than
+  # declared by each workload chart. Listed after the anchor above because it
+  # adds an allowance to the set that file places under enforcement.
+  - tenant-dns-egress.yaml
   # IPv4-only CoreDNS upstreams (spoke nodes have no working IPv6 default
   # route; AAAA-first resolution broke ESO/ExternalSecrets). See coredns.yaml.
   - coredns.yaml
+  # Pod DNS answered on the pod's own node (ADR-046 §34).
+  #
+  # kubeadm placed both CoreDNS replicas on the control plane while every tenant
+  # workload runs on a home worker, so every lookup crossed the Tailscale
+  # overlay: measured 48/50 from a tenant pod. The failures surface as the
+  # application's own error -- "fetch failed" from the BFF, EAI_AGAIN from a
+  # schema migration -- and never as a DNS fault.
+  #
+  # Distribution spreads the replicas; the cache is what removes the crossing.
+  # Both are required: under kube-proxy-replacement the cache is reachable only
+  # through the CiliumLocalRedirectPolicy the second file carries.
+  - coredns-distribution.yaml
+  - coredns-nodelocal.yaml
   # TenantDatabase XRD + composition (ADR-047): spoke-side Crossplane reconciles
   # TenantDatabase XRs pushed from the hub via provider-kubernetes remote pattern.
-  # Vendored copies of manifests/spoke/xrds + manifests/spoke/compositions.
+  #
+  # THESE ARE THE ONLY COPIES. They used to be described as vendored from
+  # manifests/spoke/compositions, and that stopped being true: this copy grew the
+  # cnpg-ca chain and db-user-admin-option, and moved the db-user role name from
+  # scopeId to appId, while the other copy stayed where it was and was deployed by
+  # nothing. Reading it to answer "what does the composition do" gave the wrong
+  # answer about which PostgreSQL role exists -- so it is deleted rather than
+  # resynced, and there is no second copy to drift.
   - tenant-db/xrd.yaml
   - tenant-db/composition.yaml
   # ADR-052 §7: the EphemeralJob controller. Deployed here, on the spoke,
@@ -87,6 +150,9 @@ resources:
   # of truth is the operator's own config/default and CI updates the image
   # digest there. Vendoring would fork it.
   - ../../../../operators/ephemeral-job-operator/config/default
+  # ADR-108: the preview-access service, its own component (needs cert-manager
+  # and Cilium, which this catalogue provides).
+  - ../../../../operators/ephemeral-job-operator/config/preview-access
 
 # ADR-047: single-node spokes run on the control-plane node, which carries the
 # control-plane taint. All platform workloads on the spoke must tolerate it.

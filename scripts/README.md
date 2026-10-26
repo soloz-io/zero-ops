@@ -45,7 +45,7 @@ waiting for ArgoCD to sync.
 
 # Override kubeconfig or spoke name
 KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
-  SPOKE_NAME=spoke-pool-eu-prod-01 \
+  WORKLOAD_CLUSTER=<your-workload-cluster> \
   ./scripts/validate-tenant-workloads.sh app-creator
 ```
 
@@ -54,12 +54,12 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KUBECONFIG` | `k8-secrets/kubeconfig/hub.kubeconfig` | Hub cluster kubeconfig |
-| `SPOKE_NAME` | `spoke-pool-eu-prod-01` | ArgoCD cluster name for the spoke |
+| `WORKLOAD_CLUSTER` | _(required)_ | ArgoCD cluster name of the workload cluster; the tenant chooses it (ADR-082), so there is no default |
 | `ARGOCD_NS` | `platform-ops` | Namespace where ArgoCD runs |
 
 **Exit codes:** `0` = all critical checks passed. `1` = one or more failures.
 
-**Log output:** Written to `.zero-ops/validate-tenant-workloads.log` (cleared on each run).
+**Log output:** Written to `.state/logs/validate-tenant-workloads.log` (cleared on each run).
 
 **Expected output (healthy tenant):**
 
@@ -98,19 +98,26 @@ KUBECONFIG=k8-secrets/kubeconfig/hub.kubeconfig \
 | AINativeSaaS XR not Ready | Crossplane composition error | `kubectl describe ainativesaas <tenant>` on hub |
 | AtlasMigration not Ready | Pooler secret not yet created | Wait for TenantDatabase XR to complete; check `{tenant}-pooler-app` secret |
 | Rollout not found | Workload ApplicationSet not synced | Check `{tenant}-workloads` ArgoCD app; verify `workloads.gitPath` in values.yaml |
-| Kyverno ClusterPolicy missing | `spoke-infrastructure` app not synced | Check `spoke-pool-eu-prod-01-infrastructure` ArgoCD app |
+| Kyverno ClusterPolicy missing | `spoke-infrastructure` app not synced | Check `<workload-cluster>-infrastructure` ArgoCD app |
 
 ---
 
 ### `post-bootstrap-validate.sh`
 
 Validates the full hub platform after initial bootstrap. Covers all platform
-namespaces, ArgoCD, Crossplane, ESO, Infisical, CNPG, ClickHouse, OpenMeter,
-Ory identity stack, NATS, hub-operator, kube-sbt, ingress, spoke pool,
+namespaces, ArgoCD, Crossplane, ESO, Infisical, CNPG, OpenMeter,
+Ory identity stack, hub-operator, kube-sbt, ingress, spoke pool,
 and observability.
 
+SPOKEPOOL_NAME names the SpokePool this box declares. There is no default: one
+used to exist (`spoke-pool-eu-prod-01`), so a run that omitted it validated a dev
+box against the production pool name and reported the spoke checks as failures of
+the box rather than of the invocation.
+
 ```bash
-./scripts/post-bootstrap-validate.sh
+SPOKEPOOL_NAME=<your-workload-cluster> ENVIRONMENT=dev \
+  KUBECONFIG=k8-secrets/kubeconfig/<cluster>.kubeconfig \
+  ./scripts/post-bootstrap-validate.sh
 ```
 
 ---

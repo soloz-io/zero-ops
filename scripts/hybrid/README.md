@@ -85,8 +85,76 @@ The same node list lives in the SpokePool claim annotation
 | `convert-to-external-switch.sh` | Convert a host from Internal+NetNat to an External switch (see below) |
 | `render-home-workers.sh` | Render the SpokePool `home-workers` JSON annotation |
 | `rejoin-tailnet.sh` | Re-join a node to the tailnet after its device was deleted (see below) |
+| `free-spoke.sh` | Host disk sweep + 24-hour log bound for every box (see below) |
 | `home-lab.env` | Node registry — gitignored, real values only |
 | `home-lab.env.example` | Template for `home-lab.env` |
+
+---
+
+## Keeping the disks from filling
+
+`free-spoke.sh` is the maintenance half of the 2026-09-25 and 2026-10-11 outages (the full
+causal chain is in the script's header): `C:\` on the Dell box reached 0 bytes
+free, Hyper-V paused both spoke VMs with a `Disk Full` notification, and kubelet
+raised no pressure event at all — it measures the guest's 60 GB disk, which was
+two thirds empty, and the host that backs it is not its metric. The host is
+nobody's metric.
+
+To stop this from recurring, four coordinated guards bound host and guest disk growth (ADR-046):
+
+1. **Guest Kubelet Bound (`kubelet-host-disk.conf`):** Every node receives
+   `/etc/kubernetes/kubelet.conf.d/50-host-disk.conf` (applied via `--config-dir`).
+   It configures early image garbage collection (`imageGCHighThresholdPercent: 50`,
+   `imageGCLowThresholdPercent: 40`) and aggressive hard eviction thresholds
+   (`nodefs.available: "40%"`, `imagefs.available: "40%"`, `nodefs.inodesFree: "5%"`,
+   `memory.available: "100Mi"`). This bounds guest disk usage to ~60% of virtual disk
+   size (~31 GB on a 60 GB spoke, ~52 GB on the 100 GB hub node).
+2. **Provisioner Headroom Guard:** `provision-flatcar-worker.sh` checks the host's
+   free space on `C:\` before copying/resizing the VHDX. It calculates the bounded
+   growth (60%) of this VM and all peer VMs; if projected headroom falls below a
+   20 GB reserve, provisioning aborts immediately with `HOST-DISK=FAIL`.
+3. **Maintenance Sweep (`free-spoke.sh`):** Applies the same kubelet disk bound to
+   existing nodes during Phase 1 (restarting kubelet if changed) before image pruning
+   and `fstrim`. In Phase 2, it compacts claimed VHDXes and vacuums caches.
+4. **Cluster Validation (`046-home-host-disk-headroom.sh`):** Continuously monitors
+   live Windows host `C:\` free space via SSH, hard-failing if any host drops below
+   20 GB free.
+
+```bash
+# Every couple of days. ~1 minute. No options.
+./scripts/hybrid/free-spoke.sh
+```
+
+Per host it deletes VHDX files that no VM on that host references — by any
+disk path `Get-VMHardDiskDrive` declares or any matching VM name, whatever
+state the VM is in (never `flatcar-base.vhdx`, the pristine image) — plus
+ignition artefacts of VMs that no longer exist on that box, and the Windows
+temp/update caches. Every deletion prints as a `DEL` line; every refusal as a
+`SKIP` line, so the run is auditable. Per guest that
+answers it writes the 24-hour log bound
+(`/etc/systemd/journald.conf.d/24h.conf` — `MaxRetentionSec=1day`,
+`SystemMaxUse=500M`, the same file new provisions get from Ignition), vacuums
+the journal to a day, removes rotated pod logs older than a day, prunes unused
+container images, applies the kubelet disk bound, and runs `fstrim`: without
+TRIM the blocks a guest frees never come back to the VHDX, so host free space
+would not move however much was deleted inside.
+
+The exit status is the point:
+
+| exit | meaning |
+|------|---------|
+| `0` | every reachable host ended above 20 GB free |
+| `1` | a host was unreachable, or one ended below 20 GB — run it again soon, or move data off |
+
+Spoken-node VHDXes grow ~2–3 GB/day per node (metrics PVC, CNPG data and
+container images — logs are the bounded share), so a two-day cadence spends
+about 6 GB against the ~47 GB the first run reclaims.
+
+Log retention is 24 hours wherever the platform stores logs: the VLogs
+`retentionPeriod` in `manifests/spoke/spoke-catalog/infra/victoriametrics/storage.yaml`
+and `manifests/hub-core-services/victoriametrics/storage.yaml` is `1d`, so
+platform pod logs older than a day are gone from Grafana by design. Metrics
+keep their 15 days.
 
 ---
 

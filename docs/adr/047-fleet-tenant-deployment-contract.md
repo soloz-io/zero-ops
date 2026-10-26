@@ -3,14 +3,29 @@
 **Date:** 2026-08-13
 **Status:** Accepted
 
-*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-073 (Workload Delivery is Version Pinning), ADR-074 (Withdrawing Atlas)*
+*Amended by: ADR-062 (Onboarding and Scaffolding a Tenant), ADR-073 (Workload Delivery is Version Pinning), ADR-074 (Withdrawing Atlas), ADR-088 (The Tenant and the Application Are Different Axes)*
 
-> `fleetId` is `tenantId` throughout (ADR-062). The rejection of fleets authoring
-> external workload repositories stands, but on new ground: ADR-073 replaces
-> cross-tenant containment with the argument that a published version already
-> identifies the content, and withdraws `workloads.gitRepo`, `gitPath` and
-> `gitRevision` from the fleet values schema. ADR-074 withdraws the `migrations`
-> block with them.
+> **Read `fleetId` below as the APPLICATION, and its resources as keyed on the
+> tenant AND the application together.** This ADR was written when one identifier
+> held both, and ADR-062 then restated that as "`fleetId` is `tenantId`" — a
+> collapse of two levels rather than a rename of one. This ADR's own definition
+> has a tenant ABOVE the fleet ("belonging to one tenant"), so the identifier
+> deleted the tenant and kept the product. ADR-088 separates them: `tenantId` is
+> the organisation whose box it is, `appId` is a product on it, and the pair is
+> combined once as `scopeId` = `<tenantId>-<appId>`, from which every namespace,
+> object name and secret path is built. The names in the body are updated to that
+> form.
+>
+> ADR-073 replaces cross-tenant containment with the argument that a published
+> version already identifies the content, and withdraws `workloads.gitRepo`,
+> `gitPath` and `gitRevision` from the fleet values schema. ADR-074 withdraws the
+> `migrations` block with them. The rejection of fleets authoring external
+> workload repositories stands, on that new ground.
+>
+> Everything else stands unchanged. The tier model, the rejection of fleets
+> authoring RBAC and ExternalSecrets, and the namespace as the primary isolation
+> boundary are statements about the product boundary, which is the level that
+> keeps them.
 
 ## Context
 
@@ -26,7 +41,7 @@
 
 ### Fleet Structure
 
-A fleet is a logical product/deployment boundary: the collective set of workloads and supporting resources belonging to one tenant, reconciled through the tenant's workload Application across its assigned spoke/environment. The tenant namespace is its primary Kubernetes isolation boundary; the platform's tenant provisioning ApplicationSets provide the reconciliation mechanism (see fleet-registry/README.md). For the current deployment model, a fleet is realized through three tenant lifecycle resources: `{fleetId}-xr`, `{fleetId}-spoke`, and `tenant-{fleetId}-workloads`.
+A fleet is a logical product/deployment boundary: the collective set of workloads and supporting resources belonging to one tenant, reconciled through the tenant's workload Application across its assigned spoke/environment. The tenant namespace is its primary Kubernetes isolation boundary; the platform's tenant provisioning ApplicationSets provide the reconciliation mechanism (see fleet-registry/README.md). For the current deployment model, a fleet is realized through three lifecycle resources named from `scopeId` (`<tenantId>-<appId>`) and the environment: `{scopeId}-{env}-xr`, `{scopeId}-{env}-spoke`, and one Application per workload, `tenant-{scopeId}-{env}-{workload}`. On the running platform those read `nutgraf-oranger-dev-xr`, `nutgraf-oranger-dev-spoke` and `tenant-nutgraf-oranger-dev-bff`.
 
 ### Tenant Provisioning ApplicationSets
 
@@ -37,14 +52,14 @@ The platform SHALL provide the tenant provisioning ApplicationSets required to r
 | Tier | Scope | Owns |
 |---|---|---|
 | Tier 1 | Platform / cluster | spoke catalog: CRDs, controllers, cluster RBAC, cluster-wide network policies |
-| Tier 2 | Platform / namespace | `{fleetId}-spoke` rendering platform-authored fleet RBAC and ExternalSecrets |
+| Tier 2 | Platform / namespace | `{scopeId}-{env}-spoke` rendering platform-authored RBAC and ExternalSecrets |
 | Tier 3 | Fleet / workload | `tenant-workloads`: Deployments, Rollouts, Jobs, Services, ConfigMaps, ServiceAccounts, Ingress, NetworkPolicies |
 
 The governing principle: **a fleet consumes platform capabilities but cannot author platform security or control-plane capabilities.** Consequently, `tenant-workloads` may not author Role, RoleBinding, ExternalSecret, Secret, PVC, StatefulSet, CRDs, or cluster-scoped resources. Fleet-created ServiceAccounts are permitted, but they cannot create or modify RBAC bindings; effective elevated permissions are exclusively granted through platform-owned RBAC.
 
 ### Secrets and Machine Identity
 
-ADR-031 is preserved: tenants remain denied ExternalSecret authoring. The platform renders ExternalSecrets through `{fleetId}-spoke` against the tenant secret store, and the Infisical machine identity remains platform-managed.
+ADR-031 is preserved: tenants remain denied ExternalSecret authoring. The platform renders ExternalSecrets through `{scopeId}-{env}-spoke` against the tenant secret store, and the Infisical machine identity remains platform-managed.
 
 ### Data Plane
 
@@ -120,7 +135,7 @@ This ADR defines architectural constraints and does not own platform resources. 
 ## Addendum (2026-08-23): no tenant identifiers in platform code
 
 This ADR and ADR-004 place tenant runtime state in fleet-registry and have the
-platform render tenant resources parameterised by fleet — `{fleetId}-spoke`, never a
+platform render tenant resources parameterised by the pair — `{scopeId}-{env}-spoke`, never a
 literal name. That direction was never stated as a rule the platform itself must
 obey, and the platform has drifted across it.
 
@@ -128,7 +143,7 @@ obey, and the platform has drifted across it.
 
 **A platform manifest or binary SHALL NOT contain a tenant or fleet identifier.**
 Tenant-specific OAuth clients, hostnames, secrets and ExternalSecrets are created
-during onboarding, from fleet-registry, keyed by `fleetId`. The platform provides
+during onboarding, from the tenant GitOps repository, keyed by `tenantId` and `appId`. The platform provides
 the capability; it does not know who consumes it.
 
 "Platform" here means `manifests/hub-core-services/`, `manifests/argocd/`,
@@ -168,15 +183,87 @@ exist at platform bootstrap, because the tenant does not exist yet.
 ### Enforcement
 
 `scripts/validate/preflight/99-tenant-identifiers.sh` fails when a tenant
-identifier appears in a platform path outside the recorded baseline. The nine files
-above are the baseline: they warn rather than fail, so the rule is enforceable
-today and the debt stays visible, while any NEW leak — a tenth file, or a second
-tenant hardcoded the same way — fails before a cluster is built.
+identifier appears in a platform path. It was introduced with the nine files above
+baselined — warning rather than failing, so the rule was enforceable while the debt
+stayed visible, and any NEW leak failed before a cluster was built.
+
+**The baseline is now empty.** Every one of the nine was remediated (the last two
+on 2026-09-02, when AgentGateway moved to one instance per tenant configured from
+the fleet registry), so the check is unconditional and a single leak fails the
+build. What that made necessary is below: with nothing forgiven by name, the check
+had to be right about what a leak *is*.
+
+#### What the check counts, revised 2026-10-04
+
+The baseline is empty and the rule is unconditional. Reaching that required saying
+precisely what a leak is, because for a time the check both missed the worst case
+and failed on its own remedy.
+
+**It now names the tenant.** The list was `["waypoint", "oranger"]` — two
+APPLICATIONS (ADR-088 keeps those axes separate) — so a check called "tenant
+identifiers" could not see a tenant. `nutgraf` is on it now. The rule covers both
+axes, for one reason: the platform renders each parameterised, and naming either
+makes platform code depend on something that exists only after onboarding.
+
+**A test fixture is not a runtime dependency.** `*_test.go` is excluded. The
+failure this rule exists to prevent is an object that cannot resolve on a fresh hub
+— `waypoint-bff-client-secret` waiting on a key no tenant has produced. A table
+test naming `oranger` resolves nothing, waits for nothing, and ships in no binary.
+Counting it blocked thirteen files from the application-identity work
+(ADR-094/095/097) for naming their own subject, which teaches people to switch the
+check off.
+
+**Generated output is not authored code.** `config/crd/bases/` and
+`config/webhook/manifests.yaml` are controller-gen's. The API group they derive
+from lives in `api/*/groupversion_info.go`, which IS checked; failing the generated
+copies reports one decision three times and sends someone to edit a file that the
+next `make manifests` overwrites.
+
+**A parameterised literal is not a leak, and this is the substantive change.** A
+component's `templated-fields.yaml` is how a manifest carrying this box's names
+renders another box's at package time. That file necessarily spells the literal it
+replaces, and the manifest beside it necessarily contains it, or there would be
+nothing to substitute. Counting either reported the remediation as the defect, and
+the only way to satisfy the check was to delete the substitution — which is the
+leak. A literal declared `from:` is now subtracted from the files that declaration
+governs, scoped by directory. The question the check asks is whether a name is
+PARAMETERISED, not whether it appears.
+
+**Prose in a block comment is documentation.** `strip_comments` was line-based, so
+the continuation lines of a `{{- /* ... */ -}}` block — which on this platform
+carry pages of incident history naming `nutgraf-01` and `nutgraf-hub` — were read
+as code. Block comments are now tracked across lines. Writing down why something
+is the way it is should not cost a build failure.
+
+### Open: the platform's API group names the tenant
+
+**`nutgraf.in` is the API group of every platform CRD** — `ops.nutgraf.in`,
+`billing.nutgraf.in`, `compute.nutgraf.in`, `spokepools.nutgraf.in`,
+`tenantdatabases.nutgraf.in` — and the DNS domain every environment is served on.
+It appears 345 times across 130 platform files.
+
+This is a real leak and a worse one than anything the check above catches. The
+platform ships to a customer's own box, so a SOLOZ platform installed for another
+customer serves CRDs named after *this* tenant. It is not cosmetic: a customer
+reading `kubectl get spokepools.nutgraf.in` is reading someone else's tenant name
+in their own cluster's API surface.
+
+It is **excluded from the check rather than fixed**, deliberately and recorded
+here. Renaming an API group rewrites every CRD, every RBAC rule, every manifest
+that references one, and every object already stored in etcd under the old group,
+with no in-place upgrade path — objects must be read out under the old group and
+written back under the new one while both are served. That is a migration with its
+own decision to make, and it needs an ADR of its own.
+
+Matching it instead would fail 130 files on a rule nobody could satisfy that day,
+and a check in that state gets switched off — which loses the rule entirely,
+including the parts that do hold. The deferral is the price of keeping the rest
+enforceable; it is not an endorsement.
 
 ### Remediation (not yet done)
 
 1. `RegisterClient` takes a client spec rather than compiled-in IDs and redirect URIs.
-2. `oauth2clients.yaml` moves to the tenant provisioning path, templated by `fleetId`.
+2. `oauth2clients.yaml` moves to the tenant provisioning path, templated by `tenantId` and `appId`.
 3. `waypoint-bff-client-secret-es.yaml` becomes a per-fleet ExternalSecret rendered
    at onboarding against the tenant secret store — the shape this ADR already
    specifies.

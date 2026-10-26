@@ -88,7 +88,10 @@ for pod in pods:
 # a wrong selector from a workload that is simply not running: if no pod
 # anywhere carries the key, there is nothing for this policy to govern yet.
 # (No double quotes in this comment - it lives inside a double-quoted python -c.)
-keys = [k.split(':')[-1] for k in want] + [e['key'].split(':')[-1] for e in exprs]
+# Only keys the selector REQUIRES count. A DoesNotExist/NotIn key is an
+# exclusion: a pod carrying it is one the policy correctly leaves out, not
+# evidence the selector is wrong (ADR-106 excludes sandboxes by such a key).
+keys = [k.split(':')[-1] for k in want] + [e['key'].split(':')[-1] for e in exprs if e.get('operator') in ('Exists', 'In')]
 present = 0
 for pod in pods:
     labels = pod['metadata'].get('labels') or {}

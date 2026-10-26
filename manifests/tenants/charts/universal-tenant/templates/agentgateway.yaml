@@ -1,5 +1,9 @@
 {{- if and (not .Values.deployXR) .Values.gateway.enabled }}
-{{- $t := .Values.tenantId }}
+{{- /* Every derived name below is per-APP, not per-tenant (ADR-088). A gateway,
+       an OAuth client and a set of backends belong to one product; two products
+       of one customer share none of them, and a name built from the tenant
+       alone would have collided the moment the customer ran a second app. */ -}}
+{{- $t := include "universal-tenant.appId" . }}
 {{- $hosts := .Values.gateway.hostnames }}
 {{- if not $hosts }}{{ fail "gateway.hostnames must list at least one hostname when gateway.enabled" }}{{ end }}
 {{- /* The browser-facing host is the first declared. The OAuth redirect must
@@ -11,17 +15,65 @@
        set it could point its login flow at an issuer the platform does not
        trust. */ -}}
 {{- $issuer := required "oidcIssuer must be supplied by the environment" .Values.oidcIssuer }}
+{{- /*
+  The applications this one may call (ADR-094 Part 2), and the issuer's host.
+
+  $deps decides whether this gateway MINTS a backend credential or forwards the
+  session's own token. It is read from the fleet's declaration, so the count and
+  the names come from git -- while each target's project id is allocated by the
+  issuer and arrives through the environment, one variable per declared target.
+  That split is deliberate: a gateway's scopes and audiences are YAML LISTS, and a
+  single space-joined variable expands into one entry containing spaces rather
+  than into several. Rendering one entry per declaration removes the need for
+  either side to parse what the other joined.
+
+  $issuerHost is the token endpoint's authority. The backend takes host:port, not
+  a URL, so the scheme is stripped here rather than in every reference.
+*/ -}}
+{{- $deps := (.Values.identity).backendDependencies | default list }}
+{{- /*
+  HARD FAIL on a dependency this chart cannot render, rather than rendering a
+  gateway that starts and cannot mint.
+
+  A dependency names a SIBLING APPLICATION of the same tenant (ADR-088). Two
+  spellings are refused here because each produces a variable name that no
+  ExternalSecret will ever satisfy, and the failure would otherwise arrive as
+  "environment variable not found" at gateway startup -- which names a variable
+  nobody wrote and no file contains.
+
+    - an entry naming THIS application: a self-dependency renders an audience
+      scope for a project the token already carries, and an allowed-caller entry
+      admitting this app to itself. It is meaningless rather than harmful, and
+      meaningless declarations are how a real one gets overlooked.
+    - an entry that is not a bare appId: a slash, dot or upper case means someone
+      wrote a hostname, a namespace or a project id where an application id
+      belongs. The key derived from it cannot exist.
+*/ -}}
+{{- range $deps }}
+{{- if eq . $t }}
+{{- fail (printf "identity.backendDependencies lists %q, which is this application itself. A dependency names another application of this tenant." .) }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .) }}
+{{- fail (printf "identity.backendDependencies entry %q is not an application id. It must be a bare appId such as \"waypoint\" -- not a hostname, namespace or project id." .) }}
+{{- end }}
+{{- end }}
+{{- $issuerHost := $issuer | trimPrefix "https://" | trimPrefix "http://" | trimSuffix "/" }}
 {{- /* Derived, not declared. A fleet that could name its own backends could
        route to another fleet's services; one that could name its own client id
        could claim another fleet's OAuth client. Both follow from the tenant
        identity by platform convention (ADR-053 for the client id). */ -}}
-{{- $ns := printf "tenant-%s" $t }}
+{{- $ns := include "universal-tenant.namespace" . }}
 {{- $bff := printf "bff-workload.%s.svc.cluster.local:3001" $ns }}
 {{- /* The SDK owns workflow hooks, so it owns the endpoint that resumes them
        (ADR-024). Derived like the others: a fleet able to name this backend
        could point an unauthenticated public path at a service of its choosing. */ -}}
 {{- $sdk := printf "sdk-workload.%s.svc.cluster.local:3000" $ns }}
 {{- $frontend := printf "frontend-workload.%s.svc.cluster.local:3000" $ns }}
+{{- /* Validated in _helpers.tpl; empty renders no bind, route or port. */ -}}
+{{- $publicAssets := include "universal-tenant.publicAssetPaths" . | fromJsonArray }}
+{{- $publicAssetDirs := include "universal-tenant.publicAssetDirectories" . | fromJsonArray }}
+{{- /* Validated in _helpers.tpl (ADR-103); empty renders no bind, route or port. */ -}}
+{{- $publicRoutes := include "universal-tenant.publicRoutes" . | fromJsonArray }}
 {{- /* Derived only as a FALLBACK name; the real value arrives at runtime.
 
        ADR-053 derived <tenantId>-public-client, which holds only while the
@@ -38,6 +90,10 @@
 {{- $clientId := printf "%s-public-client" $t }}
 {{- $redirect := printf "https://%s/oauth/callback" $host }}
 {{- $name := printf "agentgateway-%s" $t }}
+{{- $oidcEnabled := true }}
+{{- if and (hasKey (.Values.gateway | default dict) "oidc") (hasKey .Values.gateway.oidc "enabled") }}
+{{-   $oidcEnabled = eq (.Values.gateway.oidc.enabled | toString) "true" }}
+{{- end }}
 # This fleet's own AgentGateway instance (ADR-050 amendment 2026-08-31).
 #
 # One instance per tenant, not one per spoke. The shared instance required every
@@ -60,13 +116,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $name }}
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ $name }}-config
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 data:
   # nginx config for the callback shim below.
   #
@@ -83,7 +139,11 @@ data:
   # the gateway on this one path is the only place left.
   callback-shim.conf: |
     server {
-      listen 8080;
+      # default_server, explicitly. Header buffer sizes (below) are taken from
+      # the DEFAULT server of the port, and the image's own conf.d/default.conf
+      # also listens on 8080 without default_server. This server was the default
+      # only because callback-shim.conf sorts first -- an accident of file names.
+      listen 8080 default_server;
       server_name _;
 
       # Emit the redirect below exactly as written, relative.
@@ -95,6 +155,31 @@ data:
       # off the public hostname and the login would dead-end differently rather
       # than recover.
       absolute_redirect off;
+
+      # Room for the gateway's OIDC cookies, which arrive here on every callback.
+      #
+      # nginx's default is a single 8k buffer per header line, and the Cookie
+      # line outgrows it: the gateway sets one transaction cookie PER LOGIN
+      # ATTEMPT (agw_oidc_t_<policy>.<transactionId>, ~435 bytes, 5-minute
+      # Max-Age; agentgateway v1.5.0 http/oidc/session.rs:199, callback.rs:80),
+      # beside the session cookie. A single-page app whose session has lapsed
+      # sends every asset and API request to the login, minting one each, so ~15
+      # attempts in five minutes exceed 8k and the callback is refused with
+      # "400 Request Header Or Cookie Too Large" (2026-10-16) -- the login itself
+      # had succeeded. 32k per line holds ~70 attempts.
+      #
+      # The gateway this proxies to accepts it: agentgateway v1.5.0 sets no HTTP/1
+      # header-size limit on the proxy listener (proxy/gateway.rs:1733-1784; its
+      # max_buffer_size is for bodies), so hyper 1.11's default read buffer
+      # applies, 8192 + 4096*100 = 417,792 bytes (proto/h1/io.rs:23).
+      #
+      # The Cilium Gateway in front of both is now the ceiling: Cilium v1.17.18's
+      # Gateway API connection manager (operator/pkg/model/translation/
+      # envoy_http_connection_manager.go) sets no max_request_headers_kb, and
+      # nothing sets the runtime override, so Envoy's default applies: 60 KiB for
+      # ALL request headers, answered with 431 above it. 32k for the Cookie line
+      # stays inside that with room for the rest.
+      large_client_header_buffers 4 32k;
 
       # Proxy to the gateway on loopback: same pod, so this adds no network hop
       # and no service-discovery failure mode to the login path.
@@ -150,9 +235,93 @@ data:
         # deletes the earlier. Giving both the name "waypoint" is what deleted
         # this /api route: every API call fell through to the SPA backend, which
         # does not answer them, and returned 504 after a 60s timeout.
+{{- if (.Values.previewAccess | default dict).enabled }}
+        # ADR-108: preview handoff codes and preview state, behind this app's
+        # login like /api. The session credential is forwarded as-is so the
+        # service knows WHO is asking; WHICH app is asking it reads from this
+        # gateway pod's address.
+        - name: {{ $t }}-preview-access
+          backends:
+          - host: preview-access.platform-ops.svc.cluster.local:8080
+            policies:
+              backendAuth:
+                passthrough:
+                  location:
+                    header:
+                      name: authorization
+                      prefix: "Bearer "
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          - path:
+              pathPrefix: /_platform/preview-access/
+{{- end }}
         - name: {{ $t }}-api
           backends:
           - host: {{ $bff }}
+            policies:
+              # The BFF receives the session credential the gateway validated.
+              #
+              # CORRECTED 2026-09-30. This comment previously said the RFC 8693
+              # exchange "cannot work here", and that was wrong.
+              #
+              # It was reasoned from validateUnionTokenExchangeScopes, which is
+              # not the function an id-token subject reaches.
+              # validateImpersonationTokenExchangeScopes is, and it says so:
+              # "applies when the subject token cannot carry scopes (user_id,
+              # id_token)". It classifies scopes instead of demanding all of them
+              # be on an input token, and the tenant claim scope falls in the
+              # class checked against the client allowlist alone.
+              #
+              # So the exchange DOES serve a browser session, and the backendAuth
+              # below mints rather than forwards whenever this application
+              # declares a dependency.
+              #
+              # What was always true, and still is: the audience alone does not
+              # protect this BFF. Zitadel issues any project's audience to any
+              # client that asks, so a sibling application's token carries this
+              # project's audience by construction. The caller allowlist is what
+              # refuses it (ADR-094 invariant 2).
+              backendAuth:
+                # The session credential the gateway validated, forwarded as-is.
+                #
+                # NOT an RFC 8693 exchange. That was attempted and reverted on
+                # 2026-09-30 after it was run against the deployed issuer for the
+                # first time: Zitadel v4.15.3 validates exchange scopes with
+                #
+                #   !contains(subjectScopes, scope) || !contains(actorScopes, scope)
+                #
+                # -- the scope must be on BOTH input tokens. An id token subject
+                # carries no scopes, so every requested scope is refused:
+                #
+                #   {"error":"invalid_scope","error_description":"scope
+                #    \"urn:zitadel:iam:user:resourceowner\" not found in subject
+                #    or actor token"}
+                #
+                # and requesting none yields a token with no tenant claim, which
+                # the receiver refuses as tenant-less. Both doors are shut on this
+                # version. The union-based validation that would allow it is in NO
+                # RELEASED ZITADEL -- not v4.17.3, and there is no published v5
+                # image (registry returns 404 for v5.0.0).
+                #
+                # So user-context propagation across applications waits on the
+                # issuer. Service-to-service does NOT: client credentials needs no
+                # subject token and is therefore unaffected (ADR-097).
+                #
+                # What protects this BFF is not the token's KIND but the caller
+                # allowlist it enforces: `azp` names this gateway's client, and a
+                # sibling application's token -- which carries this project's
+                # audience by construction -- is refused there (ADR-094).
+                passthrough:
+                  # Explicit, though it is also the default. The BFF reads the
+                  # Authorization header and a silent change of location would
+                  # present as "the gateway authenticated nobody".
+                  location:
+                    header:
+                      name: authorization
+                      prefix: "Bearer "
           hostnames:
           {{- range $hosts }}
           - {{ . }}
@@ -164,18 +333,16 @@ data:
             transformations:
               request:
                 set:
-                  # Forward the ID token itself, not merely claims derived from
-                  # it. The BFF validates identity independently (ADR-050) and
-                  # refuses to derive it from the x-auth-* headers below, so
-                  # without this the gateway authenticates the user and the BFF
-                  # still sees nobody. .unredacted() is required: the value
-                  # renders as "<redacted>" otherwise, forwarding a well-formed
-                  # header carrying nothing.
-                  Authorization: '"Bearer " + jwt.rawToken.unredacted()'
+                  # Authorization is NOT set here any more. The backendAuth
+                  # policy above writes it, after the exchange, and a
+                  # transformation setting it would be overwritten or would
+                  # overwrite -- depending on phase, which is not a thing to
+                  # depend on.
+                  #
+                  # sub and email are registered OIDC claims: every issuer emits
+                  # them under these names, so the expressions resolve.
                   X-Auth-Subject: jwt.sub
                   X-Auth-Email: jwt.email
-                  X-Auth-Role: jwt.role
-                  X-Auth-Tenant: jwt.tenant_id
         - name: {{ $t }}-spa
           backends:
           - host: {{ $frontend }}
@@ -209,6 +376,7 @@ data:
     # and the request must still present an unguessable single-use token the SDK
     # minted for one specific run — 80 bits of CSPRNG entropy, claimed exactly
     # once. Nothing else on the SDK is reachable through it.
+{{- if .Values.gateway.webhooks.enabled }}
     - port: 3001
       listeners:
       - name: webhook
@@ -237,6 +405,121 @@ data:
           # stays unreachable from outside.
           - path:
               pathPrefix: /v1/webhooks/
+{{- end }}
+{{- if or $publicAssets $publicAssetDirs }}
+    # A THIRD bind, for the static files a browser fetches without the user's
+    # session: a web app manifest, its icons, a service worker. Behind the login
+    # they get a redirect to the identity provider instead, and the browser
+    # refuses to install the app.
+    #
+    # Declared per application (gateway.publicAssets.paths) and absent unless
+    # declared. The same construction as the callback bind above: a separate
+    # port with no OIDC, which the public HTTPRoute selects for exactly these
+    # paths (tenant-public-tls). A route cannot exempt itself on :3000, because
+    # the OIDC policy runs at gateway phase, before route selection.
+    #
+    # What bounds it, each by construction rather than by review:
+    #   - one backend, this app's frontend, derived here and never named in values;
+    #   - EXACT path matches only, so a file added to the frontend later is not
+    #     public until someone declares it;
+    #   - GET and HEAD only; any other method matches no route and is refused;
+    #   - the chart refuses the app shell, /api, /internal, /v1, /oauth and the
+    #     probes, so the setting can only ever expose static files.
+    # These are files every signed-in browser already downloads; they carry no
+    # user, tenant or session data. Nothing about any other path changes.
+    - port: 3003
+      listeners:
+      # Not "app": the OIDC policy below targets that listener by name, and this
+      # one must stay outside it.
+      - name: public-assets
+        routes:
+        - name: {{ $t }}-public-assets
+          backends:
+          - host: {{ $frontend }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          {{- range $publicAssets }}
+          {{- $path := . }}
+          {{- range list "GET" "HEAD" }}
+          - path:
+              exact: {{ $path | quote }}
+            method: {{ . }}
+          {{- end }}
+          {{- end }}
+          {{- /* Declared build directories (ADR-101 amendment 2026-10-12):
+                 every file beneath one, GET and HEAD, from the same frontend. */}}
+          {{- range $publicAssetDirs }}
+          {{- $dir := . }}
+          {{- range list "GET" "HEAD" }}
+          - path:
+              pathPrefix: {{ $dir | quote }}
+            method: {{ . }}
+          {{- end }}
+          {{- end }}
+{{- end }}
+{{- if $publicRoutes }}
+    # A FOURTH bind (ADR-103): login-free DYNAMIC routes to this app's BFF, for a
+    # page served to anyone holding an unguessable link -- a shared session at
+    # /share/<token>. publicAssets cannot express it: that is exact static paths
+    # to the frontend, and a share is one path per token, answered by the BFF.
+    #
+    # What bounds it, each by construction:
+    #   - one backend, this app's BFF, derived here and never named in values;
+    #   - each route is ONE declared prefix plus ONE fixed-shape token segment,
+    #     matched by a regex built in _helpers.tpl, never taken from values, so
+    #     /share/<token>/anything and /share/../api match nothing;
+    #   - GET and HEAD only;
+    #   - the visitor's Cookie and Authorization are stripped, and any Set-Cookie
+    #     from the BFF is dropped, so no session crosses this bind either way;
+    #   - noindex, no-referrer and private caching are set HERE, so a share page
+    #     cannot forget them and the token does not leak through a Referer;
+    #   - a token-bucket rate limit per route.
+    # The token is the only credential. The BFF must look it up and refuse any it
+    # did not mint; the gateway proves only that the path has the right shape.
+    - port: 3004
+      listeners:
+      # Not "app": the OIDC policy below targets that listener by name.
+      - name: public-routes
+        routes:
+        {{- range $publicRoutes }}
+        {{- $regex := .regex }}
+        - name: {{ $t }}-public{{ .prefix | replace "/" "-" }}
+          backends:
+          {{- /* answeredBy (ADR-103 amendment 2026-10-12): the app's BFF by
+                 default, or its frontend for a built page; derived here, never
+                 named in values. */}}
+          - host: {{ if eq .answeredBy "frontend" }}{{ $frontend }}{{ else }}{{ $bff }}{{ end }}
+          hostnames:
+          {{- range $hosts }}
+          - {{ . }}
+          {{- end }}
+          matches:
+          {{- range list "GET" "HEAD" }}
+          - path:
+              regex: {{ $regex | quote }}
+            method: {{ . }}
+          {{- end }}
+          policies:
+            localRateLimit:
+            - maxTokens: 60
+              tokensPerFill: 20
+              fillInterval: 1s
+              type: requests
+            transformations:
+              request:
+                remove: [cookie, authorization]
+              response:
+                remove: [set-cookie]
+                set:
+                  # CEL expressions, so string literals carry their own quotes.
+                  x-robots-tag: '"noindex, nofollow"'
+                  referrer-policy: '"no-referrer"'
+                  cache-control: '"private, no-store"'
+        {{- end }}
+{{- end }}
     # OIDC is attached to ONE LISTENER of the gateway, not to either route.
     #
     # The session cookie's name is derived from the identity of whatever the
@@ -252,6 +535,7 @@ data:
     # to attach it here rather than repeating it per route. Scoping the target to
     # a listener does not change that: the cookie is named for the POLICY, so the
     # SPA and the API still share one session.
+{{- if $oidcEnabled }}
     policies:
     - name:
         name: {{ $t }}-oidc
@@ -385,6 +669,7 @@ data:
           # list, and it is interpolated because the organisation is allocated at
           # provisioning time and cannot be known when this renders.
           - "urn:zitadel:iam:org:id:${OIDC_ORG_ID}"
+{{- end }}
 ---
 # The tenant's public base URL, published for its own workloads to consume.
 #
@@ -402,13 +687,35 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tenant-public-endpoint
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
   labels:
-    tenant-id: {{ $t }}
+    tenant-id: {{ include "universal-tenant.tenantId" $ }}
+    app-id: {{ include "universal-tenant.appId" $ }}
 data:
   # Scheme included: consumers paste this in front of a path, and the SDK's
   # callback guard rejects anything that is not http(s) and public.
   PUBLIC_BASE_URL: https://{{ $host }}
+  # The callback the platform REGISTERED for each confidential OAuth client this
+  # fleet declares, keyed by client name.
+  #
+  # Published for exactly the reason PUBLIC_BASE_URL and OIDC_ISSUER_URL are:
+  # the value is the platform's, the workload needs it, and a workload that
+  # types its own is a second copy free to disagree. It did -- waypoint's BFF
+  # carried https://api.waypoint.dev.nutgraf.in/... while the platform had
+  # registered https://waypoint.dev.nutgraf.in/... against the issuer. An issuer
+  # matches redirect URIs EXACTLY, so that is redirect_uri_mismatch at the
+  # authorization endpoint: a login that fails before any credential is entered,
+  # naming a hostname that appears in no manifest the operator would think to
+  # read.
+  #
+  # Composed here because an env var cannot be built from another env var, and
+  # the chart's only channel into a workload is this ConfigMap -- a workload
+  # Application is single-source and receives no Helm values (ADR-073).
+{{- range (.Values.oauth | default dict).clients }}
+{{- if and (eq .type "confidential") .redirectPaths }}
+  OAUTH_{{ .name | upper | replace "-" "_" }}_REDIRECT_URI: https://{{ $host }}{{ index .redirectPaths 0 }}
+{{- end }}
+{{- end }}
   # The issuer this fleet's workloads must validate tokens against — the SAME
   # value the gateway policy above authenticates with.
   #
@@ -456,7 +763,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: {{ $name }}-oidc-cookie-secret
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -489,7 +796,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: {{ $name }}-oidc-client
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 spec:
   # Shorter than the cookie secret's hour. This value appears for the first time
   # when a tenant is provisioned, and until it arrives the gateway cannot start —
@@ -511,12 +818,69 @@ spec:
     - secretKey: oidc-org-id
       remoteRef:
         key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_ORG_ID
+    # ── Backend credential minting (ADR-094 Part 2, ADR-095) ────────────────────
+    #
+    # UNCONDITIONAL. Every gateway mints; none forwards a session token onward.
+    # These keys are therefore required of every application, not only of one that
+    # declares a dependency, and an ExternalSecret that cannot resolve them fails
+    # as a whole -- which is the intended behaviour. A gateway that cannot mint
+    # must not start and quietly authenticate with something else.
+    #
+    # The platform writes all three for every application: the exchange client is
+    # appended to whatever the fleet declared (gatewayExchangeClient), so it
+    # exists whether or not the fleet asked for one.
+    - secretKey: oidc-project-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OIDC_PROJECT_ID
+    # The confidential client the exchange authenticates as, which is what stamps
+    # azp on the minted token (ADR-094 invariant 2a).
+    #
+    # The OAUTH_ key grammar, which is where every declared confidential client's
+    # credentials live. The exchange client is one -- the platform appends it to
+    # whatever the fleet declared -- so it is published by the same loop, under
+    # the same rule, and read here under the same name. There is no second key
+    # for it and no second publisher.
+    - secretKey: oidc-exchange-client-id
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OAUTH_{{ $t | upper | replace "-" "_" }}_GATEWAY_EXCHANGE_CLIENT_ID
+    - secretKey: oidc-exchange-client-secret
+      remoteRef:
+        key: /spoke-pool/{{ .Values.cellId }}/tenants/{{ $t }}/OAUTH_{{ $t | upper | replace "-" "_" }}_GATEWAY_EXCHANGE_CLIENT_SECRET
+{{- range $deps }}
+    # One pair per declared target: the scope requested at login, and the project
+    # id sent as the exchange's audience parameter. The COUNT comes from the
+    # fleet's declaration in git; each VALUE is allocated by the issuer.
+    - secretKey: oidc-backend-audience-scope-{{ . }}
+      remoteRef:
+        key: /spoke-pool/{{ $.Values.cellId }}/tenants/{{ $t }}/OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}
+    - secretKey: oidc-backend-project-id-{{ . }}
+      remoteRef:
+        key: /spoke-pool/{{ $.Values.cellId }}/tenants/{{ $t }}/OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
+  annotations:
+    # The gateway reads its OAuth client id and cookie secret at STARTUP, so a
+    # rotation reaches a running pod only if something restarts it. Both values
+    # are delivered by ExternalSecret and both can change without any
+    # deployment changing: the client id is re-published whenever the platform
+    # re-registers the client at the issuer.
+    #
+    # Without this the pod keeps presenting the value it started with, and the
+    # issuer answers `Errors.App.NotFound` for every login -- while the Secret
+    # holds the correct id, the ExternalSecret reports synced, and the pod is
+    # Ready. The failure is entirely in the gap between the two, so nothing in
+    # the cluster reports it. Observed on nutgraf-01: the identifier was
+    # corrected at the issuer and in the Secret, and the gateway went on
+    # presenting the old one.
+    #
+    # Targeted rather than reloader.stakater.com/auto, matching the hub's own
+    # agentgateway and every other consumer on this platform.
+    secret.reloader.stakater.com/reload: "{{ $name }}-oidc-client,{{ $name }}-oidc-cookie-secret"
   labels:
     app: {{ $name }}
     # Required by enforce-tenant-abi/require-cost-labels, which matches every
@@ -524,7 +888,8 @@ metadata:
     # platform-ops, outside that match, so moving it here brought it under rules
     # it had never had to meet. cost-center is the platform's because the
     # platform, not the fleet, decides this workload runs and how large it is.
-    tenant-id: {{ $t }}
+    tenant-id: {{ include "universal-tenant.tenantId" $ }}
+    app-id: {{ include "universal-tenant.appId" $ }}
     cost-center: platform
     workload-class: stateless-web
 spec:
@@ -539,12 +904,30 @@ spec:
     metadata:
       labels:
         app: {{ $name }}
+        # ADR-108: the preview-access service admits app-API calls from pods
+        # carrying this label only, and reads which application is calling
+        # from the pod's address -- never from anything in the request.
+        zero-ops.io/tenant-gateway: "true"
       annotations:
         # The configuration is rendered into the ConfigMap above, so a change to
         # this tenant's declarations must restart this pod. AgentGateway watches
         # its file and hot-reloads, but a ConfigMap update is not guaranteed to
         # land as a write it notices.
-        checksum/config: {{ printf "%s%s%s%s%s" (toString $hosts) $issuer $bff $sdk (.Files.Get "templates/agentgateway.yaml" | sha256sum) | sha256sum }}
+        #
+        # Hashed over the RENDERED ConfigMap, not over a list of the values that
+        # feed it. The list form named hosts, issuer, bff and sdk, and was
+        # therefore blind to every other input: adding the OIDC scopes Zitadel
+        # needs changed the ConfigMap, left this digest identical, and the
+        # gateway went on serving a 36-hour-old configuration from memory while
+        # ArgoCD reported the Application Synced and the ConfigMap plainly
+        # carried the new value. A hand-maintained list of inputs is wrong the
+        # moment an input is added, and wrong silently.
+        # .Values wholesale, not a list of the ones this template reads. Any
+        # value that can reach the rendered config is covered by construction,
+        # including one added later by someone who never sees this line. The
+        # cost is a restart when an unrelated value changes, which for a
+        # two-replica canary is cheaper than the failure it replaces.
+        checksum/config: {{ printf "%s%s" (toYaml .Values | sha256sum) (.Files.Get "templates/agentgateway.yaml" | sha256sum) | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
       # Pod-level, not only container-level. The tenant admission policy reads
@@ -563,7 +946,20 @@ spec:
         # Fixed here, not a value. A fleet able to set this would run an
         # arbitrary container inside its own namespace with the platform's
         # gateway identity.
-        image: cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29
+        # v1.5.0. A current stable release, kept rather than reverted.
+        #
+        # It was taken because `oauthTokenExchange` is absent from v1.4.1's LOCAL
+        # config schema. That exchange is no longer configured here -- the issuer
+        # cannot serve it (see backendAuth above) -- so the pin is no longer
+        # REQUIRED by anything in this file. It stays because moving backwards
+        # buys nothing, and because the service-to-service work (ADR-097) may use
+        # this surface.
+        #
+        # Pinned to the multi-arch INDEX digest, not to one platform's manifest.
+        # This box schedules onto both an on-prem worker and cloud nodes, and an
+        # arch-specific digest is a pod that runs on some nodes and reports
+        # ErrImagePull on others -- as a scheduling problem, not an image one.
+        image: cr.agentgateway.dev/agentgateway:v1.6.0@sha256:9d3e6044ddcdc0878b1787f77bd401252b95e22684203fb5e874c4c42d2ed90c
         args: ["-f", "/etc/agentgateway/config.yaml"]
         ports:
         - containerPort: 3000
@@ -590,6 +986,42 @@ spec:
             secretKeyRef:
               name: {{ $name }}-oidc-client
               key: oidc-org-id
+        # ── Backend credential minting ──────────────────────────────────────────
+        #
+        # No `optional: true` on any of these, deliberately. An optional secret key
+        # that is absent becomes an UNSET variable, and agentgateway's config is
+        # shell-expanded before it is parsed -- so the gateway would fail to start
+        # with "environment variable not found" naming the variable, or worse,
+        # expand to empty and authenticate the exchange as a nameless client. A
+        # required key fails at the Secret instead, which names the key and the
+        # ExternalSecret that should have produced it.
+        - name: OIDC_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-project-id
+        - name: OIDC_EXCHANGE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-exchange-client-id
+        - name: OIDC_EXCHANGE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-exchange-client-secret
+{{- range $deps }}
+        - name: OIDC_BACKEND_AUDIENCE_SCOPE_{{ . | upper | replace "-" "_" }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-backend-audience-scope-{{ . }}
+        - name: OIDC_BACKEND_PROJECT_ID_{{ . | upper | replace "-" "_" }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $name }}-oidc-client
+              key: oidc-backend-project-id-{{ . }}
+{{- end }}
         volumeMounts:
         - name: config
           mountPath: /etc/agentgateway
@@ -667,7 +1099,7 @@ apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
   name: {{ $name }}-from-platform-ops
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
 spec:
   from:
     - group: gateway.networking.k8s.io
@@ -682,10 +1114,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}
-  namespace: tenant-{{ $t }}
+  namespace: {{ include "universal-tenant.namespace" $ }}
   labels:
     app: {{ $name }}
-    tenant-id: {{ $t }}
+    tenant-id: {{ include "universal-tenant.tenantId" $ }}
+    app-id: {{ include "universal-tenant.appId" $ }}
 spec:
   selector:
     app: {{ $name }}
@@ -696,9 +1129,25 @@ spec:
   # The callback bind. Reachable only via the platform HTTPRoute rule that
   # selects this port for the callback prefix (tenant-public-tls); nothing else
   # routes to it.
+{{- if .Values.gateway.webhooks.enabled }}
   - name: webhook
     port: 3001
     targetPort: 3001
+{{- end }}
+{{- if $publicRoutes }}
+  # The public dynamic-route bind (ADR-103). Reachable only via the platform
+  # HTTPRoute rule that selects this port for the declared prefixes, GET/HEAD.
+  - name: public-routes
+    port: 3004
+    targetPort: 3004
+{{- end }}
+{{- if or $publicAssets $publicAssetDirs }}
+  # The public static-asset bind. Reachable only via the platform HTTPRoute rule
+  # that selects this port for the declared paths, GET/HEAD (tenant-public-tls).
+  - name: public-assets
+    port: 3003
+    targetPort: 3003
+{{- end }}
   # The callback shim. Only /oauth/callback is routed here.
   - name: callback
     port: 3002

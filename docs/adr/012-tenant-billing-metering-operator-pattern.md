@@ -4,6 +4,10 @@
 **Status:** Accepted  
 **Authors:** Platform Engineering Team  
 
+*Amended by: ADR-098 (Metering Sources over Spoke Egress and Records in Lago) — the
+catalog decision stands; the reconciler target and runtime backend move from
+OpenMeter to the Lago API, whose events store becomes the usage record.*
+
 ## Context
 
 The Zero-Ops platform requires a production-grade billing and metering system to support multi-tenant SaaS applications. The system must manage two distinct categories of data:

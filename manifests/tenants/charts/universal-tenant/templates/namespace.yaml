@@ -1,9 +1,10 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: tenant-{{ .Values.tenantId }}
+  name: {{ include "universal-tenant.namespace" . }}
   labels:
-    tenant-id: {{ .Values.tenantId }}
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
     tier: {{ .Values.tier }}
     # ADR-021 Blocker 4: Pod Security Admission enforced at namespace level.
     # The admission controller mathematically guarantees PSA compliance for all
@@ -21,4 +22,14 @@ metadata:
     # control: a fleet authors pods, so a pod label would be self-granted. It
     # does not author its namespace.
     compute.nutgraf.in/burst-compute: enabled
+{{- end }}
+{{- if (.Values.previewAccess | default dict).enabled }}
+{{- $origin := first (.Values.gateway.hostnames | default (list "")) }}
+{{- if not $origin }}
+{{- fail "previewAccess.enabled requires gateway.hostnames: the first hostname is the app origin previews are embedded in (ADR-108)" }}
+{{- end }}
+  annotations:
+    # ADR-108: the one origin the preview codes endpoint accepts, and the only
+    # one a preview refusal page posts its state to.
+    preview-access.zero-ops.io/app-origin: {{ printf "https://%s" $origin | quote }}
 {{- end }}

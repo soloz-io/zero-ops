@@ -243,13 +243,29 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 	var encryptionKey, authSecret string
 	var err error
 
+	// No escrow, no master keys.
+	//
+	// The escrow was optional here: a nil client skipped the restore, fell into
+	// the generate branch, skipped the backup below, and returned freshly minted
+	// ENCRYPTION_KEY and AUTH_SECRET that existed nowhere but inside the cluster
+	// they decrypt. Nothing reported it. These are the two values a box cannot
+	// regenerate -- losing them loses every secret the platform holds -- so
+	// generating them with nowhere to put a copy is refused rather than done
+	// quietly.
+	if escrowClient == nil {
+		return nil, fmt.Errorf("no escrow: the Infisical master keys cannot be " +
+			"generated without somewhere outside this cluster to keep them (ADR-076)")
+	}
+	if clusterID == "" {
+		return nil, fmt.Errorf("no cluster name: the master keys would be escrowed " +
+			"under a name nothing reads back")
+	}
+
 	// Try to restore from the escrow first
 	var backupData interface{}
-	if escrowClient != nil {
-		backupData, err = escrowClient.RestoreMasterKeys(ctx, clusterID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read the escrow: %w", err)
-		}
+	backupData, err = escrowClient.RestoreMasterKeys(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the escrow: %w", err)
 	}
 
 	if backupData != nil {
@@ -297,19 +313,17 @@ func GenerateInfisicalSecrets(ctx context.Context, securityNamespace, dataNamesp
 			return nil, fmt.Errorf("generated AUTH_SECRET failed validation: %w", err)
 		}
 
-		// Backup immediately if AWS client is available
-		if escrowClient != nil {
-			// Create backup data structure
-			backupKeys := map[string]interface{}{
-				"encryptionKey": encryptionKey,
-				"authSecret":    authSecret,
-				"createdAt":     time.Now().UTC(),
-				"clusterId":     clusterID,
-				"version":       "1",
-			}
-			if err := escrowClient.BackupMasterKeys(ctx, clusterID, backupKeys); err != nil {
-				return nil, fmt.Errorf("failed to backup master keys to AWS, cannot proceed: %w", err)
-			}
+		// Escrowed before they are returned, so a key this box will rely on is
+		// never handed back without a copy outside the cluster.
+		backupKeys := map[string]interface{}{
+			"encryptionKey": encryptionKey,
+			"authSecret":    authSecret,
+			"createdAt":     time.Now().UTC(),
+			"clusterId":     clusterID,
+			"version":       "1",
+		}
+		if err := escrowClient.BackupMasterKeys(ctx, clusterID, backupKeys); err != nil {
+			return nil, fmt.Errorf("escrow the master keys for %s: %w", clusterID, err)
 		}
 	} else {
 		// NOT first-time AND backup missing - CRITICAL ERROR

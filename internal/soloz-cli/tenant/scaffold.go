@@ -9,6 +9,7 @@
 package tenant
 
 import (
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"io/fs"
 	"sort"
@@ -39,6 +40,9 @@ type Spec struct {
 	Provider    string
 	Region      string
 	Environment string
+	// Subdomain is the DNS label every hostname on this box sits under, or empty
+	// for the apex. Declared, never derived: see hubDomain.
+	Subdomain string
 	// Workers is how many cloud workers this box starts with.
 	//
 	// A pointer so "not given" is distinguishable from "zero". Zero is a real
@@ -57,6 +61,15 @@ type Spec struct {
 	// resolve it at runtime (ADR-063); it is recorded so a tenant can find the
 	// source of what it runs.
 	PlatformRepoURL string
+	// PrivateRegistry says this tenant runs images the platform cannot pull
+	// anonymously, so a registry credential is part of what the box needs.
+	//
+	// Declared rather than inferred: a tenant running public images must never be
+	// asked for one, and the platform cannot tell from outside which they run.
+	// ADR-066 makes workloads the tenant's, and this is the one credential that
+	// is irreducibly theirs.
+	PrivateRegistry bool
+
 	// BundleRegistry is where published bundles are pulled from, without a
 	// scheme: ArgoCD pulls a scheme-less registry host as an OCI artefact and
 	// passes anything else to `helm pull --repo`, which does not speak OCI.
@@ -134,6 +147,68 @@ func (s Secrets) RequireEscrow() error {
 		"--escrow-client-secret, or answer the prompts.")
 }
 
+// VerifyEscrow proves the escrow works before a box is built on it.
+//
+// Separate from RequireEscrow because they answer different questions and have
+// different costs: presence is a property of the arguments and needs nothing,
+// usability is a property of someone else's account and needs a request. Callers
+// do both; only this one reaches the network.
+//
+// Presence was the whole check anywhere: four non-empty values, never exercised. An
+// Infisical project has a TYPE, and only a secret-manager project accepts what an
+// escrow does -- a kms project authenticates perfectly and refuses every read and
+// write. Nothing noticed until the hub-operator tried it, forty minutes into a
+// bootstrap, and the box stalled at boundary-04 waiting on database roles that
+// could not be created.
+//
+// The cost of accepting an unusable escrow is the same as accepting none, and
+// RequireEscrow already refuses none. Verifying costs one request and moves the
+// failure to the moment the value is given, which is the only moment it can be
+// corrected cheaply.
+func (s Secrets) VerifyEscrow() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// The env is what the escrow client reads, and what the box will be given.
+	for k, v := range map[string]string{
+		"INFISICAL_ESCROW_URL":           s.EscrowURL,
+		"INFISICAL_ESCROW_PROJECT_ID":    s.EscrowProjectID,
+		"INFISICAL_ESCROW_CLIENT_ID":     s.EscrowClientID,
+		"INFISICAL_ESCROW_CLIENT_SECRET": s.EscrowClientSecret,
+	} {
+		restore, err := setEnvFor(k, v)
+		if err != nil {
+			return err
+		}
+		defer restore()
+	}
+
+	// "" because there is no cluster yet to compare against; the same-Infisical
+	// refusal applies to a running box and cannot be evaluated here.
+	if _, err := escrow.NewEscrowClient(ctx, ""); err != nil {
+		return fmt.Errorf("the escrow this box would use does not work.\n\n%w\n\n"+
+			"Nothing is scaffolded on an escrow that cannot hold the master keys: the\n"+
+			"box behaves identically for months and the difference appears on the day\n"+
+			"the cluster is gone (ADR-076).", err)
+	}
+	return nil
+}
+
+// setEnvFor sets one variable and returns a function restoring what was there.
+func setEnvFor(key, value string) (func(), error) {
+	prev, had := os.LookupEnv(key)
+	if err := os.Setenv(key, value); err != nil {
+		return nil, fmt.Errorf("set %s: %w", key, err)
+	}
+	return func() {
+		if had {
+			_ = os.Setenv(key, prev)
+			return
+		}
+		_ = os.Unsetenv(key)
+	}, nil
+}
+
 // supportedMatrix is the environment/provider combinations the platform ships a
 // spoke-pool source for. It mirrors `supportedMatrix` in the environment-manager
 // chart's values.yaml, which is the authority.
@@ -143,8 +218,11 @@ func (s Secrets) RequireEscrow() error {
 // it must not have to render to answer a question about its own flags. The
 // duplication is asserted by TestScaffoldMatrixMatchesTheChart.
 var supportedMatrix = map[string][]string{
-	"dev":  {"hetzner", "hybrid"},
-	"stg":  {"hybrid"},
+	"dev": {"hetzner", "hybrid"},
+	// stg moved from hybrid to hetzner: hybrid is development-only. Staging
+	// rehearses production, and production is hetzner -- on hybrid it was
+	// rehearsing a tailnet-joined, node-local-storage topology no tenant runs.
+	"stg":  {"hetzner"},
 	"prod": {"hetzner"},
 }
 
@@ -205,16 +283,32 @@ func (s Spec) tenantTokens() map[string]string {
 		"<GIT_ORG>":           s.GitOrg,
 		"<GITOPS_REPO_URL>":   s.repoURL(),
 		"<PLATFORM_REPO_URL>": s.PlatformRepoURL,
-		"<BUNDLE_REGISTRY>":   s.BundleRegistry,
-		"<DOMAIN_NAME>":       s.Domain,
+		// The same repository as an owner/name slug, which is what `gh` takes.
+		// Derived rather than carried as a second field: two fields naming one
+		// repository is two things to keep in step, and a pre-flight workflow
+		// pointed at a different platform than the bundle it judges would fetch
+		// a CLI and release notes belonging to something else.
+		"<PLATFORM_REPO_SLUG>": platformRepoSlug(s.PlatformRepoURL),
+		"<BUNDLE_REGISTRY>":    s.BundleRegistry,
+		"<DOMAIN_NAME>":        s.Domain,
 	}
 }
+
+// RegistryDir is the directory a tenant's clusters and fleets live under.
+//
+// "registry", as in kubefirst, whose gitops repository holds registry/clusters/
+// and registry/environments/ beside a templates/ directory that renders into
+// them. ADR-071 names kubefirst as the reference this platform is measured
+// against, and a directory that means the same thing should be called the same
+// thing -- a reader who knows one should not have to learn the other's names to
+// find the same file.
+const RegistryDir = "registry"
 
 // clusterTokens are facts about ONE cluster, and are substituted only into the
 // instance being hydrated.
 //
 // The templates a tenant keeps must retain them. Substituting them everywhere
-// leaves templates/spoke-cluster hard-coded to the control plane that happened to
+// leaves templates/workload-cluster hard-coded to the control plane that happened to
 // be rendered first, so a tenant adding its second cluster gets a copy of its
 // first -- same name, same environment, same region. The template would still
 // look correct, and the collision would appear as two clusters fighting over one
@@ -223,13 +317,18 @@ func (s Spec) clusterTokens() map[string]string {
 	return map[string]string{
 		"<BUNDLE_VERSION>":    s.BundleVersion,
 		"<PUBLIC_TLS_ISSUER>": publicTLSIssuer(s.Environment),
-		"<HUB_DOMAIN>":        hubDomain(s.Environment, s.Domain),
-		"<CHART_SOURCE>":      s.chartSource(),
-		"<WORKER_COUNT>":      strconv.Itoa(s.workerCount()),
-		"<CLUSTER_NAME>":      s.ClusterName,
-		"<ENVIRONMENT>":       s.Environment,
-		"<CLOUD_PROVIDER>":    s.Provider,
-		"<CLOUD_REGION>":      s.Region,
+		"<HUB_DOMAIN>":        hubDomain(s.Subdomain, s.Domain),
+		// The parts as well as the join: the chart composes from these, and a
+		// person edits them rather than a pre-joined string (kubefirst stores
+		// DomainName and SubdomainName the same way).
+		"<DOMAIN>":         strings.TrimSpace(strings.TrimSuffix(s.Domain, ".")),
+		"<SUBDOMAIN>":      strings.TrimSpace(strings.Trim(s.Subdomain, ".")),
+		"<CHART_SOURCE>":   s.chartSource(),
+		"<WORKER_COUNT>":   strconv.Itoa(s.workerCount()),
+		"<CLUSTER_NAME>":   s.ClusterName,
+		"<ENVIRONMENT>":    s.Environment,
+		"<CLOUD_PROVIDER>": s.Provider,
+		"<CLOUD_REGION>":   s.Region,
 	}
 }
 
@@ -269,7 +368,7 @@ func (s Spec) CapacityWarning() string {
 			"capacity must come from nodes on your own premises.\n\n"+
 			"  Bootstrap it with on-prem nodes:  dispatch with on-prem=true and your tailnet\n"+
 			"  Or give it cloud workers instead: re-scaffold with --workers 2,\n"+
-			"                                    or edit workers in clusters/%s/values.yaml\n\n"+
+			"                                    or edit workers in registry/clusters/%s/values.yaml\n\n"+
 			"Without one of those the bootstrap is refused before anything is built.",
 		s.Environment, s.ClusterName)
 }
@@ -291,8 +390,35 @@ func (s Spec) chartSource() string {
       targetRevision: ` + s.developmentRevision() + `
       path: manifests/argocd/environment-manager
       helm:
+        # The generated values file does not exist until Day-0 writes it, and
+        # helm EXITS on a values file it cannot open -- so without this the seed
+        # Application cannot render at all and boundary 01 never appears. That
+        # is not a race that ordering fixes: the file is written by
+        # bootstrap-infisical-api, which runs after the boundaries it would
+        # unblock.
+        ignoreMissingValueFiles: true
         valueFiles:
-          - $values/clusters/` + s.ClusterName + `/values.yaml`
+          # Generated first, this cluster's own values second: Helm lets the
+          # later file win, so a fact Day-0 recorded never silently beats
+          # something the tenant wrote here deliberately.
+          #
+          # The generated file carries this box's Infisical PKI coordinates
+          # (ADR-045). Without them the security boundary emits no ClusterIssuer
+          # and every certificate naming infisical-fleet-issuer stays pending --
+          # the argocd-agent mTLS identities never issue, and
+          # the Support Agent can never enrol, because its client certificate IS
+          # its enrolment.
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
+          # The box's own Infisical organisation and projects. hub-environment
+          # renders hub-bootstrap-config from these, and is its only writer.
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
+          # The address every public hostname on this box resolves to -- the CAPH
+          # control-plane load balancer, which exists only once the cluster does.
+          # Day-0 records it here; the hub Gateway and its routes take their
+          # external-dns target from it. Without it external-dns finds no target,
+          # publishes nothing, and every hub hostname is NXDOMAIN.
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/values.yaml`
 	}
 	return `repoURL: ` + s.BundleRegistry + `
       chart: environment-manager
@@ -318,8 +444,35 @@ func (s Spec) chartSource() string {
           # promotion cannot move one and leave the other behind.
           - name: bundleVersion
             value: "` + s.BundleVersion + `"
+        # The generated values file does not exist until Day-0 writes it, and
+        # helm EXITS on a values file it cannot open -- so without this the seed
+        # Application cannot render at all and boundary 01 never appears. That
+        # is not a race that ordering fixes: the file is written by
+        # bootstrap-infisical-api, which runs after the boundaries it would
+        # unblock.
+        ignoreMissingValueFiles: true
         valueFiles:
-          - $values/clusters/` + s.ClusterName + `/values.yaml`
+          # Generated first, this cluster's own values second: Helm lets the
+          # later file win, so a fact Day-0 recorded never silently beats
+          # something the tenant wrote here deliberately.
+          #
+          # The generated file carries this box's Infisical PKI coordinates
+          # (ADR-045). Without them the security boundary emits no ClusterIssuer
+          # and every certificate naming infisical-fleet-issuer stays pending --
+          # the argocd-agent mTLS identities never issue, and
+          # the Support Agent can never enrol, because its client certificate IS
+          # its enrolment.
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/platform-pki-values.yaml
+          # The box's own Infisical organisation and projects. hub-environment
+          # renders hub-bootstrap-config from these, and is its only writer.
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/infisical-identity.yaml
+          # The address every public hostname on this box resolves to -- the CAPH
+          # control-plane load balancer, which exists only once the cluster does.
+          # Day-0 records it here; the hub Gateway and its routes take their
+          # external-dns target from it. Without it external-dns finds no target,
+          # publishes nothing, and every hub hostname is NXDOMAIN.
+          - $values/registry/clusters/` + s.ClusterName + `/generated/values/gateway-dns-target.yaml
+          - $values/registry/clusters/` + s.ClusterName + `/values.yaml`
 }
 
 // developmentRevision is the platform branch a development box reads.
@@ -372,12 +525,31 @@ func publicTLSIssuer(environment string) string {
 // tenant's gateway trusted the PLATFORM's Zitadel as its OIDC issuer and fetched
 // signing keys from it -- broken, and the runtime dependency on the vendor that
 // ADR-065 and ADR-066 exist to prevent.
-func hubDomain(environment, domain string) string {
+// hubDomain composes the domain every public hostname on this box derives from.
+//
+// SUBDOMAIN, not environment. It read the environment and returned
+// "<env>.<domain>" unless the environment was prod -- which made the box's DNS a
+// function of its environment, and therefore made the MANAGEMENT cluster have an
+// environment, because it has hostnames. Everything environment-shaped followed
+// from that: the box's Infisical slug, nine packaged chart variants, and a spoke
+// inheriting its hub's environment rather than declaring its own.
+//
+// kubefirst reaches the same "dev.example.com" shape without any of it. Its
+// management cluster has no environment and its platform hostnames carry none
+// (argocd.<domain>, vault.<domain>); an install-wide SubdomainName is applied as
+// fmt.Sprintf("%s.%s", SubdomainName, DomainName), and workloads carry the
+// environment as a name suffix -- metaphor-development.<domain> -- never as a DNS
+// level. ADR-051's amendment of 2026-09-18 adopts that separation.
+//
+// No hostname changes: a box that declared environment dev and now declares
+// subdomain dev publishes exactly what it published before.
+func hubDomain(subdomain, domain string) string {
 	domain = strings.TrimSpace(strings.TrimSuffix(domain, "."))
-	if environment == "" || environment == "prod" {
+	subdomain = strings.TrimSpace(strings.Trim(subdomain, "."))
+	if subdomain == "" {
 		return domain
 	}
-	return environment + "." + domain
+	return subdomain + "." + domain
 }
 
 func (s Spec) allTokens() map[string]string {
@@ -425,9 +597,9 @@ func Render(templateDir, dst string, s Spec) error {
 
 	// Hydrate the control plane from its template, then remove the template that
 	// produced it. It is consumed once, at onboarding; a tenant adding a cluster
-	// later renders templates/spoke-cluster, which is why that one is kept.
-	src := filepath.Join(dst, "templates", "control-plane")
-	if err := copyDir(src, filepath.Join(dst, "clusters", s.ClusterName)); err != nil {
+	// later renders templates/workload-cluster, which is why that one is kept.
+	src := filepath.Join(dst, "templates", "mgmt")
+	if err := copyDir(src, filepath.Join(dst, RegistryDir, "clusters", s.ClusterName)); err != nil {
 		return fmt.Errorf("hydrate control plane: %w", err)
 	}
 	if err := os.RemoveAll(src); err != nil {
@@ -440,7 +612,7 @@ func Render(templateDir, dst string, s Spec) error {
 	if err := substitute(dst, s.tenantTokens(), false); err != nil {
 		return err
 	}
-	if err := substitute(filepath.Join(dst, "clusters", s.ClusterName), s.clusterTokens(), true); err != nil {
+	if err := substitute(filepath.Join(dst, RegistryDir, "clusters", s.ClusterName), s.clusterTokens(), true); err != nil {
 		return err
 	}
 
@@ -487,7 +659,18 @@ func copyPlatformTree(src, dst string) error {
 		// 0o644 rather than the source mode: an embedded FS reports its own
 		// permissions, not the repository's, so preserving them would give a
 		// released run different modes from a development one for the same file.
-		return os.WriteFile(target, b, 0o644)
+		//
+		// Shell scripts are the exception, and are derived from the NAME rather
+		// than from the source mode for the same reason. A scaffolded script
+		// that arrives non-executable reads as broken -- the tenant runs
+		// ./scripts/<x>.sh, gets "permission denied", and has no reason to
+		// think that is their own filesystem rather than a defect in what they
+		// were given.
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(target, ".sh") {
+			mode = 0o755
+		}
+		return os.WriteFile(target, b, mode)
 	})
 }
 
@@ -690,7 +873,7 @@ func Publish(ctx context.Context, dir string, s Spec, cred Credential) error {
 	steps := [][]string{
 		{"init", "-q", "-b", "main"},
 		{"add", "."},
-		{"-c", "user.name=zero-ops", "-c", "user.email=platform@zero-ops.local",
+		{"-c", "user.name=zero-ops", "-c", "user.email=platform\nzero-ops.local",
 			"commit", "-q", "-m", "Scaffold " + s.RepoName()},
 		{"remote", "add", "origin", remote},
 		{"push", "-q", "-u", "origin", "main"},
@@ -754,4 +937,23 @@ func otherMissing(missing []string) string {
 		return ""
 	}
 	return "\n\nAlso missing: " + strings.Join(rest, ", ")
+}
+
+// platformRepoSlug reduces a platform repository URL to the owner/name form the
+// GitHub CLI takes. An unrecognisable URL yields the empty string, so the
+// workflow step that uses it fails loudly rather than querying a default
+// repository that has nothing to do with this platform.
+func platformRepoSlug(repoURL string) string {
+	u := strings.TrimSuffix(strings.TrimSpace(repoURL), ".git")
+	u = strings.TrimSuffix(u, "/")
+	if i := strings.Index(u, "github.com"); i >= 0 {
+		u = strings.TrimLeft(u[i+len("github.com"):], ":/")
+	} else {
+		return ""
+	}
+	parts := strings.Split(u, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }

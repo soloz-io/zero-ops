@@ -1,0 +1,52 @@
+# The DeploymentRuntimeConfig every package gets when it asks for none.
+#
+# WHY THIS FILE EXISTS
+#
+#   Crossplane's webhook DEFAULTS spec.runtimeConfigRef on every Provider and
+#   Function that does not set one:
+#
+#     runtimeConfigRef:
+#       apiVersion: pkg.crossplane.io/v1beta1
+#       kind: DeploymentRuntimeConfig
+#       name: default
+#
+#   (observed on the live objects under crossplane v1.20.5). Nothing creates that
+#   object, so a package that asks for nothing special fails to install with:
+#
+#     cannot prepare runtime manifest builder options: cannot get referenced
+#     deployment runtime config: DeploymentRuntimeConfig.pkg.crossplane.io
+#     "default" not found
+#
+#   provider-sql and function-patch-and-transform both hit exactly that on this
+#   spoke. provider-kubernetes did not, because it declares its own runtime config
+#   and points at it explicitly -- which is why the failure looked like a
+#   provider-specific quirk rather than a missing shared object.
+#
+# WHY IT IS NOT "AN ARBITRARY OBJECT TO MAKE ARGOCD GREEN"
+#
+#   The hub has already had one for nine days. It was created out-of-band and is
+#   tracked by no Application (`argocd.argoproj.io/instance` is absent on it), so
+#   the hub works and the spoke does not -- and a rebuilt hub would not work
+#   either. This is parity drift being closed in the declarative direction, not a
+#   new concept.
+#
+# WHY THE SPEC IS EMPTY
+#
+#   Empty means "Crossplane's own defaults", which is what a package that declares
+#   no runtime config is asking for. Putting anything here would silently change
+#   the runtime of every such package on the spoke. A package that needs something
+#   specific declares its own config and references it by name, as
+#   crossplane-provider-kubernetes.yaml does -- that remains the pattern, and this
+#   object must not grow into a place to configure individual packages.
+#
+# CONSEQUENCE OF ITS ABSENCE, for whoever finds this later: the two packages above
+# install but report Healthy=False, and their Application retries its sync forever
+# without converging. The composition still works -- provider-sql reconciled roles
+# throughout -- so the only visible symptom is an Application that is permanently
+# Degraded, which is the condition that makes every other Degraded signal on the
+# spoke worthless.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: default
+spec: {}

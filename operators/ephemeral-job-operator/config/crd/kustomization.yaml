@@ -1,2 +1,3 @@
 resources:
   - bases/compute.nutgraf.in_ephemeraljobs.yaml
+  - bases/compute.nutgraf.in_previewaccesses.yaml

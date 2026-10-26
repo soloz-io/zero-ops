@@ -24,15 +24,36 @@ artifacts:
   # under environments/base while the Application reconciles environments/<slug>
   # and reaches it through a Kustomize ../base reference, so matching an
   # Application's source path against the artifact's path finds nothing.
-  - file: manifests/environments/{env}/generated/hub-bootstrap-config-patch.yaml
+  - file: manifests/environments/{env}/generated/values/infisical-identity.yaml
     consumedBy: hub-environment
     requiredFields:
-      - data.INFISICAL_ORGANIZATION_ID
-      - data.INFISICAL_PROJECT_ID
-      - data.INFISICAL_PROJECT_SLUG
-      - data.INFISICAL_SECRETS_PROJECT_ID
-      - data.INFISICAL_SECRETS_PROJECT_SLUG
-      - data.INFISICAL_ENVIRONMENT_SLUG
+      # A values file now, not a ConfigMap: hub-environment renders the object
+      # from these and is its only writer.
+      - global.infisical.organizationId
+      - global.infisical.projectId
+      - global.infisical.secretsProjectId
+  # This box's Infisical PKI coordinates, as chart values.
+  #
+  # The security boundary emits a ClusterIssuer only when fleet.projectId and
+  # fleet.clientId are both supplied, so without this file there is no issuer and
+  # every certificate naming infisical-fleet-issuer stays pending forever. On the
+  # box that found this, eleven were: all three argocd-agent mTLS identities and
+  # the Support Agent's client certificate -- which IS its enrolment (ADR-077).
+  #
+  # Written here rather than onto the seed Application because ADR-072 makes the
+  # tenant's repository authoritative: on a tenant's box the seed comes from
+  # bundle.yaml, and the root Application's selfHeal reverts anything set only on
+  # the cluster.
+  #
+  # Declared under manifests/ like every other artifact; the registry reader
+  # relocates it to clusters/<cluster>/generated/ when a tenant repository is
+  # present, which is where bundle.yaml's valueFiles reads it from.
+  - file: manifests/environments/{env}/generated/values/platform-pki-values.yaml
+    consumedBy: hub-environment
+    requiredFields:
+      - infisical.fleet.projectId
+      - infisical.fleet.clientId
+
   # The hub Gateway's external-dns target was generated here as a Kustomize
   # patch. It is per-cluster instance data, and the gateway component now takes
   # it as a chart value supplied from hubIngressAddress, so nothing is written

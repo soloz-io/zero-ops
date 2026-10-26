@@ -24,6 +24,35 @@ export interface TenantClaims {
   /** User roles */
   roles: string[];
   /**
+   * `azp` — the client the token was issued to (ADR-094 invariant 2).
+   *
+   * The AUTHORIZED PARTY, not the subject and not the audience. It answers
+   * "which application asked for this token", which is the only claim that can:
+   * `aud` names who may accept it, and Zitadel issues any project's audience to
+   * any client that asks, so `aud` cannot say who is calling.
+   *
+   * Optional because it genuinely is: a `client_credentials` token carries no
+   * `azp`. Absence must therefore be a REFUSAL where a caller identity is
+   * required, never a pass — which is what `allowedAzp` on the validator does.
+   *
+   * Zitadel spells it `azp` on ID tokens and `client_id` on access tokens, and
+   * both are read here so a receiver does not have to know which it holds.
+   */
+  azp?: string;
+  /**
+   * The APPLICATION the calling client belongs to, resolved from the receiver's
+   * caller map (ADR-094 invariant 2b).
+   *
+   * Not a claim. No token carries it and none may: `azp` names a client, and
+   * only the platform knows which application the platform registered that
+   * client for. A receiver partitioning records per consuming application uses
+   * this and never a field from the request.
+   *
+   * Undefined when the validator was given no caller map, or when the map admits
+   * this caller without a name (an entry written before names existed).
+   */
+  consumer_app_id?: string;
+  /**
    * Platform-assigned groups (ADR-058).
    *
    * The auth-proxy injects this claim, and the API server matches it for
@@ -81,10 +110,7 @@ const TENANT_NAME_CLAIMS = [
 /** Nested as `{ roleKey: { grantingTenantId: domain } }`. */
 const SCOPED_ROLES_CLAIM = "urn:zitadel:iam:org:project:roles";
 
-function firstString(
-  payload: Record<string, unknown>,
-  names: readonly string[],
-): string {
+function firstString(payload: Record<string, unknown>, names: readonly string[]): string {
   for (const n of names) {
     const v = payload[n];
     if (typeof v === "string" && v) return v;
@@ -106,21 +132,12 @@ function firstString(
  * tenant. Roles are therefore kept only where the nested tenant id equals the
  * tenant this token is scoped to.
  */
-function rolesGrantedInTenant(
-  payload: Record<string, unknown>,
-  tenantId: string,
-): string[] {
+function rolesGrantedInTenant(payload: Record<string, unknown>, tenantId: string): string[] {
   const raw = payload[SCOPED_ROLES_CLAIM];
   if (!raw || typeof raw !== "object" || !tenantId) return [];
   const out: string[] = [];
-  for (const [roleKey, grantedIn] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
-    if (
-      grantedIn &&
-      typeof grantedIn === "object" &&
-      Object.prototype.hasOwnProperty.call(grantedIn, tenantId)
-    ) {
+  for (const [roleKey, grantedIn] of Object.entries(raw as Record<string, unknown>)) {
+    if (grantedIn && typeof grantedIn === "object" && Object.hasOwn(grantedIn, tenantId)) {
       out.push(roleKey);
     }
   }
@@ -142,6 +159,14 @@ export function claimsFromPayload(payload: Record<string, unknown>): TenantClaim
     // only for the scope that asks for them. Without that scope the claim is
     // absent and the token is correctly rejected as tenant-less, so the
     // requirement in the validator must stay a check and never a default.
+    // `client_id` as well as `azp`: Zitadel's NewIDTokenClaims sets azp and its
+    // NewAccessTokenClaims sets client_id, for the same fact. Reading only one
+    // would make the caller identity appear absent on half the tokens this
+    // platform issues, and absent means refused.
+    azp:
+      (typeof payload.azp === "string" && payload.azp) ||
+      (typeof payload.client_id === "string" && payload.client_id) ||
+      undefined,
     tenant_id: tenantId,
     tenant_name: firstString(payload, TENANT_NAME_CLAIMS) || undefined,
     tenant_tier: payload.tenant_tier ? String(payload.tenant_tier) : undefined,

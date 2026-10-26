@@ -93,9 +93,79 @@ identity:
   # create an account IN THIS TENANT — the gateway scopes every authorization
   # request to this fleet's organisation, so it cannot land anywhere else.
   selfRegistration: false
+  # Other applications OF THIS TENANT this one may call with a user's credential
+  # (ADR-094 Part 2). appIds, never hostnames, never another tenant's app.
+  #
+  # Empty by default, and that default is the safe one: an application that
+  # declares nothing can call nothing, rather than inheriting a reachability it
+  # never asked for. Declaring `waypoint` here means the platform renders
+  # waypoint's project into the audience scope THIS app's client requests, AND
+  # renders this app's client into the allowed-caller list waypoint checks azp
+  # against. The fleet declares a relationship; the platform decides what it
+  # renders into.
+  backendDependencies: []
+
+  # The applications permitted to CALL this one -- the other half of their
+  # backendDependencies (ADR-088, ADR-094 Part 2).
+  #
+  # Both halves are required and neither grants anything alone. Being siblings of
+  # one tenant is what makes the dependency EXPRESSIBLE, never what permits it:
+  # "same tenant is never an argument for access; only a declaration is."
+  #
+  # Declared here rather than inferred from the callers' repositories so the
+  # target's own repository records who may reach it, and so a preflight can
+  # compare the two declarations and fail when they disagree -- which is the gap
+  # ADR-088's amendment named and deferred.
+  allowedConsumers: []
 
 gateway:
+  # Does this application's SDK serve workflow webhooks (ADR-024)?
+  #
+  # OFF by default, and the default is the decision. The gateway used to bind
+  # :3001 and route /v1/webhooks/ to sdk-workload for EVERY application, because
+  # waypoint's SDK resumes workflows that way. An application whose `sdk` is
+  # something else entirely -- oranger's is a private domain service that trusts
+  # headers forwarded by its BFF and admits nothing else (ADR-057) -- got a
+  # public route to a service whose own network policy correctly refuses it. The
+  # result was a 503 on a public hostname and a Cilium denial in the log, for an
+  # endpoint nobody meant to expose.
+  #
+  # Declaring it OFF is not merely tidier: a route that exists and is refused is
+  # indistinguishable from one that is broken, and it invites someone to "fix"
+  # the policy that is doing its job.
+  webhooks:
+    enabled: false
+  # Static files this application serves WITHOUT a login: browsers fetch a web
+  # app manifest, its icons and a service worker outside the user's session, so
+  # behind the login they get a redirect and refuse to install the app.
+  #
+  # EXACT paths, served GET/HEAD only, from this app's frontend through a
+  # separate OIDC-free bind (:3003). Every other path stays behind the login.
+  # Empty, the default: no bind and no route are rendered. The chart refuses
+  # anything that is not a plain exact path, the app shell, and anything under
+  # /api, /internal, /v1, /oauth, /health or /healthz (_helpers.tpl).
+  #
+  #   publicAssets:
+  #     paths: [/manifest.json, /sw.js, /favicon.svg, /logo192.png, /logo512.png]
+  publicAssets:
+    paths: []
+  # Login-free DYNAMIC routes (ADR-103): one prefix segment plus one fixed-shape
+  # token segment, e.g. a shared session at /share/<22 base62 chars>, served by
+  # this app's BFF through a separate OIDC-free bind (:3004), GET/HEAD only,
+  # rate-limited, with noindex / no-referrer / no-cookie headers set by the
+  # gateway. The token is the only credential: the BFF must look it up and
+  # refuse anything it did not mint. Empty, the default: nothing is rendered.
+  #
+  #   publicRoutes:
+  #     - prefix: /share
+  #       tokenLength: 22
+  publicRoutes: []
   enabled: false
+  # Whether to enforce OIDC login on the browser-facing gateway listener.
+  # Defaults to true. If set to false, requests to the application shell are
+  # routed directly to frontend-workload without redirecting to the identity provider.
+  oidc:
+    enabled: true
   # Hostnames this fleet answers on. The first is the browser-facing host and is
   # where the OAuth redirect returns; the rest are additional names for the same
   # gateway. These must already be declared under `public.hosts` so a certificate
@@ -178,22 +248,66 @@ database:
 #         verbs: ["get", "list", "create", "patch", "delete"]
 workloadRbac: []
 
-# ADR-047 Tier 2: Platform-rendered ExternalSecrets for fleet application secrets.
-# Rendered only when deployXR=false (spoke provisioning). Delivers secrets from
-# Infisical into the tenant namespace via the tenant-scoped SecretStore.
-# remoteKey is the Infisical folder path; remoteProperty is the key within it
-# (same convention as the tenant database composition, ADR-003/ADR-030).
+# ADR-087 supersedes the flat `externalSecrets` list that stood here.
+#
+# It delivered one ExternalSecret per FLEET, from remote paths each entry wrote
+# out in full, and drew no line between configuration and secret material. All
+# three were load-bearing defects rather than untidiness: the object is atomic so
+# a fleet-wide grouping couples unrelated workloads' failures, a per-entry
+# absolute path is a per-entry opportunity to name the wrong cell, and eleven of
+# waypoint's twenty-three keys were not secrets at all.
+#
+# Removed rather than deprecated. Leaving it in place would be two mechanisms for
+# one job, and the one being replaced is the one that already shipped -- so a
+# fleet could keep using it and never learn why the new one exists.
+#
+# `config` and `secrets` below are its replacement.
+
+
+# ADR-087: the fleet's non-secret configuration, delivered as ConfigMap
+# <tenantId>-config. A map of KEY: value. Values the tenant owns and nothing
+# protects by concealing -- model names, bucket names, base URLs, provider
+# endpoint identifiers. In git, so the change that alters behaviour is the change
+# that is reviewed.
 # Example:
-# externalSecrets:
-#   - name: waypoint-app-secrets
-#     secretStoreRef:
-#       name: tenant-secret-store
-#       kind: SecretStore
-#     data:
-#       - secretKey: AI_GATEWAY_API_KEY
-#         remoteKey: /spoke-pool/<cellId>/tenants/<tenant>/app-secrets
-#         remoteProperty: AI_GATEWAY_API_KEY
-externalSecrets: []
+# config:
+#   LLM_MODEL_NAME: claude-sonnet-5
+#   S3_BUCKET_NAME: waypoint-dev
+config: {}
+
+# ADR-087: the fleet's secrets, declared here and supplied out of band.
+#
+# Delivered as ONE ExternalSecret PER WORKLOAD, named
+# <tenantId>-<workload>-secrets, because the object is atomic and its key set is
+# therefore the blast radius of any one key being wrong.
+#
+# Each entry declares the key, the capability it serves, and the workloads that
+# read it. All three are required; the template refuses an entry missing either
+# of the last two. The Infisical path is derived from cellId and tenantId and is
+# never written per key.
+#
+# Platform-generated credentials are NOT declared here. A fleet that declares a
+# confidential OAuth client, a cache or a database has thereby declared their
+# credentials, and hub-operator writes them (ADR-053).
+# Example:
+# secrets:
+#   - name: AI_GATEWAY_API_KEY
+#     capability: "the AI gateway the SDK calls"
+#     workloads: [sdk]
+secrets: []
+
+# ADR-108: session previews on the platform's preview domain.
+#
+# Enabling it routes /_platform/preview-access/ on this app's hostname, behind
+# the app's own login, to the platform's preview-access service: the canvas
+# mints handoff codes and reads preview state there, and implements no auth of
+# its own. Previews themselves are declared as PreviewAccess records by the
+# app's SDK, which needs `previewaccesses` in its workloadRbac.
+#
+# Requires gateway.hostnames: the first hostname is the app's origin, the only
+# origin the codes endpoint accepts and the only one a refusal page posts to.
+previewAccess:
+  enabled: false
 
 # ADR-047 Tier 2: Sandbox capabilities for the fleet.
 sandbox:
@@ -203,6 +317,17 @@ sandbox:
   # (spoke-catalog), not rendered per-tenant.
   agentVault:
     enabled: false
+  # ADR-106 §1: the ONLY external hosts this application's sandboxes may reach,
+  # on :443, by exact name. Nothing else outside the cluster is reachable --
+  # not by IP, not by wildcard, not by a name missing here -- and a missing
+  # name fails as a connection timeout in the sandbox, by design. The session's
+  # object storage is NOT listed here: the platform grants it per job, from the
+  # same configuration the job's storage credentials come from.
+  #
+  #   egress:
+  #     hosts: [api.github.com, api.example-model-provider.com]
+  egress:
+    hosts: []
 
 # Burst compute (ADR-052).
 #
@@ -248,3 +373,16 @@ resourceQuota:
   storage: "10Gi"
   # Max pods
   pods: "10"
+
+# Data shared between apps of this tenant (ADR-088).
+#
+# Empty by default, and that is the secure state: each app has its own database
+# and being siblings grants nothing. A share is a declaration naming both sides,
+# never something inherited from sharing a tenant.
+#
+#   sharedData:
+#     - name: user-directory
+#       owner: waypoint          # the app whose database it is
+#       readers: [oranger]       # apps granted a role on it
+#       privileges: [CONNECT]    # optional; CONNECT when omitted
+sharedData: []

@@ -172,7 +172,7 @@ def main() -> int:
     # two meant a component built for one provider kept the suffix in its
     # subchart name, while the boundary enables it by appName -- so the
     # Application enabled a component the distribution does not carry, rendered
-    # nothing, and reported healthy. platform-nats is built for hetzner only.
+    # nothing, and reported healthy. platform-redis is built for hetzner only.
     provider_charts = {}
     for name in names:
         for provider in ("hetzner", "hybrid"):

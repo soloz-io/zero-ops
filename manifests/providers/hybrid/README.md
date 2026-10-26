@@ -13,9 +13,10 @@ the full topology, invariants and codified workarounds.
   declared as `HetznerCluster.spec.controlPlaneLoadBalancer.extraServices` in
   `manifests/providers/hetzner/base/spokepool-clusterclass-v1.yaml`, so the entry
   point is fully in GitOps and CAPH retargets it automatically when the CP
-  machine rolls. (Was: an out-of-band `waypoint-gateway-lb` created by
-  `scripts/hybrid/ensure-waypoint-lb.sh`, now deleted — it targeted a fixed
-  server ID and silently broke on every spoke reprovision.)
+  machine rolls. (Was: an out-of-band load balancer created by a per-fleet
+  script, both now deleted — it targeted a fixed server ID and silently broke on
+  every spoke reprovision. The names are omitted because they were one fleet's,
+  and this file is the platform's.)
 - **PROXY protocol is OFF.** CAPH's `extraServices` has no `proxyProtocol`
   field, so `enable-gateway-api-proxy-protocol` must stay `"false"`. Client
   source IP does not reach Envoy; a mismatch between the two resets connections.

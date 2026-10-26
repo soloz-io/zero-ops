@@ -9,9 +9,10 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: agent-vault-entrypoint
-  namespace: tenant-{{ .Values.tenantId }}
+  namespace: {{ include "universal-tenant.namespace" . }}
   labels:
-    tenant-id: {{ .Values.tenantId }}
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
 data:
   entrypoint.sh: |
 {{ .Files.Get "files/agent-vault/entrypoint.sh" | indent 4 }}

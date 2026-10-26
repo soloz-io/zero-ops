@@ -1,0 +1,261 @@
+# The Support Agent on a spoke.
+#
+# ADR-077: one agent per cluster, not one per fleet. The hub runs its own
+# (manifests/hub-core-services/support-agent); this is the spoke's, reporting
+# about the spoke, under the spoke's own identity.
+#
+# Same shape as the hub's, and deliberately not a shared chart: the two differ in
+# exactly one thing that matters -- where the identity comes from -- and a chart
+# parameterised over that would hide the distinction rather than remove it. The
+# invariants are asserted against both by the same release gates
+# (scripts/validate/cluster/8*-support-agent-*.sh).
+#
+# No Service, no Ingress, no ingress rule. Nothing reaches inward, here either.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: support-agent
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+---
+# The same allowlist the hub carries. It is the contract, and a spoke reporting
+# under a different one would make "the allowlist is what leaves" untrue of half
+# the fleet. Kept in step by the release gate that reads the shipped document.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: support-agent-allowlist
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+data:
+  allowlist.yaml: |
+    - collector: bundle-version
+      source:
+        kind: artefact
+        path: clusters/*/bundle.yaml
+      schema: [bundleVersion, chart, targetRevision]
+      emit: [bundleVersion, targetRevision]
+
+    - collector: application-health
+      source:
+        kind: metrics
+        namespace: platform-ops
+        service: argocd-applicationset-controller-metrics
+        query: argocd_app_info
+      schema: [name, project, sync_status, health_status, dest_server]
+      emit: [project, sync_status, health_status]
+
+    - collector: policy-violations
+      source:
+        kind: metrics
+        namespace: platform-ops
+        service: kyverno-reports-controller-metrics
+        query: kyverno_policy_results_total
+      schema: [policy_name, policy_type, rule_result, resource_namespace, resource_name]
+      emit: [policy_name, policy_type, rule_result]
+
+    - collector: certificate-expiry
+      source:
+        kind: metrics
+        namespace: platform-ops
+        service: cert-manager-metrics
+        query: certmanager_certificate_expiration_timestamp_seconds
+      schema: [name, namespace, issuer_name, expiration_timestamp]
+      emit: [issuer_name, expiration_timestamp]
+
+    - collector: node-pressure
+      source:
+        kind: metrics
+        # kube-state-metrics, NOT metrics-server. kube_node_status_condition is a
+        # kube-state-metrics series; metrics-server's own /metrics describes
+        # metrics-server, so this collector returned nothing on every box and said
+        # so only in the payload's Skipped map (ADR-077 addendum 4, decision 13).
+        #
+        # kube-state-metrics is required collection machinery, not part of the
+        # selectable observability capability (ADR-066 addendum 4), and it lives in
+        # platform-ops rather than platform-observability for that reason. So this
+        # dependency survives a tenant disabling the backend -- which is what
+        # ADR-078 §8 requires of anything support evidence rests on -- and the
+        # collector names no namespace gate 82 forbids.
+        namespace: platform-ops
+        service: kube-state-metrics
+        query: kube_node_status_condition
+      schema: [node, condition, status]
+      emit: [condition, status]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: support-agent
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: support-agent
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress rules, and no `ingress` key. The absent key cannot be widened by
+  # adding one more entry to a list that already exists.
+  egress:
+    # Name resolution, against whichever component answers it on this node:
+    # CoreDNS directly, or the node-local cache when the redirect policy is in
+    # force. Peers in a `to` list are OR, so both are allowed always. Naming
+    # only kube-dns made this rule stop matching the instant that redirect
+    # landed -- see tenant-dns-egress.yaml for why, and for the measurements.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: node-local-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - key: topology.platform.io/role
+                operator: Exists
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8443
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 9189
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-agent
+  namespace: platform-ops
+  labels:
+    app.kubernetes.io/name: support-agent
+    app.kubernetes.io/component: support
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: support-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: support-agent
+        app.kubernetes.io/component: support
+    spec:
+      serviceAccountName: support-agent
+      # No token is projected into this pod. The agent holds no ClusterRole
+      # (scripts/validate/cluster/80-support-agent-rbac.sh), so a token would
+      # grant it nothing today -- and one ClusterRole later it would grant
+      # everything, with the mount being the half a review does not look at.
+      #
+      # Telemeter is the cautionary case: its ServiceAccount token IS its read
+      # credential (--from-token-file=.../serviceaccount/token), which is how an
+      # agent with a two-rule ClusterRole reads every metric in the cluster.
+      # ADR-077 addendum 4, decision 9.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: support-agent
+          # Rewritten in place by .github/workflows/support-agent.yml.
+          # Not pullable until that has run, which is deliberate: a
+          # visible failure beats an unpinned image.
+          image: ghcr.io/soloz-io/zero-ops/support-agent@sha256:b0522975b8305072ef0a765329467c4f1719da4feba5b7151915c0147fb23541
+          args:
+            - --allowlist=/etc/support-agent/allowlist.yaml
+            - --interval=1h
+            # The Support Plane's own CA, NOT the one cert-manager writes into
+            # the agent's Secret. That one is the tenant's fleet CA -- it signs
+            # the agent's client certificate and says nothing about who is
+            # allowed to terminate the other end. Validating the platform's
+            # server certificate against the tenant's own CA fails every time,
+            # and the tempting "fix" is to stop verifying, which would let
+            # anything that can answer DNS receive this box's evidence.
+            - --ca=/etc/support-agent/enrolment/ca.crt
+          env:
+            # Tenant-owned, never shipped or reconciled by the platform. Absent
+            # means unenrolled, which is the default for a spoke nobody enrolled.
+            - name: SUPPORT_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: support-agent-enrolment
+                  key: endpoint
+                  optional: true
+            - name: SUPPORT_DENY
+              valueFrom:
+                configMapKeyRef:
+                  name: support-agent-enrolment
+                  key: deny
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: allowlist
+              mountPath: /etc/support-agent
+              readOnly: true
+            # Optional, like the certificate: an unenrolled box has no ConfigMap,
+            # and a required mount would hang the pod.
+            - name: enrolment
+              mountPath: /etc/support-agent/enrolment
+              readOnly: true
+            - name: client-tls
+              mountPath: /etc/support-agent/tls
+              readOnly: true
+      volumes:
+        - name: allowlist
+          configMap:
+            name: support-agent-allowlist
+        - name: enrolment
+          configMap:
+            name: support-agent-enrolment
+            optional: true
+        # Optional is what makes it ship inert: an unenrolled spoke has no
+        # Secret, and a required volume would hang the pod in ContainerCreating
+        # and report the platform's own component broken.
+        - name: client-tls
+          secret:
+            secretName: support-agent-client-tls
+            optional: true

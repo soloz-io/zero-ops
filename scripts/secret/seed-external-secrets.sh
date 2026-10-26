@@ -19,9 +19,16 @@
 #   you add a key here, declare it there, or preflight will call it unproduced.
 #
 # USAGE
-#   scripts/secret/seed-external-secrets.sh <cell-id> [--dry-run]
+#   INFISICAL_BASE_URL=https://infisical.<box-domain> \
+#   KUBECONFIG=<hub kubeconfig> \
+#     scripts/secret/seed-external-secrets.sh <cell-id> [--dry-run]
 #
-#   e.g. scripts/secret/seed-external-secrets.sh spoke-pool-hybrid-dev-01
+#   e.g. INFISICAL_BASE_URL=https://infisical.dev.nutgraf.in \
+#        KUBECONFIG=.local-e2e/nutgraf-gitops/k8-secrets/kubeconfig/nutgraf-hub.kubeconfig \
+#          scripts/secret/seed-external-secrets.sh nutgraf-01 --dry-run
+#
+#   Run from the repository root. Dry-run first: it lists every key, its source
+#   file and its Infisical path, and prints the command that writes them.
 #
 # AUTH
 #   Reads INFISICAL_CLIENT_ID / INFISICAL_CLIENT_SECRET from the environment, or
@@ -32,7 +39,20 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SECRETS_DIR="${SECRETS_DIR:-${REPO_ROOT}/k8-secrets}"
-INFISICAL_URL="${INFISICAL_BASE_URL:-https://infisical.dev.nutgraf.in}"
+# No default. The one that was here pointed at the PLATFORM's Infisical, so a
+# tenant running this seeded the platform's secret store instead of their own
+# (ADR-065). It is this box's instance -- infisical.<the box's domain> -- or a
+# port-forward to it.
+INFISICAL_URL="${INFISICAL_BASE_URL:-}"
+
+# Every refusal below names what is missing and then prints the whole command,
+# so the next attempt is a copy, not a reconstruction.
+usage() {
+    printf 'seed-external-secrets: %s\n\n' "$1" >&2
+    sed -n '/^# USAGE/,/^# AUTH/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2
+    exit 2
+}
+[[ -z "$INFISICAL_URL" ]] && usage "INFISICAL_BASE_URL is not set. It names THIS box's Infisical; there is no default."
 PROJECT_SLUG="${INFISICAL_PROJECT_SLUG:-hub-secrets}"
 ENVIRONMENT="${INFISICAL_ENVIRONMENT:-dev}"
 
@@ -40,7 +60,8 @@ CELL_ID="${1:-}"
 DRY_RUN=0
 [[ "${2:-}" == "--dry-run" ]] && DRY_RUN=1
 
-[[ -z "$CELL_ID" ]] && { sed -n '/^# USAGE/,/^#$/p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+[[ -z "$CELL_ID" || "$CELL_ID" == -* ]] && usage "no <cell-id>. It is the cell whose /spoke-pool/<cell-id>/shared folder receives the shared keys."
+[[ -n "${2:-}" && "${2:-}" != "--dry-run" ]] && usage "unknown argument '${2}'."
 
 # ── key : source file : infisical path ──────────────────────────────────────
 # An empty path means the Infisical root, which is where the root-scoped
@@ -49,11 +70,21 @@ SHARED="/spoke-pool/${CELL_ID}/shared"
 MAPPINGS=(
   "S3_ACCESS_KEY_ID:s3/access-key-id:${SHARED}"
   "S3_SECRET_ACCESS_KEY:s3/secret-access-key:${SHARED}"
-  "GRAFANA_CLOUD_API_KEY:grafana-cloud/api-key:${SHARED}"
+  "GRAFANA_CLOUD_TELEMETRY_TOKEN:grafana-cloud/telemetry-token:${SHARED}"
   "GRAFANA_CLOUD_LOKI_URL:grafana-cloud/loki-url:${SHARED}"
   "GRAFANA_CLOUD_LOKI_USER:grafana-cloud/loki-user:${SHARED}"
   "GRAFANA_CLOUD_PROMETHEUS_URL:grafana-cloud/prometheus-url:${SHARED}"
   "GRAFANA_CLOUD_PROMETHEUS_USER:grafana-cloud/prometheus-user:${SHARED}"
+  "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:${SHARED}"
+  # ADR-078 add.3 §6: the hub reads these at the root (its ExternalSecrets have
+  # no cell prefix); the dashboards token is the hub's alone.
+  "GRAFANA_CLOUD_TELEMETRY_TOKEN:grafana-cloud/telemetry-token:/"
+  "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:/"
+  "GRAFANA_CLOUD_DASHBOARDS_TOKEN:grafana-cloud/dashboards-token:/"
+  # ADR-078 add.4: the hub's alert routing, at the root.
+  "GRAFANA_CLOUD_ALERTS_TOKEN:grafana-cloud/alerts-token:/"
+  "GRAFANA_IRM_ALERTMANAGER_URL:grafana-cloud/irm-alertmanager-url:/"
+  "GRAFANA_IRM_HEARTBEAT_URL:grafana-cloud/irm-heartbeat-url:/"
   "hcloud-token:hetzner/token:/"
 )
 
@@ -67,7 +98,7 @@ if [[ -z "${INFISICAL_CLIENT_ID:-}" || -z "${INFISICAL_CLIENT_SECRET:-}" ]]; the
     INFISICAL_CLIENT_ID=$(kubectl -n platform-security get secret infisical-auth -o jsonpath='{.data.client-id}' | base64 -d)
     INFISICAL_CLIENT_SECRET=$(kubectl -n platform-security get secret infisical-auth -o jsonpath='{.data.client-secret}' | base64 -d)
   else
-    fail "set INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET, or point KUBECONFIG at the hub"
+    usage "no Infisical credentials: set INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET, or point KUBECONFIG at the hub (it reads platform-security/infisical-auth)."
   fi
 fi
 
@@ -140,4 +171,9 @@ done
 log ""
 log "seeded=${seeded} updated=${skipped} missing=${missing}"
 [[ $missing -gt 0 ]] && log "NOTE: missing entries have no source file — supply them in ${SECRETS_DIR} and re-run."
+if [[ $DRY_RUN -eq 1 ]]; then
+  log ""
+  log "To write these, run:"
+  log "  INFISICAL_BASE_URL=${INFISICAL_URL}${KUBECONFIG:+ KUBECONFIG=${KUBECONFIG}} $0 ${CELL_ID}"
+fi
 exit 0

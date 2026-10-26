@@ -1,0 +1,97 @@
+# CoreDNS Corefile for the hub — no AAAA on an IPv4-only pod network.
+#
+# The fault
+# ---------
+# On 2026-09-15 every public certificate on the box stopped issuing:
+#
+#   cert-manager: Post "https://acme-v02.api.letsencrypt.org/acme/chall/...":
+#     dial tcp [2606:4700:60:0:f53d:5624:85c7:3a2c]:443: connect: network is unreachable
+#
+# All seven hub hostnames sat Ready=False, :443 served nothing, and agentgateway
+# crash-looped because it fetches its JWKS over one of them.
+#
+# Pods here have no IPv6 address at all (cilium `enable-ipv6: false`) and the
+# nodes have no IPv6 default route. A name with both A and AAAA records is
+# therefore resolvable but half-unreachable, and which half a client picks is a
+# property of its resolver:
+#
+#   * glibc sets AI_ADDRCONFIG, so it does not even ask for AAAA when the host
+#     has no IPv6 address. curl, dig and every shell tool work.
+#   * Go's pure-Go resolver has no AI_ADDRCONFIG equivalent. It queries A and
+#     AAAA together and Happy Eyeballs prefers the AAAA. It fails instantly with
+#     "network is unreachable".
+#
+# So the failure appears only in Go components, which is why it reads as a
+# cert-manager bug, an agentgateway bug and an external-secrets bug in turn
+# rather than as one property of the cluster.
+#
+# Why the `forward` change is not the fix
+# ---------------------------------------
+# manifests/spoke/spoke-catalog/infra/coredns.yaml pins the spoke's upstreams to
+# IPv4 resolvers, and its comment reasons "IPv4-only -> A records are returned".
+# That is not how DNS works: the transport used to reach a resolver has nothing
+# to do with the record types it returns. Measured on this cluster after making
+# exactly that change:
+#
+#   nslookup -type=AAAA acme-v02.api.letsencrypt.org
+#     Address: 2606:4700:60:0:f53d:5624:85c7:3a2c
+#
+# The spoke's change did fix the spoke, but a different fault: there, the node's
+# resolv.conf listed Hetzner's IPv6 nameservers, so CoreDNS could not reach any
+# upstream and lookups timed out. Here resolution succeeds and the answer is the
+# problem. Both are kept below because both faults are real, but the AAAA
+# suppression is the one that makes this cluster work.
+#
+# The fix
+# -------
+# `template ANY AAAA` answers every AAAA query with NOERROR and no records —
+# NODATA, the correct answer for a network where no name has a usable IPv6
+# address. That is precisely what AI_ADDRCONFIG does for glibc clients, applied
+# once at the resolver so every client gets it regardless of language.
+#
+# It is deliberately unscoped. There is no zone on this cluster where an AAAA is
+# useful: pod and Service addresses are IPv4 (`enable-ipv6: false`) and external
+# IPv6 is unroutable. Scoping it to external names only would leave the rule
+# looking conditional when it is not, and would need revisiting the moment a new
+# zone appeared. If the pod network ever gains IPv6, this stanza is the single
+# thing to delete, and `enable-ipv6` is the condition to key that on.
+#
+# The upstreams stay pinned to IPv4 literals rather than /etc/resolv.conf so a
+# node whose resolv.conf gains an IPv6 nameserver cannot reintroduce the spoke's
+# failure. force_tcp for the reason ADR-056 gives: a lost UDP datagram is
+# reported to the caller as a name that does not exist.
+#
+# Ownership: kubeadm creates this ConfigMap, so — like coredns-distribution.yaml
+# in this directory — it is listed as a kustomize resource and applied
+# server-side, not expressed as a patch kustomize would silently drop.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        template ANY AAAA {
+           rcode NOERROR
+        }
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . 1.1.1.1 1.0.0.1 8.8.8.8 {
+           max_concurrent 1000
+           force_tcp
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }

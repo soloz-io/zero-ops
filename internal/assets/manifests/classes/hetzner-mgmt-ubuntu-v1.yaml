@@ -8,7 +8,7 @@ spec:
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta1
       kind: KubeadmControlPlaneTemplate
-      name: hetzner-mgmt-control-plane
+      name: hetzner-mgmt-control-plane-v4
     machineInfrastructure:
       ref:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -271,6 +271,52 @@ spec:
         path: /spec/template/spec/hcloudNetwork
         valueFrom:
           variable: hcloudNetwork
+  # The at-rest encryption provider configuration, appended here rather than written
+  # into the control-plane template, because its Secret name has to carry THIS
+  # cluster's name.
+  #
+  # WHY A PATCH AND NOT A LITERAL. A ClusterClass is shared by every cluster of its
+  # class, so a Secret named in a template is one object serving all of them. v2
+  # named `secret-encryption-config` in platform-capi and that is exactly what it
+  # was: one key for N clusters, where the first rotation makes every other
+  # cluster's etcd undecryptable. The key is per cluster by ADR-100 and per cluster
+  # in the escrow by ADR-076, so its delivery object has to be per cluster too.
+  #
+  # WHY APPEND AND NOT REPLACE. A JSON patch that edits a file already in the list
+  # needs an index, `/files/0/contentFrom/secret/name`. Indices are positional: the
+  # day someone inserts a file above it, the patch rewrites that file's Secret
+  # reference instead and the enc.yaml entry keeps the shared name. Appending owns
+  # the whole entry and has no index to be wrong about.
+  #
+  # NOTHING RECONCILES THE SECRET ITSELF. It is written once by
+  # `soloz encryption enable` from the key in this cluster's escrow. A value that
+  # must not change under a running control plane has no business being reasserted
+  # on a timer, which is why the ExternalSecret that used to do it was removed.
+  - name: secretEncryptionConfig
+    definitions:
+    - selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+      jsonPatches:
+      - op: add
+        path: /spec/template/spec/kubeadmConfigSpec/files/-
+        valueFrom:
+          # 0600 and root: it is the key to every Secret in the cluster, and the API
+          # server reads it as root before any workload exists.
+          template: |
+            {
+              "path": "/etc/kubernetes/enc/enc.yaml",
+              "owner": "root",
+              "permissions": "0600",
+              "contentFrom": {
+                "secret": {
+                  "name": "{{ .builtin.cluster.name }}-encryption-config",
+                  "key": "enc.yaml"
+                }
+              }
+            }
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: HetznerClusterTemplate
@@ -326,9 +372,21 @@ spec:
           - name: zero-ops-mac-mini-debug
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+# v2 rather than an edit (2026-10-02, ADR-003 section 6).
+#
+# At-rest encryption of Kubernetes Secrets is an API server argument plus a file on
+# every control-plane node, so it changes this template's spec — and this file
+# already records that KubeadmControlPlaneTemplate.spec is immutable. A new NAME
+# avoids an apply the webhook rejects, which would otherwise leave the provisioner
+# deleting and recreating a template the running cluster references.
+#
+# Adopting it ROLLS THE MANAGEMENT CLUSTER's control plane. The provider is only
+# picked up by a process start, and the management cluster is where the secret
+# store's own credentials, the identity provider's, and every tenant's provisioning
+# material live: see docs/runbooks/encrypt-secrets-at-rest.md.
 kind: KubeadmControlPlaneTemplate
 metadata:
-  name: hetzner-mgmt-control-plane
+  name: hetzner-mgmt-control-plane-v4
   namespace: platform-capi
 spec:
   template:
@@ -338,13 +396,89 @@ spec:
           apiServer:
             extraArgs:
               cloud-provider: external
+              # Kubernetes Secrets are encrypted at rest (ADR-003 section 6).
+              #
+              # THIS IS THE LINE v3 DELIBERATELY WITHHELD, and on this cluster it is
+              # the riskiest line in the file: it makes the API server REQUIRE
+              # /etc/kubernetes/enc/enc.yaml, and a management plane that does not
+              # start is the thing every other cluster is repaired from.
+              #
+              # The spoke cleared the v3 gate first, on 2026-10-05, which is the whole
+              # reason this is acceptable here: the render was observed on a real
+              # replaced node before any API server depended on it.
+              #
+              # THE HUB STILL GOES SECOND. Roll the spoke to v4 and confirm encrypted
+              # writes in etcd BEFORE adopting this class. A failed roll on a workload
+              # cluster leaves this cluster up to repair it; the reverse does not hold.
+              #
+              # And unlike the spoke's, THIS class is synced by nothing -- it lives in
+              # the CLI's embedded assets and reaches a cluster only through
+              # `soloz encryption enable --apply-class`. Promoting a bundle does not
+              # adopt it.
+              encryption-provider-config: /etc/kubernetes/enc/enc.yaml
               oidc-issuer-url: https://auth.dev.nutgraf.in
               oidc-client-id: d32a30f0-f2b1-4a11-b3e9-d1e0aec4af6d
               oidc-username-claim: email
               oidc-groups-claim: groups
+              # Concurrency caps, sized for a 2 vCPU control plane.
+              #
+              # The defaults (400 / 200) are for a machine with cores to spare.
+              # Here the API server is the largest consumer on the node by a wide
+              # margin -- 2180 MiB of 3809 MiB allocatable and 329m at rest,
+              # spiking far higher while ArgoCD reconciles fifty Applications --
+              # and when it saturates, it stops answering fast enough for the
+              # leases its own control plane depends on. Admitting less work
+              # concurrently is what keeps those answers inside their deadline;
+              # the queued requests wait rather than failing.
+              max-requests-inflight: "200"
+              max-mutating-requests-inflight: "100"
+            # The API server runs as a static pod, so a path outside the directories
+            # kubeadm already mounts is invisible to it. Without this the process
+            # fails to start on a file that exists on the node, which reads as a
+            # missing file rather than a missing mount.
+            extraVolumes:
+              - name: secret-encryption-config
+                hostPath: /etc/kubernetes/enc
+                mountPath: /etc/kubernetes/enc
+                readOnly: true
+                pathType: DirectoryOrCreate
           controllerManager:
             extraArgs:
               cloud-provider: external
+              # Leader election, relaxed -- and on this topology that costs
+              # nothing.
+              #
+              # These components crash-looped here: 26 restarts on the
+              # controller-manager, 23 on the scheduler, every one of them
+              #
+              #   error retrieving resource lock kube-system/kube-controller-manager:
+              #     Get .../leases/...?timeout=5s: context deadline exceeded
+              #   failed to renew lease: timed out waiting for the condition
+              #   "leaderelection lost"
+              #
+              # The 5s request timeout is renewDeadline/2. Under load the API
+              # server on the same 2 vCPU node cannot answer a lease GET inside
+              # it, so the component concludes it lost an election it was the
+              # only candidate in, exits, and takes every controller with it.
+              # A Deployment stayed at observedGeneration=1 for a spec written
+              # minutes earlier because nothing was running to act on it.
+              #
+              # The hub runs ONE control-plane replica (ADR-046's topology
+              # table). There is no second instance to fail over to, so a short
+              # renew deadline buys no availability whatsoever -- it only decides
+              # how quickly a transient API stall becomes a crash loop. Raising
+              # it trades failover speed that does not exist for tolerance that
+              # is needed.
+              leader-elect-lease-duration: 60s
+              leader-elect-renew-deadline: 40s
+              leader-elect-retry-period: 10s
+          scheduler:
+            extraArgs:
+              # Same reasoning as controllerManager above, same failure, same
+              # single-replica topology.
+              leader-elect-lease-duration: 60s
+              leader-elect-renew-deadline: 40s
+              leader-elect-retry-period: 10s
           etcd:
             local:
               dataDir: /var/lib/etcd
@@ -361,6 +495,17 @@ spec:
               max-pods: "120"
               resolv-conf: /etc/kubernetes/resolv.conf
         files:
+          # THE ENCRYPTION PROVIDER CONFIGURATION IS NOT LISTED HERE. The
+          # `secretEncryptionConfig` patch above appends it, because its Secret name
+          # has to carry this cluster's name and a template is shared by every
+          # cluster of its class. v2 named `secret-encryption-config` here, which is
+          # one object in platform-capi for every cluster of this class (ADR-100).
+          #
+          # On the first build that Secret lives in the temporary bootstrap cluster;
+          # after the pivot it lives here and a replacement node is provisioned by a
+          # control plane that already holds the file on disk. On a full rebuild it
+          # comes from the escrow (ADR-076 `secret-encryption-key`) — a new key
+          # against a restored etcd would leave every Secret in it undecryptable.
           # ADR-046 invariant 6. Cilium builds its VXLAN tunnel endpoint from the
           # node's InternalIP. A home-lab worker's only InternalIP is its tailnet
           # address, and it cannot route the hub CP's Hetzner private IP — from a
@@ -393,16 +538,18 @@ spec:
             permissions: "0755"
             content: |
               #!/bin/sh
-              # Re-assert kubelet --node-ip = tailnet IPv4.
+              # Re-assert kubelet --provider-id and --node-ip.
               # Idempotent, and survives kubeadm upgrades, which rewrite kubeadm-flags.env.
-              TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+              #
+              # ORDER IS LOAD-BEARING. Everything that does not need tailscale runs
+              # before anything that does, because the tailscale checks below exit 0.
+              # The providerID block used to sit AFTER them, so on a node where
+              # tailscaled was slow or absent this script set no providerID and
+              # reported success -- the same failure that cost the spoke a
+              # control-plane roll, where the block was missing outright.
               FLAGS=/var/lib/kubelet/kubeadm-flags.env
               [ -f "$FLAGS" ] || exit 0
-              [ -x "$TS_BIN" ] || exit 0
-              TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
-              [ -n "$TS_IP" ] || exit 0
-              sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
-              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
+
               # Self-assign providerID from Hetzner metadata.
               #
               # Once --node-ip is a tailnet address the Hetzner CCM refuses to
@@ -417,13 +564,23 @@ spec:
               #
               # The instance id is authoritative and available from the metadata
               # service on the node itself, so kubelet can set providerID directly and
-              # the CCM is no longer on the critical path for it.
+              # the CCM is no longer on the critical path for it. It is also why this
+              # runs before the tailscale gates: nothing here needs the tailnet.
               if ! grep -q '\-\-provider-id=' "$FLAGS"; then
                 ID="$(curl -fsS --max-time 5 http://169.254.169.254/hetzner/v1/metadata/instance-id 2>/dev/null)"
                 if [ -n "$ID" ]; then
                   sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--provider-id=hcloud:\/\/${ID} /g" "$FLAGS"
                 fi
               fi
+
+              # --node-ip = tailnet IPv4. From here down tailscale is required, and
+              # its absence is not an error: kubelet keeps the address it had.
+              TS_BIN="${TS_BIN:-$(command -v tailscale 2>/dev/null || echo /opt/bin/tailscale)}"
+              [ -x "$TS_BIN" ] || exit 0
+              TS_IP="$($TS_BIN ip -4 2>/dev/null)" || exit 0
+              [ -n "$TS_IP" ] || exit 0
+              sed -i "s/ --node-ip=[0-9.]*//g" "$FLAGS"
+              sed -i "s/KUBELET_KUBEADM_ARGS=\"/KUBELET_KUBEADM_ARGS=\"--node-ip=${TS_IP} /g" "$FLAGS"
               exit 0
           - path: /etc/systemd/system/kubelet.service.d/10-dynamic-node-ip.conf
             owner: root
@@ -592,7 +749,7 @@ spec:
             # workload-location is half of the ADR-046 §11 placement class, and it
             # was missing here while every hub overlay selected on it.
             #
-            # manifests/hub-core-services/providers/hetzner/{database,redis,nats}
+            # manifests/hub-core-services/providers/hetzner/{database,redis}
             # pin `workload-location: hetzner`, and no hub node carried the label --
             # so on a pure-Hetzner hub platform-db selected a label nothing had and
             # stayed Pending. The spoke ClusterClass has always set it

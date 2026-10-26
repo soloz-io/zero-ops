@@ -1,0 +1,37 @@
+# ADR-108: what the preview-access service may do, and who may reach it.
+#
+# RBAC: read records, jobs, sandbox pods and namespaces cluster-wide (the
+# request path and the controller); write record status and the per-record
+# CiliumNetworkPolicy in tenant namespaces; create/read its own signing-key
+# Secret in platform-ops only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: preview-access
+rules:
+  - apiGroups: [compute.nutgraf.in]
+    resources: [previewaccesses]
+    verbs: [get, list, watch]
+  - apiGroups: [compute.nutgraf.in]
+    resources: [previewaccesses/status]
+    verbs: [get, update, patch]
+  - apiGroups: [compute.nutgraf.in]
+    resources: [ephemeraljobs]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [get, list, watch, create, update, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: preview-access
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: preview-access}
+subjects:
+  - {kind: ServiceAccount, name: preview-access, namespace: platform-ops}

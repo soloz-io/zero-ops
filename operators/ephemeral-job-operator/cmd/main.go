@@ -2,12 +2,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,9 +49,25 @@ func main() {
 	flag.DurationVar(&provisioningBudget, "provisioning-budget", 6*time.Minute,
 		"p95 cold-start budget for the burst placement class; over-budget waits are reported, never deleted.")
 
+	// ADR-106: whether this cluster enforces network policy through Cilium.
+	// REQUIRED, with no default, because both wrong answers are silent: a
+	// default of "cilium" makes a cluster without Cilium fail every storage-
+	// using job on a missing CRD, and a default of "none" leaves a production
+	// cluster's sandboxes without their storage and peer policies. Each install
+	// states it: config/default says cilium; the local profile says none,
+	// because ADR-106 is enforced from dev onward, by agreement with product.
+	var networkPolicy string
+	flag.StringVar(&networkPolicy, "network-policy", "",
+		"How sandbox network policy is enforced: cilium (render CiliumNetworkPolicies) or none (a cluster with no network policy enforcement). Required.")
+
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	mode, err := controller.ParseNetworkPolicyMode(networkPolicy)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -84,10 +102,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// A typed clientset, for one thing only: reading a failed workload's log tail so
+	// the terminal callback can say WHY it failed. A log is a subresource request, so
+	// the manager's client cannot serve it.
+	//
+	// Not fatal if it cannot be built. The operator's whole job is unaffected; what is
+	// lost is the most specific line of a failure message, and refusing to start over
+	// that would trade every workload for one diagnostic.
+	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "no clientset: failure messages will omit the workload's log tail")
+		clientset = nil
+	}
+
 	if err := (&controller.EphemeralJobReconciler{
 		Client:             mgr.GetClient(),
 		Scheme:             mgr.GetScheme(),
 		ProvisioningBudget: provisioningBudget,
+		Clientset:          clientset,
+		NetworkPolicy:      mode,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "EphemeralJob")
 		os.Exit(1)

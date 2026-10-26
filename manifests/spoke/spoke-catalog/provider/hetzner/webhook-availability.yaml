@@ -1,0 +1,40 @@
+# Availability for the one workload the API server itself depends on.
+#
+# cert-manager-webhook-hetzner backs the AGGREGATED APIService
+# v1alpha1.acme.nutgraf.in. That is a different class of dependency from an
+# ordinary Deployment: kube-apiserver proxies discovery for the acme.nutgraf.in
+# group to this Service, so whenever the Service has no ready endpoint, EVERY
+# client that enumerates API groups is affected -- not just ACME.
+#
+# Kyverno is the sharpest instance. Validating a ClusterPolicy calls
+# discovery.ServerPreferredResources (pkg/validation/policy/validate.go:155),
+# which walks every group; the policy webhook is failurePolicy: Fail with a
+# ~10s budget, so a stalled group means ClusterPolicy applies are REJECTED and
+# the spoke-catalog sync stops. Nothing in that chain names this webhook, so
+# the symptom surfaces as "kyverno is broken".
+#
+# The chart ships replicas: 1 with no PodDisruptionBudget, which makes that
+# outage a routine event rather than an incident -- an image pull, a rollout or
+# an eviction is enough. This is the ordinary HA posture for an API extension:
+#
+#   * replicas: 2 so a rollout or a single pod loss always leaves an endpoint.
+#   * topologySpreadConstraints with whenUnsatisfiable: ScheduleAnyway -- it
+#     PREFERS separate nodes and still schedules both on a single-node spoke.
+#     Deliberately not a nodeSelector or a required rule: placement must not
+#     become an invariant that breaks under rescheduling, node failure or a
+#     topology change, and a soft spread widens where these pods may run
+#     instead of narrowing it.
+#   * minAvailable: 1 so voluntary disruption cannot take the last endpoint.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: default
+  labels:
+    app: cert-manager-webhook-hetzner
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cert-manager-webhook-hetzner
+      release: cert-manager-webhook-hetzner

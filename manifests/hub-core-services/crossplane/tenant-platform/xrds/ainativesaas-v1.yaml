@@ -22,15 +22,107 @@ spec:
             type: object
             required:
             - tenantId
+            # Required, not optional-with-a-default. An appId that falls back to
+            # tenantId is the single-axis model wearing the new field's name, and
+            # the fallback would be invisible in every claim that relied on it.
+            - appId
+            - scopeId
             - tier
             - cellId
             - database
+            - dbRoleName
+            x-kubernetes-validations:
+              # 'tenant_'(7) + '_'(1) + '_user'(5) = 13 fixed bytes, leaving 50
+              # for the two components. The grammar admits only single-byte
+              # ASCII, so characters are bytes and this is exact. postgres
+              # truncates a longer identifier to 63 bytes with a NOTICE and
+              # succeeds, which would silently map two apps onto one role.
+              - rule: "self.tenantId.size() + self.appId.size() <= 49"
+                message: >-
+                  tenantId and appId together must not exceed 49 characters: the
+                  derived roles must fit postgres's 63-byte identifier limit, which
+                  truncates silently rather than failing. The bound follows the
+                  LONGEST generated role -- tenant_<tenantId>_<appId>_owner, whose
+                  fixed parts cost 14 bytes -- not the shortest (ADR-093).
+              - rule: "self.dbRoleName == 'tenant_' + self.tenantId + '_' + self.appId + '_user'"
+                message: >-
+                  dbRoleName is derived, not declared: it must equal
+                  tenant_<tenantId>_<appId>_user.
             properties:
               tenantId:
                 type: string
-                description: "Unique tenant identifier (e.g., 'acme')"
+                description: >-
+                  The organisation whose box this is (ADR-088). NOT a product:
+                  until 2026-09-24 this field held one, which is why a customer
+                  running two products had two tenants and no way to say they
+                  were the same customer.
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 minLength: 3
+                maxLength: 63
+              scopeId:
+                type: string
+                description: >-
+                  "<tenantId>-<appId>", combined once by the chart. Every
+                  namespace, object name and secret path is built from this, so
+                  the compositions need one field rather than a two-field
+                  combine at every one of sixty-five patch sites.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                minLength: 3
+                maxLength: 127
+              appId:
+                type: string
+                description: >-
+                  A product running on the tenant's box (ADR-088). The
+                  isolation unit: it gets the namespace, the database, the
+                  secret prefix and the policy. Does not default to tenantId --
+                  that default is the collapse ADR-088 removes.
+                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                minLength: 3
+                maxLength: 63
+              dbRoleName:
+                type: string
+                description: >-
+                  The postgres role this app's database credential authenticates
+                  as: "tenant_<tenantId>_<appId>_user". Composed once by the chart
+                  beside scopeId and carried unchanged to the spoke's
+                  TenantDatabase, which enforces the same two rules.
+
+
+                  It is NOT built from scopeId. A postgres role is cluster-wide
+                  (pg_authid is a shared catalog) and one spoke serves several
+                  tenants (ADR-051), while scopeId is not injective -- '-' is
+                  legal inside both components, so ("foo", "bar-baz") and
+                  ("foo-bar", "baz") both render "foo-bar-baz" and two tenants
+                  would have shared one role. '_' cannot occur in either
+                  component under the grammar above, which is what makes this
+                  encoding injective.
+                pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_user$'
+                maxLength: 63
+              dbOwnerRoleName:
+                type: string
+                description: >-
+                  DEPRECATED 2026-10-01 (ADR-099), and ignored. The platform
+                  provisions a database and a role; it creates nothing inside the
+                  database, so there is no second role to own anything and none is
+                  created. The field is retained so XRs written before this date
+                  still validate, and is removed once none carries it.
+
+
+                  The postgres role that owns this app's objects and runs its
+                  migrations: "tenant_<tenantId>_<appId>_owner" (ADR-093).
+
+
+                  Separate from dbRoleName because PostgreSQL exempts a table's
+                  OWNER from its own row-level security policies. While the
+                  application connected as the owner, every policy the tenant
+                  baseline ships was inert, and setting the RLS context correctly
+                  changed nothing because the policies were never evaluated.
+
+
+                  DERIVED, NOT DECLARED, on the same terms as dbRoleName, and
+                  bound by the same budget -- which this name, not dbRoleName, is
+                  what makes 49 rather than 50.
+                pattern: '^tenant_[a-z0-9]([-a-z0-9]*[a-z0-9])?_[a-z0-9]([-a-z0-9]*[a-z0-9])?_owner$'
                 maxLength: 63
               tier:
                 type: string
@@ -49,8 +141,12 @@ spec:
                 properties:
                   name:
                     type: string
-                    description: "Deterministic database name: tenant-<tenantId>-db"
-                    pattern: '^tenant-[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
+                    description: >-
+                      Deterministic database name: <tenantId>-<appId>-db
+                      (ADR-088). One per APP -- two products of one customer are
+                      as separated in their data as two customers, and sharing
+                      takes a `sharedData` declaration naming both sides.
+                    pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
               pooler:
                 type: object
                 description: "PgBouncer pooler configuration"
@@ -66,20 +162,6 @@ spec:
                     enum:
                     - transaction
                     default: transaction
-              postgrest:
-                type: object
-                description: "PostgREST configuration"
-                properties:
-                  dbSchema:
-                    type: string
-                    description: "PostgreSQL schema to expose via REST API"
-                    default: "public"
-                  jwtCacheSize:
-                    type: integer
-                    description: "JWT cache size (number of tokens)"
-                    default: 10000
-                    minimum: 1000
-                    maximum: 100000
               resourceQuota:
                 type: object
                 description: "Namespace resource quota limits"
@@ -168,6 +250,42 @@ spec:
                       It does not restrict WHO may sign up. Anyone who can reach
                       the hostname can join. Restricting that is an invitation
                       and needs a mail sender the issuer does not yet have.
+                  backendDependencies:
+                    type: array
+                    items:
+                      type: string
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                    description: |
+                      Other applications OF THIS TENANT that this one may call
+                      with a user's credential (ADR-094 Part 2).
+
+                      An appId, never a hostname and never another tenant's app.
+                      Cross-tenant access is a different decision with a
+                      different blast radius, and ADR-088 gives it no mechanism —
+                      so the platform refuses a dependency it cannot resolve to a
+                      sibling of this tenant rather than rendering something that
+                      half-works.
+
+                      The declaration means "this application is permitted to
+                      make authenticated user calls to that one". It is NOT
+                      merely "put that project in my audience", and the
+                      difference decides where the platform uses it: it is
+                      rendered into BOTH the audience scope this application's
+                      client requests AND the allowed-caller list the TARGET
+                      validates `azp` against.
+
+                      Rendering only the first would make this advisory, which is
+                      exactly what it must not be: Zitadel does not restrict
+                      which project audiences a client may request
+                      (isScopeAllowed returns true unconditionally for that
+                      prefix), so an audience proves nothing about who is
+                      calling. The receiver's check is what makes the
+                      declaration mean something.
+
+                      The fleet never writes a scope string itself, so it cannot
+                      widen its own scopes — the rule the gateway chart already
+                      states. What it declares is a relationship; the platform
+                      decides what that renders into.
               cache:
                 type: object
                 description: |
@@ -204,12 +322,26 @@ spec:
               oauth:
                 type: object
                 description: |
-                  OAuth clients this fleet declares (ADR-053). Only what the credential
-                  producer needs appears here: a confidential client receives a generated
-                  credential in Infisical, a public client holds no secret material and is
-                  listed so the set is complete. Grant types, scopes and redirect URIs are
-                  the registration controller's concern and reach it through the chart, not
-                  through this resource.
+                  OAuth clients this fleet declares (ADR-053). A confidential client
+                  receives a generated credential in Infisical; a public client holds no
+                  secret material and is listed so the set is complete.
+
+                  redirectPaths travels WITH the client, and the description here used to
+                  say the opposite -- that redirect URIs reach the registration controller
+                  through the chart rather than through this resource. That was true under
+                  Hydra, where an OAuth2Client CR carried them. Zitadel has no such
+                  controller: hub-operator reads them from THIS resource
+                  (ainativesaas_controller.go, declaredOAuthClients), so a schema that
+                  does not declare the field drops it before the controller ever sees it.
+
+                  Undeclared, the field was not ignored -- the apply was REFUSED:
+
+                    failed to create typed patch object (... Kind=AINativeSaaS):
+                    .spec.oauth.clients[0].redirectPaths: field not declared in schema
+
+                  which fails the fleet's XR, so the tenant record is never created and no
+                  OAuth client is provisioned at all. Grant types, scopes and response
+                  types remain the chart's concern and are deliberately absent.
                 properties:
                   clients:
                     type: array
@@ -229,9 +361,61 @@ spec:
                           enum:
                           - confidential
                           - public
+                        redirectPaths:
+                          type: array
+                          description: |
+                            Paths appended to the fleet's public host to form this client's
+                            registered callbacks. An issuer matches redirect URIs EXACTLY,
+                            with no wildcards, so a client provisioned without its callback
+                            fails at the authorization endpoint before any credential is
+                            entered -- which reads as a broken login page rather than as a
+                            missing registration.
+                          items:
+                            type: string
           status:
             type: object
             properties:
+              identity:
+                type: object
+                description: >-
+                  The IMMUTABLE binding between this tenant and its ZITADEL
+                  organisation (ADR-088). Written once, on first adoption or
+                  first creation, and never derived from a name again.
+
+                  A tenant's organisation is a security boundary and a user
+                  belongs to exactly one. Resolving it by name meant a rename
+                  produced a SECOND organisation with its own OAuth clients
+                  while every live user, grant and session stayed in the first
+                  -- which is what broke logins on 2026-09-24.
+                properties:
+                  zitadelOrgId:
+                    type: string
+                    description: >-
+                      The organisation id. Immutable. A change to tenantId,
+                      appId or any other presentation attribute must leave this
+                      untouched; renaming the tenant updates the organisation's
+                      NAME through UpdateOrganization, which does not change
+                      this id.
+                  adoptedAt:
+                    type: string
+                    format: date-time
+                    description: >-
+                      When the binding was established. Present means the
+                      organisation is adopted and reconciliation may proceed;
+                      absent with an organisation already existing under this
+                      name means reconciliation must STOP and report, never
+                      create a second one.
+                  zitadelProjectId:
+                    type: string
+                    description: >-
+                      The APPLICATION's project within the organisation
+                      (ADR-094). Immutable, like the organisation id. Its
+                      clients, redirect URIs, roles and grants live there, so
+                      re-resolving it by name after a rename would hand the
+                      application a new client id and sign everyone out.
+                      Absent on an application bound before per-application
+                      projects existed, which is how the hub-operator knows to
+                      leave that application on the legacy project.
               provisionedOAuthClients:
                 type: array
                 description: |
@@ -274,6 +458,3 @@ spec:
               poolerReady:
                 type: boolean
                 description: "True when CNPG Pooler CR is Ready"
-              postgrestReady:
-                type: boolean
-                description: "True when PostgREST Deployment is Ready"

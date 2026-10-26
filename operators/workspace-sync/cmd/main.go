@@ -109,6 +109,33 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 	if err := os.MkdirAll(root, 0o777); err != nil {
 		return false, err
 	}
+	// Hand the ROOT DIRECTORY to the workload, always — before any restore
+	// decision below, and whether or not there is anything to restore.
+	//
+	// workspaceUID's contract already says "every directory the restore itself
+	// creates" must belong to the workload, but the only chown was inside the
+	// file-by-file path. A workspace with no checkpoint yet returns early from
+	// restoreFromManifest, so this directory kept the owner of whoever created
+	// it — this process. That was invisible while the process ran as the
+	// workload's own uid; it became a bug the moment it had to run as root to
+	// chown restored files at all.
+	//
+	// The visible symptom is not a permission error from the restore, which
+	// succeeds. It is the AGENT failing to write into its own workspace much
+	// later — "/workspace/.global is read-only" — with nothing connecting that
+	// to a directory created empty at pod start. MkdirAll's mode is also
+	// subject to umask (0777 lands as 0755 under the usual 022), so the mode
+	// alone cannot be relied on either.
+	uid := workspaceUID()
+	// Same reasoning as chownTree: nothing to hand over when this process is
+	// already the workload's uid, and the root is frequently a kubelet-created
+	// mount point it cannot chown at all.
+	if err := chownRootIfNeeded(root, uid); err != nil {
+		// Not fatal: a root that is a mount point the kubelet owns may refuse,
+		// and the workload can still be fine if the mode is permissive. Logged
+		// loudly because if it is NOT fine, this line is the only warning.
+		log.Printf("WARNING: could not chown %s to uid %d — the workload may be unable to write it: %v", root, uid, err)
+	}
 	staging := s.StagingDir()
 	archivePath := filepath.Join(staging, "archive.sqsh")
 
@@ -124,8 +151,22 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 		switch {
 		case aErr == nil:
 			if mErr := mountFuse(ctx, root, staging, archivePath); mErr != nil {
-				log.Printf("pinned archive present but could not be mounted, falling back: %v", mErr)
-				return false, restoreFromCheckpoint(ctx, root, s, id)
+				// A failed mount is a failed restore. Unmount, report.
+				//
+				// This used to reconstruct the tree file-by-file instead and
+				// log a line about it. That is the wrong shape twice over: a
+				// pinned checkpoint is an EXACT revision the caller asked for,
+				// and a silent second route to it means a mount that has been
+				// broken for days presents as a session that is merely slow.
+				//
+				// The Cloudflare SDK this restore path was adopted from does
+				// not do it either -- backup-service.ts returns
+				// BACKUP_RESTORE_FAILED on both the squashfuse and the
+				// fuse-overlayfs branch, unmounting first. The fallback was
+				// ours, and it existed only because §14's content-addressed
+				// store happened to predate §14.2's archive.
+				unmountFuse(root, staging)
+				return false, fmt.Errorf("cannot mount pinned checkpoint %s: %w", id, mErr)
 			}
 			log.Printf("restored pinned checkpoint %s via squashfs overlay", id)
 			return true, nil
@@ -139,15 +180,39 @@ func restoreWorkspace(ctx context.Context, root string, s *store.Store) (bool, e
 		}
 	}
 
+	// The globals instance restores file-by-file, always. Its root is INSIDE
+	// another workspace's tree, so a FUSE overlay here would nest inside a mount
+	// it does not own — and skipping this path is what lets that sidecar run
+	// unprivileged. See store.Config.NoArchive.
+	if s.NoArchive() {
+		return false, restoreFromManifest(ctx, root, s)
+	}
+
 	err := s.DownloadArchive(ctx, archivePath)
 	switch {
 	case err == nil:
 		if mErr := mountFuse(ctx, root, staging, archivePath); mErr != nil {
-			// A present-but-unmountable archive is NOT a reason to start empty
-			// — the data exists. Fall back to the slow path, which reads the
-			// same content from the content-addressed objects.
-			log.Printf("archive present but could not be mounted, falling back to file-by-file: %v", mErr)
-			return false, restoreFromManifest(ctx, root, s)
+			// A failed mount is a failed restore. Unmount, report.
+			//
+			// The previous comment here argued that a present-but-unmountable
+			// archive is not a reason to start empty, because the data exists
+			// in the content-addressed objects. Both halves are true and the
+			// conclusion still does not follow: the alternative to starting
+			// empty is FAILING, not quietly taking a different route and
+			// reporting success.
+			//
+			// What that cost is not hypothetical. Asked whether a fleet had
+			// been restoring through this branch, the answer was unobtainable
+			// -- the only evidence would have been a log line in a pod whose
+			// logs had been collected. A mount that stops working is supposed
+			// to be loud.
+			//
+			// Parity with the SDK this was adopted from: backup-service.ts
+			// returns BACKUP_RESTORE_FAILED from both mount branches and
+			// unmounts on the way out. It keeps no second representation to
+			// fall back to, and neither does this path now.
+			unmountFuse(root, staging)
+			return false, fmt.Errorf("cannot mount workspace archive: %w", mErr)
 		}
 		log.Printf("restored via squashfs overlay at %s", root)
 		return true, nil
@@ -243,6 +308,16 @@ func mountFuse(ctx context.Context, workspaceRoot, staging, archivePath string) 
 // built — but upperDir, the writable layer mountFuse creates fresh on every
 // restore, is written by this process directly and needs the same chown as
 // the slow path's chownTree below. See mountFuse for what shipped without it.
+// chownRootIfNeeded is chownTree's single-entry twin, kept separate because the
+// root is the one path most likely to be a mount point and least likely to
+// matter: the workload writes INTO it, not to it.
+func chownRootIfNeeded(root string, uid int) error {
+	if os.Getuid() == uid {
+		return nil
+	}
+	return os.Chown(root, uid, uid)
+}
+
 func workspaceUID() int {
 	if v := os.Getenv("WORKSPACE_UID"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -253,7 +328,27 @@ func workspaceUID() int {
 }
 
 // chownTree gives a file-by-file restore back to the workload.
+// chownTree hands a restored tree to the workload.
+//
+// It is a NO-OP when this process already runs as that uid, and returns
+// immediately rather than walking. That is not an optimisation: a process is
+// permitted to chown a file to its own uid only where it already owns it, and
+// the one thing it never owns is the mount point the kubelet created --
+// root:root, whatever is mounted there. Walking into it fails:
+//
+//	serve failed: restore on startup: chown restored workspace to uid 1000:
+//	lchown /workspace/.global: operation not permitted
+//
+// and the pod crashlooped on a directory it did not need to own. Mode 0777 on
+// an emptyDir already lets it write there, which is all the restore requires.
+//
+// The chown exists for the case this binary ran as root and had to hand
+// ownership over. Running as the workload's own uid, every file it writes is
+// correctly owned when it is written, so there is nothing to hand over.
 func chownTree(root string, uid int) error {
+	if os.Getuid() == uid {
+		return nil
+	}
 	return filepath.Walk(root, func(p string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -346,6 +441,19 @@ func runServe(root string) error {
 		stagingRoot = v
 	}
 
+	// The staging directory must exist before anything writes into it.
+	//
+	// It used to be the emptyDir's own mount point, which the kubelet creates,
+	// so nothing here ever had to. A second instance in the same pod stages in a
+	// SUBDIRECTORY of that mount — the readiness marker is named from it, and two
+	// instances sharing one directory would let each satisfy the other's startup
+	// probe — and no one creates a subdirectory of an emptyDir. The shared
+	// instance therefore restored correctly and then died writing its marker,
+	// crashlooping the pod before the workload ever started.
+	if err := os.MkdirAll(stagingRoot, 0o777); err != nil {
+		return fmt.Errorf("creating staging directory %s: %w", stagingRoot, err)
+	}
+
 	// Read-only: mounted, serving, and incapable of writing (§14.3).
 	//
 	// Declared here because every path below consults it — the restore, the
@@ -372,7 +480,22 @@ func runServe(root string) error {
 	// STARTS. A sandbox that refuses to run is the correct outcome when its
 	// workspace could not be restored — the alternative is an agent editing an
 	// empty tree that will be checkpointed over the real one.
-	if !notConfigured {
+	//
+	// A reader that may refresh (§14.9) lays its workspace out as generations
+	// instead: the same file-by-file restore, behind a link /refresh can swap.
+	refresh, err := refreshEnabled(s)
+	if err != nil {
+		return err
+	}
+	var gens *generations
+	if refresh {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		gens, err = startGenerations(ctx, root, s)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("restore on startup: %w", err)
+		}
+	} else if !notConfigured {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		fused, rErr := restoreWorkspace(ctx, root, s)
 		cancel()
@@ -409,32 +532,106 @@ func runServe(root string) error {
 	// serialises the snapshots themselves. That serialisation is the point as
 	// much as the field is: two concurrent walks of the same tree would upload
 	// interleaved views of it and race to claim the same parent.
+	//
+	// A one-slot semaphore, not a sync.Mutex, because a waiter must be able to
+	// give up. With a mutex an on-demand /checkpoint queued silently behind a
+	// stalled periodic save -- 8m33s on 2026-10-05 -- and its caller timed out
+	// with no answer; the shutdown save waited the same way, outside its budget.
+	// A waiter now stops at its own bound and is told what holds the slot.
 	var (
-		mu   sync.Mutex
-		last string
+		slot     = make(chan struct{}, 1)
+		stateMu  sync.Mutex // guards the fields below
+		last     string
+		current  *saveState // the save holding the slot, if any
+		lastDone *saveState // the most recent save to finish
 	)
 
-	snapshotCtx := func(ctx context.Context, name, desc, trigger string) (*store.Manifest, error) {
+	// acquire takes the slot, waiting at most `wait` (negative: until ctx ends).
+	acquire := func(ctx context.Context, wait time.Duration) error {
+		var timeout <-chan time.Time
+		if wait >= 0 {
+			t := time.NewTimer(wait)
+			defer t.Stop()
+			timeout = t.C
+		}
+		select {
+		case slot <- struct{}{}:
+			return nil
+		case <-timeout:
+			return errSaveInProgress
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %v", errSaveInProgress, ctx.Err())
+		}
+	}
+	release := func() { <-slot }
+
+	// busy describes the slot's holder and the last finished save, for a caller
+	// that could not get it.
+	busy := func() map[string]any {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		out := map[string]any{"error": "a save is in progress; retry when it completes"}
+		if current != nil {
+			out["inProgress"] = current.view()
+		}
+		if lastDone != nil {
+			out["lastCompleted"] = lastDone.view()
+		}
+		return out
+	}
+
+	snapshotCtx := func(ctx context.Context, name, desc, trigger string, wait time.Duration) (*store.Manifest, error) {
 		if s == nil {
 			return nil, store.ErrNotConfigured
 		}
-		mu.Lock()
-		defer mu.Unlock()
-		m, err := s.Snapshot(ctx, root, name, desc, trigger, last)
-		if err != nil {
+		if err := acquire(ctx, wait); err != nil {
 			return nil, err
 		}
-		last = m.ID
-		return m, nil
+		defer release()
+
+		stateMu.Lock()
+		current = &saveState{Trigger: trigger, Since: time.Now()}
+		parent := last
+		stateMu.Unlock()
+
+		m, err := s.Snapshot(ctx, root, name, desc, trigger, parent)
+
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		done := *current
+		done.Finished = time.Now()
+		switch {
+		case err == nil:
+			last = m.ID
+			done.CheckpointID, done.Outcome = m.ID, "saved"
+		case errors.Is(err, store.ErrUnchanged), errors.Is(err, store.ErrNothingToSave):
+			done.Outcome = "skipped"
+		default:
+			done.Outcome = "failed"
+		}
+		current, lastDone = nil, &done
+		return m, err
 	}
 
 	// The ordinary path: a generous ceiling, since a first checkpoint of a
-	// large workspace is genuinely slow and nothing is waiting on it. The
-	// shutdown path passes its own, much shorter budget instead.
-	snapshot := func(name, desc, trigger string) (*store.Manifest, error) {
+	// large workspace is genuinely slow and nothing is waiting on it. Each
+	// storage call inside it is bounded separately (store.callBudget), so the
+	// ceiling is reached only by a save that is making progress. The shutdown
+	// path passes its own, much shorter budget instead.
+	snapshot := func(name, desc, trigger string, wait time.Duration) (*store.Manifest, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		return snapshotCtx(ctx, name, desc, trigger)
+		return snapshotCtx(ctx, name, desc, trigger, wait)
+	}
+
+	// How long an on-demand /checkpoint waits for a save already in progress
+	// before answering 503 with what is in progress. Below the 120s tool
+	// timeout that calls it, so the caller gets an answer rather than a timeout.
+	checkpointWait := 60 * time.Second
+	if v := os.Getenv("WORKSPACE_SYNC_CHECKPOINT_WAIT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			checkpointWait = time.Duration(n) * time.Second
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -461,7 +658,29 @@ func runServe(root string) error {
 			})
 			return
 		}
-		m, err := snapshot(req.Name, req.Description, "on-demand")
+		wait := checkpointWait
+		if v := r.URL.Query().Get("wait"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 300 {
+				wait = time.Duration(n) * time.Second
+			}
+		}
+		m, err := snapshot(req.Name, req.Description, "on-demand", wait)
+		if errors.Is(err, errSaveInProgress) {
+			// 503 with what holds the slot, not a hung request: the caller can
+			// retry when the in-progress save completes, and sees which save it
+			// was waiting on.
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, busy())
+			return
+		}
+		if errors.Is(err, store.ErrUnchanged) {
+			// 200, not an error: the request was correct and the workspace is
+			// already represented by the checkpoint it was restored from. Writing
+			// one would move LATEST over a copy another session may have written
+			// since (see store.ErrUnchanged).
+			writeJSON(w, http.StatusOK, map[string]any{"checkpointId": "", "skipped": "unchanged"})
+			return
+		}
 		if errors.Is(err, store.ErrNothingToSave) {
 			// 200 with no id, like the not-configured case: the request was
 			// correct and there is simply nothing here yet. A 4xx would read as
@@ -500,7 +719,12 @@ func runServe(root string) error {
 			})
 			return
 		}
-		m, err := snapshot("", "", "teardown")
+		m, err := snapshot("", "", "teardown", checkpointWait)
+		if errors.Is(err, errSaveInProgress) {
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, busy())
+			return
+		}
 		if errors.Is(err, store.ErrNotConfigured) {
 			writeJSON(w, http.StatusOK, map[string]any{"skipped": "not-configured"})
 			return
@@ -557,11 +781,15 @@ func runServe(root string) error {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
-		mu.Lock()
-		defer mu.Unlock()
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
+
+		if err := acquire(ctx, checkpointWait); err != nil {
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, busy())
+			return
+		}
+		defer release()
 
 		// Resolve the target first, so a bad id is a 404 BEFORE anything is
 		// unmounted. Rejecting after teardown would leave the workspace in
@@ -608,9 +836,74 @@ func runServe(root string) error {
 
 		// Lineage: work resumed after an undo descends from the checkpoint it
 		// was restored to, not from whatever was checkpointed last.
+		stateMu.Lock()
 		last = target
+		stateMu.Unlock()
 		log.Printf("restored to checkpoint %s (%d files)", target, len(m.Entries))
 		writeJSON(w, http.StatusOK, map[string]any{"restored": true, "checkpoint": target})
+	})
+
+	// POST /refresh — a reader moves to the shared workspace's newest checkpoint
+	// (§14.9), without a restart.
+	//
+	// The answer is one of three outcomes, so a caller can tell "already
+	// current" from "moved" from "could not":
+	//
+	//	200 {"outcome":"unchanged","checkpoint":id}
+	//	200 {"outcome":"refreshed","checkpoint":id,"files":n}
+	//	non-2xx {"outcome":"failed","error":...}  -- the workspace is as it was
+	//
+	// A checkpoint the writer finished (its /checkpoint answered 200) is LATEST
+	// by then, so a refresh after it sees it. Serialised with the same slot as
+	// every other save or restore.
+	mux.HandleFunc("/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if gens == nil {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"outcome": "failed",
+				"error":   "refresh is not enabled for this workspace (sharedWorkspaceRefresh, on a read-only, unpinned shared workspace)",
+			})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		if err := acquire(ctx, checkpointWait); err != nil {
+			out := busy()
+			out["outcome"] = "failed"
+			w.Header().Set("Retry-After", "15")
+			writeJSON(w, http.StatusServiceUnavailable, out)
+			return
+		}
+		defer release()
+
+		id, err := s.Latest(ctx)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"outcome": "failed", "error": fmt.Sprintf("reading LATEST pointer: %v", err)})
+			return
+		}
+		if id == gens.id {
+			writeJSON(w, http.StatusOK, map[string]any{"outcome": "unchanged", "checkpoint": id})
+			return
+		}
+		if id == "" {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"outcome": "failed",
+				"error":   fmt.Sprintf("the shared workspace has no LATEST checkpoint, but this reader holds %s", gens.id),
+			})
+			return
+		}
+		files, err := gens.advance(ctx, s, id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"outcome": "failed", "error": err.Error()})
+			return
+		}
+		log.Printf("refreshed shared workspace to checkpoint %s (%d files, generation %d)", id, files, gens.n)
+		writeJSON(w, http.StatusOK, map[string]any{"outcome": "refreshed", "checkpoint": id, "files": files})
 	})
 
 	// GET /list-checkpoints — returns checkpoint IDs in reverse chronological
@@ -674,7 +967,17 @@ func runServe(root string) error {
 		for {
 			select {
 			case <-t.C:
-				if _, err := snapshot("", "", "periodic"); err != nil && !errors.Is(err, store.ErrNotConfigured) {
+				// wait 0: a save already running (an on-demand one) covers this
+				// tick, so the backstop skips rather than queueing behind it.
+				_, err := snapshot("", "", "periodic", 0)
+				switch {
+				case err == nil, errors.Is(err, store.ErrNotConfigured), errors.Is(err, errSaveInProgress):
+				case errors.Is(err, store.ErrUnchanged), errors.Is(err, store.ErrNothingToSave):
+					// Not a failure and not worth a line every interval: a
+					// read-mostly session ticks like this for its whole life. The
+					// skip is the CORRECT outcome -- writing would move LATEST over
+					// another session's newer copy (store.ErrUnchanged).
+				default:
 					// Logged, not fatal: the backstop failing must not take the
 					// sandbox down with it. The on-demand path is the primary
 					// mechanism and is unaffected.
@@ -746,15 +1049,28 @@ func runServe(root string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		defer cancel()
 
+		// Opt-out, not opt-in. A fleet that turns this off is saying its
+		// workspace is reproducible or disposable, which is a claim only the
+		// fleet can make — but the default has to be "keep the work", because
+		// the cost of being wrong is a user's run and the cost of being right
+		// is one upload at shutdown.
+		if os.Getenv("WORKSPACE_SYNC_TEARDOWN") == "false" {
+			log.Print("teardown checkpoint disabled by configuration — shutting down without saving")
+			return
+		}
+
 		if readOnly {
 			log.Print("read-only workspace — no teardown checkpoint")
 			return
 		}
 
-		m, err := snapshotCtx(ctx, "", "", "teardown")
+		// Waits for an in-progress save only within its own budget.
+		m, err := snapshotCtx(ctx, "", "", "teardown", -1)
 		switch {
 		case errors.Is(err, store.ErrNotConfigured):
 			log.Print("teardown checkpoint skipped — object storage not configured")
+		case errors.Is(err, store.ErrUnchanged):
+			log.Print("teardown checkpoint skipped — workspace unchanged since restore")
 		case errors.Is(err, store.ErrNothingToSave):
 			log.Print("teardown checkpoint skipped — workspace has no files to save")
 		case err != nil:
@@ -794,4 +1110,30 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// errSaveInProgress: the snapshot slot was not free within the caller's wait.
+var errSaveInProgress = errors.New("a save is in progress")
+
+// saveState is one save, as reported to a caller that found the slot taken.
+type saveState struct {
+	Trigger      string
+	Since        time.Time
+	Finished     time.Time
+	Outcome      string
+	CheckpointID string
+}
+
+func (st *saveState) view() map[string]any {
+	v := map[string]any{"trigger": st.Trigger, "since": st.Since.UTC().Format(time.RFC3339)}
+	if st.Finished.IsZero() {
+		v["elapsedSeconds"] = int(time.Since(st.Since).Seconds())
+	} else {
+		v["finished"] = st.Finished.UTC().Format(time.RFC3339)
+		v["outcome"] = st.Outcome
+		if st.CheckpointID != "" {
+			v["checkpointId"] = st.CheckpointID
+		}
+	}
+	return v
 }

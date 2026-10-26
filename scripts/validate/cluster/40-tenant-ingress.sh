@@ -6,6 +6,9 @@
 # so each is asserted directly rather than inferred from pod status.
 validate_tenant_ingress() {
     section "Tenant ingress path (ADR-050/051)"
+    # Every hostname below derives from the zone; without it there is nothing
+    # to check against, and the platform's own zone is not a substitute.
+    require_zone || return 0
 
     if ! ensure_spoke_kubeconfig; then
         soft_fail "spoke unreachable — tenant ingress path not verified"
@@ -37,7 +40,26 @@ validate_tenant_ingress() {
     fi
 
     if [[ "${total:-0}" -eq 0 ]]; then
-        soft_fail "no AgentGateway deployment found on the spoke — nothing enforces OIDC in front of tenant workloads"
+        # Zero gateways is only a fault if a tenant exists to need one.
+        #
+        # The comment above already says ONE PER TENANT, rendered by the
+        # universal-tenant chart into the tenant's own namespace -- so on a box
+        # with no tenants, zero is the correct number and this reported "nothing
+        # enforces OIDC in front of tenant workloads" about workloads that do not
+        # exist. Every fresh box failed here, and the message described a security
+        # hole rather than an empty fleet.
+        #
+        # Tenants are AINativeSaaS on the HUB, which is the same source check 30
+        # reads; it printed "no tenants provisioned yet" on the same run this
+        # failed.
+        local tenant_count
+        tenant_count=$(kc get ainativesaas -A -o json 2>/dev/null \
+            | jq -r '[.items[]?] | length' 2>/dev/null)
+        if [[ "${tenant_count:-0}" -eq 0 ]]; then
+            pass "no tenants declared, so no tenant AgentGateway is expected"
+        else
+            soft_fail "$tenant_count tenant(s) declared but no AgentGateway deployment exists on the spoke — nothing enforces OIDC in front of their workloads"
+        fi
     else
         local notready
         notready=$(printf '%s' "$ag_json" | jq -r '[.items[]? | select((.status.readyReplicas // 0) < 1) | .metadata.namespace + "/" + .metadata.name] | join(", ")')
@@ -50,6 +72,7 @@ validate_tenant_ingress() {
 
     _validate_external_dns_runtime
     _validate_gateway_programmed
+    _validate_one_gateway_per_port
     _validate_routes_accepted
     _validate_spoke_certificates
 }
@@ -80,8 +103,77 @@ _validate_external_dns_runtime() {
     fi
 }
 
-# Accepted alone only means the config parsed. Programmed means an address was
-# assigned and the listeners are actually live.
+# ADR-051 (amendment 2026-09-21): a port is claimed by exactly one Gateway.
+#
+# A Cilium Gateway in hostNetwork mode (ADR-046 §8) binds a REAL host port, so
+# two Gateways on one port is a port conflict rather than a merge. Envoy keeps
+# the first and rejects the rest:
+#
+#   has duplicate address '0.0.0.0:443' as existing listener
+#
+# Checked LIVE and not only against the manifests, because the manifest gate
+# (TestOneGatewayPerHostPortInTheSpokeCatalog) can only prove that the sources
+# it knows about agree. It cannot see a Gateway left behind by an older bundle,
+# created by hand, or added by a chart introduced later -- which is how this
+# arrived: one claimant per source tree, each correct on its own.
+#
+# A purpose gets a LISTENER on the shared Gateway, never a Gateway of its own.
+_validate_one_gateway_per_port() {
+    # jsonpath cannot carry the parent's name into a nested range over its
+    # listeners, so the (port, gateway) pairing is built here instead.
+    local rows dupes
+    rows=""
+    local g p
+    while IFS= read -r g; do
+        [[ -n "$g" ]] || continue
+        for p in $(kc_spoke get gateway -A -o jsonpath="{range .items[?(@.metadata.name=='$g')]}{range .spec.listeners[*]}{.port}{' '}{end}{end}"); do
+            rows+="$p $g"$'\n'
+        done
+    done <<< "$(kc_spoke get gateway -A -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
+    rows=$(echo "$rows" | awk 'NF==2' | sort -u)
+
+    if [[ -z "$rows" ]]; then
+        soft_fail "no Gateway listeners found on the spoke -- nothing terminates tenant traffic"
+        return
+    fi
+
+    dupes=$(echo "$rows" | awk '{print $1}' | sort | uniq -d)
+    if [[ -z "$dupes" ]]; then
+        pass "every Gateway port has exactly one claimant (no envoy listener conflict)"
+    else
+        local port names
+        while IFS= read -r port; do
+            [[ -n "$port" ]] || continue
+            names=$(echo "$rows" | awk -v x="$port" '$1==x {print $2}' | sort -u | tr '\n' ' ')
+            hard_fail "port $port is claimed by more than one Gateway ($names) -- envoy NACKs all but the first, and the losing hostname resets every connection while still reporting Programmed=True. Give each purpose a LISTENER on one Gateway (ADR-051 amendment 2026-09-21)"
+        done <<< "$dupes"
+    fi
+
+    # Listener names are the ServerSideApply merge key across contributors, so a
+    # duplicate does not conflict -- it silently replaces, which is the same
+    # outage reached another way.
+    local dupnames d
+    dupnames=$(kc_spoke get gateway -A \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"/"}{range .spec.listeners[*]}{.name}{"\n"}{end}{end}' \
+        | grep -v '^$' | sort | uniq -d)
+    if [[ -n "$dupnames" ]]; then
+        while IFS= read -r d; do
+            [[ -n "$d" ]] || continue
+            hard_fail "listener $d is declared twice -- the name is the ServerSideApply merge key, so one contributor silently replaces the other"
+        done <<< "$dupnames"
+    fi
+}
+
+# Accepted alone only means the config parsed.
+#
+# Programmed does NOT mean the listeners are live, and this comment used to say
+# it did. On 2026-09-21 two Gateways claimed :443 on one spoke; envoy accepted
+# the first and NACKed the second for the life of the cluster, while BOTH
+# reported Programmed=True with their routes Accepted, ResolvedRefs=True and
+# their certificates issued. The losing hostname reset every TLS ClientHello.
+# Programmed is written by the Gateway controller from its own intent; it does
+# not survive a round trip through envoy. _validate_one_gateway_per_port
+# asserts what it cannot.
 _validate_gateway_programmed() {
     local st
     st=$(kc_spoke get gateway -n platform-ops \

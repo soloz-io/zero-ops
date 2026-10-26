@@ -42,6 +42,29 @@
 > **mandatory**: the BFF must validate `aud` explicitly. Third-party options were
 > evaluated and not adopted (see Impact).
 
+> **Amendment 2026-10-21: an unauthenticated API call gets 401, never a login redirect.**
+> Proposed; implemented by moving the tenant gateway to agentgateway v1.6.0. See
+> "Unauthenticated non-navigation requests" below.
+>
+> **The defect, verified on dev (oranger.dev.nutgraf.in, 2026-10-21).** At v1.5.0 every
+> unauthenticated request except a CORS preflight starts the login flow
+> (`crates/agentgateway/src/http/oidc/mod.rs`: "OIDC is an interactive browser policy:
+> unauthenticated non-callback requests enter login"). For a page's `fetch`, that is:
+>
+> - **No 401 for the app.** The `302` to the issuer's `/oauth/v2/authorize` is followed
+>   cross-origin and blocked by CORS. The app sees a bare network error, and its
+>   "401 means signed out, go to login" handling never runs. The user stays on a stale
+>   page whose API calls all fail.
+> - **A new login-attempt cookie every time.** Each such call sets a new transaction
+>   cookie (`agw_oidc_t_<policy>.<id>`, about 500 bytes, `Max-Age=300`). A page that keeps
+>   calling its API after the session ends collects dozens in five minutes. The next real
+>   login then fails at `/oauth/callback` with `400 Request Header Or Cookie Too Large`
+>   once the `Cookie` header passes the callback shim's 32 KB line buffer. The user
+>   cannot sign in until the cookies expire or are cleared.
+>
+> Raising header limits again only moves the threshold. The contract below removes the
+> cause.
+
 ---
 
 ## Context
@@ -96,6 +119,52 @@ Browser → AgentGateway (oidc policy)
             └── /*      → Tenant SPA
 AgentGateway → Hydra (OIDC) → auth-proxy (login/consent) → Kratos
 ```
+
+### Unauthenticated non-navigation requests (Amendment 2026-10-21)
+
+The gateway distinguishes a **document navigation** from a request a page makes itself,
+using the browser's own `Sec-Fetch-Mode` header:
+
+| Unauthenticated request | Gateway response |
+|-------------------------|------------------|
+| Document navigation (`Sec-Fetch-Mode: navigate`, or no header) | `302` into the login flow, as before |
+| `Sec-Fetch-Mode: cors`, `no-cors`, `same-origin` or `websocket` | **`401`**, with **no `Set-Cookie`**: no login transaction is started |
+
+- **Provided by agentgateway v1.6.0, with no configuration**
+  (`crates/agentgateway/src/http/oidc/mod.rs:310-330` at `v1.6.0`). The non-navigation
+  branch returns `AuthenticationRequired` before the login flow begins, and
+  `proxy/mod.rs` maps that to `401 UNAUTHORIZED`. The tenant gateway image moves to
+  v1.6.0 (`universal-tenant/templates/agentgateway.yaml`).
+- **Scope: every route on the protected listener.** The login policy is attached to the
+  `app` listener, so the contract covers every route there, including `/api/*`, the SPA,
+  `/_platform/preview-access/` and SSE streams.
+  - The other binds (the webhook callback, public assets, public routes) run no login
+    policy, so they never start a login and never set its cookies.
+  - Browsers send `Sec-Fetch-Mode`: `fetch` and XHR send `cors` or `same-origin`,
+    `EventSource` sends `cors` (the Fetch spec's request mode for EventSource), WebSocket
+    sends `websocket`, and subresources send `no-cors`.
+- **The one cookie a 401 can carry.** It only arises if session refresh is ever enabled
+  (`clear_refresh_cookie`, `oidc/mod.rs:297,321,358` at `v1.6.0`). When a refresh cookie
+  exists and its refresh fails terminally, the `401` *expires* that cookie (`Max-Age=0`).
+  That removes a cookie and never adds one. Refresh is not enabled, so today a 401 carries
+  no cookie at all.
+- **Requests without `Sec-Fetch-Mode` are treated as navigations** and still get the
+  `302` plus a login-transaction cookie. Every current major browser sends the header;
+  non-browser clients do not, and a non-browser client has no business on this listener.
+- **The application's side.** A `401` from an ordinary endpoint means the session has
+  ended. The app responds with a top-level navigation (reloading the current URL is
+  enough), and the gateway answers that navigation with the login redirect. An app never
+  follows the issuer itself and never reads gateway cookies.
+- **Checked live** by `scripts/validate/cluster/050-tenant-authentication.sh` for each
+  public application host:
+  - a sessionless request with `Sec-Fetch-Mode: cors` gets `401` and no `Set-Cookie`;
+  - a sessionless navigation gets `302` to the issuer.
+
+  A regression in a future gateway version fails there, not in a user's browser.
+- **Out of scope here:** v1.6.0 also supports refreshing a session with a refresh token.
+  Turning that on is a separate decision. With more than one gateway replica it needs the
+  issuer's refresh-token reuse grace configured, per the upstream note on
+  `OidcPolicy` in `oidc/local.rs`.
 
 ### Identity flows to the BFF as a validated ID token
 
@@ -383,6 +452,57 @@ The cross-namespace reference this requires — the tenant's public route names 
   credentials/instances rather than shared `default`-user access.
 
 ---
+
+## The platform owns the validator configuration, not just the library (2026-09-30)
+
+`zero-ops-auth` shipped PRIMITIVES — `JwtValidator` and its options — and left
+every application to assemble them. That is the wrong boundary, and the reason is
+specific rather than aesthetic.
+
+`JwtValidator` has four security-relevant switches: `audience`, the caller
+allowlist, `rejectIdTokens`, `requireTenantId`. The correct setting of each
+depends on facts about the issuer and about this gateway that live nowhere near an
+application's repository. Asking each product team to derive four switches from an
+ADR means each team re-derives the same reasoning, and one of them gets it wrong
+quietly — because **a wrong switch here fails by ACCEPTING a token, not by
+erroring.** Nothing fails when a receiver admits too much.
+
+It had already happened twice. The caller allowlist was rendered with the public
+PKCE client id, which would have admitted any token from the calling application's
+own login; and when the gateway began minting, every receiver still checking the
+browser client would have refused every request. Neither is a mistake a product
+team should be positioned to make.
+
+**So the platform names the SURFACES and owns the switches.** An application picks
+the surface it is building:
+
+```
+browserSessionValidator()   a BFF behind this tenant's gateway
+consumerApiValidator()      a surface another APPLICATION calls (ADR-042)
+```
+
+Three properties are deliberate:
+
+- **The switches cannot be overridden through the factory.** There is no option to
+  accept an ID token on either surface. A setting that can be turned off to make
+  an error go away will be.
+- **`consumerApiValidator` refuses to BUILD when no callers are published.** An
+  empty allowlist is not "admit nobody" — `JwtValidator` reads it as "check
+  nothing", which on a cross-application surface is open to every application on
+  the box. The surface should not mount until a caller exists.
+- **Every platform-published environment key is named in one module**
+  (`PLATFORM_ENV`), so a rename by the platform is a type error in the
+  application rather than an empty string at runtime. When `OIDC_ALLOWED_AZP`
+  changed from a list to a map, any application that had written
+  `process.env.OIDC_ALLOWED_AZP.split(' ')` became silently wrong with nothing in
+  its own repository saying so.
+
+The same reasoning covers the intra-application BFF→SDK channel (ADR-057), whose
+two halves are a matched pair of header names that were written out by hand on
+both sides of a repository boundary — and whose caller half appeared in waypoint
+eight times as `process.env.X ? { header } : {}`, so an absent token produced a
+call with NO header and a bare 401 at the far end. `internalCallHeaders` throws
+instead. A missing credential stops the caller; it does not travel.
 
 ## Ownership
 
@@ -698,6 +818,10 @@ Recorded as upstream requirements, not accepted risk:
 4. No structured OIDC audit events (debug traces only).
 5. ~~JWKS is static — loaded once at startup~~ **(corrected 2026-08-21: JWKS refreshes on a schedule; see the amendment above).** The remaining gap is no refresh on unknown `kid`;
    Hydra signing-key rotation requires gateway restart.
+6. ~~An unauthenticated non-navigation request starts the login flow~~ **(closed in
+   v1.6.0; Amendment 2026-10-21).** At v1.5.0 it was a `302` plus a new transaction
+   cookie per request: no 401 for the app, and cookie growth that eventually blocked
+   `/oauth/callback`. v1.6.0 answers `401` without starting a login.
 
 ---
 

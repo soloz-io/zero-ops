@@ -86,7 +86,11 @@ func TestLoadsPreTimingStateFile(t *testing.T) {
   "timestamp": "0001-01-01T00:00:00Z",
   "metadata": null
 }`
-	statePath := filepath.Join(dir, ".zero-ops", "state")
+	// Written at the one supported location. This fixture used to sit in
+	// .zero-ops/state, which made the test look like it covered the legacy
+	// directory; what it actually asserts is that a state file predating the
+	// timing fields still loads, and that is independent of where it lives.
+	statePath := filepath.Join(dir, TenantStateDir)
 	if err := os.MkdirAll(statePath, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

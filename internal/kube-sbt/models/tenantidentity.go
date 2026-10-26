@@ -20,11 +20,66 @@ type OAuthClient struct {
 	// redirect URIs EXACTLY, so a client provisioned without its callback fails
 	// at the authorization endpoint before any credential is entered.
 	RedirectPaths []string
+
+	// TokenExchange enables the RFC 8693 grant on this client (ADR-095).
+	//
+	// OFF unless asked for, and asked for by the PLATFORM rather than a fleet:
+	// it is set on the gateway's own exchange client and on nothing else. A
+	// client holding this grant can turn a token it was given into one for a
+	// different audience, so it is a capability to grant deliberately, not a
+	// property of being confidential.
+	//
+	// Zitadel gates the grant on the client and says so: "we need to enable the
+	// urn:ietf:params:oauth:grant-type:token-exchange grant type", and
+	// recommends it on confidential clients only. Without it the token endpoint
+	// refuses the exchange.
+	TokenExchange bool
+}
+
+// ProjectBinding says which identity project an APPLICATION's clients live in
+// (ADR-094: one project per application).
+//
+// The same shape as the organisation binding, for the same reason. KnownID is
+// the immutable binding from the application's record: set, it is used and
+// verified, and the name is irrelevant. Empty, Name is looked up or created
+// WITHIN the tenant's already-bound organisation -- a name search that is safe
+// here, where the org one is not, because a project cannot belong to another
+// tenant: the organisation it is searched in already establishes whose it is.
+//
+// An empty Name means the provider's configured legacy project. That is how an
+// application provisioned before per-application projects stays where it is
+// (ADR-094 "waypoint stays where it is"): moving it reissues its client id and
+// signs everyone out, so it is a deliberate migration, not a side effect of a
+// reconcile.
+type ProjectBinding struct {
+	Name    string
+	KnownID string
 }
 
 // TenantIdentity is what a tenant needs in order to authenticate, and the only
 // output of identity provisioning that anything downstream consumes.
 type TenantIdentity struct {
+	// ServiceClient is this application's machine identity for calling other
+	// applications (ADR-097). Nil when the application declared none.
+	ServiceClient *MachineClient
+
+	// Incomplete says what did not finish, and is empty when the tenant is
+	// usable.
+	//
+	// Provisioning has two halves with different consequences. The identifiers
+	// above must reach the tenant's gateway or nothing starts, so they are
+	// returned even when a later step fails. Whether anyone can SIGN IN is
+	// separate -- an owner that was not created, a role that was not granted, a
+	// registration policy that was not set -- and each of those is invisible
+	// from outside: the organisation exists, the application exists, the
+	// hostname serves, and the login is refused.
+	//
+	// Carried on the result rather than returned as an error because every layer
+	// between the provider and the operator drops the value when an error is
+	// returned, which would lose the client id to report a problem with
+	// something else.
+	Incomplete []string
+
 	// TenantRef is the provider's own identifier for the tenant — the thing that
 	// OWNS the tenant's users. It is what appears in a token as the tenant, so it
 	// is the value an authorisation decision compares against.
@@ -48,4 +103,42 @@ type TenantIdentity struct {
 	// caller must persist it. Re-issuing one on each reconcile would silently
 	// lock out whoever is already using the account.
 	OwnerPassword string
+
+	// Clients are the confidential OAuth clients the fleet declared. Empty when
+	// it declared none, which is the common case.
+	Clients []DeclaredClient
+}
+
+// DeclaredClient is one confidential OAuth client the fleet declared, with the
+// credentials the issuer minted for it.
+//
+// Returned rather than stored here for the same reason OwnerPassword is: this
+// service provisions at the issuer and the CALLER owns where secrets live
+// (ADR-003). A client whose credentials were minted and not persisted is worse
+// than one never created -- the issuer has rotated the secret and nothing holds
+// the new value.
+// MachineClient is the service identity one application calls another with
+// (ADR-097): OAuth 2.0 client credentials, no user in the request.
+//
+// UserID is the machine user's subject. It identifies the SERVICE and nothing may
+// resolve it to a person.
+//
+// ClientID is what the RECEIVER allowlists. The issuer allocates it when the
+// secret is generated and it is unrelated to the login name, so it cannot be
+// spelled out in a manifest ahead of time -- it has to travel from here.
+//
+// ClientSecret is present only when this call created or regenerated it.
+type MachineClient struct {
+	UserID       string
+	ClientID     string
+	ClientSecret string
+}
+
+type DeclaredClient struct {
+	// Name as the fleet declared it. The caller derives its key names from this.
+	Name string
+	// ClientID and ClientSecret as minted. ClientSecret is present only when
+	// this call created or regenerated the client.
+	ClientID     string
+	ClientSecret string
 }

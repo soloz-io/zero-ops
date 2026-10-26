@@ -1,7 +1,26 @@
 # ADR 010: Tenant User Management Pattern
 
 ## Status
-Accepted
+**Superseded by ADR-057** (2026-09-28)
+
+Superseded rather than amended, because every load-bearing component it names has
+since been replaced and its core mechanism was decided the other way:
+
+| ADR-010 | today |
+|---|---|
+| Ory Kratos as the identity provider | ZITADEL (ADR-050, ADR-060) |
+| PostgREST in front of the tenant database | never adopted; the application holds its own connection |
+| Atlas for schema migration | withdrawn by ADR-074; the baseline Job owns it (ADR-089) |
+| `kube-sbt` creates a user through an administrative API | a user is provisioned on first authenticated request, by a library on the application's own connection (ADR-057) |
+| RLS policy keyed on `tenant_id` | keyed on the tenant-local `user_id`; the tenant IS the database |
+
+The `request.jwt.claims` GUC below survives into ADR-057, and the RLS design it
+sketches is only enforced from ADR-093 onward -- a table's owner is exempt from its
+own policies, which is why the baseline's policies were inert until the application
+stopped owning its tables.
+
+Read ADR-057 for the decision, ADR-093 for the precondition that makes it real.
+Nothing here should be implemented.
 
 ## Date
 2026-04-30

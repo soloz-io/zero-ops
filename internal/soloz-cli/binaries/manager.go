@@ -55,7 +55,7 @@ func isSupportedPlatform(os, arch string) bool {
 }
 
 // downloadWithChecksum downloads a binary, fetches its checksum file, verifies it, and makes it executable.
-// targetFilename is used to search multi-file checksums (like Talos). If empty, it assumes a single-hash file (like CAPI).
+// targetFilename is used to search multi-file checksum manifests (e.g. Packer's SHA256SUMS). If empty, it assumes a single-hash file (like CAPI).
 func downloadWithChecksum(ctx context.Context, binaryURL, checksumURL, dest, targetFilename string) error {
 	// 1. Fetch checksum file
 	expectedHash, err := fetchAndParseChecksum(ctx, checksumURL, targetFilename)
@@ -102,7 +102,7 @@ func fetchAndParseChecksum(ctx context.Context, url, targetFilename string) (str
 
 	lines := strings.Split(string(data), "\n")
 
-	// If a specific filename is provided (e.g., "talosctl-darwin-arm64"), search for it
+	// If a specific filename is provided (e.g. an arch-suffixed zip name), search for it
 	if targetFilename != "" {
 		for _, line := range lines {
 			if strings.Contains(line, targetFilename) {

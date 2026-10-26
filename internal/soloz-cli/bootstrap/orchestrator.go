@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/platform"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/preflight"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/state"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,14 +44,32 @@ import (
 //	Phase  5a: argocd-install        ArgoCD + seed Application (pre-worker, hybrid)
 //	Phase 11a: boundary-01            infra operators ready (orchestrator-owned)
 //	Phase 11b: generate-local-secrets Static Secrets (crypto, postgres connection, platform-db-app)
-//	Phase 11c: boundary-02            Data workloads (CNPG, Redis, NATS)
+//	Phase 11c: boundary-02            Data workloads (CNPG, Redis)
 //	Phase 11d: inject-ca-cert         Wait for CNPG Ready → inject DB_ROOT_CERT into infisical-secrets
 //	Phase 11e: boundary-03            Services (Infisical, hub Gateway, apps)
 //	Phase 11f: bootstrap-infisical-api Wait for Infisical health → bootstrap Org/Project/MI → store credentials
+//	           adr045-commit          Commit + push the generated artifacts
+//	Phase 11g: boundary-04            Tenant services (READS the artifacts above, through git)
+//	Phase 11h: boundary-05            Fleet provisioning (ADR-047)
+//	Phase 11i: boundary-06            Public tenant TLS (ADR-051)
+//	Phase 11j: adr045-verify          Wait for the consuming Applications to reconcile
 //	Phase 12: finalize                Provider.Finalize(cfg) → kubeconfigPath
+//
+// The commit sits between the phase that WRITES the generated artifacts and the
+// first that reads them. It is listed because it was not: this map ran 11f
+// straight into 12, the commit and the three boundaries between them were absent
+// from it, and the commit was consequently ordered after its own consumers --
+// two phases both labelled 11g, which is what that looks like in code.
 type Orchestrator struct {
 	Provider    Provider
 	ClusterName string
+
+	// OIDCIssuerURL and OIDCClientID name the identity provider this box's API
+	// server accepts tokens from (ADR-076). Empty on a first build; supplied on a
+	// rebuild of an environment whose issuer already runs, to avoid provisioning
+	// without them and replacing the control plane afterwards.
+	OIDCIssuerURL string
+	OIDCClientID  string
 
 	// GitopsDir is a checkout of the tenant's own repository.
 	//
@@ -69,6 +89,10 @@ type Orchestrator struct {
 	// Gating selects how the cluster is created (ADR-055). Empty means
 	// sequenced: converged creation is requested by name or it does not occur.
 	Gating GatingMode
+
+	// Encryption selects at-rest encryption for this box (ADR-003 section 6).
+	// Empty Encryption means secretbox.
+	Encryption cluster.EncryptionMode
 	// ProviderName names the provider when no Provider is constructed. A
 	// bootstrap always has one; operations that only restate Day-0 artifacts on
 	// an existing cluster need the name and nothing else, and building a whole
@@ -106,12 +130,42 @@ func (o *Orchestrator) providerName() string {
 	return o.ProviderName
 }
 
+// resolveScriptPath resolves a script path relative to the zero-ops checkout.
+// Bootstrap runs from the tenant's workspace, not the checkout, so relative
+// paths like "scripts/hybrid/..." would fail. This mirrors hcloudTokenPaths:
+// ZERO_OPS_DIR first, then the executable's directory.
+func resolveScriptPath(rel string) string {
+	if root := strings.TrimSpace(os.Getenv("ZERO_OPS_DIR")); root != "" {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			return filepath.Join(root, rel)
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if exe, err = filepath.EvalSymlinks(exe); err == nil {
+			dir := filepath.Dir(exe)
+			for _, base := range []string{dir, filepath.Dir(dir)} {
+				candidate := filepath.Join(base, rel)
+				if _, err := os.Stat(candidate); err == nil {
+					return candidate
+				}
+			}
+		}
+	}
+	return rel
+}
+
 // Run executes the full 17-phase bootstrap pipeline with checkpoint/restart.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	if o.Debug {
 		fmt.Println("[DEBUG] Orchestrator.Run() started")
 		fmt.Printf("[DEBUG] Provider: %s, ClusterName: %s\n",
 			o.Provider.Name(), o.ClusterName)
+	}
+
+	if o.Provider != nil {
+		if cp, ok := o.Provider.(*CloudProvider); ok {
+			cp.encryption = o.Encryption
+		}
 	}
 
 	// A tenant's bootstrap keeps its state in the tenant's repository, so a run
@@ -178,7 +232,10 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		return fmt.Errorf("bootstrap create failed: %w", err)
 	}
 
-	kubeconfig, bootstrapCtx := o.kubeconfigPaths(bs)
+	kubeconfig, bootstrapCtx, err := o.kubeconfigPaths(bs)
+	if err != nil {
+		return err
+	}
 
 	// ── Phase 3: Day-0 infrastructure ─────────────────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseDayZero, "day0-infra",
@@ -205,6 +262,9 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapContext:    bootstrapCtx,
 		Debug:               o.Debug,
 		GitopsDir:           o.GitopsDir,
+		OIDCIssuerURL:       o.OIDCIssuerURL,
+		OIDCClientID:        o.OIDCClientID,
+		Encryption:          o.Encryption,
 	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterProvision, "cluster-provision",
 		"",
@@ -235,10 +295,33 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// itself, in the same ClusterResourceSet addon (ADR-041), so the operator
 	// settles and this node reaches Ready without anything having to be installed
 	// on the cluster first.
+	// The postcondition distinguishes "nothing to join" from "nothing joined".
+	//
+	// Under a provider with no on-prem capacity this phase returns in 46
+	// milliseconds having done nothing, which is correct -- and records itself
+	// complete, which is correct for THAT provider and wrong for the cluster.
+	// Observed: a hybrid box was resumed once as hetzner, this phase logged
+	// "Not a home-worker cell — skipping" and was marked done; every later hybrid
+	// run then skipped it, and the box sat with one tainted control plane and no
+	// worker at all, because the record described a decision made under different
+	// flags rather than a state of the cluster.
+	//
+	// After pivot-move the bootstrap kind cluster is destroyed, so
+	// hubKubeconfigFromBootstrap returns "". Fall back to the management
+	// kubeconfig that pivot-move recorded — it points at the hub directly.
+	resolveHubKubeconfig := func() string {
+		if kc := o.hubKubeconfigFromBootstrap(ctx, kubeconfig); kc != "" {
+			return kc
+		}
+		return bs.MgmtKubeconfig
+	}
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseOnPremJoin, "on-prem-join",
 		"Joining home-lab worker(s) to the hub...",
-		func() error { return o.joinHomeWorkers(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
+		func() error { return o.joinHomeWorkers(ctx, resolveHubKubeconfig()) },
 		nil,
+		withPostcondition(func() error {
+			return o.phasePostconditions(resolveHubKubeconfig())[state.PhaseOnPremJoin](ctx)
+		}),
 	); err != nil {
 		return err
 	}
@@ -258,7 +341,17 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// Still ahead of pivot-move, so the seed exists before CAPI moves in.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseArgoCDInstall, "argocd-install",
 		"Installing ArgoCD + seed on hub...",
-		func() error { return o.installArgoCDAndSeed(ctx, o.hubKubeconfigFromBootstrap(ctx, kubeconfig)) },
+		// resolveHubKubeconfig, not a bare hubKubeconfigFromBootstrap: this phase
+		// normally runs pre-pivot, where the bootstrap cluster holds the CAPI
+		// secret -- but a resumed run that has already pivoted has no bootstrap
+		// cluster left, and the lookup correctly returns "". bs.MgmtKubeconfig
+		// names the hub directly in that case. Same authority, same reasoning as
+		// on-prem-join above; passing the raw lookup here handed installArgoCDAndSeed
+		// an empty string, which kubectl tolerates by silently reading $KUBECONFIG
+		// while client-go does not -- so ArgoCD installed against one cluster and
+		// the GitHub-secret step below it failed with "no configuration has been
+		// provided".
+		func() error { return o.installArgoCDAndSeed(ctx, resolveHubKubeconfig()) },
 		nil,
 	); err != nil {
 		return err
@@ -270,6 +363,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		BootstrapKubeconfig: kubeconfig,
 		BootstrapContext:    bootstrapCtx,
 		Debug:               o.Debug,
+		Encryption:          o.Encryption,
 	}
 
 	// Self-heal: pivot-move writes the mgmt kubeconfig on success. A phase
@@ -304,10 +398,25 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 7: Pivot ready ──────────────────────────────────────────
+	// The postcondition is the tailnet credential existing ON THE HUB.
+	//
+	// PivotReady stages it there because `clusterctl move` does not carry a plain
+	// Secret across the pivot -- it is written into the bootstrap cluster at
+	// capi-init, and the hub gets none. Without it the hub-operator logs
+	// "Source secret not found, skipping", never uploads tailscale-authkey to
+	// Infisical, and the tailscale-hybrid-psk ExternalSecret sits in
+	// SecretSyncedError for ever.
+	//
+	// Asserted rather than assumed because this phase completed on boxes built
+	// before it staged anything, and a completion record written then describes a
+	// hub that never received the credential.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhasePivotReady, "pivot-ready",
 		"",
 		func() error { return o.Provider.PivotReady(ctx, mgmtKubeconfig) },
 		nil,
+		withPostcondition(func() error {
+			return o.phasePostconditions(mgmtKubeconfig)[state.PhasePivotReady](ctx)
+		}),
 	); err != nil {
 		return err
 	}
@@ -322,8 +431,17 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 			fmt.Println("[cleanup] ✓ Bootstrap cluster deleted")
 		}
 	}
-	o.markPhaseComplete(bs, state.PhaseCleanup)
-	stateMgr.Save(bs)
+	// Guarded, unlike every other phase, because this one is not run through
+	// runPhase and so nothing else checks whether it was already recorded. It
+	// appended an entry on every resume: the acme-hub state reached six "cleanup"
+	// records interleaved with the phases they were recorded between, which is
+	// unbounded growth in a file committed to the tenant's repository and makes
+	// the phase history unreadable exactly when it is being read to explain a
+	// failure.
+	if !o.phaseDone(bs, state.PhaseCleanup) {
+		o.markPhaseComplete(bs, state.PhaseCleanup)
+		stateMgr.Save(bs)
+	}
 
 	// ── Phase 9: ClusterClass deployment ──────────────────────────────
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseClusterClassDeploy, "clusterclass-deploy",
@@ -356,7 +474,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// before proceeding.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary01, "boundary01",
 		"Deploying platform infrastructure (boundary 01)...",
-		func() error { return o.deployBoundary01(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 1) },
 		func() { fmt.Println("[boundary01] ✓ Platform infrastructure deployed") },
 	); err != nil {
 		return err
@@ -371,7 +489,15 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 		"Generating local bootstrap secrets...",
 		func() error {
 			ci := &components.Installer{Kubeconfig: mgmtKubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
-			return ci.GenerateLocalSecrets(ctx)
+			if err := ci.GenerateLocalSecrets(ctx); err != nil {
+				return err
+			}
+			// The optional credentials, here rather than later: the hub-operator
+			// uploads them to Infisical on its first reconcile, and a Secret that
+			// appears afterwards waits for the next one. Nothing created these at
+			// all until now, so the mappings that consume them retried forever --
+			// five ExternalSecrets on every box, and grafana-alloy never starting.
+			return ci.InstallPlatformCredentials(ctx)
 		},
 		func() { fmt.Println("[generate-local-secrets] ✓ Local secrets generated") },
 	); err != nil {
@@ -379,13 +505,13 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	}
 
 	// ── Phase 11c: Boundary 02 — platform data workloads ─────────────
-	// Deploys CNPG Cluster, Redis, NATS, ClickHouse. The CNPG Cluster
+	// Deploys the CNPG Cluster and Redis. The CNPG Cluster
 	// CR triggers the operator (installed in B01). platform-db-app was
 	// created in the previous phase (generate-local-secrets), so CNPG's
 	// initdb has the credentials it needs immediately.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary02, "boundary02",
 		"Deploying platform data (boundary 02)...",
-		func() error { return o.deployBoundary02(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 2) },
 		func() { fmt.Println("[boundary02] ✓ Platform data deployed") },
 	); err != nil {
 		return err
@@ -417,7 +543,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// webhook is guaranteed up.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary03, "boundary03",
 		"Deploying platform services (boundary 03)...",
-		func() error { return o.deployBoundary03(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 3) },
 		func() { fmt.Println("[boundary03] ✓ Platform services deployed") },
 	); err != nil {
 		return err
@@ -455,16 +581,55 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// the committed file survived between runs: a fresh cluster reconciled the
 	// PREVIOUS cluster's project id until the phase above overwrote it, so the
 	// issuers existed early and were wrong rather than absent.
+	// The PKI coordinates reach the cluster through the tenant's declared state,
+	// not through the seed. Before the re-apply, so the same run that learns them
+	// records them.
+	if err := o.writeFleetPKIValues(ctx, mgmtKubeconfig); err != nil {
+		return err
+	}
+
 	if err := o.ReapplySeed(ctx, mgmtKubeconfig); err != nil {
 		return fmt.Errorf("re-apply seed with Infisical coordinates: %w", err)
 	}
 	fmt.Println("[bootstrap-infisical-api] ✓ seed re-applied with PKI coordinates")
 
+	// ── Commit the generated artifacts ────────────────────────────────
+	//
+	// HERE, not after the boundaries.
+	//
+	// Everything above this line wrote artifacts into the tenant's repository.
+	// Boundary 04 is the first phase that READS them, and it reads them the only
+	// way anything in a GitOps box can: through git, rendered by ArgoCD. The
+	// commit used to run after boundaries 04, 05 and 06, which meant boundary 04
+	// waited on values that were sitting uncommitted on disk a few lines above
+	// it. hub-bootstrap-config rendered INFISICAL_PROJECT_ID="", the hub-operator
+	// shut down waiting for it and crash-looped, DatabaseRolesProvisioned was
+	// never published, and the gate timed out after 45 minutes on a condition
+	// that could not arrive. A fresh box could not pass it, ever -- and no run
+	// had ever reached this phase to find out.
+	//
+	// The verification that the consuming Applications reconciled stays where it
+	// was, after the boundaries. An artifact is complete when it is written, but
+	// the Applications that consume it are not deployed until later, so that is
+	// the earliest point the question can be asked.
+	if err := o.commitGeneratedArtifacts(ctx); err != nil {
+		return err
+	}
+
 	// ── Phase 11g: Boundary 04 — tenant services ──────────────────────
+	//
+	// The postcondition is the identity provider serving, not the boundary having
+	// been applied. Everything downstream -- iam-admin-pat, the identity token,
+	// identity-service-credentials, kube-sbt -- is waiting on Zitadel, so a phase
+	// that reports success while Zitadel is down moves the failure two namespaces
+	// away from its cause and takes eleven minutes to surface there.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary04, "boundary04",
 		"Deploying tenant services (boundary 04)...",
-		func() error { return o.deployBoundary04(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 4) },
 		func() { fmt.Println("[boundary04] ✓ Tenant services deployed") },
+		withPostcondition(func() error {
+			return o.phasePostconditions(mgmtKubeconfig)[state.PhaseBoundary04](ctx)
+		}),
 	); err != nil {
 		return err
 	}
@@ -475,7 +640,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// auth) to be in place first.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary05, "boundary05",
 		"Deploying fleet provisioning (boundary 05)...",
-		func() error { return o.deployBoundary05(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 5) },
 		func() { fmt.Println("[boundary05] ✓ Fleet provisioning deployed") },
 	); err != nil {
 		return err
@@ -488,44 +653,17 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	// boundary05 (fleet provisioning) so fleet values are already reconciling.
 	if err := o.runPhase(ctx, stateMgr, bs, state.PhaseBoundary06, "boundary06",
 		"Deploying public tenant TLS (boundary 06)...",
-		func() error { return o.deployBoundary06(ctx, mgmtKubeconfig) },
+		func() error { return o.deployBoundaryN(ctx, mgmtKubeconfig, 6) },
 		func() { fmt.Println("[boundary06] ✓ Public tenant TLS deployed") },
 	); err != nil {
 		return err
 	}
 
-	// ── Phase 11g: Commit + verify ADR-045 artifacts ─────────────────
-	// Auto-commits generated artifacts, then polls ArgoCD until the
-	// affected apps reconcile (Synced+Healthy). This ensures the
-	// platform is in a GitOps-consistent state before Finalize.
-	fmt.Println("\n[adr045-commit] Validating and committing ADR-045 artifacts...")
-	if err := o.validateADR045Artifacts(ctx); err != nil {
-		return fmt.Errorf("[adr045-commit] %w", err)
-	}
-
-	// Derived from the registry rather than listed again beside it.
-	//
-	// This was a second hard-coded list of the same paths, and the two drifted
-	// the moment one artifact stopped being generated: the registry no longer
-	// named manifests/hub-core-services/security/generated/, this list still did,
-	// and `git add` on a directory that no longer exists fails the whole commit
-	// step with exit status 128 -- taking the artifacts that ARE still generated
-	// down with it. One declaration means removing an artifact removes it here
-	// too.
-	generatedPaths, err := o.adr045GeneratedDirs()
-	if err != nil {
-		return fmt.Errorf("[adr045-commit] %w", err)
-	}
-
-	// Try to auto-commit (local-only — git remote not required)
-	if err := o.gitCommitArtifacts(ctx, generatedPaths); err != nil {
-		fmt.Printf("[adr045-commit] ⚠️  Auto-commit failed: %v\n", err)
-		fmt.Println("[adr045-commit] Manual commit required. Run:")
-		fmt.Println("  git add manifests/*/generated/")
-		fmt.Println("  git commit -m \"chore: bootstrap-generated-gitops-artifacts [skip ci]\"")
-		fmt.Println("  git push")
-	}
-
+	// ── Phase 11j: Verify the ADR-045 consumers reconciled ───────────
+	// The artifacts were committed and pushed before boundary 04, which is the
+	// first phase that reads them. What is left to establish is that the
+	// Applications consuming them actually converged -- which could not be asked
+	// earlier, because those Applications are deployed by the boundaries above.
 	// Poll ArgoCD apps for health. The apps will not reconcile until
 	// the generated files are in Git (committed + pushed). If the
 	// auto-commit succeeded, only a git push is needed.
@@ -546,7 +684,7 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 	fmt.Println("[adr045-commit] This requires the generated files to be committed AND pushed.")
 	fmt.Println("[adr045-commit] If auto-push failed, push manually.")
 
-	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	waitCtx, cancel := context.WithTimeout(ctx, 45*time.Minute)
 	defer cancel()
 
 	if err := o.waitForArgoCDAppsHealthy(waitCtx, mgmtKubeconfig, appsToWait); err != nil {
@@ -589,6 +727,20 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 
 	o.printTimingSummary(bs)
 
+	// finalize ASSIGNS kubeconfigPath, and a resumed run skips finalize.
+	//
+	// The variable is written inside that phase's closure, so on any run where
+	// the phase is already complete the closure never executes and the path stays
+	// empty -- printing "Kubeconfig:" with nothing after it and handing the
+	// operator `kubectl --kubeconfig= get nodes`, which is not a command.
+	//
+	// The state file has carried the answer since the pivot wrote it, so the
+	// banner reads from there rather than depending on which phases happened to
+	// run this time.
+	if kubeconfigPath == "" {
+		kubeconfigPath = bs.MgmtKubeconfig
+	}
+
 	argoCDPwd := o.getArgoCDPassword(ctx, mgmtKubeconfig)
 	fmt.Println("\n✓ Hub Cluster bootstrap complete!")
 	fmt.Printf("  Provider: %s\n", o.Provider.Name())
@@ -608,6 +760,40 @@ func (o *Orchestrator) runFresh(ctx context.Context, stateMgr *state.StateManage
 // runPhase executes a single bootstrap phase with checkpoint persistence.
 // If the phase is already completed, it skips. On success, it saves state
 // and advances to the next phase.
+// phaseSpec carries the optional properties of a phase. Options rather than
+// parameters because every phase has an action and almost none has anything
+// else, and a signature that grew a field per phase would make twenty-one call
+// sites carry nils for a property one of them uses.
+type phaseSpec struct {
+	postcondition func() error
+}
+
+type phaseOption func(*phaseSpec)
+
+// withPostcondition declares what must be TRUE for this phase to count as done,
+// as distinct from what the phase DOES.
+//
+// A completion record says a phase ran to the end of its action once, under
+// whatever assertions that binary carried. It does not say the phase's effect is
+// still in place, and it cannot say the phase was checked against assertions
+// added since. Boundary 04 is the case that proved the difference: it was
+// recorded complete by a binary that asserted only that ArgoCD had generated the
+// Applications, so every later run skipped it -- including the runs whose whole
+// purpose was the Zitadel repair -- while the identity provider had never once
+// served. The bootstrap printed "complete" twenty-four phases deep over a box
+// with no working identity provider.
+//
+// So a phase that declares a postcondition is re-checked on resume, and a
+// completion record that no longer holds is withdrawn rather than trusted. The
+// check is a point-in-time probe, never a wait: resume must stay cheap, and the
+// waiting belongs to the action that runs if the probe says the phase is unfinished.
+//
+// Adoption is per phase. A phase that declares none behaves exactly as before,
+// so this can be taken up where it earns its keep instead of all at once.
+func withPostcondition(check func() error) phaseOption {
+	return func(s *phaseSpec) { s.postcondition = check }
+}
+
 func (o *Orchestrator) runPhase(
 	ctx context.Context,
 	stateMgr *state.StateManager,
@@ -616,10 +802,29 @@ func (o *Orchestrator) runPhase(
 	label, header string,
 	action func() error,
 	onSuccess func(),
+	opts ...phaseOption,
 ) error {
+	var spec phaseSpec
+	for _, opt := range opts {
+		opt(&spec)
+	}
+
 	if o.phaseDone(bs, phase) {
-		fmt.Printf("[%s] ✓ Skipped (already completed)\n", label)
-		return nil
+		if spec.postcondition == nil {
+			fmt.Printf("[%s] ✓ Skipped (already completed)\n", label)
+			return nil
+		}
+		if err := spec.postcondition(); err == nil {
+			fmt.Printf("[%s] ✓ Skipped (already completed, postcondition holds)\n", label)
+			return nil
+		} else {
+			fmt.Printf("[%s] ⚠ recorded complete, but its postcondition does not hold: %v\n", label, err)
+			fmt.Printf("[%s]   withdrawing the completion record and running the phase again\n", label)
+			bs.CompletedPhases = removePhase(bs.CompletedPhases, phase)
+			if saveErr := stateMgr.Save(bs); saveErr != nil {
+				return saveErr
+			}
+		}
 	}
 	if header != "" {
 		fmt.Println("\n[" + label + "] " + header)
@@ -739,26 +944,71 @@ func (o *Orchestrator) persistTenantState(ctx context.Context, label string) err
 // Returns "" if it cannot be read; joinHomeWorkers treats that as fatal rather
 // than silently skipping the join.
 func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrapKubeconfig string) string {
-	out, err := exec.CommandContext(ctx, "kubectl",
+	// Every failure below used to become the same empty string, and the caller
+	// reported one cause for all of them: "could not read the hub kubeconfig from
+	// the bootstrap cluster". Five different things produce that, and on
+	// 2026-09-18 the actual one was none of them -- kubectl had no context for the
+	// bootstrap cluster at all, because a kind cluster left running short-circuits
+	// `kind create cluster`, which then writes no kubeconfig entry. The cluster was
+	// healthy, the secret was present, and the run stopped saying the secret could
+	// not be read. Saying what actually failed costs one line each.
+	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", bootstrapKubeconfig,
 		"-n", constants.NamespaceCAPI,
 		"get", "secret", o.ClusterName+"-kubeconfig",
 		"-o", "jsonpath={.data.value}",
-	).Output()
-	if err != nil || len(out) == 0 {
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		// [bootstrap] and not a phase name: this is called from on-prem-join and
+		// from argocd-install, and a message naming the wrong one sends the reader
+		// to the wrong place in the log.
+		fmt.Printf("[bootstrap] reading %s-kubeconfig from the bootstrap cluster: %v\n",
+			o.ClusterName, err)
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			fmt.Printf("[bootstrap]   kubectl: %s\n", msg)
+		}
+		// A refused connection to 127.0.0.1 is the kind cluster's API on a port
+		// that has moved. kind binds a random host port, so destroying and
+		// recreating a cluster of the same name gives it a new one -- and the
+		// context in the kubeconfig still names the old. Observed on 2026-09-18:
+		// the container was on 62015 while the context said 63123.
+		//
+		// Named because the remedy is one command and nothing else in the output
+		// suggests it, and because the phase that follows -- pivot-move -- cannot
+		// fall back the way this caller does. It must reach the bootstrap cluster
+		// to move CAPI off it, so a stale port that merely looks cosmetic here
+		// stops the run there.
+		if strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host") {
+			fmt.Printf("[bootstrap]   The bootstrap cluster's API is not where the kubeconfig says.\n")
+			fmt.Printf("[bootstrap]   kind binds a random host port and a recreated cluster gets a\n")
+			fmt.Printf("[bootstrap]   new one. Re-point the context and re-run:\n")
+			fmt.Printf("[bootstrap]       kind export kubeconfig --name %s\n", o.ClusterName)
+		}
+		return ""
+	}
+	if len(out) == 0 {
+		fmt.Printf("[bootstrap] secret %s/%s-kubeconfig exists but carries no .data.value\n",
+			constants.NamespaceCAPI, o.ClusterName)
 		return ""
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(string(out))
 	if err != nil {
+		fmt.Printf("[bootstrap] %s-kubeconfig is not valid base64: %v\n", o.ClusterName, err)
 		return ""
 	}
 
 	path := filepath.Join("k8-secrets", "kubeconfig", o.ClusterName+".kubeconfig")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Printf("[bootstrap] cannot create %s: %v\n", filepath.Dir(path), err)
 		return ""
 	}
 	if err := os.WriteFile(path, decoded, 0o600); err != nil {
+		fmt.Printf("[bootstrap] cannot write %s: %v\n", path, err)
 		return ""
 	}
 
@@ -772,7 +1022,11 @@ func (o *Orchestrator) hubKubeconfigFromBootstrap(ctx context.Context, bootstrap
 // hubWorkerSelector identifies a joined home-lab hub worker. provision-flatcar-worker.sh
 // applies hub-role=worker for its "hub" target, both via kubelet --node-labels and
 // again cluster-side after the join.
-const hubWorkerSelector = "hub-role=worker"
+//
+// Both labels, not either: hub-role=worker says which cluster the node belongs
+// to, workload-location=on-prem says it is the tenant's own hardware, and the
+// platform's placement rules (ADR-046 §11) require both of them together.
+const hubWorkerSelector = "hub-role=worker,workload-location=on-prem"
 
 // joinHomeWorkers brings up the home-lab worker(s) this hub needs before any
 // platform workload is deployed. No-op unless the provider asked for home workers.
@@ -823,18 +1077,55 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 	}
 
 	if kubeconfig == "" {
-		return fmt.Errorf("could not read the hub kubeconfig from the bootstrap cluster;\n" +
-			"the home worker cannot join, and pivot would then fail to schedule cert-manager")
+		return fmt.Errorf("could not read the hub kubeconfig from the bootstrap cluster " +
+			"(the line above says why);\n" +
+			"the home worker cannot join, and pivot would then fail to schedule cert-manager.\n\n" +
+			"If kubectl reported no context: a kind cluster left running short-circuits\n" +
+			"`kind create cluster`, which then writes no kubeconfig entry, and every\n" +
+			"kubectl call afterwards resolves nothing. Restore it and re-run:\n" +
+			"    kind export kubeconfig --name <cluster>")
 	}
 
 	// Idempotent: provisioning a Flatcar VM takes ~10 minutes, and a resumed
 	// bootstrap must not pay that again for a node that is already serving.
-	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
+	//
+	// What "already serving" means is the whole difficulty. Provisioning is
+	// destructive -- provision-flatcar-worker.sh deletes the Node object and
+	// replaces the VM's disk from the pristine base image before it has
+	// established that a rebuild was required -- so anything short of proof that
+	// this node needs rebuilding must not reach it.
+	switch state, name := o.probeHubWorker(ctx, kubeconfig); state {
+	case hubWorkerReady:
 		fmt.Printf("[on-prem-join] ✓ %s already Ready — skipping provisioning\n", name)
 		return nil
+
+	case hubWorkerUnknown:
+		// The hub could not be asked. That is not evidence the node is gone, and
+		// it used to read as exactly that: one unreachable API server, or a
+		// kubeconfig naming a cluster that had just been pivoted, and the phase
+		// went on to destroy a node that was serving perfectly well.
+		return fmt.Errorf("the hub's nodes could not be read from %s, so whether the "+
+			"on-prem worker is still serving is unknown.\n"+
+			"Refusing to provision: that would delete the Node object and rebuild the VM "+
+			"from the base image, which is not recoverable if the node was in fact fine.\n"+
+			"Check the hub is reachable, then re-run.", kubeconfig)
+
+	case hubWorkerNotReady:
+		// Registered but not Ready. A node that has lost its heartbeat usually
+		// comes back -- the guest reboots, tailscaled reconnects, the kubelet
+		// re-registers -- and the cheap outcome is to let it. Only when it does
+		// not is a rebuild the right answer.
+		fmt.Printf("[on-prem-join] %s is registered but NotReady — waiting %s for it to recover\n",
+			name, formatDuration(onPremRecoveryWindow))
+		fmt.Println("[on-prem-join]   (rebuilding is destructive: it deletes the Node and replaces the VM disk)")
+		if recovered := o.awaitHubWorkerReady(ctx, kubeconfig, onPremRecoveryWindow); recovered != "" {
+			fmt.Printf("[on-prem-join] ✓ %s recovered — skipping provisioning\n", recovered)
+			return nil
+		}
+		fmt.Printf("[on-prem-join] %s did not recover — provisioning it again\n", name)
 	}
 
-	script := filepath.Join("scripts", "hybrid", "provision-flatcar-worker.sh")
+	script := resolveScriptPath(filepath.Join("scripts", "hybrid", "provision-flatcar-worker.sh"))
 	if _, err := os.Stat(script); err != nil {
 		return fmt.Errorf("home-lab worker is required before boundary-01 but %s is missing.\n"+
 			"Provision it manually, then re-run:\n"+
@@ -857,7 +1148,7 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 
 	// The script has its own Ready gate, but the cluster's view is what the next
 	// phase depends on, so confirm it here too.
-	if ready, name := o.readyHubWorker(ctx, kubeconfig); ready {
+	if state, name := o.probeHubWorker(ctx, kubeconfig); state == hubWorkerReady {
 		fmt.Printf("[on-prem-join] ✓ %s Ready\n", name)
 		return nil
 	}
@@ -865,8 +1156,79 @@ func (o *Orchestrator) joinHomeWorkers(ctx context.Context, kubeconfig string) e
 		"platform workloads would have nowhere to schedule (ADR-046 §11)", hubWorkerSelector)
 }
 
-// readyHubWorker reports whether a home-lab hub worker is joined and Ready.
-func (o *Orchestrator) readyHubWorker(ctx context.Context, kubeconfig string) (bool, string) {
+// onPremRecoveryWindow is how long a registered-but-NotReady on-prem node is
+// given to come back before the phase hands it to the provisioning script.
+//
+// Short, because this is the cheaper of two waits rather than the whole defence.
+// provision-flatcar-worker.sh now has a recovery gate of its own that can do
+// what this cannot -- start a VM the workstation left Off -- and waits ~5
+// minutes for the node to rejoin before it replaces anything. This window only
+// covers the case that needs no intervention at all, a kubelet part-way through
+// a restart, so that an ordinary resume does not shell out to the host over a
+// node that is seconds from Ready. Anything longer is spent twice.
+const onPremRecoveryWindow = 2 * time.Minute
+
+// awaitHubWorkerReady waits for a registered on-prem node to report Ready,
+// returning its name, or "" if the window passes without it.
+//
+// A hub that stops answering ends the wait rather than consuming it: the point
+// of waiting is to avoid a needless rebuild, and a probe that cannot reach the
+// hub is not evidence for one either way.
+func (o *Orchestrator) awaitHubWorkerReady(ctx context.Context, kubeconfig string, window time.Duration) string {
+	const every = 15 * time.Second
+	deadline := time.Now().Add(window)
+	for {
+		switch state, name := o.probeHubWorker(ctx, kubeconfig); state {
+		case hubWorkerReady:
+			return name
+		case hubWorkerAbsent:
+			// It was registered a moment ago and is not now, so something deleted
+			// it. Waiting cannot bring back a Node object nobody is writing.
+			return ""
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(every):
+		}
+	}
+}
+
+// hubWorkerState is what one probe of the hub can say about on-prem capacity.
+//
+// Three outcomes rather than a bool, because the phase must do something
+// different for each and two of them used to collapse into the same `false`:
+// a node that is registered but NotReady is a node to WAIT for, and a hub that
+// cannot be asked is not evidence of anything at all. Both used to mean
+// "provision", and provisioning destroys the VM and its disk before it knows
+// whether a rebuild was needed -- so a stalled kubelet, or one unreachable
+// API server, cost a working node and ten minutes.
+type hubWorkerState int
+
+const (
+	hubWorkerUnknown  hubWorkerState = iota // the hub could not be asked
+	hubWorkerAbsent                         // nothing carries the labels
+	hubWorkerNotReady                       // registered, not Ready
+	hubWorkerReady
+)
+
+// probeHubWorker is the single question both the phase and its postcondition
+// ask, so that they cannot disagree.
+//
+// They used to ask two: the postcondition matched workload-location=on-prem and
+// ignored readiness, the phase matched hub-role=worker and required Ready. A
+// NotReady node therefore satisfied the postcondition and failed the phase's own
+// gate -- so runPhase skipped the phase as "already completed, postcondition
+// holds" over a cluster whose only worker could not schedule anything, which is
+// the ADR-046 §11 failure the postcondition exists to catch.
+//
+// provision-flatcar-worker.sh applies both labels together (kubelet
+// --node-labels, and again cluster-side after the join), so requiring both is
+// the same claim either of them made alone.
+func (o *Orchestrator) probeHubWorker(ctx context.Context, kubeconfig string) (hubWorkerState, string) {
 	out, err := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", kubeconfig,
 		"get", "nodes", "-l", hubWorkerSelector,
@@ -874,15 +1236,21 @@ func (o *Orchestrator) readyHubWorker(ctx context.Context, kubeconfig string) (b
 			"{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}",
 	).Output()
 	if err != nil {
-		return false, ""
+		return hubWorkerUnknown, ""
 	}
+
+	state, name := hubWorkerAbsent, ""
 	for _, line := range strings.Split(string(out), "\n") {
-		name, status, found := strings.Cut(strings.TrimSpace(line), "=")
-		if found && status == "True" {
-			return true, name
+		n, status, found := strings.Cut(strings.TrimSpace(line), "=")
+		if !found || n == "" {
+			continue
 		}
+		if status == "True" {
+			return hubWorkerReady, n
+		}
+		state, name = hubWorkerNotReady, n
 	}
-	return false, ""
+	return state, name
 }
 
 // formatDuration renders a duration for humans reading a bootstrap log: seconds
@@ -1001,7 +1369,8 @@ func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.Bootstra
 	// localhost:8080, and the run dies three phases later on a connection
 	// refused that names neither the file nor the reason. Checked once, here,
 	// where the cause is still visible.
-	if _, err := pinKubeconfig(kubeconfig, bs.BootstrapContext); err != nil {
+	pinned, err := pinKubeconfig(kubeconfig, bs.BootstrapContext)
+	if err != nil {
 		return fmt.Errorf("the bootstrap cluster was created but context %q is not "+
 			"in %s.\n\nkind writes to $KUBECONFIG when it is set, so an exported "+
 			"KUBECONFIG pointing somewhere else puts the context there while every "+
@@ -1009,6 +1378,25 @@ func (o *Orchestrator) createKindCluster(ctx context.Context, bs *state.Bootstra
 			"file kind actually wrote to: %w",
 			bs.BootstrapContext, kubeconfig, err)
 	}
+
+	// The PINNED copy is recorded, never the file it was read from.
+	//
+	// Recording the source looked equivalent and was not. hub-bootstrap.sh exports
+	// KUBECONFIG to k8-secrets/kubeconfig/<cluster>.kubeconfig whenever that file
+	// already exists -- so on a resumed run kind merged kind-<cluster> INTO the
+	// hub's kubeconfig, the check above passed against it, and that path was
+	// recorded. pivot-move then calls SaveKubeconfig, which os.WriteFile()s the
+	// same path with the hub's kubeconfig: a whole-file overwrite, not a merge.
+	// The context this check just proved was destroyed by a later phase of the
+	// same run, and every run afterwards resolved the hub for questions about the
+	// bootstrap cluster -- "namespaces platform-capi not found", with a healthy
+	// kind cluster sitting right there.
+	//
+	// pinKubeconfig's output is ours: $TMPDIR/hub-bootstrap-<context>.kubeconfig,
+	// named for the context, written by nothing else in the pipeline. Recording a
+	// path the pipeline itself rewrites is the defect; recording one it does not
+	// touch is the fix.
+	bs.BootstrapKubeconfig = pinned
 
 	// Create platform-capi namespace
 	nsMgr := &NamespaceManager{
@@ -1053,6 +1441,22 @@ func (o *Orchestrator) installCAPI(ctx context.Context, kubeconfig, contextName 
 // (same mechanism as on-prem-join). The hub API is already up after
 // cluster-provision.
 func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig string) error {
+	// An empty kubeconfig is refused, never passed on.
+	//
+	// The two consumers below disagree about what "" means. Every kubectl call
+	// treats --kubeconfig "" as unset and falls back to $KUBECONFIG, so ArgoCD
+	// installs -- somewhere. client-go's loader, which the GitHub-credential step
+	// uses, rejects it: "invalid configuration: no configuration has been
+	// provided". The observable result was a phase that reported ArgoCD installed
+	// and a boundary activated, then failed two steps later with a message about
+	// configuration that named nothing. Refusing here says which lookup failed,
+	// before anything has been installed against an unknown cluster.
+	if strings.TrimSpace(kubeconfig) == "" {
+		return fmt.Errorf("no hub kubeconfig: neither the CAPI secret %s-kubeconfig in "+
+			"the bootstrap cluster nor the pivot-recorded management kubeconfig could be "+
+			"read. The lines above name which one failed and why", o.ClusterName)
+	}
+
 	ci := &components.Installer{Kubeconfig: kubeconfig, EnvironmentSlug: o.EnvironmentSlug, GitopsDir: o.GitopsDir, ClusterName: o.ClusterName}
 	if err := ci.InstallArgoCD(ctx); err != nil {
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
@@ -1103,136 +1507,493 @@ func (o *Orchestrator) installArgoCDAndSeed(ctx context.Context, kubeconfig stri
 // Boundary 01: Platform infrastructure (ArgoCD + operators)
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) deployBoundary01(ctx context.Context, kubeconfig string) error {
-	// ArgoCD, the seed Application, and boundary 01 activation are already done
-	// in Phase 5a (installArgoCDAndSeed). This phase waits for the operators
-	// that boundary 01 delivers to become ready — webhooks, CRDs, and pods.
-	// Those operators may need the worker to be Ready, which is why this runs
-	// after on-prem-join.
-
-	// ADR-061: boundary 01 was ACTIVATED in Phase 5a, but nothing has yet
-	// confirmed it produced anything. This is the first point where that can be
-	// asserted — Phase 5a provisions the platform repo credentials only after
-	// activating the boundary, so the seed Application cannot render its
-	// ApplicationSets until after that phase completes.
-	//
-	// It runs before the operator waits below on purpose: if the boundary
-	// generated nothing, those waits would time out on operators whose
-	// Applications were never created, and blame the operators.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 1); err != nil {
-		return err
-	}
-
-	fmt.Println("[boundary01] Waiting for operators to establish webhooks...")
-	if err := waitForOperators(ctx, kubeconfig, o.Provider.OperatorWebhookPatterns()); err != nil {
-		return fmt.Errorf("operators not ready: %w", err)
-	}
-	fmt.Println("[boundary01] ✓ Operators ready")
-
-	fmt.Println("[boundary01] Verifying CRDs are queryable...")
-	if err := o.waitForCRDs(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("CRDs not queryable: %w", err)
-	}
-
-	fmt.Println("[boundary01] Waiting for operator pods to be Ready...")
-	if err := o.waitForOperatorPods(ctx, kubeconfig); err != nil {
-		return fmt.Errorf("operator pods not ready: %w", err)
-	}
-
-	fmt.Println("[boundary01] ✓ Platform infrastructure deployed")
-	return nil
-}
-
 // ──────────────────────────────────────────────────────────────────────────
-// Boundary 02: Platform data workloads (CNPG, Redis, NATS, ClickHouse)
+// Boundary 02: Platform data workloads (CNPG, Redis)
 // ──────────────────────────────────────────────────────────────────────────
-
-func (o *Orchestrator) deployBoundary02(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 2); err != nil {
-		return err
-	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 2); err != nil {
-		return err
-	}
-	fmt.Println("[boundary02] ✓ 02-platform-data boundary activated")
-	return nil
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // Boundary 03: Platform services (hub Gateway, platform services)
 // ──────────────────────────────────────────────────────────────────────────
 
-func (o *Orchestrator) deployBoundary03(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 3); err != nil {
+// deployBoundaryN runs the boundary's declared contract.
+//
+// One path for all six. Before this there were six hand-written functions, and
+// what each asserted was whatever someone had needed to debug: boundaries 02, 05
+// and 06 asserted nothing, not by decision but because nobody had been burned
+// there yet. What a boundary guarantees is now declared in boundaryContracts and
+// the compiler refuses a boundary that declares nothing.
+func (o *Orchestrator) deployBoundaryN(ctx context.Context, kubeconfig string, number int) error {
+	c, err := contractFor(number)
+	if err != nil {
 		return err
 	}
-	// This boundary both registers new kinds and manages them: the Crossplane
-	// XRDs compose SpokePool, and the Hub Operator registers HubEnvironment.
-	// The controller has been running since boundary 01 and holds an API schema
-	// from before either existed, so its own Applications cannot be diffed until
-	// it re-reads one.
-	if err := o.refreshArgoCDSchemaCache(ctx, kubeconfig); err != nil {
-		return err
+	return o.runBoundary(ctx, kubeconfig, c)
+}
+
+// tailnetCredentialStagedOnHub reports whether the Secret the hub-operator reads
+// its tailnet credential from exists on the hub.
+//
+// Trivially satisfied when on-prem was not requested: a pure-cloud box needs no
+// tailnet, and demanding the Secret would fail every hetzner bootstrap.
+//
+// Presence only, not content. The Secret is legitimately EMPTY on a box with no
+// authkey -- that is what renders the ClusterClass's tailscale steps inert -- so
+// requiring a non-empty value here would fail a configuration that is correct.
+// What must not happen is the Secret being absent, because the operator then
+// skips the upload silently.
+func (o *Orchestrator) tailnetCredentialStagedOnHub(ctx context.Context, kubeconfig string) error {
+	asker, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if !ok || !asker.OnPremRequested() {
+		return nil
 	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 3); err != nil {
-		return err
+	err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "secret", "tailscale-hybrid-psk", "-n", "platform-capi").Run()
+	if err != nil {
+		return fmt.Errorf("platform-capi/tailscale-hybrid-psk is not on the hub, so the " +
+			"hub-operator has nothing to upload and the tailnet ExternalSecret cannot sync")
 	}
-	fmt.Println("[boundary03] ✓ 03-platform-services boundary activated")
 	return nil
 }
 
-func (o *Orchestrator) deployBoundary04(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 4); err != nil {
-		return err
+// onPremWorkersPresent reports whether this box has the on-prem capacity it asked
+// for.
+//
+// Trivially satisfied when on-prem was not requested: a hetzner box has no home
+// workers by design, and demanding one would fail every pure-cloud bootstrap.
+// The claim is only "if you asked for on-prem nodes, at least one is here".
+//
+// A point-in-time probe, never a wait -- the phase itself owns waiting for a node
+// to join. This only decides whether the phase must run again.
+func (o *Orchestrator) onPremWorkersPresent(ctx context.Context, kubeconfig string) error {
+	// Type assertion, matching how CloudProvider itself asks its driver: only a
+	// provider that can have on-prem capacity implements this, and one that
+	// cannot is not in error -- it simply has nothing to confirm.
+	asker, ok := o.Provider.(interface{ OnPremRequested() bool })
+	if !ok || !asker.OnPremRequested() {
+		return nil
 	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 4); err != nil {
-		return err
+	switch state, name := o.probeHubWorker(ctx, kubeconfig); state {
+	case hubWorkerReady:
+		return nil
+	case hubWorkerNotReady:
+		return fmt.Errorf("%s carries the on-prem labels but is NotReady, so nothing "+
+			"the platform pins to it can schedule", name)
+	case hubWorkerAbsent:
+		return fmt.Errorf("this box asked for on-prem nodes and none has joined")
+	default:
+		return fmt.Errorf("the hub's nodes could not be read to confirm on-prem capacity")
 	}
-	fmt.Println("[boundary04] ✓ 04-tenant-services boundary activated")
+}
+
+// describeMissingRoles names them rather than counting them, because the name is
+// what an operator greps for and the count is not actionable.
+func describeMissingRoles(missing []string) string {
+	if len(missing) == 1 {
+		return fmt.Sprintf("the role %s does not exist", missing[0])
+	}
+	return fmt.Sprintf("these roles do not exist: %s", strings.Join(missing, ", "))
+}
+
+// declaredDatabaseRoles is the set of roles this box's HubEnvironment says the
+// platform needs. The names only -- each entry also carries a database and a
+// permission list, which belong to the operator that grants them.
+func (o *Orchestrator) declaredDatabaseRoles(ctx context.Context, kubeconfig string) ([]string, error) {
+	// Cluster-scoped, so no -A and no -n. See the note in the poll loop below:
+	// naming a cluster-scoped resource together with --all-namespaces makes
+	// kubectl exit 0 and print nothing, which reads as "no roles declared".
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment",
+		"-o", "jsonpath={.spec.database.roles[*].name}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("could not read the declared database roles: %w", err)
+	}
+	return strings.Fields(strings.TrimSpace(string(out))), nil
+}
+
+// missingDatabaseRoles asks the DATABASE which declared roles are not in it.
+//
+// An error means the database could not be asked, which is not the same as every
+// role being present and must never be read as it.
+func (o *Orchestrator) missingDatabaseRoles(ctx context.Context, kubeconfig string) ([]string, error) {
+	declared, err := o.declaredDatabaseRoles(ctx, kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+	if len(declared) == 0 {
+		return nil, nil
+	}
+
+	primary, err := o.cnpgPrimary(ctx, kubeconfig)
+	if err != nil || primary == "" {
+		return nil, fmt.Errorf("the platform database has no primary to ask yet")
+	}
+
+	// Every role name, compared in Go. Nothing from the HubEnvironment is
+	// interpolated into the statement -- the spec is operator-supplied, and a
+	// role name is not a place to start trusting it.
+	out, err := o.psql(ctx, kubeconfig, primary, "postgres", "select rolname from pg_roles")
+	if err != nil {
+		return nil, fmt.Errorf("could not read pg_roles: %w", err)
+	}
+	present := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			present[name] = true
+		}
+	}
+
+	var missing []string
+	for _, role := range declared {
+		if !present[role] {
+			missing = append(missing, role)
+		}
+	}
+	return missing, nil
+}
+
+// hubIngressAddressResolved reports whether the platform has worked out the
+// address every public hostname on this box resolves to.
+//
+// hub-operator reads it from kube-system/kubeadm-config and publishes it for
+// external-dns (see operators/hub-operator/internal/controller/ingress_address.go).
+// Unresolved means no hub hostname is published at all: infisical, argocd, auth,
+// id, dashboard and api are NXDOMAIN and ACME can issue for none of them.
+//
+// Asserted rather than assumed because this was a warning once. The bootstrap
+// printed "could not resolve hub ingress address", ran twenty more phases and
+// reported success, and the operator found out from a browser.
+func (o *Orchestrator) hubIngressAddressResolved(ctx context.Context, kubeconfig string) error {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment", "-o",
+		`jsonpath={.status.conditions[?(@.type=="IngressAddressResolved")].status}`).Output()
+	if err != nil {
+		return fmt.Errorf("the HubEnvironment could not be read to confirm the hub's " +
+			"ingress address is known")
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "True":
+		return nil
+	case "":
+		return fmt.Errorf("the hub-operator has not reported IngressAddressResolved.\n" +
+			"  An operator that predates this condition never will -- upgrade the bundle,\n" +
+			"  which is what carries it")
+	default:
+		msg, _ := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "hubenvironment", "hub-environment", "-o",
+			`jsonpath={.status.conditions[?(@.type=="IngressAddressResolved")].message}`).Output()
+		return fmt.Errorf("the hub's ingress address is not resolved: %s",
+			strings.TrimSpace(string(msg)))
+	}
+}
+
+// awaitDatabaseRolesProvisioned waits until the platform's database roles exist
+// AND the hub-operator reports it put them there.
+//
+// Both, because either alone has been wrong on this platform.
+//
+// The condition alone was wrong on 2026-09-15. platform-db's PVC is node-local
+// (local-path on the on-prem worker); the worker was rebuilt from a pristine
+// image, the database came back empty, and CNPG re-ran initdb -- but the
+// operator's DatabaseRolesProvisioned condition still said True, stamped ten and
+// a half hours earlier against a database that no longer existed. This gate read
+// it and printed "✓ database roles provisioned after 1s" over a cluster in which
+// hub_zitadel did not exist. Boundary 04 then waited for an identity provider
+// that could not authenticate, behind an operator that would never re-provision
+// the role because its own record said it already had.
+//
+// Counting roles alone was the objection that made it a condition in the first
+// place, and it was a fair one: provisioning is all-or-nothing, and half of it
+// is indistinguishable from all of it by COUNTING. So this does not count. It
+// compares against the set the HubEnvironment declares, by name, which is a
+// stronger claim than a count and a different claim from the operator's memory.
+//
+// What it still does not prove is that each role's PASSWORD matches the Secret
+// its consumer holds. Existence is necessary, not sufficient; the grants and the
+// credential remain the operator's to get right.
+func (o *Orchestrator) awaitDatabaseRolesProvisioned(ctx context.Context, kubeconfig string) error {
+	const (
+		deadline = 45 * time.Minute
+		every    = 10 * time.Second
+	)
+	started := time.Now()
+	var lastNudge time.Time
+
+	// Whether the condition was EVER readable, as distinct from never True.
+	//
+	// The two failures need different messages and previously shared one. A
+	// malformed query returns empty for ever and reads exactly like an operator
+	// that is still working, so the timeout blamed the operator for a fault in
+	// how it was being asked.
+	seen := false
+
+	// Whether the DATABASE was ever reachable, and what it last said was missing.
+	// Kept apart from `seen` for the same reason `seen` exists at all: "could not
+	// ask" and "asked, and the answer was no" need different messages.
+	probed := false
+	warnedStale := false
+	var lastMissing []string
+
+	for {
+		// No -A, and no .items[*].
+		//
+		// HubEnvironment is CLUSTER-SCOPED. Passing a resource name together with
+		// --all-namespaces makes kubectl exit 0 and print NOTHING -- it does not
+		// error -- so this loop polled for its whole deadline against a condition
+		// it could not observe, while the condition had been True since minutes
+		// after the boundary began. The failure it then reported ("the
+		// hub-operator did not provision the platform's database roles") was
+		// indistinguishable from the real fault this gate exists to catch.
+		out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", "hubenvironment", "hub-environment", "-o",
+			`jsonpath={.status.conditions[?(@.type=="DatabaseRolesProvisioned")].status}`).Output()
+		if status := strings.TrimSpace(string(out)); err == nil && status != "" {
+			seen = true
+		}
+		operatorDone := err == nil && strings.TrimSpace(string(out)) == "True"
+
+		// Ask the database itself. The condition says the operator believes it
+		// finished; this says the roles are actually there now.
+		missing, dbErr := o.missingDatabaseRoles(ctx, kubeconfig)
+		if dbErr == nil {
+			probed = true
+			lastMissing = missing
+		}
+
+		if operatorDone && dbErr == nil && len(missing) == 0 {
+			fmt.Printf("    ✓ database roles provisioned after %s\n",
+				formatDuration(time.Since(started)))
+			return nil
+		}
+
+		// Said once, and loudly. A True condition over a database that does not
+		// have the roles is the signature of a database replaced underneath the
+		// operator, and it is not something to discover from a timeout 45 minutes
+		// later -- by then the run has been waiting on an identity provider that
+		// was never going to start.
+		if operatorDone && dbErr == nil && len(missing) > 0 && !warnedStale {
+			warnedStale = true
+			fmt.Printf("    ⚠️  the hub-operator reports DatabaseRolesProvisioned=True, but %s\n",
+				describeMissingRoles(missing))
+			fmt.Println("        Its record describes a database that no longer has them — most often")
+			fmt.Println("        because the volume behind platform-db was replaced. The operator will")
+			fmt.Println("        not redo work its own condition says is done; it has to be re-driven.")
+		}
+
+		// Nudge anything ESO has backed off on.
+		//
+		// refreshInterval is ESO's retry interval as well as its drift cadence, so
+		// an ExternalSecret that attempted a moment before the ClusterSecretStore
+		// finished validating waits a full interval before trying again --
+		// observed as an attempt at 08:36:48, the store becoming Ready at
+		// 08:37:01, and the next attempt due at 09:36 against a fifteen-minute
+		// budget. The intervals on the Day-0-critical secrets are shortened for
+		// this reason; this makes the wait self-correcting even where they are
+		// not, and on a box whose bundle predates that change.
+		//
+		// Every 30s rather than every poll: the annotation is a write, and ESO
+		// needs time to act on it.
+		if time.Since(lastNudge) > 30*time.Second {
+			o.nudgeStalledExternalSecrets(ctx, kubeconfig)
+			lastNudge = time.Now()
+		}
+
+		if time.Since(started) > deadline {
+			if !seen {
+				return fmt.Errorf("the DatabaseRolesProvisioned condition was never readable "+
+					"in %v -- not false, ABSENT.\n"+
+					"  Either the hub-operator has not reached the phase that publishes it, or\n"+
+					"  this check is asking for it wrongly. HubEnvironment is cluster-scoped;\n"+
+					"  confirm with:\n"+
+					"    kubectl get hubenvironment hub-environment -o yaml | grep -A3 DatabaseRoles",
+					deadline)
+			}
+			if !probed {
+				return fmt.Errorf("the platform database could not be read in %v to confirm "+
+					"its roles exist.\n"+
+					"  The hub-operator's condition is not enough on its own -- it records what the\n"+
+					"  operator did, not what the database now contains -- so this gate does not\n"+
+					"  pass on it alone. Check the database is serving:\n"+
+					"    kubectl -n platform-data get cluster platform-db", deadline)
+			}
+			if len(lastMissing) > 0 {
+				return fmt.Errorf("the platform database is missing %s after %v.\n  %s\n"+
+					"  Nothing that owns a database can start until they exist: Zitadel's hooks\n"+
+					"  fail on a role that does not exist and exhaust their retries against it.\n\n"+
+					"  If the hub-operator reports DatabaseRolesProvisioned=True while this says\n"+
+					"  they are absent, the database was replaced after it last ran -- the operator\n"+
+					"  will not repeat work its own record calls done.",
+					describeMissingRoles(lastMissing), deadline,
+					o.hubEnvironmentBlocker(ctx, kubeconfig))
+			}
+			return fmt.Errorf("the hub-operator did not provision the platform's database "+
+				"roles within %v.\n  %s\n"+
+				"  Nothing that owns a database can start until it does: Zitadel's hooks fail\n"+
+				"  on a role that does not exist and exhaust their retries against it",
+				deadline, o.hubEnvironmentBlocker(ctx, kubeconfig))
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
+	}
+}
+
+// nudgeStalledExternalSecrets asks ESO to retry any ExternalSecret that is not
+// synced, instead of waiting out its refresh interval.
+//
+// `force-sync` is ESO's own mechanism for this: the annotation's value only has
+// to change for the controller to reconcile immediately. Best effort throughout
+// -- a nudge that fails costs nothing, because the interval still applies.
+func (o *Orchestrator) nudgeStalledExternalSecrets(ctx context.Context, kubeconfig string) {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "externalsecret", "-A", "-o",
+		`jsonpath={range .items[?(@.status.conditions[0].reason!="SecretSynced")]}{.metadata.namespace} {.metadata.name}{"\n"}{end}`).Output()
+	if err != nil {
+		return
+	}
+	stamp := fmt.Sprintf("%d", time.Now().Unix())
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		_ = exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"annotate", "externalsecret", parts[1], "-n", parts[0],
+			"force-sync="+stamp, "--overwrite").Run()
+	}
+}
+
+// hubEnvironmentBlocker returns the operator's own reason for not having
+// finished, which names the phase it is stuck in.
+func (o *Orchestrator) hubEnvironmentBlocker(ctx context.Context, kubeconfig string) string {
+	// Same correction as the gate above: cluster-scoped, so no -A and no .items[*].
+	// This reported "no failing condition" for a query that returned nothing at
+	// all, which is why the timeout said the operator had not finished when it had.
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hubenvironment", "hub-environment", "-o",
+		`jsonpath={range .status.conditions[?(@.status=="False")]}{.type}: {.message}{"\n"}{end}`).Output()
+	if err != nil {
+		return "the HubEnvironment could not be read"
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return "hub-operator reports: " + line
+		}
+	}
+	return "the HubEnvironment reports no failing condition; check the hub-operator's logs"
+}
+
+// zitadelServing reports whether the identity provider is serving right now.
+//
+// One point-in-time probe with no wait in it, so it can be used both as the
+// condition awaitZitadelReady polls and as boundary 04's postcondition on
+// resume, where a wait would make every resume pay Zitadel's start-up time.
+//
+// readyReplicas, not the Deployment's existence: Zitadel crash-looping on a
+// half-initialised database is a Deployment that exists, has a pod, and serves
+// nothing.
+func (o *Orchestrator) zitadelServing(ctx context.Context, kubeconfig string) error {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "deployment", "zitadel", "-n", "platform-identity",
+		"-o", "jsonpath={.status.readyReplicas}").Output()
+	if err != nil {
+		return fmt.Errorf("the zitadel deployment could not be read in platform-identity")
+	}
+	if ready := strings.TrimSpace(string(out)); ready == "" || ready == "0" {
+		return fmt.Errorf("the identity provider has no ready replica")
+	}
 	return nil
 }
 
-func (o *Orchestrator) deployBoundary05(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 5); err != nil {
-		return err
+// awaitZitadelReady waits until the identity provider is serving, and says what
+// is wrong when it is not.
+//
+// Bounded, because "not ready in ten minutes" is an answer an operator can act
+// on and an unbounded wait is a hung bootstrap. The message carries the setup
+// Job's own last error rather than a pod status, since that is what names the
+// cause: a failed migration, a database it cannot reach, or a schema half
+// written by a previous attempt.
+func (o *Orchestrator) awaitZitadelReady(ctx context.Context, kubeconfig string) error {
+	const (
+		// Longer than the setup Job's own activeDeadlineSeconds (600s), so this
+		// phase outlives the Job and reports the Job's verdict rather than timing
+		// out over one that is still retrying. The two are set together; raising
+		// one without the other makes the wait meaningless in one direction or
+		// the error misleading in the other.
+		deadline = 12 * time.Minute
+		every    = 15 * time.Second
+	)
+	started := time.Now()
+	fmt.Println("[boundary04] waiting for the identity provider to serve")
+
+	for {
+		if err := o.zitadelServing(ctx, kubeconfig); err == nil {
+			fmt.Printf("[boundary04] ✓ identity provider ready after %s\n",
+				formatDuration(time.Since(started)))
+			return nil
+		}
+
+		if time.Since(started) > deadline {
+			reason := o.zitadelSetupFailure(ctx, kubeconfig)
+			return fmt.Errorf("the identity provider did not start within %v.\n"+
+				"  %s\n"+
+				"  Nothing downstream of it can work: iam-admin-pat is not created, so the\n"+
+				"  identity token is not uploaded, so identity-service-credentials never\n"+
+				"  resolves and kube-sbt cannot start",
+				deadline, reason)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
 	}
-	// Again, and not redundantly. Crossplane establishes a composed kind
-	// asynchronously after its XRD syncs, so AINativeSaaS can appear AFTER the
-	// refresh in boundary 03 — and this is the boundary that first manages one.
-	if err := o.refreshArgoCDSchemaCache(ctx, kubeconfig); err != nil {
-		return err
-	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 5); err != nil {
-		return err
-	}
-	fmt.Println("[boundary05] ✓ 05-tenant-fleet boundary activated")
-	return nil
 }
 
-func (o *Orchestrator) deployBoundary06(ctx context.Context, kubeconfig string) error {
-	if err := o.deployBoundary(ctx, kubeconfig, 6); err != nil {
-		return err
+// zitadelSetupFailure returns the setup Job's own last error, or a fallback.
+func (o *Orchestrator) zitadelSetupFailure(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"logs", "-n", "platform-identity", "job/zitadel-setup",
+		"-c", "zitadel-setup", "--tail=4").CombinedOutput()
+	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		return "zitadel-setup last said: " + lines[len(lines)-1]
 	}
-	// ADR-061: the boundary is activated; this waits until it has actually
-	// generated the Applications it declares. Safe here — the platform repo
-	// credentials were provisioned in Phase 5a, long before this phase.
-	if err := o.awaitBoundaryInventory(ctx, kubeconfig, 6); err != nil {
-		return err
+
+	// The Job may be gone. Its delete policy carries `hook-failed`, because a
+	// failed hook Job left in place is read as the hook's result by every later
+	// sync and wedges the Application permanently -- so a failure deletes itself,
+	// and takes its logs with it.
+	//
+	// ArgoCD's own record of why the hook failed outlives the Job, so ask it
+	// rather than reporting "no readable logs", which says nothing and was what
+	// this returned for a box whose hooks had been cleaned up exactly as designed.
+	if msg := o.zitadelHookFailure(ctx, kubeconfig); msg != "" {
+		return msg
 	}
-	fmt.Println("[boundary06] ✓ 06-tenant-public-tls boundary activated")
-	return nil
+	return "zitadel-setup produced no readable logs and ArgoCD recorded no hook failure; " +
+		"check `kubectl get application zitadel -n platform-ops -o jsonpath='{.status.operationState}'`"
+}
+
+// zitadelHookFailure returns ArgoCD's own record of a failed PreSync hook.
+//
+// Survives the Job, which `hook-failed` deletes as soon as it fails.
+func (o *Orchestrator) zitadelHookFailure(ctx context.Context, kubeconfig string) string {
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "application", "zitadel", "-n", "platform-ops", "-o",
+		`jsonpath={range .status.operationState.syncResult.resources[?(@.hookPhase=="Failed")]}{.name}: {.message}{"\n"}{end}`).Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return "ArgoCD recorded the hook failure: " + line
+		}
+	}
+	return ""
 }
 
 // publicTlsIssuerFor returns the ACME ClusterIssuer for this environment — the
@@ -1271,15 +2032,35 @@ func (o *Orchestrator) publicTlsIssuerFor() (string, error) {
 // the CAPH-managed control-plane LoadBalancer. Returns "" when it cannot be
 // resolved, in which case the chart falls back to its default (publishing the
 // controller Service address) and public ingress DNS will be wrong.
+//
+// Selected by cluster name, never by position. This asked for `items[0]`, which
+// was right only while the hub was the sole HetznerCluster in the namespace. It
+// is not: every spoke pool this hub provisions adds one beside it, and on
+// acme-hub `spoke-pool-hybrid-dev-01-n5r6z` now sits in platform-capi next to
+// `acme-hub-gmj6h`. The hub kept winning that race because the names happened to
+// sort that way -- rename the hub, or add a spoke whose name sorts earlier, and
+// the hub Gateway publishes a SPOKE's address for every hub hostname, which
+// resolves, answers, and serves the wrong cluster.
+//
+// CAPI labels every infrastructure object with the cluster it belongs to, so the
+// question has an exact answer and there is no reason to guess at one.
 func (o *Orchestrator) hubIngressAddress(ctx context.Context, kubeconfig string) string {
-	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-		"get", "hetznercluster", "-n", "platform-capi",
-		"-o", "jsonpath={.items[0].spec.controlPlaneEndpoint.host}")
-	out, err := cmd.Output()
+	out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+		"get", "hetznercluster", "-n", constants.NamespaceCAPI,
+		"-l", "cluster.x-k8s.io/cluster-name="+o.ClusterName,
+		"-o", "jsonpath={.items[*].spec.controlPlaneEndpoint.host}").Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+
+	// Exactly one, or nothing. Two matches means the label does not identify what
+	// it is being asked to identify, and picking either would be the same mistake
+	// in a new place.
+	hosts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(hosts) != 1 {
+		return ""
+	}
+	return hosts[0]
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1290,9 +2071,48 @@ func (o *Orchestrator) handleExistingState(ctx context.Context, stateMgr *state.
 	fmt.Printf("\n[recovery] Found existing state for cluster '%s'\n", o.ClusterName)
 	fmt.Printf("[recovery] Last completed phase: %s\n", bs.CurrentPhase)
 
+	// The provider is a property of the CLUSTER, not of this invocation.
+	//
+	// A resumed bootstrap that is told a different provider than the one the
+	// cluster was built with does not switch providers -- it half-applies the new
+	// one to a topology shaped by the old. Observed: a hybrid box (one control
+	// plane, zero cloud workers, workers expected from the tenant's own hardware)
+	// resumed as hetzner. `--on-prem` was therefore absent, on-prem-join reported
+	// "Not a home-worker cell — skipping", and the run continued toward deploying
+	// the platform onto a single tainted control plane with nowhere to schedule.
+	//
+	// Nothing compared the two, though the state records the provider and has
+	// since it was written. Refused rather than corrected: picking one for the
+	// operator would silently discard whichever they meant.
+	if recorded := strings.TrimSpace(bs.Provider); recorded != "" {
+		if asked := strings.TrimSpace(o.providerName()); asked != "" && asked != recorded {
+			return fmt.Errorf("this cluster was built with --provider %s and this run says --provider %s.\n"+
+				"  The provider decides the cluster's topology -- how many cloud workers it has,\n"+
+				"  and whether its workers come from the tenant's own hardware -- so resuming with\n"+
+				"  a different one applies half of it to a shape built for the other.\n\n"+
+				"  Re-run with --provider %s, or tear the cluster down and build it as %s.",
+				recorded, asked, recorded, asked)
+		}
+	}
+
 	if o.phaseDone(bs, state.PhaseComplete) {
-		fmt.Println("Cluster already bootstrapped. No further CLI operations permitted per ADR-040.")
-		return nil
+		// Verified, not trusted. See phasePostconditions: a bootstrap that
+		// recorded `complete` while a phase's effect never happened would
+		// otherwise refuse every run that could repair it, including the runs
+		// carrying the repair.
+		unmet := o.unmetPostconditions(ctx, bs, bs.MgmtKubeconfig)
+		if len(unmet) == 0 {
+			fmt.Println("Cluster already bootstrapped. No further CLI operations permitted per ADR-040.")
+			return nil
+		}
+		fmt.Printf("[recovery] This bootstrap is recorded complete, but %d phase(s) did not leave the cluster in the state they claim:\n", len(unmet))
+		fmt.Print(describeUnmet(unmet))
+		fmt.Println("[recovery] Withdrawing those records and resuming. Nothing already working is re-done:")
+		fmt.Println("[recovery]   every other phase is skipped as usual.")
+		withdrawCompletion(bs, unmet)
+		if err := stateMgr.Save(bs); err != nil {
+			return err
+		}
 	}
 
 	// Resume from where we left off — the runFresh pipeline will skip
@@ -1346,8 +2166,26 @@ func defaultKubeconfigPath() string {
 // Pinning here rather than at each call site is deliberate: a path that names
 // one cluster cannot be used against another, while a --context argument has to
 // be remembered twenty-three times and is silently absent when it is not.
-func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string) {
-	kubeconfig := defaultKubeconfigPath()
+func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string, error) {
+	// The file recorded when the bootstrap cluster was created is the authority.
+	//
+	// Resolving the ambient $KUBECONFIG instead answered a bootstrap-cluster
+	// question with the hub: hub-bootstrap.sh exports KUBECONFIG to the hub's
+	// kubeconfig once that file exists, which is right for the phases that talk
+	// to the hub and wrong for the ones that talk to the bootstrap cluster. The
+	// hub's file names one context and it is not kind-<cluster>, so pinning
+	// failed, the unpinned path returned the hub, and on-prem-join asked the hub
+	// for the CAPI kubeconfig secret -- "namespaces platform-capi not found",
+	// because CAPI does not live there until pivot. The kind cluster, the
+	// namespace and the secret were all healthy.
+	//
+	// Empty only before the cluster has been created, where there is nothing
+	// recorded yet and the ambient value is what kind itself will write to.
+	recorded := bs.BootstrapKubeconfig
+	kubeconfig := recorded
+	if kubeconfig == "" {
+		kubeconfig = defaultKubeconfigPath()
+	}
 	ctx := bs.BootstrapContext
 	if ctx == "" {
 		ctx = o.BootstrapContext
@@ -1355,13 +2193,39 @@ func (o *Orchestrator) kubeconfigPaths(bs *state.BootstrapState) (string, string
 	if ctx == "" {
 		ctx = "kind-" + o.ClusterName
 	}
-	if pinned, err := pinKubeconfig(kubeconfig, ctx); err == nil {
-		return pinned, ctx
+	pinned, err := pinKubeconfig(kubeconfig, ctx)
+	if err == nil {
+		return pinned, ctx, nil
 	}
-	// The context may not exist yet -- the bootstrap cluster is created later in
-	// the run. Returning the unpinned path keeps that path working, and the
-	// calls that need the cluster fail on their own terms rather than here.
-	return kubeconfig, ctx
+
+	// A RECORDED kubeconfig that no longer resolves its context is a hard failure.
+	//
+	// bootstrap-create writes this field only after proving the context is in the
+	// file, so reaching here means something later unmade that -- the file was
+	// deleted, overwritten, or the cluster destroyed underneath the state. The
+	// previous behaviour returned the unpinned path, and kubectl then answered
+	// bootstrap-cluster questions with whatever cluster that file did name. That
+	// is the whole 2026-09-18 failure: the hub answered for the kind cluster and
+	// the run died three phases later on "namespaces platform-capi not found",
+	// naming neither the file nor the substitution.
+	//
+	// Silence here buys nothing. Stopping costs one re-run of one phase.
+	if recorded != "" {
+		return "", "", fmt.Errorf(
+			"the bootstrap cluster's kubeconfig no longer resolves context %q.\n\n"+
+				"state records %s, written by bootstrap-create once that context was\n"+
+				"present. It is not there now, so this run cannot tell the bootstrap\n"+
+				"cluster apart from any other cluster that file names.\n\n"+
+				"If the kind cluster is still up, re-run the bootstrap-create phase to\n"+
+				"re-pin it. If it is gone, tear down and start over -- later phases\n"+
+				"cannot be resumed without it: %w",
+			ctx, recorded, err)
+	}
+
+	// Nothing recorded: the bootstrap cluster has not been created yet, and the
+	// ambient value is what kind itself will write to. The calls that need the
+	// cluster fail on their own terms rather than here.
+	return kubeconfig, ctx, nil
 }
 
 // pinKubeconfig writes a kubeconfig naming exactly one cluster.
@@ -1621,8 +2485,22 @@ func (o *Orchestrator) readADR045Registry() (adr045Registry, error) {
 				"cannot be resolved")
 		}
 		for i := range reg.Artifacts {
-			reg.Artifacts[i].File = filepath.Join("clusters", o.ClusterName,
-				"generated", filepath.Base(reg.Artifacts[i].File))
+			// Everything below generated/, not just the file name.
+			//
+			// filepath.Base threw the rest away, so an artifact declared at
+			// generated/values/infisical-identity.yaml relocated to
+			// generated/infisical-identity.yaml -- one directory above where the
+			// writers put it and where bundle.yaml's valueFiles reads it. The
+			// validator then reported a file that had been written correctly as
+			// missing, naming a path nothing writes.
+			_, below, ok := strings.Cut(reg.Artifacts[i].File, "/generated/")
+			if !ok {
+				return reg, fmt.Errorf("ADR-045 artifact %q is not under a "+
+					"generated/ directory, so its place in the tenant's repository "+
+					"cannot be derived", reg.Artifacts[i].File)
+			}
+			reg.Artifacts[i].File = filepath.Join(tenant.RegistryDir, "clusters",
+				o.ClusterName, "generated", below)
 		}
 	}
 	return reg, nil
@@ -1784,6 +2662,48 @@ func (o *Orchestrator) validateADR045Artifacts(ctx context.Context) error {
 // ADR-045: auto-commit + wait for ArgoCD
 // ──────────────────────────────────────────────────────────────────────────
 
+// commitGeneratedArtifacts validates the ADR-045 artifacts and gets them into
+// the tenant's repository, where the phases that consume them can read them.
+//
+// Failure is fatal, which it was not when this ran after the boundaries. Then,
+// nothing later in the run depended on it and "the user can commit manually" was
+// a reasonable thing to print. Now boundary 04 reads these values through ArgoCD
+// on the next line, so a warning here buys a 45-minute timeout on a condition
+// that cannot arrive, reported against the hub-operator rather than against the
+// commit that never happened.
+func (o *Orchestrator) commitGeneratedArtifacts(ctx context.Context) error {
+	fmt.Println("\n[adr045-commit] Validating and committing ADR-045 artifacts...")
+	if err := o.validateADR045Artifacts(ctx); err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+
+	// Derived from the registry rather than listed again beside it.
+	//
+	// This was a second hard-coded list of the same paths, and the two drifted
+	// the moment one artifact stopped being generated: the registry no longer
+	// named manifests/hub-core-services/security/generated/, this list still did,
+	// and `git add` on a directory that no longer exists fails the whole commit
+	// step with exit status 128 -- taking the artifacts that ARE still generated
+	// down with it. One declaration means removing an artifact removes it here
+	// too.
+	generatedPaths, err := o.adr045GeneratedDirs()
+	if err != nil {
+		return fmt.Errorf("[adr045-commit] %w", err)
+	}
+
+	if err := o.gitCommitArtifacts(ctx, generatedPaths); err != nil {
+		return fmt.Errorf("[adr045-commit] the generated artifacts could not be "+
+			"committed, and boundary 04 reads them from git: %w\n\n"+
+			"  Commit them and re-run; the bootstrap resumes from this phase:\n"+
+			"    cd %s\n"+
+			"    git add %s\n"+
+			"    git commit -m \"chore: bootstrap-generated-gitops-artifacts [skip ci]\"\n"+
+			"    git push",
+			err, o.GitopsDir, strings.Join(generatedPaths, " "))
+	}
+	return nil
+}
+
 // gitCommitArtifacts runs git add + git commit for the generated artifact
 // directories. It only requires local Git — no remote access. If git is
 // unavailable or the working tree is dirty, it returns an error but does
@@ -1814,18 +2734,34 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 	}
 
 	// git commit (idempotent — fails cleanly if nothing to commit)
-	cmd := git("commit", "-m",
-		"chore: bootstrap-generated-gitops-artifacts [skip ci]")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// Check if it's just "nothing to commit"
-		if bytes.Contains(out, []byte("nothing to commit")) {
-			fmt.Println("[adr045-commit]   Nothing new to commit (already up to date)")
-			return nil
+	// Asked of git's index, not of its prose.
+	//
+	// This matched the string "nothing to commit", which is one of at least two
+	// things git says: a tree with nothing staged and no untracked files reports
+	// "nothing to commit, working tree clean", but the same tree with an untracked
+	// file reports "nothing added to commit but untracked files present" -- no
+	// substring in common. So a resumed run whose artifacts were already committed
+	// failed here, and the message it failed with was git explaining that there
+	// was nothing wrong.
+	//
+	// `git diff --cached --quiet` exits 0 when the index holds no changes. It is
+	// the same question, asked of the only thing that actually knows, and it does
+	// not change wording between git versions or locales.
+	if out, err := git("diff", "--cached", "--quiet").CombinedOutput(); err == nil {
+		_ = out
+		// Nothing new to commit is the resume case, and it does NOT mean there is
+		// nothing to do: the run that committed these may have failed to push, and
+		// ArgoCD reads the remote. Falling through to the push is what lets a
+		// resumed run finish the job the last one started.
+		fmt.Println("[adr045-commit]   Nothing new to commit; ensuring the remote has it")
+	} else {
+		cmd := git("commit", "-m",
+			"chore: bootstrap-generated-gitops-artifacts [skip ci]")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git commit: %w\n%s", err, out)
 		}
-		return fmt.Errorf("git commit: %w\n%s", err, out)
+		fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
 	}
-
-	fmt.Println("[adr045-commit]   ✓ Generated artifacts committed locally")
 
 	// Try git pull --rebase before pushing to avoid non-fast-forward errors
 	// (e.g. if another agent or user pushed commits to this branch while we were bootstrapping)
@@ -1843,7 +2779,13 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 		fmt.Printf("[adr045-commit]   ⚠️  Auto-pull (rebase) failed, continuing to push: %s\n", strings.TrimSpace(string(out)))
 	}
 
-	// Try git push (non-fatal — user may need to push manually)
+	// The push is the point of the whole step, so its failure is returned.
+	//
+	// It was a warning, from when this ran after every phase that could care. It
+	// no longer does: ArgoCD renders what is in the REMOTE, so an artifact that
+	// is committed locally and not pushed is, to every consumer of it, absent.
+	// Reporting that as a warning and continuing is what turns a one-line git
+	// error into a 45-minute timeout somewhere else.
 	pushCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	pushCmd := exec.CommandContext(pushCtx, "git", "push")
@@ -1851,11 +2793,9 @@ func (o *Orchestrator) gitCommitArtifacts(ctx context.Context, paths []string) e
 		pushCmd.Dir = o.GitopsDir
 	}
 	if out, err := pushCmd.CombinedOutput(); err != nil {
-		fmt.Printf("[adr045-commit]   ⚠️  Auto-push failed (manual push required): %s\n",
-			strings.TrimSpace(string(out)))
-	} else {
-		fmt.Println("[adr045-commit]   ✓ Generated artifacts pushed")
+		return fmt.Errorf("git push: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
+	fmt.Println("[adr045-commit]   ✓ Generated artifacts pushed")
 
 	return nil
 }

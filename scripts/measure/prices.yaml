@@ -1,0 +1,35 @@
+# What the Hetzner pricing API cannot tell us.
+#
+# Server types, volumes, load balancers and primary IPs are fetched live from
+# https://api.hetzner.cloud/v1/pricing, per location, at the moment the
+# measurement runs. A hand-maintained price list went stale between the day it
+# was written and the day anyone read the number, and ADR-070 needs a figure
+# that is true when it is quoted.
+#
+# These two lines are not in that API. Object storage is a separate Hetzner
+# product, and artefact mirroring is whatever registry the tenant mirrors into.
+# They stay declared, and `minimum-box.sh` still refuses to report a total
+# against ADR-070's range while either is unset -- a box's cost is not the part
+# of it that happened to be machine-readable.
+
+target:
+  low: 150
+  high: 400
+  currency: EUR
+  source: docs/adr/070-the-minimum-supported-box.md
+
+# EUR/month. Set both, with the date and where the figure came from.
+off_api:
+  taken: ""
+  object_storage:
+    price_month: ~
+    source: ""
+    note: >-
+      Backups for the platform database (ADR-014). Sized by retention, not by
+      the cluster, so it cannot be derived from what is running.
+  artefact_mirror:
+    price_month: ~
+    source: ""
+    note: >-
+      ADR-063 makes mirroring a condition of a supported runtime, so this is a
+      cost of being supportable rather than an optional extra.

@@ -173,22 +173,102 @@ spec:
             isPlatformOwned: 'false'
             syncWave: '-1'
             repoURL: 'https://kyverno.github.io/kyverno'
-            targetRevision: '3.2.6'
+            # 3.9.1 (app v1.19.1). The version is load-bearing, not housekeeping.
+            #
+            # Every release from v1.12.5 to v1.18.x dereferences
+            # request.RequestKind in the webhook TRACE middleware with no nil
+            # check (pkg/webhooks/handlers/trace.go). When the API server sends
+            # an AdmissionReview without it, the handler panics mid-request:
+            #
+            #   http: panic serving 10.244.0.212:52644:
+            #     runtime error: invalid memory address or nil pointer dereference
+            #     pkg/webhooks/handlers/trace.go:74
+            #
+            # The API server sees the connection die, retries, and gives up at
+            # the webhook's 10s budget, so it surfaces as a TIMEOUT rather than
+            # a crash -- "context deadline exceeded" calling validate-policy --
+            # and on nutgraf-01 that failed every ClusterPolicy apply and held
+            # the whole spoke catalogue OutOfSync.
+            #
+            # Disabling tracing does NOT avoid it: the span attributes are
+            # arguments to tracing.Span(...), and Go evaluates arguments before
+            # the call, so the dereference happens whether tracing is on or not.
+            # The guard arrives in v1.19.0 (upstream 309f09df9, "handle nil
+            # RequestKind and RequestResource in trace middleware"), which makes
+            # v1.19.x the floor.
+            #
+            # 3.9.1 also drops the values 3.6.4 required but did not define --
+            # cleanupJobs, policyReportsCleanup and a bare top-level templating,
+            # which eight templates dereferenced and which had to be supplied
+            # here or the chart would not render at all. Those templates are
+            # gone, so that block is gone with them; 3.9.1 renders on defaults.
+            targetRevision: '3.9.1'
             path: ''
             chart: 'kyverno'
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: |
               # Kyverno configuration for hub cluster
-              replicaCount: 3
-
-              # Resource limits
-              resources:
-                limits:
-                  memory: 512Mi
-                requests:
-                  cpu: 100m
-                  memory: 256Mi
+              #
+              # platform-capi is not admitted to the admission path.
+              #
+              # resourceFilters is Kyverno's SKIP list, and the chart's
+              # "IncludeNamespaces" adds to it -- so including a namespace here
+              # means Kyverno does not process it. platform-ops is already on it,
+              # because it is Kyverno's own release namespace; platform-capi was
+              # simply never added.
+              #
+              # It belongs there for the same reason and for a sharper one. That
+              # namespace holds the CAPI bootstrap templates, and two of them are
+              # ~870 KB -- cilium-addon-template at 883 KB and cnpg-crds-template
+              # at 867 KB. Every write of those crossed the tunnel to the
+              # admission controller on the on-prem worker, synchronously, under
+              # failurePolicy=Fail with a 10s timeout, and intermittently came
+              # back "unexpected error when reading response body": a truncated
+              # response, not a slow one. The 3 KB template in the same
+              # Application never failed.
+              #
+              # That blocked four consecutive releases. Each presented as
+              # platform-spoke-bootstrap-templates sitting at ComparisonError,
+              # which reads as an ArgoCD fault and is not one.
+              #
+              # This is scope, not placement. Pinning the controller to the
+              # control plane was tried and MEASURED SLOWER (see the affinity note
+              # below): that node is the bottleneck, not the tunnel. What is wrong
+              # is that a fail-closed webhook matching every kind sees
+              # platform-owned CAPI templates at all -- there is no tenant in that
+              # namespace and no pod, so no policy here has anything to say about
+              # its contents.
+              config:
+                # The webhook is NOT CALLED for platform-capi.
+                #
+                # This is the selector on the generated
+                # ValidatingWebhookConfiguration, and it is the only setting that
+                # stops the request being made. resourceFilters was tried first
+                # and is the wrong knob: it tells Kyverno what to SKIP PROCESSING
+                # once the request has arrived, so the 870 KB still crossed the
+                # tunnel and still had its response truncated. The webhook
+                # selector is what the API server consults before calling at all.
+                #
+                # kube-system is repeated because this REPLACES the chart's
+                # default rather than adding to it; dropping it would put every
+                # kube-system write through a fail-closed webhook across the
+                # tunnel. platform-ops is added separately by
+                # excludeKyvernoNamespace and does not belong here.
+                webhooks:
+                  namespaceSelector:
+                    matchExpressions:
+                    - key: kubernetes.io/metadata.name
+                      operator: NotIn
+                      values:
+                      - kube-system
+                      - platform-capi
+              #
+              # No replicaCount here. The chart has no such value -- it reads
+              # admissionController.replicas (set below) -- so the `replicaCount: 3`
+              # that sat here changed nothing while reading like it set the
+              # admission controller to three. Removed rather than corrected: the
+              # value that applies is the one further down.
 
               # Enable background controller for generate policies
               backgroundController:
@@ -211,33 +291,6 @@ spec:
                     cpu: 50m
                     memory: 128Mi
 
-              # Override cleanup job images: bitnami/kubectl:1.28.5 no longer exists on Docker Hub
-              cleanupJobs:
-                admissionReports:
-                  image:
-                    repository: bitnamilegacy/kubectl
-                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
-                clusterAdmissionReports:
-                  image:
-                    repository: bitnamilegacy/kubectl
-                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
-                ephemeralReports:
-                  image:
-                    repository: bitnamilegacy/kubectl
-                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
-                clusterEphemeralReports:
-                  image:
-                    repository: bitnamilegacy/kubectl
-                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
-                updateRequests:
-                  image:
-                    repository: bitnamilegacy/kubectl
-                    tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
-              policyReportsCleanup:
-                image:
-                  repository: bitnamilegacy/kubectl
-                  tag: 1.28.5@sha256:cfd03da61658004f1615e5401ba8bde3cc4ba3f87afff0ed8875c5d1b0b09e4a
-
               # Enable reports controller
               reportsController:
                 enabled: true
@@ -249,34 +302,76 @@ spec:
                     memory: 256Mi
 
               # Admission controller configuration
+              #
+              # One replica outside prod. Both replicas answer webhook traffic --
+              # unlike hub-operator, whose second pod is an idle leader-election
+              # standby -- so this is a real reduction in admission redundancy,
+              # and it is taken deliberately: on a dev hub the two pods shared a
+              # node and restarted together anyway, so the redundancy was
+              # notional while the memory was not.
               admissionController:
-                replicas: 2
-                resources:
-                  limits:
-                    memory: 512Mi
-                  requests:
-                    cpu: 100m
-                    memory: 256Mi
+                replicas: {{ if eq .Values.environmentSlug "prod" }}2{{ else }}1{{ end }}
+                # Metrics service and container resources BOTH moved in 3.6.4.
+                # They were `metricsService:` and `admissionController.resources:`
+                # in 3.2.6; the chart no longer reads either at those paths, and
+                # helm does not warn -- kyverno ships no values.schema.json, so a
+                # value at a path the chart dropped is silently discarded. Left
+                # unmoved, the admission controller would have quietly taken the
+                # chart default limit of 384Mi instead of the 512Mi below, on a
+                # hub already documented at 83% memory.
+                metricsService:
+                  create: true
+                  type: ClusterIP
+                  port: 8000
+                container:
+                  resources:
+                    limits:
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
 {{- if eq .Values.provider "hybrid" }}
-                # HYBRID ONLY: the admission webhook runs beside the API server.
+                # HYBRID ONLY: the admission webhook runs on the on-prem worker,
+                # beside the other fail-closed webhooks (ADR-046 §11).
                 #
-                # Same reasoning as platform-external-secrets below, and the same
-                # failure. validate.kyverno.svc-fail is failurePolicy=Fail with a
-                # 10s timeout, so the API server calls it SYNCHRONOUSLY on every
-                # write. Unpinned it lands on the only schedulable node — a
-                # home-lab machine across the Tailscale tunnel — putting a
-                # cross-site round trip in the admission path of every write.
+                # This used to pin to the CONTROL PLANE, to keep the Tailscale
+                # tunnel out of the synchronous admission path. The reasoning was
+                # sound and the measurement contradicts it. From the API server's
+                # own apiserver_admission_webhook_admission_duration_seconds on a
+                # dev hub:
                 #
-                # Observed: every ArgoCD server-side dry-run failed with
+                #   validate.kyverno.svc-fail              842 ms   (control plane)
+                #   validate.clustersecretstore...         861 ms   (control plane)
+                #   webhook.cert-manager.io                869 ms   (worker, tunnel)
+                #   default.machine.cluster.x-k8s.io       734 ms   (worker, tunnel)
+                #   default.kubeadmconfigtemplate...       703 ms   (worker, tunnel)
                 #
-                #   failed calling webhook "validate.kyverno.svc-fail":
-                #   context deadline exceeded
+                # The control-plane-pinned webhooks were the SLOWEST. Co-location
+                # bought nothing because the node it co-located onto is the
+                # bottleneck: cpx22, 2 vCPU and 3.8 GB, at 83% memory and 56% CPU
+                # with etcd and the API server on it. The tunnel costs less than
+                # the contention.
                 #
-                # which stalled the zitadel sync mid-hook and presented as a
-                # broken identity provider. The external-secrets comment
-                # predicted exactly this — it "surfaces as ArgoCD
-                # ComparisonErrors on unrelated Applications", and diagnosing it
-                # from there leads away from the cause every time.
+                # It also cost a bootstrap. Under that pressure the API server
+                # could not serve Kyverno's own lease renewal:
+                #
+                #   error retrieving resource lock platform-ops/kyverno:
+                #     context deadline exceeded
+                #   failed to renew lease: timed out waiting for the condition
+                #   leadership lost, stopped leading
+                #
+                # Kyverno exits 0 and restarts, roughly every two minutes. Any
+                # write landing in that window fails closed, and one did:
+                # bootstrap-infisical-api died after 13m39s on
+                # "dial tcp 10.100.166.35:443: connect: connection refused"
+                # creating infisical-auth.
+                #
+                # CAPI, cert-manager and external-secrets already serve
+                # failurePolicy=Fail webhooks from this worker. What makes Kyverno
+                # different is match scope, not latency: validate.kyverno.svc-fail
+                # matches every kind, so the tunnel is now in the path of every
+                # write rather than of CAPI writes. That is the trade accepted
+                # here, on the measurements above.
                 #
                 # Merged into this block rather than appended as a second
                 # admissionController key: YAML takes the last one, so a separate
@@ -285,18 +380,9 @@ spec:
                 # Deliberately NOT applied on a single-provider hub, where the
                 # workers share a network with the control plane.
                 nodeSelector:
-                  node-role.kubernetes.io/control-plane: ""
-                tolerations:
-                  - key: node-role.kubernetes.io/control-plane
-                    operator: Exists
-                    effect: NoSchedule
+                  workload-location: on-prem
+                  node-role.kubernetes.io/worker: ""
 {{- end }}
-
-              # Enable metrics
-              metricsService:
-                create: true
-                type: ClusterIP
-                port: 8000
 
               # Webhook configuration
               webhooksCleanup:
@@ -348,11 +434,8 @@ spec:
               # worker capacity.
               webhook:
                 nodeSelector:
-                  node-role.kubernetes.io/control-plane: ""
-                tolerations:
-                  - key: node-role.kubernetes.io/control-plane
-                    operator: Exists
-                    effect: NoSchedule
+                  workload-location: on-prem
+                  node-role.kubernetes.io/worker: ""
 {{- end }}
 
               crds:
@@ -458,6 +541,9 @@ spec:
       source:
         directory:
           recurse: true
+    {{"{{-"}} if ne .directoryInclude "" {{"}}"}}
+          include: '{{"{{"}} .directoryInclude {{"}}"}}'
+    {{"{{-"}} end {{"}}"}}
     {{"{{-"}} end {{"}}"}}
 {{- end }}
 {{- if not $released }}

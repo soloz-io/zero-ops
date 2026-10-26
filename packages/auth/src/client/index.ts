@@ -6,7 +6,13 @@
 // application would fail at bundle time, or worse, succeed and ship them.
 //
 // Nothing in this subpath has a dependency.
-export type { UserIdentity, AuthState, AuthTransport } from "./types.js";
-export { createAuthClient, hasUserContext } from "./auth-client.js";
+
 export type { AuthClient } from "./auth-client.js";
+export {
+  createAuthClient,
+  hasUserContext,
+  reportUnauthorized,
+  sharedAuthClient,
+} from "./auth-client.js";
 export type { AuthEvent, AuthEventListener } from "./events.js";
+export type { AuthState, AuthTransport, UserIdentity } from "./types.js";

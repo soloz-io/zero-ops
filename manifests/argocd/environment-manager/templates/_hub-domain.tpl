@@ -17,10 +17,33 @@ authenticate against someone else's identity provider.
 
 Day-0 supplies it: scaffolding knows the tenant's domain, having been given it.
 */}}
+{{/*
+Compose the domain every public hostname on this box sits under.
+
+The PARTS are the record and the composition happens here, which is kubefirst's
+shape: it stores DomainName and SubdomainName as separate fields on the cluster
+and joins them at render time as fmt.Sprintf("%s.%s", SubdomainName, DomainName),
+replacing its <DOMAIN_NAME> token with the result. ADR-051's amendment of
+2026-09-18 adopts that separation -- a box declares a zone and an optional label
+under it, and the environment has no part in either.
+
+hubDomain remains accepted and wins when given. A box scaffolded before the split
+has only that value and must keep working; one scaffolded after has domain and
+subdomain, and this composes them.
+*/}}
 {{- define "environment-manager.hubDomain" -}}
 {{- $d := .Values.hubDomain -}}
 {{- if not $d -}}
-{{- fail "hubDomain is not set: this chart cannot tell which domain this box publishes on, and the components that need it would fall back to the platform's own (ADR-051, ADR-065). Scaffolding writes it into clusters/<name>/values.yaml." -}}
+{{- $domain := .Values.domain | default "" -}}
+{{- if not $domain -}}
+{{- fail "neither hubDomain nor domain is set: this chart cannot tell which domain this box publishes on, and the components that need it would fall back to the platform's own (ADR-051, ADR-065). Scaffolding writes them into registry/clusters/<name>/values.yaml." -}}
+{{- end -}}
+{{- $sub := .Values.subdomain | default "" | trimAll "." -}}
+{{- if $sub -}}
+{{- $d = printf "%s.%s" $sub $domain -}}
+{{- else -}}
+{{- $d = $domain -}}
+{{- end -}}
 {{- end -}}
 {{- $d -}}
 {{- end -}}

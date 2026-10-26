@@ -1,0 +1,79 @@
+name: Platform mixin
+
+# ADR-078 add.2 §2, add.3 §3-4: the platform's dashboards and recording rules are
+# generated from pinned upstream mixins and COMMITTED, so a release diff shows
+# what changes. A change to the mixin's pin or configuration is regenerated and
+# committed here; a pull request whose committed output differs from a
+# regeneration fails.
+
+on:
+  push:
+    paths:
+      - 'scripts/observability/mixin/**'
+      - 'scripts/observability/metric-allowlist.py'
+      # A hand-written rule reads metrics too: the allowlist follows it.
+      - 'manifests/hub-core-services/platform-alerts/**'
+      - 'manifests/spoke/spoke-catalog/infra/platform-alerts/**'
+      - '.github/workflows/platform-mixin.yml'
+  pull_request:
+    paths:
+      - 'scripts/observability/mixin/**'
+      - 'scripts/observability/metric-allowlist.py'
+      - 'manifests/hub-core-services/platform-alerts/**'
+      - 'manifests/spoke/spoke-catalog/infra/platform-alerts/**'
+      - 'manifests/hub-core-services/platform-dashboards/dashboard-*.yaml'
+      - 'manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml'
+      - 'manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Regenerate
+        run: |
+          python3 -m pip install --quiet pyyaml
+          scripts/observability/mixin/generate.sh
+          scripts/observability/metric-allowlist.py
+      - name: Commit the regenerated output
+        run: |
+          set -euo pipefail
+          git add manifests/hub-core-services/platform-dashboards \
+                  scripts/observability/mixin/metrics-allowlist.json \
+                  manifests/hub-core-services/platform-alerts/kubernetes-mixin-rules.yaml \
+                  manifests/spoke/spoke-catalog/infra/platform-alerts/kubernetes-mixin-rules.yaml \
+                  manifests/spoke/spoke-catalog/infra/kustomization.yaml \
+                  manifests/hub-core-services/grafana-alloy/deployment.yaml \
+                  manifests/spoke/spoke-catalog/infra/grafana-alloy.yaml
+          if git diff --cached --quiet; then
+            echo "already generated; nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(observability): regenerate the platform mixin"
+          git push
+
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: The committed output is a regeneration
+        run: |
+          python3 -m pip install --quiet pyyaml
+          scripts/observability/mixin/generate.sh --check
+          scripts/observability/metric-allowlist.py --check

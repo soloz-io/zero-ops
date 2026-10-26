@@ -62,7 +62,30 @@ func (a *Auth) CreateUser(ctx context.Context, user models.User) (*models.User, 
 		"email":        map[string]any{"email": user.Email, "isVerified": true},
 	}
 	if user.Password != "" {
-		body["password"] = map[string]any{"password": user.Password, "changeRequired": false}
+		// changeRequired, because the password the platform supplies here is a
+		// BOOTSTRAP credential and must never become the account's standing one.
+		//
+		// Tenant owner provisioning no longer supplies one at all — it creates the
+		// account passwordless so the issuer mails an initialisation link
+		// (tenant.go, ADR-060 Amendment 2026-09-26). This branch remains for any
+		// caller that does supply a password, and for those it must not become the
+		// standing credential. With changeRequired false — as this read until
+		// 2026-09-26 — a supplied string IS the account's password forever: ZITADEL
+		// never prompts, so the only route in is for someone to retrieve that
+		// string on the user's behalf, and the account accumulates no
+		// `user.human.password.changed` event for as long as it exists.
+		//
+		// Observed exactly that way. A tenant owner created 2026-09-22 had the
+		// bootstrap hash still in place four days later, one successful password
+		// check in its entire history, and nothing but
+		// `user.human.password.check.failed` after it. A browser that still held
+		// the session minted by that one success kept working, which made the
+		// account look intermittently broken rather than permanently un-enterable
+		// — the sessions hid it, and only a device with no cookie exposed it.
+		//
+		// true hands the lifecycle back to ZITADEL: first login must set a
+		// password the user chose, and the bootstrap value is spent.
+		body["password"] = map[string]any{"password": user.Password, "changeRequired": true}
 	}
 
 	var created struct {

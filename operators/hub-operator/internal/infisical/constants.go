@@ -39,7 +39,6 @@ const (
 	NamespaceEdge        = "platform-edge"
 	NamespaceData        = "platform-data"
 	NamespaceIdentity    = "platform-identity"
-	NamespaceMessaging   = "platform-messaging"
 	NamespaceSecurity    = "platform-security"
 
 	// Infisical Secret Keys
@@ -65,15 +64,10 @@ const (
 	KeyGitHubToken           = "github-token"
 
 	// Application Secret Keys (Operator uploads directly to Infisical)
-	KeyControlPlaneDBUsername      = "hub-control-plane-db-username"
-	KeyControlPlaneDBPassword      = "hub-control-plane-db-password"
-	KeyHubCentralizedDBUsername    = "hub-centralized-db-username"
-	KeyHubCentralizedDBPassword    = "hub-centralized-db-password"
-	KeyNATSLeafUsername            = "nats-leaf-username"
-	KeyNATSLeafPassword            = "nats-leaf-password"
-	KeyOpenmeterPostgreSQLUsername = "openmeter-postgresql-username"
-	KeyOpenmeterPostgreSQLPassword = "openmeter-postgresql-password"
-	KeyClickhouseAdminPassword     = "platform-clickhouse-admin-password"
+	KeyControlPlaneDBUsername   = "hub-control-plane-db-username"
+	KeyControlPlaneDBPassword   = "hub-control-plane-db-password"
+	KeyHubCentralizedDBUsername = "hub-centralized-db-username"
+	KeyHubCentralizedDBPassword = "hub-centralized-db-password"
 
 	// Labels
 	LabelManagedBy = "app.kubernetes.io/managed-by"
@@ -85,8 +79,13 @@ const (
 // Admin Credentials — overridable via environment variables.
 // The .env file at the project root is sourced by hub-bootstrap.sh.
 var (
-	AdminEmail    = envOrDefault("INFISICAL_ADMIN_EMAIL", "arun4infra@gmail.com")
-	AdminPassword = envOrDefault("INFISICAL_ADMIN_PASSWORD", "Password@123")
+	// No defaults. See the same pair in internal/soloz-cli/infisical/bootstrap.go:
+	// these were a personal email and the literal "Password@123" on every box,
+	// which is a shared administrator credential for every tenant's secret store.
+	// Empty here, and the operator refuses to use an empty one rather than falling
+	// back to a value the platform chose.
+	AdminEmail    = os.Getenv("INFISICAL_ADMIN_EMAIL")
+	AdminPassword = os.Getenv("INFISICAL_ADMIN_PASSWORD")
 )
 
 func envOrDefault(key, fallback string) string {

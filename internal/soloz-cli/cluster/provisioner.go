@@ -3,7 +3,11 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +16,20 @@ import (
 	"time"
 
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
+)
+
+// EncryptionMode is how a cluster encrypts Secrets at rest.
+//
+// ADR-003 section 6 adopted `secretbox` as the platform's at-rest encryption mechanism.
+type EncryptionMode string
+
+const (
+	// EncryptionSecretbox keeps a 32-byte key on the control-plane host, escrowed
+	// because it exists nowhere else (ADR-076). Protects etcd data, backups and disk
+	// snapshots; does not protect a compromised control-plane node.
+	EncryptionSecretbox EncryptionMode = "secretbox"
 )
 
 // Config holds cluster configuration
@@ -20,8 +37,8 @@ type Config struct {
 	ClusterName             string
 	Namespace               string
 	Region                  string
-	OSType                  string // "talos" or "flatcar"
-	ImageID                 string // Talos snapshot ID or Flatcar image name
+	OSType                  string // node OS; "ubuntu" is the only supported value (ADR-001)
+	ImageID                 string // node image name (Hetzner's official ubuntu-24.04)
 	KubernetesVersion       string
 	NetworkCIDR             string
 	SubnetCIDR              string
@@ -35,6 +52,10 @@ type Config struct {
 	// nowhere to run. Set only by HybridDriver (ADR-046): the hybrid hub's workers
 	// are home-lab Flatcar nodes that join after the bootstrap completes.
 	ControlPlaneSchedulable bool
+
+	// Encryption selects how this cluster encrypts Secrets at rest.
+	// EncryptionSecretbox is the default (ADR-003 §6).
+	Encryption EncryptionMode
 
 	// GitopsDir is a checkout of the tenant's own repository, when Day-0 is
 	// running from one (ADR-072). Empty for the platform's own box.
@@ -104,6 +125,16 @@ type Provisioner struct {
 	Context    string
 	Config     *Config
 	Debug      bool
+
+	// EscrowClient holds the at-rest encryption key outside the cluster it encrypts
+	// (ADR-003 section 6, ADR-076).
+	//
+	// Not optional. Provisioning REFUSES without it rather than skipping the key: a
+	// cluster that encrypts etcd with a key held nowhere else is worse off than one
+	// that does not encrypt it, because a lost control plane then takes every Secret
+	// and every backup of them. ADR-076 makes the same refusal for the secret
+	// store's master keys and the reasoning is unchanged here.
+	EscrowClient escrow.EscrowClient
 }
 
 func (p *Provisioner) kubectlArgs(args ...string) []string {
@@ -126,6 +157,14 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 		fmt.Println("[DEBUG] Provisioner.Provision() started")
 		fmt.Printf("[DEBUG] ClusterName: %s, Namespace: %s\n", p.Config.ClusterName, p.Config.Namespace)
 	}
+	// The at-rest encryption key, BEFORE the ClusterClass that references it
+	// (ADR-003 section 6). A control plane whose provider configuration Secret does
+	// not exist cannot start, so this is not an optional preparatory step: the
+	// cluster is created referencing a file that must already have a source.
+	if err := p.applyEncryptionConfig(ctx); err != nil {
+		return err
+	}
+
 	// Apply ClusterClass
 	if err := p.applyClusterClass(ctx); err != nil {
 		return err
@@ -145,16 +184,139 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 	return nil
 }
 
-func (p *Provisioner) applyClusterClass(ctx context.Context) error {
-	// Select ClusterClass based on OS type
-	var classFile string
-	if p.Config.OSType == "ubuntu" {
-		classFile = "classes/hetzner-mgmt-ubuntu-v1.yaml"
-	} else {
-		classFile = "classes/hetzner-mgmt-talos-v1.yaml"
+// renderManifest reads an embedded manifest and executes it as a template.
+//
+// Shared by both encryption modes so the two cannot drift in how they render or in what
+// a template failure looks like.
+func renderManifest(path string, data any) ([]byte, error) {
+	raw, err := assets.ReadManifest(path)
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := template.New(filepath.Base(path)).Parse(string(raw))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, data); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// applyStdin pipes a rendered manifest to kubectl.
+func (p *Provisioner) applyStdin(ctx context.Context, manifest []byte) error {
+	cmd := exec.CommandContext(ctx, "kubectl", p.kubectlArgs("apply", "-f", "-")...)
+	cmd.Stdin = bytes.NewReader(manifest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w\n%s", err, out)
+	}
+	return nil
+}
+
+// applyEncryptionConfig creates the Secret the control plane reads its at-rest
+// encryption provider configuration from.
+//
+// `secretbox` (ADR-003 section 6) keeps the key on the control-plane host.
+func (p *Provisioner) applyEncryptionConfig(ctx context.Context) error {
+	if p.Config.ClusterName == "" {
+		return fmt.Errorf("at-rest encryption: no cluster name, so the per-cluster key " +
+			"cannot be identified")
+	}
+	switch p.Config.Encryption {
+	case EncryptionSecretbox, "":
+		return p.applySecretboxEncryptionConfig(ctx)
+	default:
+		return fmt.Errorf("at-rest encryption: unknown mode %q; expected %q",
+			p.Config.Encryption, EncryptionSecretbox)
+	}
+}
+
+// applySecretboxEncryptionConfig is ADR-003 section 6.
+//
+// RESTORE BEFORE GENERATE, and this is the only reason the key is escrowed.
+//
+// On a rebuild the escrow holds the key the previous cluster encrypted etcd with.
+// Generating a new one here produces a cluster that starts, works, and cannot read
+// a single Secret from a restored etcd — so the loss happens during the recovery,
+// which is the worst moment available for it.
+//
+// NO ESCROW, NO KEY. Generating without somewhere outside the cluster to keep it
+// produces a value that exists nowhere but inside the thing it decrypts; ADR-076
+// refuses that for the secret store's master keys and the reasoning is identical
+// here. The difference appears on the day the cluster is gone, and on that day the
+// key cannot be added retroactively.
+func (p *Provisioner) applySecretboxEncryptionConfig(ctx context.Context) error {
+	if p.EscrowClient == nil {
+		return fmt.Errorf("at-rest encryption key: no escrow configured, so the key would " +
+			"exist nowhere but inside the cluster it decrypts and an etcd restore could " +
+			"never be read (ADR-076)")
 	}
 
-	manifest, err := assets.ReadManifest(classFile)
+	key, err := p.EscrowClient.RestoreArtifact(ctx, p.Config.ClusterName, escrow.ArtifactSecretEncryptionKey)
+	if err != nil {
+		// An unreadable escrow is not an absent one. Treating it as absent would mint
+		// a second key for a cluster that already has one.
+		return fmt.Errorf("at-rest encryption key: could not read the escrow: %w", err)
+	}
+
+	generated := false
+	if key == "" {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return fmt.Errorf("at-rest encryption key: %w", err)
+		}
+		key = hex.EncodeToString(raw)
+		generated = true
+	}
+
+	// 32 bytes is what the provider takes; a key of any other length is rejected by
+	// the API server at start, which reads as a malformed configuration rather than
+	// as a wrong key length.
+	rawKey, err := hex.DecodeString(key)
+	if err != nil || len(rawKey) != 32 {
+		return fmt.Errorf("at-rest encryption key: expected 32 hex-encoded bytes, got %d bytes (decode error: %v)",
+			len(rawKey), err)
+	}
+
+	rendered, err := renderManifest("secrets/secret-encryption-config.yaml", map[string]any{
+		"SecretName": assets.EncryptionSecretName(p.Config.ClusterName),
+		"Namespace":  p.Config.Namespace,
+		// Day-0 is always generation 1: a cluster being built has nothing written
+		// under an earlier key.
+		"PrimaryKeyName": assets.EncryptionKeyName(1),
+		"PrimaryKeyB64":  base64.StdEncoding.EncodeToString(rawKey),
+	})
+	if err != nil {
+		return fmt.Errorf("at-rest encryption key: %w", err)
+	}
+	if err := p.applyStdin(ctx, rendered); err != nil {
+		return fmt.Errorf("at-rest encryption key: applying the provider configuration: %w", err)
+	}
+
+	// Escrowed AFTER the Secret exists, and only when this run generated it.
+	//
+	// After, because the escrow is the recovery copy of what the cluster uses: a copy
+	// of a key the cluster never received would decrypt nothing. Only when generated,
+	// because a restored key is already there and rewriting it is one more chance to
+	// write something different.
+	if generated {
+		if err := p.EscrowClient.BackupArtifact(ctx, p.Config.ClusterName, escrow.ArtifactSecretEncryptionKey, key); err != nil {
+			// Fatal. The cluster would come up encrypted with a key held nowhere else,
+			// which is worse than not encrypting it: a lost control plane would then
+			// take every Secret AND every backup of them.
+			return fmt.Errorf("at-rest encryption key: generated but could not be escrowed, "+
+				"so the cluster would encrypt etcd with a key that exists nowhere else: %w", err)
+		}
+		fmt.Println("[provision] at-rest encryption key generated and escrowed")
+	} else {
+		fmt.Println("[provision] at-rest encryption key restored from the escrow")
+	}
+	return nil
+}
+
+func (p *Provisioner) applyClusterClass(ctx context.Context) error {
+	manifest, err := assets.ReadManifest("classes/hetzner-mgmt-ubuntu-v1.yaml")
 	if err != nil {
 		return err
 	}
@@ -233,7 +395,7 @@ func (p *Provisioner) writeClusterToRepo(rendered string) error {
 			"this file describes one cluster rather than the repository")
 	}
 
-	dir := filepath.Join(p.Config.GitopsDir, "clusters", p.Config.ClusterName, "generated")
+	dir := filepath.Join(p.Config.GitopsDir, tenant.RegistryDir, "clusters", p.Config.ClusterName, "generated")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
@@ -308,11 +470,7 @@ func ScaleCiliumOperatorForTest(manifest string, replicas int) string {
 // template is otherwise only visible as a kubectl rejection partway through a
 // bootstrap that has already provisioned cloud infrastructure.
 func (p *Provisioner) renderClusterManifest() (string, error) {
-	// Select cluster class name based on OS
-	className := "hetzner-mgmt-talos-v1"
-	if p.Config.OSType == "ubuntu" {
-		className = "hetzner-mgmt-ubuntu-v1"
-	}
+	className := "hetzner-mgmt-ubuntu-v1"
 
 	clusterYAML := `apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster

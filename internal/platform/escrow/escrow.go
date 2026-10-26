@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -52,6 +53,50 @@ type EscrowClient interface {
 // the job, so without this it exists only inside the cluster it would be used to
 // repair.
 const ArtifactKubeconfig = "admin-kubeconfig"
+
+// ArtifactZitadelMasterkey is the identity provider's encryption key for data at
+// rest (ADR-076, "What the escrow holds").
+//
+// It qualifies by the membership test rather than by being important: it is
+// generated once and NEVER rotated, because it encrypts every column the identity
+// provider has written and a new one orphans all of them. So a box that loses its
+// secret store can restore the store from `infisical-master-keys` and still hold an
+// identity database nothing can decrypt.
+//
+// The live source is unchanged -- the box's own secret store serves it, because a
+// key read at startup must not depend on reaching another site. This is the
+// recovery copy.
+const ArtifactZitadelMasterkey = "zitadel-masterkey"
+
+// ArtifactSecretEncryptionKey is the key the API server encrypts Secrets with at
+// rest (ADR-003 section 6, ADR-076 "What the escrow holds").
+//
+// It qualifies by the same test as the others and for the starkest reason: etcd
+// holds Secret data encrypted with it, and every etcd BACKUP holds the same. Lose
+// the key and the cluster's Secrets are unreadable, and so is every backup taken
+// while it was in force -- there is no second copy to restore from, because the
+// backups are the second copy.
+//
+// Unlike the artefacts above it is also on the critical path: the API server reads
+// it on every Secret read, so the escrow is a recovery copy of a value that must
+// ALSO be present on the node. That is why it is delivered to the node from the
+// management cluster and escrowed from there, rather than fetched from the escrow
+// at runtime.
+const ArtifactSecretEncryptionKey = "secret-encryption-key"
+
+// ArtifactSecretEncryptionKeyPrevious is the OUTGOING key during a rotation.
+//
+// It exists for one window: between staging a rotation and verifying that every Secret
+// has been rewritten under the new key. In that window etcd holds objects under BOTH
+// generations, so a cluster that loses its control plane needs BOTH to be recovered --
+// and escrowing only the new one would make the window unrecoverable, which is the
+// exact failure ADR-076 exists to prevent, introduced by the procedure meant to
+// improve security.
+//
+// Outside a rotation it is absent, and that is why the recovery contract in ADR-076
+// lists it as conditional rather than required: its presence means a rotation is in
+// flight, not that something is missing.
+const ArtifactSecretEncryptionKeyPrevious = "secret-encryption-key-previous"
 
 // MasterKeysBackup is what is escrowed. The field names are the ones the restore
 // path reads back, so changing one is a migration rather than a rename.
@@ -112,11 +157,72 @@ func escrowPath(clusterID string) string {
 // inside the thing it protects is unreachable exactly when it is needed, and this
 // refuses that configuration rather than appearing to work. Callers with no cluster
 // to compare against -- the CLI retrieving a copy -- pass "".
+// escrowValue reads one escrow setting from the environment, or from the checkout
+// that scaffolding wrote it into.
+//
+// # WHY A FILE AND NOT ONLY AN ENVIRONMENT VARIABLE
+//
+// Scaffolding writes these four to `k8-secrets/infisical/`, one file per setting,
+// each named exactly after its variable. Nothing read them. So every command needing
+// an escrow required four exports that the operator had already supplied once, and
+// the files sat there looking like configuration while being inert -- which is how
+// an operator ends up pasting a client secret into a shell on a regular basis.
+//
+// The environment still wins, because that is what an in-cluster caller has: the
+// operator runs with these projected from a Secret and no checkout to read. The file
+// is the fallback for a CLI run from the repository.
+//
+// Absent file, absent directory and unreadable file are all treated as "not set".
+// That is NOT swallowing an error: a missing value is reported by the all-or-nothing
+// check in the caller, which names every setting it could not find. Reporting a
+// read failure here instead would make a box with no checkout -- the normal case in
+// cluster -- fail on the absence of something it was never meant to have.
+func escrowValue(name string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	dir := escrowSecretsDir()
+	if dir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// escrowSecretsDir finds `k8-secrets/infisical` by walking up from the working
+// directory.
+//
+// Walked rather than assumed, because a CLI is run from wherever the operator
+// happens to be inside the checkout, and a path relative to the process would work
+// from the repository root and nowhere else. Bounded, so a process started outside
+// any checkout stops instead of climbing to the filesystem root.
+func escrowSecretsDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for i := 0; i < 8; i++ {
+		candidate := filepath.Join(dir, "k8-secrets", "infisical")
+		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
 func NewEscrowClient(ctx context.Context, inClusterURL string) (EscrowClient, error) {
-	url := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_URL"))
-	clientID := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_CLIENT_ID"))
-	clientSecret := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_CLIENT_SECRET"))
-	projectID := strings.TrimSpace(os.Getenv("INFISICAL_ESCROW_PROJECT_ID"))
+	url := escrowValue("INFISICAL_ESCROW_URL")
+	clientID := escrowValue("INFISICAL_ESCROW_CLIENT_ID")
+	clientSecret := escrowValue("INFISICAL_ESCROW_CLIENT_SECRET")
+	projectID := escrowValue("INFISICAL_ESCROW_PROJECT_ID")
 
 	if url == "" && clientID == "" && clientSecret == "" && projectID == "" {
 		return nil, fmt.Errorf("no escrow configured")
@@ -157,7 +263,48 @@ func NewEscrowClient(ctx context.Context, inClusterURL string) (EscrowClient, er
 	if err := e.authenticate(ctx); err != nil {
 		return nil, err
 	}
+	if err := e.verifyProject(ctx); err != nil {
+		return nil, err
+	}
 	return e, nil
+}
+
+// verifyProject proves the project can actually hold secrets, once, at
+// construction.
+//
+// Authenticating proves the machine identity is valid and proves nothing about
+// the project. An Infisical project has a TYPE, and only a secret-manager
+// project accepts the operations an escrow performs; a kms project authenticates
+// perfectly and then refuses every read and write with
+//
+//	400 The project is of type kms. Operations of type secret-manager are not
+//	    allowed.
+//
+// Without this the first failure came from a reconcile deep inside a bootstrap.
+// The box built for forty minutes, HubEnvironment never published
+// DatabaseRolesProvisioned, and boundary-04 waited on database roles that could
+// not be created -- three layers away from a project created as the wrong type
+// days earlier, and accepted at scaffold time on nothing more than a presence
+// check.
+//
+// The probe is a read of a path that does not exist: one request, no write
+// access needed to establish the type, and 404 is the healthy answer.
+func (e *infisicalEscrow) verifyProject(ctx context.Context) error {
+	_, err := e.RestoreArtifact(ctx, "__escrow_preflight__", escrowSecretName)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "of type kms") ||
+		strings.Contains(err.Error(), "secret-manager are not allowed") {
+		return fmt.Errorf("escrow project %s is a KMS project, and an escrow needs a "+
+			"SECRET MANAGER project.\n\n"+
+			"They authenticate identically, so the credentials are not the problem: a KMS\n"+
+			"project simply refuses the read and the write an escrow is made of.\n\n"+
+			"Create a Secret Manager project at %s, give this machine identity write\n"+
+			"access to it, and use that project's id.\n\noriginal error: %w",
+			e.projectID, e.baseURL, err)
+	}
+	return fmt.Errorf("escrow project %s is not usable: %w", e.projectID, err)
 }
 
 // authenticate exchanges the machine identity for a token.

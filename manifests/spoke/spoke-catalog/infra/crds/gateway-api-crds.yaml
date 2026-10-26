@@ -3,10 +3,23 @@
 # Vendored from reference-projects/gateway-api at tag v1.5.1, config/crd/standard/.
 #
 # STANDARD channel only. The previous content was an unpinned v0.0.0-dev build of
-# the EXPERIMENTAL channel, which additionally shipped TCPRoute, TLSRoute,
-# UDPRoute, BackendTLSPolicy and ListenerSet — alpha types nothing in this
-# platform declares. Running unpinned alpha API surface bought nothing and could
-# not be reproduced from a release.
+# the EXPERIMENTAL channel, and pinning it to a release was the point: an
+# unpinned alpha surface bought nothing and could not be reproduced.
+#
+# TRIMMED, and the distinction matters. TCPRoute, TLSRoute and UDPRoute are
+# experimental-channel types nothing here declares, so they are correctly absent.
+# BackendTLSPolicy and ListenerSet are NOT: both are in config/crd/standard/ at
+# v1.5.1, ListenerSet having reached the standard channel in v1.5.0. An earlier
+# revision of this header called all five "alpha types", which was true of the
+# v0.0.0-dev content it replaced and stopped being true at the version it pinned
+# to. They are omitted because nothing declares them yet, not because they are
+# alpha.
+#
+# ListenerSet is the one to watch: ADR-051's amendment of 2026-09-21 makes it the
+# TARGET for per-tenant listener ownership, so it is added here when the platform
+# reaches Cilium >= 1.20 (which is where Cilium implements it). Adding the CRD to a
+# running cluster also needs the Cilium operator restarted — it detects the type at
+# startup.
 #
 # v1.5.1 pairs with Cilium v1.17.x. The same bundle is delivered ahead of Cilium
 # in the CNI's ClusterResourceSet addon (hub: internal/assets/manifests/addons/,

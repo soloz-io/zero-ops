@@ -1,4 +1,7 @@
 {{- include "tenant-public-tls.requirements" . }}
+{{- $publicAssets := include "tenant-public-tls.publicAssetPaths" . | fromJsonArray }}
+{{- $publicAssetDirs := include "tenant-public-tls.publicAssetDirectories" . | fromJsonArray }}
+{{- $publicRoutes := include "tenant-public-tls.publicRoutes" . | fromJsonArray }}
 {{- if .Values.public.hosts }}
 ---
 # Platform-owned per-tenant hostname route (ADR-051).
@@ -35,7 +38,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ printf "%s-public-ingress" .Values.tenantId }}
+  name: {{ printf "%s-public-ingress" (include "tenant-public-tls.scope" .) }}
   namespace: platform-ops
   labels:
     app.kubernetes.io/managed-by: tenant-public-tls
@@ -83,17 +86,106 @@ spec:
             type: Exact
             value: /oauth/callback
       backendRefs:
-        - name: agentgateway-{{ .Values.tenantId }}
-          namespace: tenant-{{ .Values.tenantId }}
+        - name: agentgateway-{{ .Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3002
+{{- if .Values.gateway.webhooks.enabled }}
+    # Only for an application whose SDK actually serves workflow webhooks
+    # (ADR-024). The gateway binds :3001 under the same condition, so a route to
+    # it must carry the same one -- otherwise this sends public traffic at a port
+    # with no listener and the caller sees 503, or worse reaches a private
+    # service whose own policy then refuses it, which reads as a broken platform
+    # rather than as a route nobody meant to create.
     - matches:
         - path:
             type: PathPrefix
             value: /v1/webhooks/
       backendRefs:
-        - name: agentgateway-{{ .Values.tenantId }}
-          namespace: tenant-{{ .Values.tenantId }}
+        - name: agentgateway-{{ .Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3001
+{{- end }}
+{{- if or $publicAssets $publicAssetDirs }}
+    # The application's declared public static files (gateway.publicAssets),
+    # to the gateway's OIDC-free :3003 bind. Browsers fetch a web app manifest,
+    # its icons and its service worker without the user's session; behind the
+    # login they receive a redirect and refuse to install the app.
+    #
+    # EXACT paths, GET and HEAD only. Any other method on these paths matches
+    # the catch-all below and stays behind the login; any undeclared path does
+    # too. The gateway bind applies the same path and method matches, so neither
+    # layer alone decides what is public. The universal-tenant chart renders the
+    # bind and its Service port from the same declaration.
+    #
+    # Same HSTS header as the catch-all: these are loaded by a browser.
+    - matches:
+      {{- range $publicAssets }}
+      {{- $path := . }}
+      {{- range list "GET" "HEAD" }}
+        - path:
+            type: Exact
+            value: {{ $path | quote }}
+          method: {{ . }}
+      {{- end }}
+      {{- end }}
+      {{- /* Declared build directories (ADR-101 amendment 2026-10-12). */}}
+      {{- range $publicAssetDirs }}
+      {{- $dir := . }}
+      {{- range list "GET" "HEAD" }}
+        - path:
+            type: PathPrefix
+            value: {{ $dir | quote }}
+          method: {{ . }}
+      {{- end }}
+      {{- end }}
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000
+      backendRefs:
+        - name: agentgateway-{{ .Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" . }}
+          port: 3003
+{{- end }}
+{{- range $publicRoutes }}
+    # A declared login-free dynamic route (ADR-103), e.g. a shared session, to
+    # the gateway's OIDC-free :3004 bind. Here: the prefix, GET/HEAD only. The
+    # bind then admits only the exact token shape (^<prefix>/[A-Za-z0-9]{N}$,
+    # built by the chart), so the prefix match here is not what makes a path
+    # public; anything else under it is refused there. Regex path matching is
+    # not core Gateway API, which is why the exact shape is enforced at the bind.
+    #
+    # Cookies and Authorization are stripped in both directions here as well as
+    # at the bind, so either layer alone keeps a session from crossing.
+    - matches:
+      {{- $prefix := .prefix }}
+      {{- range list "GET" "HEAD" }}
+        - path:
+            type: PathPrefix
+            value: {{ printf "%s/" $prefix | quote }}
+          method: {{ . }}
+      {{- end }}
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: [Cookie, Authorization]
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000
+              - name: X-Robots-Tag
+                value: noindex, nofollow
+              - name: Referrer-Policy
+                value: no-referrer
+            remove: [Set-Cookie]
+      backendRefs:
+        - name: agentgateway-{{ $.Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" $ }}
+          port: 3004
+{{- end }}
     - filters:
         # Tell the browser never to try plaintext for this host again. The
         # redirect below only helps someone who already made the insecure
@@ -112,7 +204,7 @@ spec:
         # 2026-08-31). Derived from the tenant id rather than configured: a
         # tenant able to name this could route its public hostname at another
         # tenant's gateway, and inherit that tenant's session.
-        - name: agentgateway-{{ .Values.tenantId }}
-          namespace: tenant-{{ .Values.tenantId }}
+        - name: agentgateway-{{ .Values.appId }}
+          namespace: {{ include "tenant-public-tls.appNamespace" . }}
           port: 3000
 {{- end }}

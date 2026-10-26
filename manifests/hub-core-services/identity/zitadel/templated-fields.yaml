@@ -12,3 +12,22 @@
     - replaceAll:
         from: dev.nutgraf.in
         with: '{{ .Values.global.hubDomain }}'
+
+# The SMTP fragment and the store that reads it (zitadel-smtp-es.yaml).
+#
+# Both carry this box's names in the file so the manifest is readable on its own,
+# and both are substituted here so a second box renders its own. Without the first
+# of these a new hub would read nutgraf's management folder; without the second it
+# would send mail as nutgraf's sender and the issuer would reject the address for
+# not matching its own domain.
+- kind: ClusterSecretStore
+  name: infisical-tenant-mgmt
+  fields:
+    - replaceAll:
+        from: /nutgraf-mgmt
+        with: '/{{ .Values.global.tenantId }}-mgmt'
+
+# zitadel-smtp-config is deliberately ABSENT here. It interpolates the password
+# with ESO's `{{ .smtpPassword }}`, so it must be packaged verbatim; naming it
+# here makes the packager escape those braces inside a quoted scalar and the chart
+# then fails to parse. Its non-secret fields live in values.yaml instead.

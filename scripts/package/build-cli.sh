@@ -46,6 +46,14 @@ for t in $targets; do
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
         -ldflags "-s -w -X ${pkg}.BundleVersion=${VERSION}" \
         -o "$OUTDIR/soloz-${os}-${arch}" ./cmd/soloz
+    # Re-sign on macOS. Go writes an ad-hoc signature, and REPLACING the binary
+    # in place -- which the local loop does on every rebuild -- invalidates it.
+    # The kernel then kills the process with "Killed: 9" and no other
+    # diagnostic, which reads like a corrupt build rather than a signature.
+    # Only darwin enforces this and codesign exists nowhere else.
+    if [ "$os" = darwin ] && command -v codesign >/dev/null 2>&1; then
+        codesign --force -s - "$OUTDIR/soloz-${os}-${arch}" >/dev/null 2>&1 || true
+    fi
     echo "built $OUTDIR/soloz-${os}-${arch}"
 done
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,7 +75,7 @@ func boundaryProject(n int) string {
 // boundaryDescriptions are used only for operator legibility in the ArgoCD UI.
 var boundaryDescriptions = map[int]string{
 	1: "Boundary 01 — platform infrastructure (ArgoCD, operators, CRDs)",
-	2: "Boundary 02 — platform data workloads (CNPG, Redis, NATS)",
+	2: "Boundary 02 — platform data workloads (CNPG, Redis)",
 	3: "Boundary 03 — platform services (Infisical, hub Gateway, platform APIs)",
 	4: "Boundary 04 — tenant services (identity, billing, auth proxy)",
 	5: "Boundary 05 — fleet provisioning (ADR-047)",
@@ -376,11 +377,11 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 		return err
 	}
 
+	// Resolved for the CLI-rendered seed only. On a tenant box (ADR-072) the
+	// address is NOT carried in from Day-0 at all: hub-operator reads it from the
+	// HetznerCluster in-cluster and publishes it, so a bundle upgrade alone
+	// delivers the fix. See operators/hub-operator -- ingress address.
 	hubIngressAddress := o.hubIngressAddress(ctx, kubeconfig)
-	if hubIngressAddress == "" {
-		fmt.Println("[seed] ⚠️  could not resolve hub ingress address; the hub Gateway's " +
-			"hostnames will not be published, which breaks public DNS and ACME issuance")
-	}
 	// The address is passed to the chart as hubIngressAddress, which the gateway
 	// component reads as its external-dns target. It used to be written into the
 	// repository as a Kustomize patch and committed -- one cluster's
@@ -438,6 +439,13 @@ func (o *Orchestrator) applySeedApplication(ctx context.Context, kubeconfig stri
 	// effect, since the field a proposal changes is then the field the cluster
 	// reads.
 	if o.GitopsDir != "" {
+		// The hub's ingress address, recorded in the tenant's repository before the
+		// declaration that reads it is applied. See gateway_dns_target.go: on a
+		// tenant box the seed is the one that repository declares, so a value the
+		// CLI injects into its OWN rendered seed reaches nothing.
+		if err := o.writeGatewayDNSTarget(ctx, kubeconfig); err != nil {
+			return err
+		}
 		return o.applyTenantSeed(ctx, kubeconfig)
 	}
 
@@ -488,7 +496,7 @@ func (o *Orchestrator) applyTenantSeed(ctx context.Context, kubeconfig string) e
 	// the root adopts the Application the first apply just created, because they
 	// name the same object.
 	for _, f := range []string{"bundle.yaml", "root.yaml"} {
-		path := filepath.Join(o.GitopsDir, "clusters", o.ClusterName, f)
+		path := filepath.Join(o.GitopsDir, tenant.RegistryDir, "clusters", o.ClusterName, f)
 		seed, err := os.ReadFile(path)
 		if err != nil {
 			// root.yaml postdates the repositories scaffolded before it. A box
@@ -621,14 +629,97 @@ func (o *Orchestrator) activateBoundary(ctx context.Context, kubeconfig string, 
 	// Re-opening 1..n restores the invariant the sequence is supposed to express:
 	// every boundary reached so far is open, and the ones beyond n are not.
 	for i := 1; i <= n; i++ {
-		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
-			"patch", "appproject", boundaryProject(i), "-n", "platform-ops",
-			"--type", "merge", "-p", `{"spec":{"syncWindows":null}}`)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to activate boundary %02d: %w\n%s", i, err, out)
+		if err := patchWithTransportRetry(ctx, kubeconfig, boundaryProject(i)); err != nil {
+			return fmt.Errorf("failed to activate boundary %02d: %w", i, err)
 		}
 	}
 	return nil
+}
+
+// patchWithTransportRetry opens one boundary, retrying while the fault is the
+// connection rather than the request.
+//
+// The hub's API server is reached over the public internet -- the kubeconfig
+// names the CAPH load balancer, not the tailnet -- so a single kubectl can fail
+// on the network while the cluster is perfectly healthy. One did:
+//
+//	[boundary03] ✗ failed after 47s
+//	failed to activate boundary 01: exit status 1
+//	Unable to connect to the server: net/http: TLS handshake timeout
+//
+// at a moment when the control plane's four static pods had zero restarts
+// between them. Ninety minutes of bootstrap ended on a handshake.
+//
+// Retried rather than given a longer timeout, which was the first instinct and
+// is the wrong lever twice over. TLSHandshakeTimeout is a client-go transport
+// constant with no kubectl flag (--request-timeout governs the request, not the
+// handshake), and a handshake that has not completed in ten seconds is not one
+// that needed eleven -- waiting longer makes the failure slower, not rarer.
+//
+// Safe to repeat by construction, and the function above says why: the patch
+// sets syncWindows to null, which removes the field if present and does nothing
+// if absent. Re-running it on an already-open boundary mutates nothing.
+func patchWithTransportRetry(ctx context.Context, kubeconfig, project string) error {
+	const attempts = 5
+
+	var lastOut []byte
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"patch", "appproject", project, "-n", "platform-ops",
+			"--type", "merge", "-p", `{"spec":{"syncWindows":null}}`)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			if attempt > 1 {
+				fmt.Printf("[seed] ✓ %s opened on attempt %d\n", project, attempt)
+			}
+			return nil
+		}
+		lastOut, lastErr = out, err
+
+		// A boundary that does not exist, or a patch the API server rejects,
+		// fails the same way five times.
+		if !transientTransportError(string(out)) {
+			break
+		}
+		if attempt < attempts {
+			delay := time.Duration(attempt*attempt) * time.Second
+			fmt.Printf("[seed] %s: %s -- retrying in %s (attempt %d/%d)\n",
+				project, strings.TrimSpace(string(out)), delay, attempt, attempts)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+	return fmt.Errorf("%w\n%s", lastErr, lastOut)
+}
+
+// transientTransportError reports whether a kubectl failure was the connection
+// rather than the request. Conservative on purpose: anything not recognised here
+// is reported immediately rather than retried into a slow, confusing failure.
+func transientTransportError(out string) bool {
+	for _, sig := range []string{
+		"TLS handshake timeout",
+		"Unable to connect to the server",
+		"connection refused",
+		"connection reset by peer",
+		"i/o timeout",
+		"EOF",
+		"no route to host",
+		"Client.Timeout exceeded",
+		"context deadline exceeded",
+		"etcdserver: request timed out",
+		"etcdserver: leader changed",
+		"the server was unable to return a response",
+		"apiserver is shutting down",
+	} {
+		if strings.Contains(out, sig) {
+			return true
+		}
+	}
+	return false
 }
 
 // gatingMode returns the configured mode, defaulting to sequenced. The default
@@ -738,7 +829,7 @@ func (o *Orchestrator) refreshArgoCDSchemaCache(ctx context.Context, kubeconfig 
 	}
 	wait := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
 		"rollout", "status", "statefulset/argocd-application-controller",
-		"-n", "platform-ops", "--timeout=300s")
+		"-n", "platform-ops", "--timeout=600s")
 	if out, err := wait.CombinedOutput(); err != nil {
 		return fmt.Errorf("wait for argocd-application-controller: %w\n%s", err, out)
 	}

@@ -9,8 +9,6 @@ const (
 	ErrDockerNotRunning     ErrorCode = "DOCKER_NOT_RUNNING"
 	ErrKindNotFound         ErrorCode = "KIND_NOT_FOUND"
 	ErrInvalidHetznerToken  ErrorCode = "INVALID_HETZNER_TOKEN"
-	ErrImageNotFound        ErrorCode = "IMAGE_NOT_FOUND"
-	ErrSSHKeyNotFound       ErrorCode = "SSH_KEY_NOT_FOUND"
 	ErrClusterExists        ErrorCode = "CLUSTER_EXISTS"
 	ErrKindCreateFailed     ErrorCode = "KIND_CREATE_FAILED"
 	ErrOperatorInstallFailed ErrorCode = "OPERATOR_INSTALL_FAILED"
@@ -76,24 +74,6 @@ func InvalidHetznerToken(cause error) *BootstrapError {
 		ErrInvalidHetznerToken,
 		"Invalid or expired Hetzner API token",
 		"Check your token:\n  1. Verify HCLOUD_TOKEN environment variable is set\n  2. Ensure token has read/write permissions\n  3. Generate new token at https://console.hetzner.cloud/",
-		cause,
-	)
-}
-
-func ImageNotFound(imageID string, cause error) *BootstrapError {
-	return New(
-		ErrImageNotFound,
-		fmt.Sprintf("Image '%s' not found in Hetzner", imageID),
-		"Options:\n  1. Use --build-talos-image to build a new snapshot\n  2. Verify image ID exists: hcloud image list\n  3. Check image is in correct region",
-		cause,
-	)
-}
-
-func SSHKeyNotFound(keyName string, cause error) *BootstrapError {
-	return New(
-		ErrSSHKeyNotFound,
-		fmt.Sprintf("SSH key '%s' not found in Hetzner", keyName),
-		"Options:\n  1. Remove --ssh-key flag (SSH not required for Talos)\n  2. Create key: hcloud ssh-key create --name <name> --public-key-from-file ~/.ssh/id_rsa.pub\n  3. List keys: hcloud ssh-key list",
 		cause,
 	)
 }

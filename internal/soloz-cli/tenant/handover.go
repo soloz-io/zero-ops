@@ -3,12 +3,15 @@ package tenant
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -64,6 +67,38 @@ type Secrets struct {
 	EscrowClientID     string
 	EscrowClientSecret string
 	EscrowProjectID    string
+
+	// The box's own Infisical administrator. Collected with the rest rather than
+	// defaulted: the defaults these replace were a personal email address and the
+	// literal "Password@123", identical on every box, on the account that can read
+	// every secret the platform manages for this tenant.
+	InfisicalAdminEmail    string
+	InfisicalAdminPassword string
+
+	// What the hub needs to come up healthy, rather than merely up. Defined as
+	// a list in platform_credentials.go so prompting, validation and writing
+	// them into the repository cannot disagree about the set.
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+
+	GrafanaCloudAPIKey         string
+	GrafanaCloudPrometheusURL  string
+	GrafanaCloudPrometheusUser string
+	GrafanaCloudLokiURL        string
+	GrafanaCloudLokiUser       string
+	// ADR-078 add.3 §6: rule sync, and dashboard provisioning into the stack.
+	GrafanaCloudRulesToken      string
+	GrafanaCloudDashboardsToken string
+	// ADR-078 add.4: alert routing through the stack's Alertmanager and IRM.
+	GrafanaCloudAlertsToken   string
+	GrafanaIRMAlertmanagerURL string
+	GrafanaIRMHeartbeatURL    string
+
+	// The issuer's outbound mail, as an SMTP URL (smtps://user:password@host:port).
+	ZitadelSMTPURL string
+
+	GHCRUsername string
+	GHCRToken    string
 }
 
 // hasEscrow reports whether a complete escrow credential was supplied.
@@ -104,18 +139,32 @@ func (s Secrets) CompleteFor(provider string) bool {
 	return !needsTailscale(provider) || strings.TrimSpace(s.TailscaleAuthkey) != ""
 }
 
+// nothingLeftToAsk reports whether a prompt session would ask anything.
+//
+// Deliberately not folded into CompleteFor. That answers "can this box be
+// dispatched", which the handover message and its tests depend on meaning
+// exactly that; this answers "is there anything still to collect", which now
+// includes the escrow and the credentials the hub needs to come up healthy.
+// Conflating them redefined a contract three tests pin, for no gain.
+func (s Secrets) nothingLeftToAsk(spec Spec) bool {
+	return s.CompleteFor(spec.Provider) &&
+		s.hasEscrow() &&
+		len(s.missingInTier(spec, tierCapability)) == 0 &&
+		len(s.missingInTier(spec, tierDestination)) == 0
+}
+
 // Prompt asks for whichever secret is missing.
 //
 // Reads without echo, because a token typed into a terminal that echoes it is a
 // token in a scrollback buffer and, on a shared screen, in someone else's
 // memory. Returns what it has when there is no terminal to ask -- a pipeline
 // gets the flags it passed and no prompt that would hang it.
-func (s Secrets) Prompt(provider string) (Secrets, error) {
-	if s.CompleteFor(provider) || !term.IsTerminal(int(os.Stdin.Fd())) {
+func (s Secrets) Prompt(spec Spec) (Secrets, error) {
+	if s.nothingLeftToAsk(spec) || !term.IsTerminal(int(os.Stdin.Fd())) {
 		return s, nil
 	}
 
-	credName, err := ProviderCredential(provider)
+	credName, err := ProviderCredential(spec.Provider)
 	if err != nil {
 		credName = "the provider's API token"
 	}
@@ -138,7 +187,8 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 	}
 	if strings.TrimSpace(s.GitopsToken) == "" {
 		v, err := readSecret(
-			"GITOPS_TOKEN (write access to the tenant's repository, so Day-0 can commit): ")
+			"GITOPS_TOKEN (write access to the tenant's repositories, and the\n" +
+				"  organisation's \"Secrets: write\" so application builds inherit it): ")
 		if err != nil {
 			return s, err
 		}
@@ -147,7 +197,7 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 	// Hybrid only. Asked here rather than left for the tenant to discover,
 	// because a box that bootstraps without it reports success and then cannot
 	// pass pod traffic between its control plane and its home workers.
-	if needsTailscale(provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
+	if needsTailscale(spec.Provider) && strings.TrimSpace(s.TailscaleAuthkey) == "" {
 		v, err := readSecret(
 			"TS_AUTHKEY (a Tailscale auth key; the control plane and home workers join your tailnet with it): ")
 		if err != nil {
@@ -202,6 +252,14 @@ func (s Secrets) Prompt(provider string) (Secrets, error) {
 			}
 		}
 	}
+	// Everything the hub needs beyond the escrow, in the same session: a tenant
+	// asked for four things and then later for nine more has been asked twice
+	// for one onboarding.
+	var perr error
+	if s, perr = promptPlatformCredentials(spec, s); perr != nil {
+		return s, perr
+	}
+
 	return s, nil
 }
 
@@ -213,6 +271,66 @@ func readSecret(prompt string) (string, error) {
 		return "", fmt.Errorf("reading the value: %w", err)
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// promptPlatformCredentials asks for whatever the hub needs and does not have.
+//
+// After the escrow, because the escrow is the one whose absence is unrecoverable
+// and should be answered while the operator is still paying attention.
+func promptPlatformCredentials(spec Spec, s Secrets) (Secrets, error) {
+	// The environment first, for anything still empty.
+	//
+	// platformCredential.Secret is one name deliberately: the key in the
+	// tenant's repository, the variable Day-0 reads, and the name an operator
+	// supplies. Resolving it here makes that true at scaffold time too.
+	//
+	// Without this there were two resolution paths with different rules.
+	// Scaffold filled Secrets from FLAGS only -- and there are no flags for
+	// object storage, the registry or Grafana Cloud -- so it prompted for them
+	// even when the values were sitting in the environment. Day-0 then read the
+	// same values from the environment without asking. The operator was
+	// answering questions whose answers the next phase already had.
+	s.fillFromEnvironment()
+
+	capability := s.missingInTier(spec, tierCapability)
+	support := s.missingInTier(spec, tierDestination)
+	if len(capability) == 0 && len(support) == 0 {
+		return s, nil
+	}
+
+	if len(capability) > 0 {
+		fmt.Println("\nCredentials for capabilities this box is configured to use.")
+		fmt.Println("Without them those capabilities cannot work, so they are required.")
+		for _, c := range capability {
+			v, err := readSecret(c.Prompt)
+			if err != nil {
+				return s, err
+			}
+			*c.Field(&s) = v
+		}
+	}
+
+	if len(support) > 0 {
+		// Asked for, and skippable in one keystroke. ADR-067 makes this the
+		// width of the maintenance claim rather than a condition of running, and
+		// a prompt that cannot be declined would misrepresent that.
+		fmt.Println("\nWhere this box exports control-plane telemetry (optional).")
+		fmt.Println("The platform maintains what it can see: supplying these widens the")
+		fmt.Println("support contract and changes nothing about how the box runs (ADR-067).")
+		fmt.Println("Press enter to skip.")
+		for i, c := range support {
+			v, err := readSecret(c.Prompt)
+			if err != nil {
+				return s, err
+			}
+			if i == 0 && strings.TrimSpace(v) == "" {
+				// Declined at the first question rather than nine times.
+				break
+			}
+			*c.Field(&s) = v
+		}
+	}
+	return s, nil
 }
 
 // SetSecrets writes the secrets into the tenant's repository.
@@ -243,15 +361,208 @@ func SetSecrets(ctx context.Context, spec Spec, s Secrets) error {
 		values["INFISICAL_ESCROW_PROJECT_ID"] = strings.TrimSpace(s.EscrowProjectID)
 	}
 
-	for name, value := range values {
-		cmd := exec.CommandContext(ctx, "gh", "secret", "set", name, "--repo", repo)
-		cmd.Stdin = strings.NewReader(value)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("setting %s on %s: %w\n%s", name, repo, err, out)
+	// Whatever this box has. Capability credentials are refused earlier when
+	// absent, so anything empty here is a telemetry key the tenant declined --
+	// which is a narrower support contract, not a misconfiguration.
+	for _, c := range platformCredentials() {
+		if v := strings.TrimSpace(*c.Field(&s)); v != "" {
+			values[c.Secret] = v
+		}
+	}
+
+	// Sorted, not map order. Go randomises map iteration, so a failure part-way
+	// through left a different subset of secrets set on every run -- which made
+	// "which ones landed?" unanswerable from the log and the failure itself
+	// irreproducible.
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		if err := setSecretWithRetry(ctx, repo, name, values[name]); err != nil {
+			return err
 		}
 		fmt.Printf("[scaffold] ✓ %s set on %s\n", name, repo)
 	}
+
+	return setOrgGitopsToken(ctx, spec.GitOrg, s.GitopsToken)
+}
+
+// setOrgGitopsToken publishes GITOPS_TOKEN once at the ORGANISATION level, so
+// that every application repository the tenant owns can write the one line its
+// build owes the GitOps repository -- without the platform ever learning that
+// the repository exists.
+//
+// The alternative was a repository-level secret per application, and it does not
+// hold. `soloz tenant scaffold` knows exactly one repository: <tenant>-gitops.
+// Applications are the tenant's to create, rename and retire long after
+// scaffolding has run, so a platform that set their secrets would have to track
+// a set that changes without it -- and the failure when it falls behind is
+// silent. waypoint's bff has published a chart on every commit since September
+// and pinned a version NOT ONCE, because its deploy job reads a GITOPS_TOKEN
+// that nothing ever set. Three consecutive red runs, publish green each time.
+//
+// One credential, one place, inherited by construction. A repository added
+// tomorrow is covered the moment it exists.
+//
+// REQUIRED PERMISSION, and it is not the classic `admin:org`: a fine-grained
+// token needs only the organisation's "Secrets: write" permission. Read the
+// refusal carefully -- GitHub names both routes --
+//
+//	You must be an org admin or have the actions secrets fine-grained permission.
+//
+// so the narrow one is available and is what the prompt asks for.
+//
+// A failure here is REPORTED, NOT FATAL. The box it was scaffolding is complete
+// and bootstraps without this; what is missing is the credential a future
+// application build will need, and aborting the scaffold over it would destroy
+// a working repository to fix something no cluster depends on.
+// publishOrgSecret performs the write and REPORTS ITS FAILURE.
+//
+// Separate from setOrgGitopsToken because the two callers want opposite things
+// from a failure. Scaffold wants to continue: the box is complete without this
+// credential and aborting would destroy a working repository over something no
+// cluster depends on. An operator who ran the retry deliberately wants the
+// opposite -- a retry that prints a warning and exits 0 has told them it worked
+// when it did not, and the next thing they do is wonder why their build still
+// cannot pin a version.
+func publishOrgSecret(ctx context.Context, org, token string) error {
+	// A plausible length, before anything is sent.
+	//
+	// gh accepts whatever arrives on stdin and exits 0, so a paste that did not
+	// register produces a published secret containing nothing and a command that
+	// reports success. Downstream that is indistinguishable from a wrong token:
+	// the build fails on "Invalid username or token", which sends the operator
+	// to re-mint a credential that was never read.
+	//
+	// GitHub tokens are far longer than this; the bound only has to be tight
+	// enough to catch an empty or single-character read.
+	if err := checkTokenPlausible(token); err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN",
+		"--org", org, "--visibility", "all")
+	cmd.Stdin = strings.NewReader(token)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", firstLine(string(out)))
+	}
 	return nil
+}
+
+func setOrgGitopsToken(ctx context.Context, org, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+
+	// Scaffold knows ONE repository -- the GitOps repository it just created --
+	// so on a plan where organisation secrets do not reach private repositories
+	// that is the one it can cover. It is also the only one that exists at this
+	// point: applications are created later, and each will need the credential
+	// when it is.
+	//
+	// Publishing organisation-wide anyway would be worse than doing nothing. It
+	// succeeds, the secret is listed against every repository, and every private
+	// repository's workflow receives an empty string -- a credential that looks
+	// present everywhere except where it is read.
+	if reaches, plan, perr := OrgSecretsReachPrivateRepos(ctx, org); perr == nil && !reaches {
+		fmt.Printf("[scaffold] ! %s is on the %s plan: an organisation secret reaches only PUBLIC\n", org, plan)
+		fmt.Printf("[scaffold]   repositories, so publishing one would arrive empty in every private\n")
+		fmt.Printf("[scaffold]   repository's build. Setting it per repository instead.\n")
+		fmt.Printf("[scaffold]   Each application repository needs it when it is created:\n")
+		fmt.Printf("[scaffold]     soloz tenant set-gitops-token --repo <owner>/<name>\n")
+		return nil
+	}
+
+	if err := publishOrgSecret(ctx, org, token); err != nil {
+		fmt.Printf("[scaffold] ! GITOPS_TOKEN not set on the %s organisation: %s\n",
+			org, firstLine(err.Error()))
+		fmt.Printf("[scaffold]   Application builds cannot pin a chart version until it is.\n")
+		fmt.Printf("[scaffold]   Re-run with a token carrying the organisation's\n")
+		fmt.Printf("[scaffold]   \"Secrets: write\" permission, or set it once by hand:\n")
+		fmt.Printf("[scaffold]     gh secret set GITOPS_TOKEN --org %s --visibility all\n", org)
+		return nil
+	}
+	fmt.Printf("[scaffold] ✓ GITOPS_TOKEN set on the %s organisation (all repositories)\n", org)
+	return nil
+}
+
+// setSecretWithRetry writes one secret, retrying while GitHub is the one at
+// fault.
+//
+// It is called after the repository has been created and pushed to, and there is
+// no way back from here: an error aborts the scaffold with the repository
+// already existing, so the next attempt fails on "already exists" before it
+// reaches this code, and the operator has to delete the repository by hand. A
+// single HTTP 500 -- GitHub's, not ours -- therefore cost a whole run:
+//
+//	Error: setting GRAFANA_CLOUD_TELEMETRY_TOKEN on soloz-io/acme-gitops: exit status 1
+//	failed to set secret "GRAFANA_CLOUD_TELEMETRY_TOKEN": HTTP 500: Server Error
+//
+// Secrets are set by PUT, so writing one twice is the same as writing it once
+// and a retry cannot half-apply anything.
+func setSecretWithRetry(ctx context.Context, repo, name, value string) error {
+	const attempts = 4
+	var lastOut []byte
+	var lastErr error
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		cmd := exec.CommandContext(ctx, "gh", "secret", "set", name, "--repo", repo)
+		// Through stdin rather than an argument, so the value never appears in
+		// this process's command line.
+		cmd.Stdin = strings.NewReader(value)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastOut, lastErr = out, err
+
+		// Retry only what is worth retrying. A rejected token, a repository that
+		// does not exist, or a value GitHub will not accept fails the same way
+		// four times and turns a clear error into a slow one.
+		if permanentSecretFailure(string(out)) {
+			break
+		}
+		if attempt < attempts {
+			delay := time.Duration(attempt*attempt) * time.Second
+			fmt.Printf("[scaffold] %s: %s -- retrying in %s (attempt %d/%d)\n",
+				name, firstLine(string(out)), delay, attempt, attempts)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+	return fmt.Errorf("setting %s on %s: %w\n%s", name, repo, lastErr, lastOut)
+}
+
+// permanentSecretFailure reports whether retrying would only repeat the same
+// answer. Anything not named here -- 5xx, a timeout, a reset connection -- is
+// treated as GitHub's problem and retried.
+func permanentSecretFailure(out string) bool {
+	for _, sig := range []string{
+		"HTTP 401", "HTTP 403", "HTTP 404", "HTTP 422",
+		"Bad credentials", "Resource not accessible",
+	} {
+		if strings.Contains(out, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 120 {
+		s = s[:120]
+	}
+	return s
 }
 
 // Dispatch starts the bootstrap workflow in the tenant's repository.
@@ -367,7 +678,7 @@ func missingWord(s Secrets, credName, provider string) string {
 // What it buys is not having to publish. A version is consumed by any release that
 // begins publishing it (ADR-063), so testing a change through the dispatch path
 // spends a version number on every iteration.
-func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
+func LocalHandover(ctx context.Context, s Spec, secrets Secrets, w io.Writer) error {
 	dir := s.RepoName()
 	if _, err := os.Stat(dir); err == nil {
 		return fmt.Errorf("%s already exists here.\n\n"+
@@ -391,8 +702,21 @@ func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
 	// lives in the platform checkout, and the command below runs from the
 	// tenant's clone.
 	fmt.Fprintf(w, "  export HCLOUD_TOKEN=$(cat <your checkout>/k8-secrets/hetzner/token)\n")
+	// The escrow, which the dispatch path delivers as repository secrets and this
+	// path delivered not at all. RequireEscrow accepted these values a few lines
+	// earlier, so a box built this way passed the gate and was then built without
+	// an escrow -- the one outcome ADR-076 makes the gate mandatory to prevent.
+	// Day-0 reads them from the environment; nothing here put them there.
+	if secrets.hasEscrow() {
+		fmt.Fprintf(w, "  export INFISICAL_ADMIN_EMAIL=%s\n", shellQuote(secrets.InfisicalAdminEmail))
+		fmt.Fprintf(w, "  export INFISICAL_ADMIN_PASSWORD=%s\n", shellQuote(secrets.InfisicalAdminPassword))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_URL=%s\n", shellQuote(secrets.EscrowURL))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_PROJECT_ID=%s\n", shellQuote(secrets.EscrowProjectID))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_CLIENT_ID=%s\n", shellQuote(secrets.EscrowClientID))
+		fmt.Fprintf(w, "  export INFISICAL_ESCROW_CLIENT_SECRET=%s\n", shellQuote(secrets.EscrowClientSecret))
+	}
 	fmt.Fprintf(w, "  cd %s\n", dir)
-	fmt.Fprintf(w, "  %s bootstrap \\\n", "soloz")
+	fmt.Fprintf(w, "  %s bootstrap-mgmt \\\n", "soloz")
 	fmt.Fprintf(w, "    --name %s \\\n", s.ClusterName)
 	fmt.Fprintf(w, "    --provider %s \\\n", s.Provider)
 	fmt.Fprintf(w, "    --region %s \\\n", s.Region)
@@ -418,5 +742,196 @@ func LocalHandover(ctx context.Context, s Spec, w io.Writer) error {
 		s.BundleVersion, s.BundleRegistry)
 	fmt.Fprintf(w, "That is the path a tenant runs. Your working tree is not in it:\n")
 	fmt.Fprintf(w, "changing a manifest means publishing the next prerelease.\n\n")
+	return nil
+}
+
+// shellQuote renders a value safe to paste into the shell lines above.
+//
+// A client secret is generated material and may hold any byte; unquoted, one
+// containing a space or a dollar sign produces a command that runs and exports
+// something else, which surfaces much later as an escrow that cannot authenticate.
+func shellQuote(v string) string {
+	return "'" + strings.ReplaceAll(strings.TrimSpace(v), "'", `'\''`) + "'"
+}
+
+// PublishOrgGitopsToken republishes the organisation's GITOPS_TOKEN for a box
+// that already exists.
+//
+// SetSecrets does this once, during scaffold, and deliberately does not fail the
+// scaffold when it cannot: the box is complete without it and aborting would
+// destroy a working repository over a credential no cluster depends on. The
+// consequence is that a scaffold whose token lacked the organisation's
+// "Secrets: write" permission leaves a box permanently short of it, with no way
+// back that does not involve scaffolding again -- which is not a thing anyone
+// can do to a running box.
+//
+// So the retry is a command. What it replaces is an operator pasting
+// `gh secret set` from a warning printed days earlier, which is the platform
+// asking a tenant to do the platform's job (ADR-084 assigns this credential to
+// the Day-0 CLI).
+func PublishOrgGitopsToken(ctx context.Context, org, token string) error {
+	if strings.TrimSpace(org) == "" {
+		return fmt.Errorf("no organisation: the credential is published at the organisation " +
+			"level so every application repository inherits it, and there is no default")
+	}
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("no token: pass one with --token or on stdin")
+	}
+	if err := publishOrgSecret(ctx, org, token); err != nil {
+		// TWO credentials are involved and the refusal names neither. The token
+		// read above is the VALUE being stored; the write itself is performed by
+		// whatever `gh` is logged in as. A 403 here is almost always the second
+		// one, and an error that talks about the first sends the operator to
+		// re-mint a token that was never the problem.
+		return fmt.Errorf("could not publish GITOPS_TOKEN on the %s organisation: %w\n\n"+
+			"This is about the credential `gh` is authenticated with, NOT the token you\n"+
+			"just supplied -- that one is the value being stored and is never used to\n"+
+			"perform the write. Check it with `gh auth status`.\n\n"+
+			"Writing an organisation secret needs one of:\n"+
+			"  - admin:org on the gh login:  gh auth refresh -h github.com -s admin:org\n"+
+			"  - a fine-grained PAT with the organisation's \"Secrets: write\", supplied\n"+
+			"    for this one call:          GH_TOKEN=<pat> soloz tenant set-gitops-token --org %s\n\n"+
+			"GitHub names both routes in its refusal, which is why it reads as though a\n"+
+			"fine-grained permission were missing from a classic token that cannot carry one.",
+			org, err, org)
+	}
+	return nil
+}
+
+// orgSecretsReachPrivateRepos reports whether an ORGANISATION secret is
+// delivered to this organisation's private repositories.
+//
+// On GitHub's free plan it is not. The write succeeds, the API reports the
+// secret with visibility "all", it appears in the repository's own list of
+// available organisation secrets -- and the workflow receives an empty string.
+// Nothing at any layer says the value was withheld.
+//
+// That cost a full diagnostic cycle here: a token was re-minted twice, the
+// publishing command was hardened twice, and the actual answer was the
+// organisation's billing plan. So this is checked and SAID, rather than left
+// for the next person to rediscover from a blank line in a workflow log.
+func OrgSecretsReachPrivateRepos(ctx context.Context, org string) (bool, string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "api",
+		"/orgs/"+org, "--jq", ".plan.name").CombinedOutput()
+	if err != nil {
+		// Not fatal to the caller: the plan is advisory, and refusing to publish
+		// because it could not be read would be worse than publishing.
+		return true, "", fmt.Errorf("could not read the %s organisation's plan: %s", org, firstLine(string(out)))
+	}
+	plan := strings.TrimSpace(string(out))
+	return plan != "free", plan, nil
+}
+
+// PublishRepoGitopsToken publishes GITOPS_TOKEN on ONE repository.
+//
+// The per-repository form exists because organisation secrets do not reach
+// private repositories on the free plan, which is the arrangement most boxes
+// start on. It is weaker than the organisation form in exactly the way ADR-084
+// describes -- a repository created tomorrow is NOT covered, and must be given
+// the credential when it is created -- and that is the trade the plan imposes
+// rather than one the platform chose.
+func PublishRepoGitopsToken(ctx context.Context, repo, token string) error {
+	if strings.TrimSpace(repo) == "" {
+		return fmt.Errorf("no repository: pass owner/name")
+	}
+	if !strings.Contains(repo, "/") {
+		return fmt.Errorf("repository %q is not owner/name", repo)
+	}
+	if err := checkTokenPlausible(token); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "gh", "secret", "set", "GITOPS_TOKEN", "--repo", repo)
+	cmd.Stdin = strings.NewReader(token)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("publish GITOPS_TOKEN on %s: %s", repo, firstLine(string(out)))
+	}
+	return nil
+}
+
+// ReposNeedingGitopsToken finds the repositories whose workflows actually write
+// to this box's GitOps repository.
+//
+// DERIVED, never enumerated. ADR-084 says the platform is not told which
+// application repositories exist -- they are created, renamed and retired by the
+// tenant long after scaffolding -- so a list held anywhere falls behind
+// silently. The same argument rules out publishing to every repository in the
+// organisation: most of them have nothing to do with this box, and a credential
+// that can write a tenant's GitOps repository should not sit in a repository
+// that never needed it.
+//
+// A repository needs the credential exactly when one of its workflows reads
+// `secrets.GITOPS_TOKEN` AND names this GitOps repository. Both halves matter:
+// the first finds the workflows that will fail without it, and the second keeps
+// one organisation's second box from receiving the first box's credential.
+//
+// Read from the workflow files rather than GitHub's code search, which returns
+// nothing for private repositories on this plan and would silently discover an
+// empty set -- indistinguishable from "no repository needs it".
+func ReposNeedingGitopsToken(ctx context.Context, org, gitopsRepo string) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "repo", "list", org,
+		"--limit", "500", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("list repositories in %s: %s", org, firstLine(string(out)))
+	}
+
+	var needing []string
+	for _, repo := range strings.Split(string(out), "\n") {
+		repo = strings.TrimSpace(repo)
+		if repo == "" || repo == gitopsRepo {
+			// The GitOps repository is the destination, not a writer.
+			continue
+		}
+		if repoWritesTo(ctx, repo, gitopsRepo) {
+			needing = append(needing, repo)
+		}
+	}
+	return needing, nil
+}
+
+// repoWritesTo reports whether any workflow in repo both reads the credential
+// and names the GitOps repository.
+//
+// A repository that cannot be read is treated as not needing it. The
+// alternative -- failing the whole discovery on one unreadable repository --
+// would block a credential every other repository does need, over one the
+// operator may not even own.
+func repoWritesTo(ctx context.Context, repo, gitopsRepo string) bool {
+	listing, err := exec.CommandContext(ctx, "gh", "api",
+		"/repos/"+repo+"/contents/.github/workflows", "--jq", ".[].name").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	for _, wf := range strings.Split(string(listing), "\n") {
+		wf = strings.TrimSpace(wf)
+		if wf == "" {
+			continue
+		}
+		body, err := exec.CommandContext(ctx, "gh", "api",
+			"/repos/"+repo+"/contents/.github/workflows/"+wf, "--jq", ".content").CombinedOutput()
+		if err != nil {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(
+			strings.ReplaceAll(strings.TrimSpace(string(body)), "\n", ""))
+		if err != nil {
+			continue
+		}
+		text := string(decoded)
+		if strings.Contains(text, "secrets.GITOPS_TOKEN") && strings.Contains(text, gitopsRepo) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkTokenPlausible rejects a value too short to be a GitHub token.
+func checkTokenPlausible(token string) error {
+	if n := len(strings.TrimSpace(token)); n < 20 {
+		return fmt.Errorf("the token read was %d characters, which is too short to be a "+
+			"GitHub token -- nothing was published.\n\n"+
+			"A paste into a no-echo prompt that does not register looks exactly like this: "+
+			"the command succeeds, the secret is created empty, and the build that reads it "+
+			"fails on \"Invalid username or token\" as though the credential were wrong", n)
+	}
 	return nil
 }

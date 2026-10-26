@@ -17,7 +17,8 @@
 #
 # Environment variables:
 #   KUBECONFIG   Path to kubeconfig (default: k8-secrets/kubeconfig/hub.kubeconfig)
-#   SPOKE_NAME   ArgoCD cluster name for the spoke (default: spoke-pool-eu-prod-01)
+#   WORKLOAD_CLUSTER  ArgoCD cluster name of the workload cluster (REQUIRED, no default)
+#                     SPOKE_NAME is accepted as the older spelling.
 #   ARGOCD_NS    Namespace where ArgoCD runs (default: platform-ops)
 
 set -euo pipefail
@@ -26,7 +27,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 KUBECONFIG="${KUBECONFIG:-$PROJECT_ROOT/k8-secrets/kubeconfig/hub.kubeconfig}"
-SPOKE_NAME="${SPOKE_NAME:-spoke-pool-eu-prod-01}"
+# No default, for the reason post-bootstrap-validate.sh records beside the same
+# decision: a fallback to spoke-pool-eu-prod-01 validated whatever box was in
+# front of it against the PRODUCTION pool name, found nothing, and reported the
+# absence as a failure of the box rather than of the invocation.
+#
+# That name is also pre-ADR-082 -- workload clusters are named by the tenant now
+# (nutgraf-01), so the fallback cannot match any box built since. Not knowing
+# which cluster to check is an error, not a guess.
+WORKLOAD_CLUSTER="${WORKLOAD_CLUSTER:-${SPOKE_NAME:-}}"
+if [[ -z "$WORKLOAD_CLUSTER" ]]; then
+    echo "validate-tenant-workloads: WORKLOAD_CLUSTER is not set." >&2
+    echo "  Pass the workload cluster to validate; there is no safe default." >&2
+    echo "  e.g. WORKLOAD_CLUSTER=nutgraf-01 $0" >&2
+    exit 2
+fi
+# SPOKE_NAME is still read above and still used below, so existing callers and
+# the rest of this script keep working while the vocabulary moves to kubefirst's
+# mgmt/workload (kubefirst-api: Type is one of mgmt|workload).
+SPOKE_NAME="$WORKLOAD_CLUSTER"
 ARGOCD_NS="${ARGOCD_NS:-platform-ops}"
 LOG_DIR="$PROJECT_ROOT/.zero-ops"
 LOG_FILE="$LOG_DIR/validate-tenant-workloads.log"

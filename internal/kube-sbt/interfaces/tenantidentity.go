@@ -20,6 +20,13 @@ import (
 // Callers type-assert and skip when unimplemented, so the absence is a
 // capability the platform can observe rather than a runtime failure.
 type ITenantIdentityProvisioner interface {
+	// knownOrgID is the IMMUTABLE binding from the tenant's record (ADR-088).
+	// Empty means unbound, and an implementation must then either create --
+	// when nothing exists -- or refuse. It must never adopt an organisation by
+	// name: a name is a presentation attribute, and treating a rename as a new
+	// tenant produces a second security principal whose users are not the
+	// first's.
+	//
 	// EnsureTenantIdentity makes a tenant's identity resources exist and returns
 	// them. Idempotent: it runs on every reconcile, and a partial failure must
 	// leave the next attempt able to finish rather than to conflict.
@@ -32,7 +39,9 @@ type ITenantIdentityProvisioner interface {
 	// selfRegistration is reconciled, not applied once: it is a security
 	// boundary, and one that lives only in a provider console can be re-opened
 	// by an upgrade or a support session with nothing to notice.
-	EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
+	// project selects the APPLICATION's project within the organisation
+	// (ADR-094), bound by id once known, exactly as the organisation is.
+	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
 
 	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
 	//
@@ -47,5 +56,34 @@ type ITenantIdentityProvisioner interface {
 	// no secret" — and the caller that cannot find a stored one is the only party
 	// able to decide that invalidating the live credential is acceptable, which
 	// is what regenerateIfExists expresses.
-	EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists bool) (clientID, clientSecret string, err error)
+	//
+	// orgID and projectID are the TenantRef and ProjectRef EnsureTenantIdentity
+	// returned, so the client lands beside the application's browser client and
+	// never in a project or organisation resolved some other way.
+	EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
+
+	// EnsureMachineClient provisions the SERVICE identity an application calls
+	// another application with (ADR-097).
+	//
+	// Distinct from the confidential client above, which authenticates a client
+	// acting FOR A PERSON: the authorization code it completes belongs to someone
+	// who logged in. A service-to-service call has no person, and modelling one
+	// produces a token whose subject is a user that nobody is. A machine user's
+	// subject IS the service, which is what lets invariant 8 hold -- nothing may
+	// map a machine token's subject to a person.
+	//
+	// The implementation must ensure the identity mints JWTs rather than the
+	// issuer's opaque default, and must assert that on an identity it did not
+	// create. An opaque token cannot be validated locally, so a receiver holding
+	// one has to introspect -- putting the issuer in the path of every
+	// cross-application request, and failing in a way that reads as an
+	// authorization bug rather than a provisioning one.
+	//
+	// clientSecret is returned ONLY when this call created or regenerated it, for
+	// the same reason it is above.
+	//
+	// orgID is the TenantRef EnsureTenantIdentity returned. There is no project:
+	// a machine user belongs to the organisation, and the audience it may request
+	// is decided per token, not at provisioning (invariant 3).
+	EnsureMachineClient(ctx context.Context, orgID, userName, displayName string, regenerateIfExists bool) (*models.MachineClient, error)
 }

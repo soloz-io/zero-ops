@@ -93,6 +93,162 @@ spec:
           # where a component is declared. It was a descriptor while that target
           # arrived as a Day-0-written Kustomize patch committed under
           # generated/; removing that is what moves it here.
+          {{- if .Values.capabilities.support.enabled }}
+          # ADR-077. Ships to every box and is inert until enrolled; enrolment is
+          # the client certificate and the tenant-owned enrolment ConfigMap both
+          # existing, neither of which this element creates.
+          #
+          # Inline rather than a descriptor because its presence is a function of
+          # a value, and a descriptor gate takes effect in a released box and not
+          # in a development one (ADR-066 addendum 2).
+          - boundary: '03'
+            appName: 'support-agent'
+            destinationNamespace: 'platform-ops'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/support-agent'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              support-agent:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
+          {{- if .Values.capabilities.observability.enabled }}
+          # ADR-078: collection, and the store, query and rules that go with it.
+          #
+          # Declared here rather than as a descriptor because its PRESENCE is a
+          # function of a value, which is the same test ADR-061 applies to a
+          # source that is. A descriptor cannot carry that test: the released
+          # path globs descriptors out of the chart and the development path
+          # reads them from git, and only the first could filter -- so a
+          # capability gate on a descriptor would take effect in a released box
+          # and not in a development one. ADR-068 is explicit that the two paths
+          # must not diverge, and two defects have already reached clusters
+          # through exactly that gap.
+          - boundary: '03'
+            appName: 'grafana-alloy'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/grafana-alloy'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              grafana-alloy:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
+          # ADR-078 add.3 §4: the Grafana Operator and the dashboards it
+          # reconciles into the box owner's Grafana Cloud stack. Gated with the
+          # capability for the reason grafana-alloy is. Flat: the bundle packages
+          # a directory component's top-level files only.
+          {{- $_ := required "grafanaCloudStackUrl is required while observability is enabled: the box owner's Grafana Cloud stack is the backend and UI (ADR-078 add.3)" .Values.grafanaCloudStackUrl }}
+          {{- $_ := required "alerting.alertmanagerUrl is required while observability is enabled: the stack's Alertmanager receives the platform's alerts (ADR-078 add.4)" .Values.alerting.alertmanagerUrl }}
+          {{- $_ := required "alerting.alertmanagerId is required while observability is enabled: the stack's Alertmanager instance ID (ADR-078 add.4)" .Values.alerting.alertmanagerId }}
+          {{- if not .Values.alerting.emailTo }}{{ fail "alerting.emailTo is required while observability is enabled: at least one address receives platform alerts (ADR-078 add.4)" }}{{ end }}
+          - boundary: '03'
+            appName: 'platform-dashboards'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/platform-dashboards'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              platform-dashboards:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
+          # ADR-078 add.4: the stack's Alertmanager configuration, from Git.
+          - boundary: '03'
+            appName: 'platform-alert-routing'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/platform-alert-routing'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              platform-alert-routing:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
+          {{- if include "environment-manager.burstSpokePool" $ }}
+          # ADR-052 burst capacity. Watches ONE workload cluster, named by
+          # burstSpokePool, because the clusterapi provider cannot discover it.
+          #
+          # Inline and value-gated rather than a descriptor, by the same test the
+          # support agent above applies: its PRESENCE is a function of a value.
+          # _burst-spoke-pool.tpl already states the contract -- "empty is legal
+          # and means no burst capacity on this box; the autoscaler component is
+          # simply not enabled then" -- but as a descriptor it shipped
+          # unconditionally, and a descriptor gate would take effect in a
+          # released box and not a development one (ADR-066 addendum 2).
+          #
+          # Unconditional, it did not fail loudly. Every templated field
+          # resolved to the empty string and the Deployment installed anyway,
+          # asking for a secret named "-kubeconfig":
+          #
+          #   --node-group-auto-discovery=clusterapi:clusterName=,namespace=platform-capi
+          #   MountVolume.SetUp failed for volume "workload-kubeconfig":
+          #     secret "-kubeconfig" not found
+          #
+          # x952 over 32h on nutgraf-hub, the pod ContainerCreating for 46h and
+          # its Application the only Degraded one on the box -- the exact shape
+          # ADR-052's 2026-09-02 amendment describes, where an ADR names an
+          # owner for Burst Node Count and nothing creates one.
+          - boundary: '03'
+            appName: 'cluster-autoscaler'
+            destinationNamespace: 'platform-capi'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/cluster-autoscaler'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              cluster-autoscaler:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
           - boundary: '03'
             appName: 'hub-gateway'
             destinationNamespace: 'platform-ops'
@@ -159,26 +315,35 @@ spec:
             helmReleaseName: ''
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
-          - boundary: '03'
-            appName: 'platform-spoke-pools'
-            destinationNamespace: 'platform-ops'
-            isPlatformOwned: 'true'
-            repoURL: ''
-            targetRevision: ''
-            path: 'manifests/spoke/spoke-pools/{{ .Values.environmentSlug }}/{{ .Values.provider }}{{ if .Values.topology }}/{{ .Values.topology }}{{ end }}'
-            chart: ''
-            directoryRecurse: 'true'
-            directoryInclude: ''
-            helmValues: |
-              {{- if $released }}
-              platform-spoke-pools:
-                enabled: true
-              {{- include "environment-manager.globalValues" $ | nindent 14 }}
-              {{- else }}
-              {{- end }}
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: ''
+          # platform-spoke-pools is NOT a component here, and was.
+          #
+          # It rendered manifests/spoke/spoke-pools/<env>/<provider>, whose SpokePool
+          # claim carried a literal name -- spoke-pool-eu-<env>-01 -- inside the
+          # published bundle. Every box that pulled the bundle therefore provisioned
+          # its workload cluster under the same name, and every identity derived from
+          # that name collided across boxes. The CNPG archive prefix was the damaging
+          # one: s3://spoke-pool-backups/<name>/ held a previous box's WALs, barman
+          # refused the next box's with "Expected empty archive", and no backup
+          # completed on any box for as long as this shipped.
+          #
+          # The name cannot be fixed by rendering it here. templated-fields refuses to
+          # rewrite metadata.name -- renaming an object by value makes the resource
+          # ArgoCD prunes depend on that value, and for a SpokePool that means
+          # destroying and reprovisioning a cluster. A workload cluster's name has to
+          # be written once, by the tenant, and never computed.
+          #
+          # So the claim is the tenant's, at clusters/<name>/infrastructure/, hydrated
+          # by `soloz tenant add-cluster`: one management cluster per repository and as
+          # many workload clusters as it declares -- kubefirst's layout, which
+          # cmd/soloz/bootstrap.go already names as ours. The Application that CREATES
+          # each one sits in the management cluster's own directory, addressed
+          # in-cluster; everything that runs ON the cluster is addressed to it.
+          #
+          # UPGRADING ACROSS THIS CHANGE IS DESTRUCTIVE. This Application had
+          # prune: true, so a box whose workload cluster came from the bundle must
+          # declare that cluster in its own repository BEFORE taking a bundle that no
+          # longer ships it. Otherwise the Application goes, the claim with it, and
+          # the cluster is deleted.
   template:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
@@ -344,15 +509,6 @@ spec:
             - /metadata/annotations/updatedAt
             - /spec/template/metadata/annotations/updatedAt
     {{"{{-"}} end {{"}}"}}
-    {{"{{-"}} if eq .appName "clickhouse-operator" {{"}}"}}
-    spec:
-      ignoreDifferences:
-        - group: apps
-          kind: Deployment
-          jsonPointers:
-            - /spec/template/spec/containers/0/resources
-            - /spec/progressDeadlineSeconds
-    {{"{{-"}} end {{"}}"}}
     {{"{{-"}} if eq .appName "infrastructure-provider" {{"}}"}}
     spec:
       ignoreDifferences:
@@ -433,7 +589,7 @@ spec:
         targetRevision: '{{ .Values.environmentRevision }}'
 {{- end }}
         # ADR-046 §11: spoke-catalog is structured per environment and provider;
-        # the CNPG overlay lives at manifests/spoke/spoke-catalog/environments/<env>/<provider>.
+        # the CNPG overlay lives at manifests/spoke/spoke-catalog/providers/<provider>.
         # The cluster generator exposes labels under .metadata.labels; fail closed
         # on any provider other than hybrid/hetzner (index + fail primitive also
         # covers a spoke whose provider take-along label is missing).
@@ -448,7 +604,19 @@ spec:
         # matching what it is rather than what the hub assumed.
         chart: 'platform'
 {{- else }}
-        path: 'manifests/spoke/spoke-catalog/environments/{{ .Values.environmentSlug }}/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
+        # PROVIDER only. The catalogue had an environment axis as well, and the
+        # three environments were identical: cnpg-cluster.yaml and
+        # scheduled-backup.yaml matched byte for byte across dev, stg and prod once
+        # comments were stripped, and the only files unique to one of them --
+        # ephemeral-vm-provisioner and tenant-identity-egress -- justify themselves
+        # entirely by provider ("on hybrid spokes only", "a pure-Hetzner spoke has
+        # no such conflict"). They sat under dev/ because dev was the only
+        # environment that had a hybrid spoke, not because they were dev's.
+        #
+        # kubefirst splits platform content by provider and by nothing else; its
+        # environment directories hold tenant workloads. ADR-051's amendment of
+        # 2026-09-18 adopts that, and this is what it looks like in the path.
+        path: 'manifests/spoke/spoke-catalog/providers/{{"{{"}} if eq (index .metadata.labels "provider") "hybrid" {{"}}"}}hybrid{{"{{"}} else if eq (index .metadata.labels "provider") "hetzner" {{"}}"}}hetzner{{"{{"}} else {{"}}"}}{{"{{"}} fail "unknown provider label: spoke-catalog path" {{"}}"}}{{"{{"}} end {{"}}"}}'
 {{- end }}
 {{- if $released }}
         # Released: the per-spoke fields are chart values, because ArgoCD
@@ -462,7 +630,34 @@ spec:
             platform-spoke-catalog:
               enabled: true
               spokeName: '{{"{{"}}.name{{"}}"}}'
-            {{- include "environment-manager.globalValues" . | nindent 12 }}
+            # The SPOKE's own environment, overriding the hub's -- passed INTO
+            # globalValues rather than appended after it.
+            #
+            # globalValues carries the hub's environmentSlug, and a workload
+            # cluster reading it would take the environment of the cluster that
+            # PROVISIONED it rather than the one it declares: a prod workload
+            # cluster under a dev hub would read DEV secrets out of Infisical
+            # (ADR-037). The label is written by the SpokePool composition from
+            # the claim the tenant wrote, so this reads the cluster's own
+            # declaration.
+            #
+            # It WAS a second `global:` block after globalValues, on the reasoning
+            # that "last wins in Helm". That is true of a scalar and false of the
+            # mapping around it: YAML has no merge for a duplicate key, so the
+            # second block replaced the first outright and every other global --
+            # provider, hubDomain, clusterName, tenantId, the Infisical ids --
+            # arrived nil.
+            #
+            # global.provider nil meant the catalogue's provider-gated template
+            # block rendered NOTHING, so ArgoCD pruned what that block owns --
+            # VMSingle, VLogs and the query endpoint's ConfigMap were deleted as
+            # no longer declared, while the Application reported Synced (354
+            # synced, 11 pruned). Verified on nutgraf-01, 2026-09-20.
+            #
+            # No line here may end in a colon: these comments sit at the top
+            # level of a values block, and application-specs.py reads that
+            # position for enabled components.
+            {{- include "environment-manager.globalValues" (dict "root" $ "environmentSlug" (printf "'%s index .metadata.labels \"environment\" %s'" "{{" "}}")) | nindent 12 }}
 {{- else }}
         kustomize:
           patches:
@@ -486,6 +681,36 @@ spec:
               patch: |
                 - op: replace
                   path: /spec/backup/barmanObjectStore/destinationPath
+                  value: 's3://spoke-pool-backups/{{"{{"}}.name{{"}}"}}/'
+            # The SAME per-spoke prefix on the RECOVERY source.
+            #
+            # externalClusters is a second, independent copy of the object-store
+            # configuration, and it is the one a restore actually reads. Patching
+            # only the backup path above leaves recovery pointing at the bucket
+            # ROOT — s3://spoke-pool-backups/<incarnation>/ instead of
+            # s3://spoke-pool-backups/<spoke>/<incarnation>/ — where no spoke has
+            # ever written anything. CNPG then fails the restore with
+            #
+            #   Recovering from external cluster ... sourceName=shared-cnpg-v3
+            #   Error while restoring a backup: no target backup found
+            #
+            # which names the source it could not find and says nothing about the
+            # path it looked in, so it reads as a missing BACKUP rather than a
+            # wrong PREFIX. Observed on the 2026-09-25 restore, against an archive
+            # that was intact and listable the whole time.
+            #
+            # This is why externalClusters is declared in EVERY state, including
+            # the steady one where bootstrap is initdb and nothing reads it. A
+            # JSON-Patch op against an absent path fails the whole kustomization,
+            # so a patch that only applied during a recovery would take every
+            # spoke's sync down in between recoveries. An inert externalClusters
+            # entry costs nothing and keeps this target always present.
+            - target:
+                kind: Cluster
+                name: shared-cnpg
+              patch: |
+                - op: replace
+                  path: /spec/externalClusters/0/barmanObjectStore/destinationPath
                   value: 's3://spoke-pool-backups/{{"{{"}}.name{{"}}"}}/'
             # ADR-014 backup contract: per-spoke S3 keys in the hub-secrets
             # project at /spoke-pool/<spoke>/shared/. The hcloud-token is an
@@ -536,7 +761,10 @@ spec:
                   value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_LOKI_USER'
                 - op: replace
                   path: /spec/data/4/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_API_KEY'
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_TELEMETRY_TOKEN'
+                - op: replace
+                  path: /spec/data/5/remoteRef/key
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_RULES_TOKEN'
             # WS3: external-dns blast-radius + record ownership.
             # --domain-filter scopes which zone this spoke may write, so a dev
             # spoke can never touch prod records. --txt-owner-id keys the TXT
@@ -557,6 +785,26 @@ spec:
                 - op: replace
                   path: /spec/template/spec/containers/0/args/1
                   value: '--txt-owner-id={{"{{"}}.name{{"}}"}}'
+                # ADR-108: the preview domain, args[2] by the same contract.
+                - op: replace
+                  path: /spec/template/spec/containers/0/args/2
+                  value: '--domain-filter={{ required "previewDomain is required: an empty --domain-filter matches every zone (ADR-108)" .Values.previewDomain }}'
+            # ADR-108: the preview-access service's issuer and preview domain.
+            # env[1..3] by contract (operators/ephemeral-job-operator/config/
+            # preview-access/deployment.yaml pins the order).
+            - target:
+                kind: Deployment
+                name: preview-access
+              patch: |
+                - op: replace
+                  path: /spec/template/spec/containers/0/env/1/value
+                  value: 'https://id.{{ include "environment-manager.hubDomain" $ }}'
+                - op: replace
+                  path: /spec/template/spec/containers/0/env/2/value
+                  value: 'https://id.{{ include "environment-manager.hubDomain" $ }}/oauth/v2/keys'
+                - op: replace
+                  path: /spec/template/spec/containers/0/env/3/value
+                  value: '{{ .Values.previewDomain }}'
             # Environment isolation (ADR-037). The spoke ClusterSecretStore ships
             # with environmentSlug hardcoded to "dev"
             # (manifests/spoke/spoke-catalog/infra/cluster-secret-store.yaml), so a
@@ -584,12 +832,66 @@ spec:
       # CNPG evaluates bootstrap only at creation time and never re-reconciles
       # it, so the recovery-state manifest (Wave B) returning to initdb (Wave C)
       # stays permanently Synced.
+      #
+      # externalClusters is ignored for the SAME reason, and leaving it out
+      # blocked every sync on 2026-09-29. The two fields are one decision: what
+      # this cluster was created from. Ignoring bootstrap alone freezes the live
+      # object at `recovery.source: shared-cnpg-v<N>` while the settled manifest
+      # applies `externalClusters: [shared-cnpg-v<N+1>]` -- so the reference the
+      # frozen bootstrap depends on is pruned out from under it, and CNPG's
+      # admission webhook refuses the whole object:
+      #
+      #   Cluster "shared-cnpg" is invalid: spec.bootstrap.recovery.source:
+      #   Invalid value: "shared-cnpg-v3": External cluster shared-cnpg-v3 not found
+      #
+      # The database is healthy throughout; what fails is the Application, which
+      # then carries every other object in the catalogue down with it.
+      #
+      # The manifest is not wrong and must not be "fixed" by adding the older
+      # entry back: cnpg-bump-incarnation.sh declares exactly one
+      # externalClusters entry and asserts it (steady == archive, recovering ==
+      # archive - 1), and make cnpg-incarnation-check enforces that in CI. The
+      # manifest describes what a NEW cluster is created from; an existing one
+      # owns its own answer, which is precisely what ignoring means here.
+      #
+      # The five entries after externalClusters are a DIFFERENT problem with the
+      # same shape, and they are why this Application sat OutOfSync while every
+      # object in it was correct.
+      #
+      # CNPG writes them from its controller loop, not from a defaulting webhook
+      # and not from CRD defaults. That distinction decides everything here:
+      # ServerSideApply plus server-side diff absorbs a value admission adds,
+      # because a dry-run apply produces it too -- but a dry-run cannot predict a
+      # field the operator will write on its next reconcile. So the predicted
+      # object lacks them, the live object has them, and the comparison reports
+      # drift on every pass, forever.
+      #
+      # Verified rather than assumed, by rendering the chart at the deployed
+      # version and diffing against the live object: every declared field matched,
+      # including all fourteen postgresql.parameters and managed.roles, and the
+      # ONLY differences were these five plus top-level scalars that
+      # argocd-controller does not own (enablePDB, probes, replicationSlots,
+      # postgresUID/GID, the delays) and which SSA therefore already ignores.
+      #
+      # This is not a way of hiding real drift. Each one is a field the manifest
+      # never sets, so ignoring it cannot mask a change to anything declared --
+      # a change to a declared value still diffs, because it is not listed here.
       ignoreDifferences:
         - group: postgresql.cnpg.io
           kind: Cluster
           name: shared-cnpg
           jsonPointers:
             - /spec/bootstrap
+            - /spec/externalClusters
+            # backup.target defaults to prefer-standby.
+            - /spec/backup/target
+            # affinity.podAntiAffinityType defaults to preferred.
+            - /spec/affinity/podAntiAffinityType
+            # monitoring gains the operator's own default query set.
+            - /spec/monitoring/customQueriesConfigMap
+            - /spec/monitoring/disableDefaultQueries
+            # storage.resizeInUseVolumes defaults to true.
+            - /spec/storage/resizeInUseVolumes
 
       syncPolicy:
         automated:

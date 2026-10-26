@@ -40,11 +40,13 @@ import (
 var FleetCredentialKeys = []string{
 	"S3_ACCESS_KEY_ID",
 	"S3_SECRET_ACCESS_KEY",
-	"GRAFANA_CLOUD_API_KEY",
+	"GRAFANA_CLOUD_TELEMETRY_TOKEN",
 	"GRAFANA_CLOUD_LOKI_URL",
 	"GRAFANA_CLOUD_LOKI_USER",
 	"GRAFANA_CLOUD_PROMETHEUS_URL",
 	"GRAFANA_CLOUD_PROMETHEUS_USER",
+	// ADR-078 add.3 §6: each spoke's cluster agent syncs its rules to the stack.
+	"GRAFANA_CLOUD_RULES_TOKEN",
 }
 
 // MaterialiseFleetCredentialsResult reports per-key outcomes so a partially seeded

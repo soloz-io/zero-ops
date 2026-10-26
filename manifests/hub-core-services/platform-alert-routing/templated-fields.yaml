@@ -1,0 +1,16 @@
+# ADR-078 addendum 4: the stack's Alertmanager and the box's receivers are
+# per-box facts. Required where the box's values enter (the environment-manager
+# refuses to render without them); read without failing here, because a
+# component chart is also rendered without a box's values, at packaging -- and
+# render.sh refuses an empty receiver at run time, naming it.
+- kind: CronJob
+  name: alert-routing-sync
+  fields:
+    - path: [spec, jobTemplate, spec, template, spec, initContainers, 0, env, 0, value]
+      value: 'Platform alerts <no-reply@{{ .Values.global.hubDomain }}>'
+    - path: [spec, jobTemplate, spec, template, spec, initContainers, 0, env, 1, value]
+      value: '{{ join ", " (dig "alerting" "emailTo" (list) .Values.global) }}'
+    - path: [spec, jobTemplate, spec, template, spec, containers, 0, env, 0, value]
+      value: '{{ dig "alerting" "alertmanagerUrl" "" .Values.global }}'
+    - path: [spec, jobTemplate, spec, template, spec, containers, 0, env, 1, value]
+      value: '{{ dig "alerting" "alertmanagerId" "" .Values.global }}'

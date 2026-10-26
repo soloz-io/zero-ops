@@ -195,7 +195,7 @@ Recording resolved versions duplicates into every tenant's repository what the t
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-042: Bootstrap State Machine
 - ADR-047: Fleet Tenant Deployment Contract
-- ADR-052: Elastic Burst Capacity for Tenant Workloads
+- ADR-052: Sandbox Compute and S3-Backed Workspaces
 - ADR-055: Boundary Activation as the Day-0 Gating Mechanism
 - ADR-061: Component Descriptors for Boundary Composition
 - ADR-062: Onboarding and Scaffolding a Tenant

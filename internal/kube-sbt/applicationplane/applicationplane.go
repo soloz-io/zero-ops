@@ -76,7 +76,7 @@ func (ap *ApplicationPlane) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop is a no-op — NATS subscriptions are drained when the EventBus is closed.
+// Stop is a no-op — subscriptions are drained when the EventBus is closed.
 func (ap *ApplicationPlane) Stop() {}
 
 // ─── Event subscriptions (13.3, 13.5) ────────────────────────────────────────

@@ -145,6 +145,82 @@ def substitute(doc, path, literal, replacement):
     node[key] = text.replace(literal, replacement)
 
 
+
+# A value carrying a Go template is emitted double-quoted, always.
+#
+# The dumper cannot know what the template will render to, and PyYAML decides
+# quoting from the text it is given -- so `support-agent:{{ .Values.global.hubDomain }}`
+# looks like a legal plain scalar and is emitted bare. It renders to
+# `support-agent:` when the value is empty, which is a second colon on the line
+# and invalid YAML, and helm reports it as "mapping values are not allowed in
+# this context" pointing at a line that is fine.
+#
+# Quoting costs nothing anywhere else: helm substitutes inside the quotes, and a
+# quoted scalar is the same value.
+class _Dumper(yaml.SafeDumper):
+    pass
+
+
+def _templated_str(dumper, data):
+    # Single-line templated scalars only. A MULTI-LINE value carrying a template
+    # -- an embedded script, a patch body, a Composition's inline manifest --
+    # must keep block style: forcing it to a double-quoted scalar re-encodes
+    # every newline as \n, and what helm then renders is one long line that is
+    # no longer the YAML the component meant to emit. That broke
+    # platform-tenant-platform, whose Composition templates a hostAPI inside an
+    # inline manifest block.
+    # SINGLE quotes, not double. A templated value routinely contains double
+    # quotes of its own -- `{{ "{{" }}` is how a Helm template emits a literal
+    # Go-template brace, and the tenant-platform Composition does exactly that
+    # inside a redis URL. Double-quoting re-escapes those as \" and helm then
+    # fails to parse its own template with `unexpected "\\" in command`.
+    # Single-quoted YAML is verbatim apart from ' itself, which PyYAML doubles
+    # correctly.
+    #
+    # Multi-line values keep block style: a folded or quoted multi-line scalar
+    # re-encodes newlines and what helm renders is no longer the YAML the
+    # component meant to emit.
+    style = "'" if "{{" in data and "\n" not in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+
+_Dumper.add_representer(str, _templated_str)
+
+
+def _dump(doc):
+    return yaml.dump(doc, Dumper=_Dumper, sort_keys=False, width=10**6)
+
+
+def _dump_all(docs, handle):
+    yaml.dump_all(docs, handle, Dumper=_Dumper, sort_keys=False, width=10**6)
+
+
+
+# Every `.Values.global.*` the substituted values reference, as a nested default.
+#
+# A templated object that reads .Values.global.dns.ownerId renders NOTHING when
+# the chart carries no default for it: `global.dns` is a nil map and helm fails
+# the whole render, which component-chart.sh then reports as "packaged chart
+# renders no objects" -- naming the symptom and not the cause. That cost an hour
+# the first time and would cost it again for the next global anyone adds.
+#
+# Derived from what was actually emitted rather than listed by hand, so a new
+# global is defaulted by the commit that introduces it.
+def global_defaults(emitted):
+    root = {}
+    for text in emitted:
+        for path in re.findall(r"\.Values\.global\.([A-Za-z0-9_.]+)", text):
+            node = root
+            parts = path.split(".")
+            for key in parts[:-1]:
+                node = node.setdefault(key, {})
+                if not isinstance(node, dict):
+                    break
+            else:
+                node.setdefault(parts[-1], "")
+    return {"global": root} if root else {}
+
+
 def main() -> int:
     if len(sys.argv) < 4:
         print(__doc__)
@@ -167,6 +243,27 @@ def main() -> int:
 
     templated, verbatim, missing = [], [], []
     claimed = set()
+    # Documents already escaped, and those already collected for output.
+    #
+    # A declaration file may name one object more than once -- the spoke
+    # catalogue's ClusterSecretStore is declared twice, once for the environment
+    # slug and once for the hub's address, because they are separate decisions
+    # with separate reasons. Both are legitimate and the file reads better for it.
+    #
+    # Processing them independently was not. Each pass re-escaped the whole
+    # document, so the SECOND declaration protected the live Helm expression the
+    # FIRST had just assigned: the shipped chart carried
+    #   environmentSlug: '{{ "{{" }} .Values.global.environmentSlug {{ "}}" }}'
+    # which renders to that expression as literal text. Every spoke therefore got
+    # a ClusterSecretStore whose environmentSlug was the string
+    # "{{ .Values.global.environmentSlug }}", external-secrets rejected the store
+    # with InvalidProviderConfig, and every ExternalSecret behind it stayed
+    # Progressing forever -- the spoke's S3 credential among them, so its database
+    # could not authenticate to object storage and never backed up.
+    #
+    # Each pass also appended the document again, so the object was emitted twice.
+    protected = set()
+    collected = set()
     for spec in wanted:
         key = (spec["kind"], spec["name"])
         doc = index.get(key)
@@ -174,9 +271,12 @@ def main() -> int:
             missing.append(f"{spec['kind']}/{spec['name']}")
             continue
         # Escape first, then assign: the values being assigned are Helm
-        # expressions and must stay live.
-        for field_name in list(doc):
-            doc[field_name] = protect(doc[field_name])
+        # expressions and must stay live. ONCE per document, however many
+        # declarations name it -- see above.
+        if id(doc) not in protected:
+            protected.add(id(doc))
+            for field_name in list(doc):
+                doc[field_name] = protect(doc[field_name])
         for field in spec["fields"]:
             try:
                 if "replaceAll" in field:
@@ -200,7 +300,9 @@ def main() -> int:
                          if "path" in field else "anywhere in the object")
                 missing.append(f"{spec['kind']}/{spec['name']} {where}: {exc}")
         claimed.add(key)
-        templated.append(doc)
+        if id(doc) not in collected:
+            collected.add(id(doc))
+            templated.append(doc)
 
     if missing:
         print("the templated-field declaration names content this component does "
@@ -229,11 +331,34 @@ def main() -> int:
             "*/ -}}\n"
         )
         for doc in templated:
-            handle.write("---\n" + yaml.safe_dump(doc, sort_keys=False, width=10**6))
+            handle.write("---\n" + _dump(doc))
 
     for rendered, keep in remaining.items():
         with open(rendered, "w") as handle:
-            yaml.safe_dump_all(keep, handle, sort_keys=False, width=10**6)
+            _dump_all(keep, handle)
+
+    # Defaults for every global the templated objects read, MERGED into whatever
+    # the chart already has. Without them the chart renders nothing at all, and
+    # the packager reports that as "renders no objects" -- the symptom, not the
+    # cause.
+    defaults = global_defaults(_dump(doc) for doc in templated)
+    if defaults:
+        values_path = os.path.join(chart, "values.yaml")
+        existing = {}
+        if os.path.exists(values_path):
+            with open(values_path) as handle:
+                existing = yaml.safe_load(handle) or {}
+        merged = dict(existing)
+        merged["global"] = {**defaults["global"], **(existing.get("global") or {})}
+        with open(values_path, "w") as handle:
+            handle.write(
+                "# Defaults for the globals this component's templated fields read.\n"
+                "# Written at package time from what was actually emitted, so a new\n"
+                "# global is defaulted by the commit that introduces it. A chart with\n"
+                "# no default renders nothing: the lookup hits a nil map and helm\n"
+                "# fails the whole render.\n"
+            )
+            yaml.safe_dump(merged, handle, sort_keys=False)
 
     print(f"  {len(templated)} object(s) templated, {len(verbatim)} verbatim")
     return 0

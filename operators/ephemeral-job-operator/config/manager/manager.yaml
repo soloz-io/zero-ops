@@ -49,6 +49,9 @@ spec:
           image: ephemeral-job-operator
           args:
             - --leader-elect
+            # ADR-106: this install enforces sandbox network policy through
+            # Cilium. Required; see cmd/main.go.
+            - --network-policy=cilium
             # ADR-052 §11: measured p95 for this spoke's burst placement class.
             # Reported, never acted on by deletion.
             - --provisioning-budget=6m
@@ -69,26 +72,18 @@ spec:
             # never published this image; the first CI run replaces it with a
             # real digest and the workflow fails loudly if it cannot.
             - name: WORKSPACE_SYNC_IMAGE
-              value: ghcr.io/soloz-io/workspace-sync@sha256:5708d5d59372837dfb5025e32578c3cb147b4c6f575907afcb1624699fc93c56
-            # The object-store credential, by reference — the SAME Secret each
-            # fleet's own SDK binds S3 from, rendered into that fleet's
-            # namespace by an ExternalSecret from Infisical (ADR-003, ADR-047
-            # Tier 2). Each fleet's registry declares its own; this operator
-            # serves them all.
-            #
-            # A TEMPLATE, not a name. `{namespace}` expands to the
-            # EphemeralJob's own namespace at reconcile time, and the tenant
-            # namespace IS the fleet id (registries render workloads into
-            # `namespace: {TENANT_ID}`), so this resolves to each fleet's own
-            # Secret without the platform ever naming one. A literal name here
-            # would be a tenant identifier in platform code — forbidden by
-            # ADR-047's addendum, caught by preflight, and wrong for the second
-            # fleet onboarded.
-            #
-            # A literal is still accepted, for a spoke whose single fleet uses a
-            # non-conventional name: expansion is a no-op without a placeholder.
-            - name: WORKSPACE_SYNC_SECRET
-              value: "{namespace}-app-secrets"
+              value: ghcr.io/soloz-io/workspace-sync@sha256:5d871ee25a55492771defc041696c635cfbaf194a4ce6b4252142234ce81737b
+            # The object-store credential and location are NOT set here. The
+            # operator's own defaults are the platform convention:
+            #   WORKSPACE_SYNC_SECRET  {fleetId}-sdk-secrets  (S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)
+            #   WORKSPACE_SYNC_CONFIG  {fleetId}-config       (S3_ENDPOINT_URL, S3_BUCKET_NAME, S3_REGION)
+            # where {fleetId} is the sandbox namespace's `app-id` label -- the
+            # same two objects the fleet's SDK reads (internal/controller/
+            # workspace_sync.go). An override here once pinned the stale
+            # `{namespace}-app-secrets`, a Secret no deployed namespace has, and
+            # every sandbox's workspace-sync silently ran without object storage.
+            # Set either variable only for a spoke whose fleet names these
+            # objects differently.
           ports:
             - containerPort: 8080
               name: metrics

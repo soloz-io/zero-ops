@@ -52,6 +52,70 @@ Sync windows are ArgoCD's designated mechanism for suspending reconciliation of 
 
 The per-boundary AppProject is simultaneously the trust boundary the hub currently lacks. Source repositories, permitted destinations, and permitted resource kinds are declared per boundary and reconciled from Git.
 
+### A boundary declares what must be true before the next one starts
+
+Activation decides when a boundary BEGINS. It says nothing about when one is
+DONE, and that omission had a cost this ADR did not anticipate.
+
+`awaitBoundaryInventory` filled the gap by default, because it was the only
+assertion every boundary made. It answers *"did the ApplicationSet generate its
+Applications"* — a question about the render, not about the cluster. Generating
+an Application is not deploying it, and deploying it is not the thing it deploys
+being usable by the boundary that follows.
+
+So each boundary grew its own assertions reactively, one outage at a time. Four
+of the six the platform had were added after debugging a specific failure;
+boundaries 02, 05 and 06 asserted nothing at all — not as a decision, but
+because nobody had been burned there yet. The distinction matters: an absence
+that was argued and an absence that was never considered are indistinguishable
+when both are written as nothing.
+
+Boundary 03 is what this cost. It reported success when ArgoCD had applied the
+`HubEnvironment`; the hub-operator then spent nine more minutes generating
+credentials, uploading them, waiting for ESO, and creating the database roles the
+CR declares. Boundary 04 had long since deployed Zitadel against a database whose
+roles did not exist:
+
+```
+06:22:58  boundary 04 starts; zitadel init/setup hooks begin
+06:25:39  operator uploads application secrets
+06:32:28  "All database roles provisioned" -- hub_zitadel finally exists
+06:33:30  the hooks exhaust their retries and die
+```
+
+Every failure in between was real and transient — `password authentication failed
+for user "hub_zitadel"` while the role did not exist, then `permission denied for
+database zitadel` while it was being granted.
+
+**Therefore: every boundary declares a readiness contract — what must be TRUE
+before the next boundary may start — and the declaration is mandatory.**
+
+Declaring that nothing is required is a legitimate answer and must carry a
+reason, in the same way the architecture gate requires a reason for a waiver.
+Boundary 05 waives because spoke provisioning is asynchronous by design
+(ADR-047): a spoke takes longer to build than Day-0 runs. Boundary 06 waives
+because public certificates are issued by ACME on the issuer's schedule, and a
+box serves on its internal PKI meanwhile.
+
+**The tempting alternative is a longer timeout, and it is not equivalent.** A
+deadline widens the window in which a race is survivable; it does not order the
+two. Twice as long still fails on a box where the dependency is twice as slow,
+and that failure is indistinguishable from a real one.
+
+### Declaring is enforced by the compiler, not by review
+
+A contract that a new boundary can omit is a convention, and this ADR already has
+evidence for how conventions decay here: the three silent boundaries were each
+written by someone following the shape of the boundary beside them.
+
+The contracts are therefore declared as unkeyed Go struct literals, where the
+language requires every field to be present. A boundary that omits an answer does
+not compile, and a field added to the contract breaks every existing boundary
+until each one answers it. The zero value of a readiness declaration is not a
+valid declaration, so *"I forgot"* and *"I decided nothing is needed"* cannot be
+spelled the same way — which is precisely the confusion that made the original
+absence invisible.
+
 ### Activation is the only cluster state Day-0 mutates
 
 The seed Application does not reconcile the sync window field. This exclusion is the ADR-040 lifecycle boundary expressed as a manifest: Git owns boundary content and boundary policy; the cluster owns boundary activation; Day-0 mutates activation and nothing else. Because the two authorities act on disjoint fields, neither can overwrite the other, and the class of failure recorded in the Context above becomes unrepresentable.
@@ -142,6 +206,20 @@ Boundary activation state has no reconciler by construction. It is a Day-0 artif
 Boundary deployment toggles, the direct application of rendered boundary output, and the separate reconciliation path that re-applies boundary ApplicationSets outside the phase sequence are all removed. Their removal is a precondition of exclusive authority, not an optimisation.
 
 A check that distinguishes an inactive boundary from a failed one, and a stalled convergence from a progressing one, is required by this ADR. Neither state is reported as drift.
+
+**Amends itself (2026-09-14).** This ADR decided when a boundary is activated and
+left when it is complete undecided. Every boundary now declares a readiness
+contract; the six bespoke deployment functions are replaced by one path that
+cannot be bypassed, because there is nowhere else to write a boundary. Boundaries
+02 and 03 gained the assertions whose absence caused the failure recorded above —
+the platform database serving, and the hub-operator having created the roles the
+`HubEnvironment` declares. Boundaries 05 and 06 waive with stated reasons.
+
+**Complements ADR-079.** That ADR requires a Day-0 *phase* to declare its
+re-entrancy and to verify its own postcondition. This is the same rule one level
+up: a *boundary* declares what the next boundary may assume. The two share a
+cause — a record of work having run is not evidence of the work having taken
+effect.
 
 ## References
 

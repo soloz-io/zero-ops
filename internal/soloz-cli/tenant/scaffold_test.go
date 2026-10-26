@@ -52,14 +52,14 @@ func TestRender_RetainedTemplateKeepsPerClusterTokens(t *testing.T) {
 		"bundle.yaml": {"<CLUSTER_NAME>", "<BUNDLE_VERSION>"},
 		"values.yaml": {"<ENVIRONMENT>", "<CLOUD_PROVIDER>", "<CLOUD_REGION>"},
 	} {
-		got := read(t, dst, "templates", "spoke-cluster", f)
+		got := read(t, dst, "templates", "workload-cluster", f)
 		for _, token := range tokens {
 			if !strings.Contains(got, token) {
-				t.Errorf("templates/spoke-cluster/%s lost %s; it is no longer a template", f, token)
+				t.Errorf("templates/workload-cluster/%s lost %s; it is no longer a template", f, token)
 			}
 		}
 		if strings.Contains(got, "acme-hub") {
-			t.Errorf("templates/spoke-cluster/%s was rendered against the control plane", f)
+			t.Errorf("templates/workload-cluster/%s was rendered against the control plane", f)
 		}
 	}
 }
@@ -68,7 +68,7 @@ func TestRender_RetainedTemplateKeepsPerClusterTokens(t *testing.T) {
 // tenant should never have to supply its own repository URL to add one.
 func TestRender_RetainedTemplateHasTenantFactsFilled(t *testing.T) {
 	dst := render(t, testSpec())
-	got := read(t, dst, "templates", "spoke-cluster", "bundle.yaml")
+	got := read(t, dst, "templates", "workload-cluster", "bundle.yaml")
 	if !strings.Contains(got, "https://github.com/acme-inc/acme-gitops") {
 		t.Error("retained template does not name the tenant's own repository")
 	}
@@ -79,15 +79,15 @@ func TestRender_RetainedTemplateHasTenantFactsFilled(t *testing.T) {
 
 func TestRender_HydratesControlPlaneAndRemovesItsTemplate(t *testing.T) {
 	dst := render(t, testSpec())
-	if _, err := os.Stat(filepath.Join(dst, "clusters", "acme-hub", "bundle.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(dst, "registry", "clusters", "acme-hub", "bundle.yaml")); err != nil {
 		t.Fatalf("control plane not hydrated: %v", err)
 	}
 	// Consumed once. Leaving it would offer a tenant a second way to create the
 	// cluster it already has.
-	if _, err := os.Stat(filepath.Join(dst, "templates", "control-plane")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dst, "templates", "mgmt")); !os.IsNotExist(err) {
 		t.Error("the consumed control-plane template was not removed")
 	}
-	got := read(t, dst, "clusters", "acme-hub", "bundle.yaml")
+	got := read(t, dst, "registry", "clusters", "acme-hub", "bundle.yaml")
 	if strings.Contains(got, "<") && strings.Contains(got, ">") {
 		for _, line := range strings.Split(got, "\n") {
 			if tok := unresolvedToken(line); tok != "" {
@@ -103,10 +103,10 @@ func TestRender_HydratesControlPlaneAndRemovesItsTemplate(t *testing.T) {
 func TestRender_RefusesToLeaveATokenInTheInstance(t *testing.T) {
 	dir := t.TempDir()
 	tmpl := filepath.Join(dir, "tmpl")
-	if err := os.MkdirAll(filepath.Join(tmpl, "templates", "control-plane"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpl, "templates", "mgmt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmpl, "templates", "control-plane", "x.yaml"),
+	if err := os.WriteFile(filepath.Join(tmpl, "templates", "mgmt", "x.yaml"),
 		[]byte("a: <CLUSTER_NAME>\nb: <NOT_A_REAL_TOKEN>\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestRender_BundleResolvesTheRegistryAndTheTenantsOwnValues(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, "clusters", "acme-hub", "bundle.yaml"))
+	raw, err := os.ReadFile(filepath.Join(dir, "registry", "clusters", "acme-hub", "bundle.yaml"))
 	if err != nil {
 		t.Fatalf("reading the hydrated bundle: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestRender_RenovateManagerMatchesTheBundleItProposesAgainst(t *testing.T) {
 		t.Errorf("an OCI chart is a docker datasource, got %q", m.DatasourceTemplate)
 	}
 
-	bundle, err := os.ReadFile(filepath.Join(dir, "clusters", "acme-hub", "bundle.yaml"))
+	bundle, err := os.ReadFile(filepath.Join(dir, "registry", "clusters", "acme-hub", "bundle.yaml"))
 	if err != nil {
 		t.Fatalf("reading the hydrated bundle: %v", err)
 	}
@@ -313,5 +313,39 @@ func TestRender_BootstrapWorkflowIsPinnedAndSubstituted(t *testing.T) {
 	if want := "v" + testSpec().BundleVersion; pin[1] != want {
 		t.Errorf("pinned to %s, expected %s -- the workflow and the bundle a "+
 			"cluster runs are the same release", pin[1], want)
+	}
+}
+
+// The generated values file does not exist until Day-0 writes it, and helm
+// EXITS on a values file it cannot open. Without ignoreMissingValueFiles the
+// seed Application cannot render at all, and the bootstrap dies at boundary 01
+// with "no ApplicationSet targets project boundary-01" -- naming the boundary
+// rather than the values file, which is why this is asserted rather than left
+// to be rediscovered.
+//
+// Ordering cannot fix it: the file is written by bootstrap-infisical-api, which
+// runs after the boundaries it would unblock.
+func TestBundleToleratesTheGeneratedValuesFileNotExistingYet(t *testing.T) {
+	for _, version := range []string{"0.1.16-rc.8", "development"} {
+		t.Run(version, func(t *testing.T) {
+			spec := Spec{
+				TenantID: "acme", GitOrg: "acme-io", Domain: "nutgraf.in",
+				ClusterName: "acme-hub", Environment: "dev", Provider: "hetzner",
+				BundleVersion: version, BundleRegistry: "ghcr.io/soloz-io/charts",
+				PlatformRepoURL: "https://github.com/soloz-io/zero-ops",
+			}
+			src := spec.chartSource()
+			// generated/values/, where Day-0 writes it. Values files are kept
+			// out of generated/ because the Application reconciling that
+			// directory applies what it finds there as objects, and a values
+			// file has no kind.
+			if !strings.Contains(src, "generated/values/platform-pki-values.yaml") {
+				t.Fatal("the bundle does not read the generated PKI values at all")
+			}
+			if !strings.Contains(src, "ignoreMissingValueFiles: true") {
+				t.Error("the bundle reads a file Day-0 has not written yet without " +
+					"ignoreMissingValueFiles; the seed cannot render on a first bootstrap")
+			}
+		})
 	}
 }

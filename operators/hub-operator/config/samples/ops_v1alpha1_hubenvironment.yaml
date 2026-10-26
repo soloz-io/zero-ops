@@ -16,19 +16,6 @@ spec:
     clusterRef: platform-db
     namespace: platform-data
     roles:
-    - name: hub_control_plane
-      database: control_plane
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
-    - name: hub_centralized
-      database: hub
-      permissions:
-      - SELECT
-      - INSERT
-      - UPDATE
     - name: hub_zitadel
       database: zitadel
       permissions:
@@ -43,19 +30,6 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
-  nats:
-    streams:
-    - name: spoke-events
-      subjects:
-      - "spoke.*.lifecycle.>"
-      - "spoke.*.billing.>"
-      retention: limits
-      storage: file
-    - name: hub-events
-      subjects:
-      - "hub.notifications.>"
-      retention: interest
-      storage: file
   oauth:
     clients:
     - clientId: mcp-server

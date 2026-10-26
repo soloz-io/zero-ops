@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,18 +45,31 @@ type EphemeralJobReconciler struct {
 	// when a job looks stuck.
 	APIReader client.Reader
 
+	// Clientset reads pod logs, which a controller-runtime client cannot: a log is a
+	// subresource request. Used only to explain a failure, so it is optional -- a nil
+	// one costs the log tail and nothing else.
+	Clientset kubernetes.Interface
+
 	// ProvisioningBudget is the p95 cold-start budget for the placement class
 	// (ADR-052 §11). A job that has been waiting for capacity longer than this
 	// is reported as such — but it is NOT deleted, because deletion during
 	// provisioning is indistinguishable to the autoscaler from deletion of a
 	// healthy workload and causes the scale-up/scale-down thrash §11 describes.
 	ProvisioningBudget time.Duration
+
+	// NetworkPolicy is how this cluster enforces sandbox network policy
+	// (ADR-106). Stated by the install, never detected: see ParseNetworkPolicyMode.
+	NetworkPolicy NetworkPolicyMode
 }
 
 const (
-	jobOwnerKey    = ".metadata.controller"
-	finalizerName  = "compute.nutgraf.in/ephemeraljob"
-	labelJobUID    = "compute.nutgraf.in/ephemeraljob-uid"
+	jobOwnerKey   = ".metadata.controller"
+	finalizerName = "compute.nutgraf.in/ephemeraljob"
+	labelJobUID   = "compute.nutgraf.in/ephemeraljob-uid"
+	// The CR's NAME, carried on the pod so a consumer that knows only the
+	// request — the SDK knows a sandbox by name, not by UID — can find its
+	// compute without the pod having to be named after it.
+	labelJobName   = "compute.nutgraf.in/ephemeraljob-name"
 	defaultRequeue = 10 * time.Second
 
 	// Bounded so a slow or hanging receiver cannot stall the work queue for
@@ -63,6 +78,25 @@ const (
 
 	// The workload container's name, which readiness is judged on.
 	workloadContainerName = "workload"
+
+	// Bounds on the failure log tail. All three exist because this read happens
+	// inside Reconcile: the line and byte caps keep a verbose workload out of a
+	// status field, and the timeout keeps a slow read from stalling the work queue
+	// for every other job.
+	logTailLines   = 20
+	logTailBytes   = 2048
+	logTailTimeout = 5 * time.Second
+
+	// Where spec.input reaches the workload. The field is opaque to this
+	// operator: it is passed through verbatim, never read, never reshaped.
+	// Without this the field was accepted, stored, and then dropped — a
+	// workload started with no idea what it had been asked to do.
+	envJobInput = "EPHEMERAL_JOB_INPUT"
+
+	// Where spec.output reaches the workload. A workload writes its own result,
+	// so it has to be told where — the field said so and nothing carried it,
+	// which left results landing at the bucket root.
+	envJobOutput = "EPHEMERAL_JOB_OUTPUT"
 
 	// The envelope a request gets when it names none. See the comment at the
 	// assignment for why an absent value cannot be left absent.
@@ -75,6 +109,22 @@ const (
 	// times over for containers that idle.
 	defaultSidecarRequestCPU    = "50m"
 	defaultSidecarRequestMemory = "64Mi"
+
+	// ADR-106: the bound a container gets when it states none. A sandbox runs
+	// tenant-authored code, and with requests alone one runaway session could
+	// take a whole node from every other session on it.
+	//
+	// These are DEFAULTS, not a ceiling: a request that states a limit keeps
+	// it, and a limit is never set below the container's own request. No
+	// ceiling is enforced until the heaviest workload (video export) has been
+	// measured -- a ceiling below it would kill that workload, not bound it.
+	defaultLimitCPU              = "4"
+	defaultLimitMemory           = "8Gi"
+	defaultLimitEphemeralStorage = "20Gi"
+
+	defaultSidecarLimitCPU              = "1"
+	defaultSidecarLimitMemory           = "1Gi"
+	defaultSidecarLimitEphemeralStorage = "1Gi"
 )
 
 // callbackHTTP is shared so connections are reused across reconciles rather
@@ -88,12 +138,27 @@ func (r *EphemeralJobReconciler) callbackClient() *http.Client { return callback
 // +kubebuilder:rbac:groups=compute.nutgraf.in,resources=ephemeraljobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
+// Read-only, and only to explain a failure. The pod is deleted with its Job, so the
+// terminal callback is the last moment the workload's own output can be captured --
+// without this the message says FAILED and nothing else, and a caller cannot tell a
+// bad input from an infrastructure fault.
+// +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;delete
+// Nodes, list only, and read UNCACHED (see APIReader). Needed to tell a pod
+// waiting for capacity from one whose selector no node can satisfy; without it
+// the read fails and every such job waits out maxLifetimeSeconds instead.
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=list
+// Namespaces, GET only, and read UNCACHED (see APIReader). A fleet's S3 Secret
+// and ConfigMap are named from its namespace's `app-id` label, so that label has
+// to be read; without this the read fails and the reference renders incomplete.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
 // Workspace PVCs (ADR-052 §14). No `delete`: this operator creates and reads
 // them, and reclaiming one is the separate reaper's job. Withholding the verb
 // means a bug in the hot path cannot delete a user's workspace.
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get
+// +kubebuilder:rbac:groups=cilium.io,resources=ciliumnetworkpolicies,verbs=get;list;watch;create;update
 
 func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
@@ -155,16 +220,73 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed, reason, msg)
 	}
 
-	// Service mode has no Job, no completion and no callback to fire. It is a
-	// different lifecycle over the SAME pod description, so it branches here
-	// rather than inside every step below.
+	// Before any pod exists: a peer's policies must be in place by the time it
+	// can send a packet, or its first connections race the policy.
+	if reason, msg, invalid, err := r.reconcileSessionPeer(ctx, &ej); err != nil {
+		return ctrl.Result{}, err
+	} else if invalid {
+		return ctrl.Result{}, r.markTerminal(ctx, &ej, computev1alpha1.PhaseFailed, reason, msg)
+	}
+
+	// Service mode has no Job and no completion. It is a different lifecycle over
+	// the SAME pod description, so it branches here rather than inside every step
+	// below.
+	//
+	// IT DOES FIRE CALLBACKS, and this comment said otherwise until 2026-10-02.
+	// Service mode notifies the caller twice: once when the workload starts
+	// serving, and once when it ends -- pod failure, pod exit, the never-ready
+	// bound, idle reap or timeout. Both are supported contract (ADR-052 §16.2).
+	//
+	// What it does NOT notify is cancellation or deletion: `spec.cancelled` reaches
+	// a terminal phase through markTerminal, which fires nothing, and a deleted
+	// EphemeralJob is left to garbage collection. Both are caller-initiated, so the
+	// caller already knows.
+	// Both modes, before any pod exists, so a pod's first packet already has
+	// its storage (ADR-106 §1). Sandboxes are Service mode.
+	if err := r.reconcileStorageEgress(ctx, &ej); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if ej.Spec.Mode == computev1alpha1.ModeService {
 		return r.reconcileServiceMode(ctx, &ej)
 	}
 
+	// The absolute bound, checked before anything that can stall.
+	//
+	// Service mode has always checked it; Job mode did not, so a request whose
+	// Job could never be created retried for as long as the CR existed. One sat
+	// for 45 hours with no phase, its workflow step waiting on a callback that
+	// nothing was ever going to send.
+	if ej.Spec.MaxLifetimeSeconds > 0 {
+		if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
+			l.Info("reaping job at its lifetime bound", "ephemeralJob", req.NamespacedName, "lived", lived.Truncate(time.Second))
+			if err := r.deleteJob(ctx, &ej); err != nil {
+				return ctrl.Result{}, err
+			}
+			ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime without finishing", ej.Spec.MaxLifetimeSeconds)
+			return ctrl.Result{}, r.markFinished(ctx, &ej, computev1alpha1.PhaseTimedOut, nil)
+		}
+	}
+
 	job, err := r.ensureJob(ctx, &ej)
 	if err != nil {
+		// Refused at admission: a policy, Pod Security or schema said no. The
+		// same Job is refused the same way on every retry, so retrying only
+		// hides the reason in this operator's log. Fail the request with the
+		// API server's own message and tell the caller, which is what a
+		// workflow waiting on this job needs.
+		if jobRefusedAtAdmission(err) {
+			ej.Status.Message = err.Error()
+			return ctrl.Result{}, r.markFinishedWithReason(ctx, &ej, computev1alpha1.PhaseFailed,
+				computev1alpha1.ReasonAdmissionRejected, nil)
+		}
 		return ctrl.Result{}, err
+	}
+	if job == nil {
+		// A finished Job of the same name is being deleted so this request can
+		// have a fresh one. Creating it now would race the collection and hit
+		// AlreadyExists, so the work resumes on the next pass.
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	// A Job whose pod cannot be admitted never produces a pod. The Job's own
@@ -186,11 +308,25 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			computev1alpha1.ReasonQuotaRejected, fmt.Sprintf("%s: %s", reason, msg))
 	}
 
-	if done, phase, exit := jobFinished(job); done {
+	if done, phase, exit, detail := jobFinished(job); done {
+		// WHY IT FAILED, while the pod still exists to say so.
+		//
+		// The pod is deleted with the Job, so this is the only moment the reason is
+		// available anywhere: a caller investigating later finds neither the pod nor
+		// its logs. A failed render reported as FAILED with nothing after the colon
+		// is what this replaces.
+		if phase != computev1alpha1.PhaseSucceeded {
+			if d, code := r.failureDetail(ctx, job, detail); d != "" {
+				ej.Status.Message = d
+				if exit == nil {
+					exit = code
+				}
+			}
+		}
 		return ctrl.Result{}, r.markFinished(ctx, &ej, phase, exit)
 	}
 
-	cap, err := AssessCapacity(ctx, r.Client, ej.Namespace, job.Name)
+	cap, err := AssessCapacity(ctx, r.Client, r.APIReader, ej.Namespace, job.Name)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -224,11 +360,63 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		r.setPhase(&ej, computev1alpha1.PhaseRunning, cap)
 
-	case cap.Terminal:
-		r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
-		l.Info("burst capacity unavailable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
+	case cap.Reason == computev1alpha1.ReasonPlacementUnsatisfiable:
+		// FAILS, where capacity waits.
+		//
+		// ADR-052 §11 rule 3 forbids deleting a job for want of capacity, and
+		// rightly: a burst node is minutes away and deleting would destroy work
+		// about to run while losing the pod's place in the queue. This is not
+		// that. No node carries the labels this pod requires and none is being
+		// provisioned, so every additional second is spent waiting for
+		// something that is not coming.
+		//
+		// Left in Provisioning it is invisible in the only way that matters:
+		// the caller's step does not fail, it hangs, and the three bounds that
+		// exist do not apply -- readinessDeadlineSeconds starts when the pod
+		// RUNS, idleTimeoutSeconds when the workload first SERVES, and
+		// maxLifetimeSeconds is eight hours away.
+		//
+		// The pod is deleted with the job so the selector cannot be mistaken
+		// for a pod that might still schedule; the scheduler's own message is
+		// kept, because it names the mismatch precisely and is what an operator
+		// acts on.
+		l.Info("placement unsatisfiable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
+		if pod, err := r.podForJob(ctx, job); err == nil && pod != nil {
+			if err := r.deletePod(ctx, pod); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		ej.Status.Message = cap.Message
+		return ctrl.Result{}, r.markFinished(ctx, &ej, computev1alpha1.PhaseFailed, nil)
 
 	default:
+		if ej.Spec.CapacityWaitSeconds != nil && *ej.Spec.CapacityWaitSeconds > 0 {
+			if waited := time.Since(ej.CreationTimestamp.Time); waited > time.Duration(*ej.Spec.CapacityWaitSeconds)*time.Second {
+				l.Info("capacity wait deadline exceeded", "ephemeralJob", req.NamespacedName, "waited", waited)
+				policy := metav1.DeletePropagationBackground
+				if err := r.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: &policy}); err != nil &&
+					!apierrors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+				ej.Status.Message = fmt.Sprintf("capacity wait deadline exceeded: waiting %s for capacity, over %ds limit: %s",
+					waited.Truncate(time.Second), *ej.Spec.CapacityWaitSeconds, cap.Message)
+				meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+					Type:               computev1alpha1.ConditionCapacity,
+					Status:             metav1.ConditionFalse,
+					Reason:             computev1alpha1.ReasonCapacityTimeout,
+					Message:            ej.Status.Message,
+					ObservedGeneration: ej.Generation,
+				})
+				return ctrl.Result{}, r.markFinishedWithReason(ctx, &ej, computev1alpha1.PhaseTimedOut, computev1alpha1.ReasonCapacityTimeout, nil)
+			}
+		}
+
+		if cap.Terminal {
+			r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
+			l.Info("burst capacity unavailable", "ephemeralJob", req.NamespacedName, "message", cap.Message)
+			break
+		}
+
 		r.setPhase(&ej, computev1alpha1.PhaseProvisioning, cap)
 		// A container that cannot start looks identical to capacity that has not
 		// arrived: both sit in Provisioning. Reported first, because it is the
@@ -259,13 +447,81 @@ func (r *EphemeralJobReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // structural. The predecessor implementation swept for orphaned compute on a
 // timer because it provisioned VMs that nothing owned; owner references remove
 // the need for that entirely.
+// jobIsFinished reports whether a Job has reached a terminal condition and can
+// therefore never run anything again.
+//
+// Conditions, not counters: `Succeeded`/`Failed` counts describe pods, and a
+// Job whose pods have all terminated may still be retried by the controller
+// while its backoff budget lasts. `JobComplete` and `JobFailed` are the two
+// states from which nothing further happens.
+func jobIsFinished(job *batchv1.Job) bool {
+	for _, c := range job.Status.Conditions {
+		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alpha1.EphemeralJob) (*batchv1.Job, error) {
 	name := jobNameFor(ej)
 
 	var existing batchv1.Job
 	err := r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
 	if err == nil {
-		return &existing, nil
+		// Reuse only a Job that can still do the work.
+		//
+		// The name is derived from the request, so a new EphemeralJob for the
+		// same logical work finds the PREVIOUS Job sitting there — and if that
+		// one is finished, adopting it hands back compute that has already
+		// exited. Observed live: a sandbox whose `agent-vault` container was
+		// OOM-killed two days earlier was adopted by a fresh request, the CR
+		// went `Failed` within seconds with "container agent-vault terminated",
+		// and every wake for that sandbox failed the same way until the Job was
+		// deleted by hand. The sandbox was unrecoverable through the product.
+		//
+		// Idempotency is still the point — a Job that is running or pending is
+		// returned untouched, so a retry never creates a second one. What
+		// changes is that "exists" is no longer mistaken for "usable".
+		if !jobIsFinished(&existing) {
+			return &existing, nil
+		}
+		// A finished Job THIS CR owns is this request's own completed work, not
+		// a leftover from an earlier one, and must be handed back rather than
+		// replaced.
+		//
+		// The replacement above is for a NEW EphemeralJob that finds a previous
+		// request's Job under the same derived name. It cannot tell the two
+		// apart by name, because the name is derived from the request — but it
+		// can by ownership, since every Job this controller creates is owned by
+		// the CR that asked for it.
+		//
+		// Without this, a status update that loses an optimistic-concurrency
+		// race ("the object has been modified") leaves the CR non-terminal
+		// while its Job is already Complete. The next pass reaches here, sees
+		// "finished", deletes the Job and runs the work again — and because the
+		// same race recurs, it runs again, and again. Observed live: a 20-scene
+		// render finished and uploaded video.mp4, then re-rendered from scratch
+		// twice more while the workflow that submitted it sat waiting for a
+		// callback that the replaced Job could no longer send.
+		if metav1.IsControlledBy(&existing, ej) {
+			return &existing, nil
+		}
+		log.FromContext(ctx).Info("replacing a finished Job from an earlier request",
+			"job", name, "succeeded", existing.Status.Succeeded, "failed", existing.Status.Failed)
+		// Foreground deletion, so the replacement is not created while the old
+		// pods are still being reaped — two Jobs with one name is not a state
+		// the API server allows, and a background delete makes the create race
+		// the collection.
+		policy := metav1.DeletePropagationForeground
+		if err := r.Delete(ctx, &existing, &client.DeleteOptions{PropagationPolicy: &policy}); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return nil, err
+			}
+		}
+		// Requeue rather than create now: deletion is not instantaneous, and a
+		// create against a name still held returns AlreadyExists.
+		return nil, nil
 	}
 	if !apierrors.IsNotFound(err) {
 		return nil, err
@@ -276,7 +532,7 @@ func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alp
 		return nil, fmt.Errorf("unknown placement class %q", ej.Spec.PlacementClass)
 	}
 
-	job := r.buildJob(ej, name, placement)
+	job := r.buildJob(ctx, ej, name, placement)
 	if err := ctrl.SetControllerReference(ej, job, r.Scheme); err != nil {
 		return nil, err
 	}
@@ -292,11 +548,13 @@ func (r *EphemeralJobReconciler) ensureJob(ctx context.Context, ej *computev1alp
 }
 
 func (r *EphemeralJobReconciler) buildJob(
-	ej *computev1alpha1.EphemeralJob, name string, p Placement,
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) *batchv1.Job {
 	backoff := int32(0) // no retry: a burst node join per attempt is too costly to spend blindly
 	ttl := ej.Spec.TTLSecondsAfterFinished
+	fleetID := r.resolveFleetID(ctx, ej.Namespace)
 
+	// Object storage is bound in buildPodSpec, as for every pod of ours.
 	container := r.buildWorkloadContainer(ej)
 
 	return &batchv1.Job{
@@ -306,6 +564,14 @@ func (r *EphemeralJobReconciler) buildJob(
 			Labels: authoredLabels(ej, map[string]string{
 				labelJobUID: string(ej.UID),
 				"tenant-id": tenantFromNamespace(ej.Namespace),
+				// The application (ADR-088), read from the namespace label the
+				// tenant registry writes. require-cost-labels demands it since
+				// 2026-09-24, and its absence refused every Job-mode request in
+				// every tenant namespace. Never taken from the CR, so a
+				// submitter cannot attribute its work to another app. A
+				// namespace without the label renders it empty, which the
+				// policy refuses and the request fails naming.
+				"app-id": fleetID,
 				// enforce-tenant-abi/require-cost-labels matches every Job in a
 				// tenant-* namespace and demands BOTH labels. tenant-id alone
 				// meant the Job was rejected at admission — and rejected inside
@@ -363,9 +629,10 @@ func (r *EphemeralJobReconciler) buildJob(
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: authoredLabels(ej, map[string]string{
 						labelJobUID: string(ej.UID),
+						"app-id":    fleetID,
 					}),
 				},
-				Spec: r.buildPodSpec(ej, p, container),
+				Spec: r.buildPodSpec(ctx, ej, p, container),
 			},
 		},
 	}
@@ -405,6 +672,12 @@ func (r *EphemeralJobReconciler) setPhase(ej *computev1alpha1.EphemeralJob, phas
 func (r *EphemeralJobReconciler) markFinished(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
 ) error {
+	return r.markFinishedWithReason(ctx, ej, phase, string(phase), exit)
+}
+
+func (r *EphemeralJobReconciler) markFinishedWithReason(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, reason string, exit *int32,
+) error {
 	now := metav1.Now()
 	ej.Status.Phase = phase
 	ej.Status.CompletionTime = &now
@@ -420,7 +693,7 @@ func (r *EphemeralJobReconciler) markFinished(
 	meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
 		Type:               computev1alpha1.ConditionComplete,
 		Status:             status,
-		Reason:             string(phase),
+		Reason:             reason,
 		Message:            ej.Status.Message,
 		ObservedGeneration: ej.Generation,
 	})
@@ -474,6 +747,31 @@ func terminalEventID(ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Pha
 	return hex.EncodeToString(sum[:])[:32]
 }
 
+// readyEventID is the deduplication key for a "now serving" event.
+//
+// Keyed on the POD, not the request: a Service-mode workload whose pod is lost
+// gets a new one rather than a terminal state, and the receiver must be able to
+// tell the second Running from a redelivery of the first. Two incarnations have
+// two pod names, so they have two event ids.
+//
+// The uid is included so the key cannot collide with a previous EphemeralJob of
+// the same name, and the phase so it cannot collide with that incarnation's
+// terminal event.
+func readyEventID(ej *computev1alpha1.EphemeralJob, podName string) string {
+	sum := sha256.Sum256([]byte(string(ej.UID) + "|" + podName + "|ready"))
+	return hex.EncodeToString(sum[:])[:32]
+}
+
+func callbackReason(ej *computev1alpha1.EphemeralJob) string {
+	if c := meta_FindStatusCondition(ej.Status.Conditions, computev1alpha1.ConditionCapacity); c != nil && c.Reason == computev1alpha1.ReasonCapacityTimeout {
+		return c.Reason
+	}
+	if c := meta_FindStatusCondition(ej.Status.Conditions, computev1alpha1.ConditionComplete); c != nil && c.Reason != "" {
+		return c.Reason
+	}
+	return ""
+}
+
 func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
@@ -510,17 +808,49 @@ func (r *EphemeralJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *EphemeralJobReconciler) fireCallback(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
 ) error {
+	return r.fireLifecycleCallback(ctx, ej, phase, exit,
+		computev1alpha1.ConditionCallbackDelivered, terminalEventID(ej, phase))
+}
+
+// fireLifecycleCallback posts one lifecycle event to Spec.CallbackURL.
+//
+// gate is the condition that makes this event fire ONCE. It is a parameter and
+// not a constant because the terminal event and the ready event must not share
+// one: a ready notification that set ConditionCallbackDelivered would suppress
+// the terminal callback, so a sandbox would report that it started and never
+// that it ended.
+//
+// eventID is the receiver's deduplication key for THIS event. Distinct per event
+// per incarnation, so a redelivered event from a previous incarnation cannot be
+// mistaken for this one's.
+// THE GATE IS PERSISTED IMMEDIATELY AFTER THE POST, and that ordering is the whole
+// of what makes an event fire once.
+//
+// A previous version deferred it to the caller's own status write later in the same
+// reconcile, on the reasoning that two writes in one pass is a second chance to lose
+// a conflict. The mechanism was real and the conclusion was backwards: when that
+// deferred write lost its race, the gate was never stored, the reconcile requeued,
+// and the event was POSTed again. Observed as two identical Running deliveries 11 ms
+// apart for one ready transition.
+//
+// A conflict on a LATER write is harmless once the gate is durable -- the next pass
+// sees it and sends nothing. A conflict on the gate write itself is not harmless and
+// is reported, because it means a duplicate is coming.
+func (r *EphemeralJobReconciler) fireLifecycleCallback(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, phase computev1alpha1.Phase, exit *int32,
+	gate string, eventID string,
+) error {
 	l := log.FromContext(ctx)
 
 	// Optional by design: a job nobody is waiting on needs no callback.
 	if ej.Spec.CallbackURL == "" {
 		return nil
 	}
-	if meta_IsStatusConditionTrue(ej.Status.Conditions, computev1alpha1.ConditionCallbackDelivered) {
+	if meta_IsStatusConditionTrue(ej.Status.Conditions, gate) {
 		return nil
 	}
 
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"jobId":    ej.Name,
 		"status":   string(phase),
 		"exitCode": exit,
@@ -531,9 +861,29 @@ func (r *EphemeralJobReconciler) fireCallback(
 		// reconcile-driven duplicate but cannot close the crash window between
 		// the receiver committing and this operator persisting that condition.
 		// A receiver that ignores this field is unprotected against redelivery.
-		"terminalEventId": ej.Status.TerminalEventID,
+		// The receiver's deduplication key for THIS event (ADR-052 §16.2). Named
+		// terminalEventId for compatibility with receivers that already read it;
+		// it now carries ready events too, which are not terminal.
+		"terminalEventId": eventID,
 		"requestId":       ej.Spec.RequestID,
-	})
+		// WHICH INCARNATION. A caller may recycle a workload by deleting the
+		// EphemeralJob and creating another under the same name, so jobId is the
+		// same for both and cannot tell them apart. Without this, a redelivered
+		// terminal event from the previous incarnation arrives after the new one
+		// is serving and reads as the new one ending.
+		"uid": string(ej.UID),
+		// When the operator observed the event, not when the receiver read it.
+		// A receiver processing events out of order needs its own ordering, and
+		// redelivery makes arrival order no guide at all.
+		"timestamp": metav1.Now().UTC().Format(time.RFC3339),
+		// The workload's labels, so a receiver can route the event without
+		// holding a map from job name to whatever it cares about.
+		"labels": ej.Labels,
+	}
+	if reason := callbackReason(ej); reason != "" {
+		payload["reason"] = reason
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		// Unmarshallable payload is a programming error, not a transient one:
 		// retrying cannot fix it, and blocking the TTL on it would leak the CR.
@@ -577,12 +927,20 @@ func (r *EphemeralJobReconciler) fireCallback(
 	}
 
 	meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
-		Type:               computev1alpha1.ConditionCallbackDelivered,
+		Type:               gate,
 		Status:             metav1.ConditionTrue,
 		Reason:             string(phase),
 		Message:            fmt.Sprintf("callback responded %d", resp.StatusCode),
 		ObservedGeneration: ej.Generation,
 	})
+	// Not deferred to the caller. See the note above: a deferred gate that loses a
+	// race re-sends the event.
+	//
+	// A failure here IS worth surfacing, unlike a conflict on the phase write below:
+	// it means this event will be sent again on the retry. At-least-once is what the
+	// contract promises (ADR-052 §16.2) and why the payload carries a per-event key,
+	// but a receiver that is not idempotent would act twice, so the operator says so
+	// rather than passing it over.
 	return client.IgnoreNotFound(r.Status().Update(ctx, ej))
 }
 
@@ -590,9 +948,27 @@ func (r *EphemeralJobReconciler) fireCallback(
 // both modes: a sandbox and a render job differ in lifecycle, not in how the
 // workload container itself is assembled.
 func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.EphemeralJob) corev1.Container {
-	env := make([]corev1.EnvVar, 0, len(ej.Spec.Env))
+	env := make([]corev1.EnvVar, 0, len(ej.Spec.Env)+1)
 	for k, v := range ej.Spec.Env {
 		env = append(env, corev1.EnvVar{Name: k, Value: v})
+	}
+
+	// spec.input, serialised as the field documents. A request that sets its
+	// own EPHEMERAL_JOB_INPUT in spec.env keeps it: what a caller states wins
+	// over what the platform derives.
+	if raw := ej.Spec.Input; raw != nil && len(raw.Raw) > 0 {
+		if _, stated := ej.Spec.Env[envJobInput]; !stated {
+			env = append(env, corev1.EnvVar{Name: envJobInput, Value: string(raw.Raw)})
+		}
+	}
+
+	// spec.output, on the same terms: serialised as stated, never interpreted.
+	if out := ej.Spec.Output; out != nil {
+		if _, stated := ej.Spec.Env[envJobOutput]; !stated {
+			if encoded, err := json.Marshal(out); err == nil {
+				env = append(env, corev1.EnvVar{Name: envJobOutput, Value: string(encoded)})
+			}
+		}
 	}
 
 	container := corev1.Container{
@@ -632,6 +1008,7 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 		container.Resources = *ej.Spec.Resources
 	}
 	withRequests(&container, defaultRequestCPU, defaultRequestMemory)
+	withLimits(&container, defaultLimitCPU, defaultLimitMemory, defaultLimitEphemeralStorage)
 	if ej.Spec.ImagePullPolicy != "" {
 		container.ImagePullPolicy = ej.Spec.ImagePullPolicy
 	}
@@ -652,9 +1029,16 @@ func (r *EphemeralJobReconciler) buildWorkloadContainer(ej *computev1alpha1.Ephe
 // reaches a node without it. Previously the sandbox path had exactly such a
 // path, because its pod was authored upstream and placement was bolted on by a
 // mutating policy that could simply not match.
+// ctx is threaded in for resolveFleetID: the Secret and ConfigMap holding a
+// fleet's S3 configuration are named from its namespace's `app-id` label, and
+// that label has to be read.
 func (r *EphemeralJobReconciler) buildPodSpec(
-	ej *computev1alpha1.EphemeralJob, p Placement, container corev1.Container,
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, p Placement, container corev1.Container,
 ) corev1.PodSpec {
+	fleetID := r.resolveFleetID(ctx, ej.Namespace)
+	// Here and not in buildWorkloadContainer: the references are named from the
+	// fleet id, which only this function resolves.
+	container.Env = withOutputStorageEnv(ej, container.Env, fleetID)
 	volumes := ej.Spec.Volumes
 	if len(volumes) == 0 {
 		volumes = []corev1.Volume{
@@ -736,7 +1120,34 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		// workload back until that restore is finished.
 		keep := resolveKeepCheckpoints(ej.Spec.WorkspacePersistence)
 		spec_initContainers = append(spec_initContainers,
-			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep, ej.Namespace))
+			workspaceSyncContainer(ej.Spec.WorkspacePersistence, keep, ej.Namespace, fleetID))
+
+		// A second instance for the app-shared workspace, when the fleet asked
+		// for one. Same image, same code, same key layout — only the workspace
+		// id and the root differ, which is what makes the shared tree shared
+		// rather than a per-session copy (see SharedWorkspaceID).
+		//
+		// AFTER the session instance, and that order is load-bearing: native
+		// sidecars start sequentially and each gates on the previous one's
+		// startup probe, so the session tree (and any overlay over it) exists
+		// before this container mounts a directory inside it.
+		if shared := ej.Spec.WorkspacePersistence.SharedWorkspaceID; shared != "" {
+			spec_initContainers = append(spec_initContainers,
+				workspaceSyncContainerFor(ej.Spec.WorkspacePersistence, keep, ej.Namespace, fleetID, workspaceSyncTarget{
+					name:        "workspace-sync-shared",
+					workspaceID: shared,
+					root:        WorkspaceMountPath + "/" + sharedWorkspaceDirName,
+					staging:     workspaceStagingPath + "/" + sharedWorkspaceDirName,
+					port:        sharedWorkspaceSyncPort,
+					noArchive:   true,
+					// Restore-only when the fleet says this session only READS the
+					// shared tree. See SharedWorkspaceReadOnly for the data loss
+					// this exists to stop.
+					readOnly: ej.Spec.WorkspacePersistence.SharedWorkspaceReadOnly,
+					// On-demand refresh of that read-only tree (ADR-052 §14.9).
+					refresh: ej.Spec.WorkspacePersistence.SharedWorkspaceRefresh,
+				}))
+		}
 	}
 
 	// A writable /tmp, always.
@@ -766,6 +1177,45 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		Name: "tmp", MountPath: "/tmp",
 	})
 
+	// ── The pod-bound identity, on the WORKLOAD container only (ADR-052).
+	//
+	// Not on the sidecars, and that is the point of doing it here rather than in
+	// the shared loop below: the sidecars are auxiliary processes the platform
+	// supplies, and the agent-vault sidecar in particular proxies outbound calls
+	// for tenant-authored code. Handing it an identity that a receiver accepts
+	// would make the proxy a caller in its own right.
+	//
+	// The path is the PLATFORM's, not the fleet's. A tool reads it to find its
+	// token, so it is a contract between the platform and the application, and a
+	// fleet-supplied path would be a contract the fleet could change under its own
+	// tools. It is also why the mount is read-only: the kubelet rewrites the file
+	// in place on renewal and nothing in the pod should be writing there.
+	if it := ej.Spec.IdentityToken; it != nil {
+		exp := int64(identityTokenDefaultExpirySeconds)
+		if it.ExpirationSeconds != nil {
+			exp = *it.ExpirationSeconds
+		}
+		volumes = appendVolumeIfAbsent(volumes, corev1.Volume{
+			Name: identityTokenVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{{
+						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+							Audience:          it.Audience,
+							ExpirationSeconds: &exp,
+							Path:              identityTokenFileName,
+						},
+					}},
+				},
+			},
+		})
+		container.VolumeMounts = appendMountIfAbsent(container.VolumeMounts, corev1.VolumeMount{
+			Name:      identityTokenVolumeName,
+			MountPath: IdentityTokenMountPath,
+			ReadOnly:  true,
+		})
+	}
+
 	// Every container, not just the workload.
 	//
 	// The burst-compute ResourceQuota refuses a POD in which any container omits
@@ -777,6 +1227,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	sidecars := make([]corev1.Container, 0, len(ej.Spec.Sidecars))
 	for _, c := range ej.Spec.Sidecars {
 		withRequests(&c, defaultSidecarRequestCPU, defaultSidecarRequestMemory)
+		withLimits(&c, defaultSidecarLimitCPU, defaultSidecarLimitMemory, defaultSidecarLimitEphemeralStorage)
 		sidecars = append(sidecars, c)
 	}
 	// Covers the operator's own containers too, both of which are now init
@@ -785,6 +1236,7 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 	// same way agent-vault did.
 	for i := range spec_initContainers {
 		withRequests(&spec_initContainers[i], defaultSidecarRequestCPU, defaultSidecarRequestMemory)
+		withLimits(&spec_initContainers[i], defaultSidecarLimitCPU, defaultSidecarLimitMemory, defaultSidecarLimitEphemeralStorage)
 	}
 
 	// Never for a job; Always for a service.
@@ -869,6 +1321,9 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 		Volumes:                       volumes,
 		ImagePullSecrets:              ej.Spec.ImagePullSecrets,
 		TerminationGracePeriodSeconds: grace,
+		// ADR-107: nil is the ordinary runtime. The RuntimeClass carries its own
+		// node selector, so a Sandboxed pod lands only where the runtime exists.
+		RuntimeClassName: runtimeClassFor(ej),
 	}
 	return spec
 }
@@ -881,23 +1336,29 @@ func (r *EphemeralJobReconciler) buildPodSpec(
 // or a success that never arrives. The Pod is owned by the EphemeralJob, so it
 // is still garbage-collected structurally.
 func (r *EphemeralJobReconciler) buildPod(
-	ej *computev1alpha1.EphemeralJob, name string, p Placement,
+	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) *corev1.Pod {
 	container := r.buildWorkloadContainer(ej)
+	fleetID := r.resolveFleetID(ctx, ej.Namespace)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ej.Namespace,
+			// GenerateName, not Name — see ensurePod. The server picks a unique
+			// suffix, so a leftover object can never hold the name this request
+			// needs.
+			GenerateName: name + "-",
+			Namespace:    ej.Namespace,
 			Labels: authoredLabels(ej, map[string]string{
-				labelJobUID: string(ej.UID),
-				"tenant-id": tenantFromNamespace(ej.Namespace),
+				labelJobUID:  string(ej.UID),
+				labelJobName: ej.Name,
+				"tenant-id":  tenantFromNamespace(ej.Namespace),
+				"app-id":     fleetID,
 				// enforce-tenant-abi/require-cost-labels does not match bare
 				// Pods, but the label is carried anyway so Job-mode and
 				// Service-mode workloads attribute identically.
 				"cost-center": "platform",
 			}),
 		},
-		Spec: r.buildPodSpec(ej, p, container),
+		Spec: r.buildPodSpec(ctx, ej, p, container),
 	}
 }
 
@@ -961,7 +1422,22 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 
 	pod, err := r.ensurePod(ctx, ej, name, placement)
 	if err != nil {
+		// The same rule as Job mode: a pod the API server refuses -- a
+		// RuntimeClass this cluster does not offer (ADR-107), a quota, a policy --
+		// will be refused on every retry. Retrying forever left the request
+		// Pending with no reason anywhere; it ends now, with the server's own
+		// message, which the lifecycle callback carries to the submitter.
+		if jobRefusedAtAdmission(err) {
+			ej.Status.Message = err.Error()
+			return ctrl.Result{}, r.markFinishedWithReason(ctx, ej, computev1alpha1.PhaseFailed,
+				computev1alpha1.ReasonAdmissionRejected, nil)
+		}
 		return ctrl.Result{}, err
+	}
+	if pod == nil {
+		// A terminated pod of the same name is being deleted so this request
+		// can have a fresh one; it does not exist yet.
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	switch pod.Status.Phase {
@@ -973,23 +1449,10 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, podExitCode(pod))
 	}
 
-	cap, err := AssessCapacityBySelector(ctx, r.Client, ej.Namespace,
+	cap, err := AssessCapacityBySelector(ctx, r.Client, r.APIReader, ej.Namespace,
 		client.MatchingLabels{labelJobUID: string(ej.UID)})
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-
-	if !cap.Ready {
-		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
-		if waited := time.Since(ej.CreationTimestamp.Time); waited > r.ProvisioningBudget {
-			ej.Status.Message = fmt.Sprintf(
-				"waiting %s for burst capacity, over the %s budget for this placement class: %s",
-				waited.Truncate(time.Second), r.ProvisioningBudget, cap.Message)
-		}
-		if err := r.Status().Update(ctx, ej); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	// The absolute bound, checked before anything a client can influence.
@@ -997,13 +1460,57 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	// Everything below is refreshable or conditional; this is not. Burst
 	// capacity bills per node-hour, and a workload whose end depends on a
 	// cooperative client has no end at all.
-	if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
-		l.Info("reaping workload at its lifetime bound", "ephemeralJob", ej.Name, "lived", lived.Truncate(time.Second))
-		if err := r.deletePod(ctx, pod); err != nil {
-			return ctrl.Result{}, err
+	if ej.Spec.MaxLifetimeSeconds > 0 {
+		if lived := time.Since(ej.CreationTimestamp.Time); lived > time.Duration(ej.Spec.MaxLifetimeSeconds)*time.Second {
+			l.Info("reaping workload at its lifetime bound", "ephemeralJob", ej.Name, "lived", lived.Truncate(time.Second))
+			if err := r.deletePod(ctx, pod); err != nil {
+				return ctrl.Result{}, err
+			}
+			ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime", ej.Spec.MaxLifetimeSeconds)
+			if meta_FindStatusCondition(ej.Status.Conditions, computev1alpha1.ConditionCapacity) == nil {
+				meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+					Type:               computev1alpha1.ConditionCapacity,
+					Status:             metav1.ConditionFalse,
+					Reason:             cap.Reason,
+					Message:            cap.Message,
+					ObservedGeneration: ej.Generation,
+				})
+			}
+			return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
 		}
-		ej.Status.Message = fmt.Sprintf("reached the %ds maximum lifetime", ej.Spec.MaxLifetimeSeconds)
-		return ctrl.Result{}, r.markFinished(ctx, ej, computev1alpha1.PhaseSucceeded, nil)
+	}
+
+	if !cap.Ready {
+		if ej.Spec.CapacityWaitSeconds != nil && *ej.Spec.CapacityWaitSeconds > 0 {
+			if waited := time.Since(ej.CreationTimestamp.Time); waited > time.Duration(*ej.Spec.CapacityWaitSeconds)*time.Second {
+				l.Info("capacity wait deadline exceeded", "ephemeralJob", ej.Name, "waited", waited)
+				if err := r.deletePod(ctx, pod); err != nil {
+					return ctrl.Result{}, err
+				}
+				ej.Status.Message = fmt.Sprintf(
+					"capacity wait deadline exceeded: waiting %s for capacity, over %ds limit: %s",
+					waited.Truncate(time.Second), *ej.Spec.CapacityWaitSeconds, cap.Message)
+				meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+					Type:               computev1alpha1.ConditionCapacity,
+					Status:             metav1.ConditionFalse,
+					Reason:             computev1alpha1.ReasonCapacityTimeout,
+					Message:            ej.Status.Message,
+					ObservedGeneration: ej.Generation,
+				})
+				return ctrl.Result{}, r.markFinishedWithReason(ctx, ej, computev1alpha1.PhaseTimedOut, computev1alpha1.ReasonCapacityTimeout, nil)
+			}
+		}
+
+		r.setPhase(ej, computev1alpha1.PhaseProvisioning, cap)
+		if waited := time.Since(ej.CreationTimestamp.Time); waited > r.ProvisioningBudget {
+			ej.Status.Message = fmt.Sprintf(
+				"waiting %s for burst capacity, over the %s budget for this placement class: %s",
+				waited.Truncate(time.Second), r.ProvisioningBudget, cap.Message)
+		}
+		if res, err := r.updateServiceStatus(ctx, ej); err != nil || res.Requeue {
+			return res, err
+		}
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	// StartTime is seeded as soon as the pod runs, ready or not: the readiness
@@ -1040,16 +1547,52 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 			ej.Status.Message = "workload container is not ready"
 		}
 		ej.Status.PodName = pod.Name
-		if err := r.Status().Update(ctx, ej); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+		if res, err := r.updateServiceStatus(ctx, ej); err != nil || res.Requeue {
+			return res, err
 		}
 		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
+
+	// ── Serving. Tell the caller, once per POD (ADR-052 §16.2).
+	//
+	// Service mode has no completion, so without this a caller learns a sandbox
+	// exists only by polling it. The event fires on the transition to ready and
+	// not on every reconcile, which is what the gate condition is for.
+	//
+	// RESET WHEN THE POD CHANGED. A Service-mode workload whose pod is lost gets a
+	// replacement rather than a terminal state (see ensurePod), so the caller needs
+	// to hear that it is serving again -- a second Running, with its own event id,
+	// which a receiver reads as "replaced" rather than as a duplicate. Comparing
+	// against the recorded PodName is what detects that; the condition alone would
+	// stay true across the replacement and the caller would never be told.
+	if ej.Status.PodName != pod.Name {
+		meta_SetStatusCondition(&ej.Status.Conditions, metav1.Condition{
+			Type:               computev1alpha1.ConditionReadyNotified,
+			Status:             metav1.ConditionFalse,
+			Reason:             "PodReplaced",
+			Message:            "a new pod is serving; the caller is told again",
+			ObservedGeneration: ej.Generation,
+		})
+	}
+	// PodName is recorded further down, with the rest of the status, so the
+	// comparison above reads the PREVIOUS incarnation's name -- which is the
+	// whole point of it.
 
 	// The idle clock starts only once the workload has actually served, so a
 	// slow start is not charged against the session's idle budget.
 	if ej.Status.LastActivityTime == nil {
 		ej.Status.LastActivityTime = &now
+	}
+
+	// Phase Running, not a terminal one: this says the workload is serving, and
+	// the caller will hear separately when it ends.
+	if err := r.fireLifecycleCallback(ctx, ej, computev1alpha1.PhaseRunning, nil,
+		computev1alpha1.ConditionReadyNotified, readyEventID(ej, pod.Name)); err != nil {
+		// Logged, not fatal. A caller that missed the ready event still receives
+		// the terminal one, and failing the reconcile here would stop the idle
+		// clock below from ever starting -- which holds a burst node open.
+		log.FromContext(ctx).Error(err, "ready callback failed",
+			"ephemeralJob", ej.Name, "pod", pod.Name)
 	}
 
 	idle := time.Since(ej.Status.LastActivityTime.Time)
@@ -1071,34 +1614,163 @@ func (r *EphemeralJobReconciler) reconcileServiceMode(
 	if ej.Spec.Service != nil {
 		ej.Status.ServiceName = serviceNameFor(ej)
 	}
-	if err := r.Status().Update(ctx, ej); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if res, err := r.updateServiceStatus(ctx, ej); err != nil || res.Requeue {
+		return res, err
 	}
 	// Wake when the idle budget could next expire, so a quiet sandbox is reaped
 	// promptly rather than at the next unrelated event.
 	return ctrl.Result{RequeueAfter: minDuration(budget-idle, defaultRequeue)}, nil
 }
 
+// updateServiceStatus writes the status and treats a lost race as a retry.
+//
+// A CONFLICT IS NOT A FAULT, and reporting it as one is misleading. This status
+// subresource has two writers: this controller, and the fleet's SDK marking
+// activity on the sandbox it owns. A lost race is the expected outcome of that and
+// is resolved by re-reading, which is what a requeue does. Returning it as an error
+// produced a "Reconciler error" line at the same instant as every Running callback
+// -- which reads as the callback having failed, and would mask a real error in the
+// same place.
+//
+// Nothing is lost: the next pass re-reads and rewrites. If the write that lost was
+// the one carrying ConditionReadyNotified, the event is re-POSTed on the retry,
+// which is at-least-once as promised (ADR-052 §16.2) and why the payload carries a
+// per-event key.
+func (r *EphemeralJobReconciler) updateServiceStatus(
+	ctx context.Context, ej *computev1alpha1.EphemeralJob,
+) (ctrl.Result, error) {
+	if err := r.Status().Update(ctx, ej); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return ctrl.Result{}, nil
+}
+
+// failureDetail assembles why a Job-mode workload failed, from everything knowable
+// at the moment it failed and nothing that is not.
+//
+// Three sources, widening in specificity:
+//
+//	the Job's condition      why the controller gave up (BackoffLimitExceeded)
+//	the pod's termination    which container, which reason, which exit code
+//	the container's log tail what the workload itself said
+//
+// The log tail is the only one that separates a bad input from an infrastructure
+// fault, which is what a caller needs in order to decide whether a retry is worth
+// attempting. The first two describe the SHAPE of the failure; only the workload's
+// own output describes its cause.
+//
+// Every source is best-effort and absence is not an error: a detail that cannot be
+// read is worth less than the ones that can, and failing here would turn a workload
+// failure into a reconcile failure.
+func (r *EphemeralJobReconciler) failureDetail(
+	ctx context.Context, job *batchv1.Job, jobDetail string,
+) (string, *int32) {
+	parts := []string{}
+	if jobDetail != "" {
+		parts = append(parts, jobDetail)
+	}
+
+	pod, err := r.podForJob(ctx, job)
+	if err != nil || pod == nil {
+		return strings.Join(parts, "; "), nil
+	}
+	if m := podTerminationMessage(pod); m != "" && m != "pod failed" {
+		parts = append(parts, m)
+	}
+	exit := podExitCode(pod)
+	if exit != nil {
+		parts = append(parts, fmt.Sprintf("exit code %d", *exit))
+	}
+	if tail := r.containerLogTail(ctx, pod); tail != "" {
+		parts = append(parts, "last output: "+tail)
+	}
+	return strings.Join(parts, "; "), exit
+}
+
+// containerLogTail returns the end of the workload container's log.
+//
+// Needs a typed clientset: a log is a subresource request, not an object read, so the
+// controller-runtime client cannot serve it. A nil Clientset yields no tail rather
+// than no detail -- the operator runs without one under test, and a missing tail
+// degrades the message instead of failing the reconcile.
+//
+// Bounded three ways, because this runs inside Reconcile: a line cap, a byte cap and a
+// timeout. A workload that logged a gigabyte must not put that in a status field, and
+// a slow read must not stall the work queue for every other job.
+func (r *EphemeralJobReconciler) containerLogTail(ctx context.Context, pod *corev1.Pod) string {
+	if r.Clientset == nil {
+		return ""
+	}
+	lctx, cancel := context.WithTimeout(ctx, logTailTimeout)
+	defer cancel()
+
+	lines := int64(logTailLines)
+	stream, err := r.Clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+		Container: workloadContainerName,
+		TailLines: &lines,
+	}).Stream(lctx)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = stream.Close() }()
+
+	buf := make([]byte, logTailBytes)
+	n, _ := io.ReadFull(stream, buf)
+	if n == 0 {
+		return ""
+	}
+	return strings.TrimSpace(string(buf[:n]))
+}
+
 func (r *EphemeralJobReconciler) ensurePod(
 	ctx context.Context, ej *computev1alpha1.EphemeralJob, name string, p Placement,
 ) (*corev1.Pod, error) {
-	var existing corev1.Pod
-	err := r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
-	if err == nil {
-		return &existing, nil
-	}
-	if !apierrors.IsNotFound(err) {
+	// Compute is identified by OWNERSHIP, never by name.
+	//
+	// This used to get-or-create a Pod called `ej-<request>`. A deterministic
+	// name makes the compute's identity a string that anything can hold: a pod
+	// left behind by a previous incarnation — terminated, or stuck Terminating
+	// because the node it ran on is gone — keeps that name indefinitely, and
+	// every later attempt either adopted a corpse or could not create. Observed
+	// for two days on one sandbox: adopted, `Failed` within seconds, repeat.
+	//
+	// Every remedy for that is a remedy for the NAMING: check whether the
+	// adopted pod is usable, delete it when it is not, force-delete it when the
+	// delete does not take. Force-deleting removes the API object while the
+	// container may still run on a partitioned node, which is a safety decision
+	// this controller has no business making on a timer — and reclaiming pods
+	// whose node has gone is the node-lifecycle controller's job, not ours.
+	//
+	// So the name stops being an identifier. Pods are created with
+	// `GenerateName` and found by label, exactly as ReplicaSet and Job do, and
+	// the label is the CR's UID, which a recreated CR does not share. A stale
+	// pod is then not tolerated but invisible: it matches no selector this
+	// controller uses, holds no name this controller wants, and is collected by
+	// Kubernetes when its own owner goes.
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods,
+		client.InNamespace(ej.Namespace),
+		client.MatchingLabels{labelJobUID: string(ej.UID)},
+	); err != nil {
 		return nil, err
 	}
+	for i := range pods.Items {
+		// A pod on its way out is not this request's compute, even though it
+		// still matches the selector; reporting its phase would report the
+		// shutdown as the job's outcome.
+		if pods.Items[i].DeletionTimestamp == nil {
+			return &pods.Items[i], nil
+		}
+	}
 
-	pod := r.buildPod(ej, name, p)
+	pod := r.buildPod(ctx, ej, name, p)
 	if err := ctrl.SetControllerReference(ej, pod, r.Scheme); err != nil {
 		return nil, err
 	}
 	if err := r.Create(ctx, pod); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return &existing, r.Get(ctx, client.ObjectKey{Namespace: ej.Namespace, Name: name}, &existing)
-		}
 		return nil, err
 	}
 	return pod, nil
@@ -1219,7 +1891,20 @@ func podExitCode(p *corev1.Pod) *int32 {
 	return nil
 }
 
+// podTerminationMessage is why the pod failed, in the workload's own words when
+// it gave any. A container that writes its reason to its termination message
+// (/dev/termination-log) has said exactly what went wrong -- "1.4 s of speech;
+// at least 3 s is needed" -- and that is the job's failure, the same as a RunPod
+// handler's returned error. Only without one does the kubelet's reason
+// ("Error", "OOMKilled") stand in.
 func podTerminationMessage(p *corev1.Pod) string {
+	for i := range p.Status.ContainerStatuses {
+		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil && t.ExitCode != 0 {
+			if m := strings.TrimSpace(t.Message); m != "" {
+				return m
+			}
+		}
+	}
 	for i := range p.Status.ContainerStatuses {
 		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil && t.Reason != "" {
 			return fmt.Sprintf("container %s terminated: %s", p.Status.ContainerStatuses[i].Name, t.Reason)
@@ -1258,6 +1943,11 @@ func authoredLabels(ej *computev1alpha1.EphemeralJob, own map[string]string) map
 	}
 	for k, v := range own {
 		merged[k] = v
+	}
+	// A peer is marked by the operator, so the platform's peer default-deny
+	// selects it whatever the submitter labelled.
+	if ej.Spec.Peer != nil {
+		merged[labelSessionPeer] = "true"
 	}
 	return merged
 }
@@ -1303,6 +1993,32 @@ func withRequests(c *corev1.Container, cpu, memory string) {
 	}
 }
 
+// withLimits fills in any resource limit a container leaves unset (ADR-106).
+//
+// A stated limit is never overwritten. A default is never placed below the
+// container's own request for that resource -- the API server refuses a pod
+// whose limit is under its request, so a job that asked for more than the
+// default would otherwise never start. In that case the request is the limit.
+func withLimits(c *corev1.Container, cpu, memory, ephemeralStorage string) {
+	if c.Resources.Limits == nil {
+		c.Resources.Limits = corev1.ResourceList{}
+	}
+	for name, def := range map[corev1.ResourceName]string{
+		corev1.ResourceCPU:              cpu,
+		corev1.ResourceMemory:           memory,
+		corev1.ResourceEphemeralStorage: ephemeralStorage,
+	} {
+		if _, ok := c.Resources.Limits[name]; ok {
+			continue
+		}
+		limit := resource.MustParse(def)
+		if req, ok := c.Resources.Requests[name]; ok && req.Cmp(limit) > 0 {
+			limit = req.DeepCopy()
+		}
+		c.Resources.Limits[name] = limit
+	}
+}
+
 // workloadReady reports whether the workload container itself is ready.
 //
 // It looks at the workload container by name rather than at the pod phase:
@@ -1327,6 +2043,33 @@ func (r *EphemeralJobReconciler) deletePod(ctx context.Context, pod *corev1.Pod)
 		return err
 	}
 	return nil
+}
+
+// The identity token's location, owned by the PLATFORM.
+//
+// A tool inside the sandbox opens IdentityTokenPath to authenticate, so this is a
+// contract between the platform and every application that uses it -- which is
+// why it is a constant here and not a field on the spec. A fleet-supplied path
+// would be a contract the fleet could move under its own tools, and the failure
+// would be a tool that reads an empty file and sends no credential.
+const (
+	identityTokenVolumeName = "platform-identity-token"
+	identityTokenFileName   = "token"
+	// IdentityTokenMountPath is the directory; IdentityTokenPath is the file a
+	// tool reads. Under /var/run/secrets so it shares the convention of every
+	// other credential a kubelet projects, and on a tmpfs rather than a disk.
+	IdentityTokenMountPath = "/var/run/secrets/platform.soloz.io/identity"
+	IdentityTokenPath      = IdentityTokenMountPath + "/" + identityTokenFileName
+	// The API server refuses a projected token below 600s, so this is the floor
+	// and not a preference.
+	identityTokenDefaultExpirySeconds = 600
+)
+
+func appendVolumeIfAbsent(vs []corev1.Volume, v corev1.Volume) []corev1.Volume {
+	if hasVolume(vs, v.Name) {
+		return vs
+	}
+	return append(vs, v)
 }
 
 func hasVolume(vs []corev1.Volume, name string) bool {

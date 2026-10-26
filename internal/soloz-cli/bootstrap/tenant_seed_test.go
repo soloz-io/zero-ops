@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/tenant"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // sync failure on the cluster rather than as a bad bootstrap.
 func TestTenantSeedRefusesAnUnhydratedDeclaration(t *testing.T) {
 	dir := t.TempDir()
-	cluster := filepath.Join(dir, "clusters", "acme-hub")
+	cluster := filepath.Join(dir, tenant.RegistryDir, "clusters", "acme-hub")
 	if err := os.MkdirAll(cluster, 0o755); err != nil {
 		t.Fatal(err)
 	}

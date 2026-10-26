@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +35,17 @@ type ensureTenantIdentityRequest struct {
 	// missing registration.
 	RedirectURIs   []string `json:"redirectUris"`
 	PostLogoutURIs []string `json:"postLogoutUris"`
+	// KnownOrgID is the IMMUTABLE binding from the tenant's record (ADR-088).
+	// Empty means unbound: the service may then create an organisation if none
+	// exists, and must REFUSE if one does, rather than adopting it by name.
+	KnownOrgID string `json:"knownOrgId"`
+	// ProjectName and KnownProjectID select the APPLICATION's project (ADR-094).
+	// KnownProjectID is the immutable binding and wins when set; otherwise the
+	// project is found or created by name inside the bound organisation. Both
+	// empty means the configured legacy project, which is how an application
+	// provisioned before per-application projects stays where it is.
+	ProjectName    string `json:"projectName"`
+	KnownProjectID string `json:"knownProjectId"`
 	// OwnerEmail is granted administrative access, so the tenant has someone who
 	// can sign in to it at all.
 	OwnerEmail string `json:"ownerEmail"`
@@ -41,12 +53,24 @@ type ensureTenantIdentityRequest struct {
 	// account in it. Scoped to this tenant's organisation by the gateway, so it
 	// cannot create accounts anywhere else.
 	SelfRegistration bool `json:"selfRegistration"`
+
+	// ServiceClientName is the login name for this application's SERVICE
+	// identity, which it calls other applications as (ADR-097).
+	//
+	// Named by the CALLER rather than derived here. The name has to agree with
+	// the key the caller publishes the credential under, and a name invented on
+	// each side is two names for one identity -- the defect the OIDC_ALLOWED_AZP
+	// grammar already cost us once. Empty means the application declares no
+	// cross-application calling and gets no service identity: an unused machine
+	// credential is a standing credential nobody rotates.
+	ServiceClientName string `json:"serviceClientName"`
 	// OAuthClients are the clients this FLEET declares. Exactly this set is
 	// provisioned and no more: a fleet that declares none gets none, rather than
 	// a set the platform chose for it (ADR-047).
 	OAuthClients []struct {
 		Name          string   `json:"name"`
 		Confidential  bool     `json:"confidential"`
+		TokenExchange bool     `json:"tokenExchange"`
 		RedirectPaths []string `json:"redirectPaths"`
 	} `json:"oauthClients"`
 }
@@ -84,13 +108,75 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 			Name:          oc.Name,
 			Confidential:  oc.Confidential,
 			RedirectPaths: oc.RedirectPaths,
+			TokenExchange: oc.TokenExchange,
 		})
 	}
 
-	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
+	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.KnownOrgID,
+		models.ProjectBinding{Name: req.ProjectName, KnownID: req.KnownProjectID}, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
+	}
+
+	// The clients the fleet DECLARED, provisioned after the tenant's own
+	// identity exists.
+	//
+	// This loop is the whole reason a fleet may declare a confidential client.
+	// It was written on ControlPlane.EnsureTenantIdentity, which nothing
+	// reaches: this service constructs no ControlPlane, and the route is wired
+	// straight to the provider. So a fleet declaring a client got a 200, no
+	// credential, and no error -- its ExternalSecret then sat in
+	// SecretSyncedError naming keys nothing had ever written.
+	//
+	// Credentials are RETURNED, not stored. This service provisions at the
+	// issuer; the caller owns where secrets live (ADR-003), which is the same
+	// division OwnerPassword and OIDC_CLIENT_ID already follow.
+	for _, decl := range clients {
+		if !decl.Confidential || decl.Name == "" {
+			continue
+		}
+		appName := tenantID + "-" + decl.Name
+		clientID, clientSecret, cerr := h.provisioner.EnsureConfidentialClient(
+			c.Request.Context(), identity.TenantRef, identity.ProjectRef, appName, false, decl.TokenExchange)
+		if cerr != nil {
+			// Reported, not fatal. The tenant identity itself succeeded and is
+			// worth returning; a client that failed is named in Incomplete so
+			// the caller learns which capability is missing rather than
+			// discovering it as a workload that will not start.
+			identity.Incomplete = append(identity.Incomplete,
+				fmt.Sprintf("provision declared client %q: %v", decl.Name, cerr))
+			continue
+		}
+		identity.Clients = append(identity.Clients, models.DeclaredClient{
+			Name:         decl.Name,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		})
+	}
+
+	// The SERVICE identity, for calling other applications (ADR-097).
+	//
+	// Provisioned after the tenant's identity for the same reason the declared
+	// clients are: it belongs to an organisation this call has just resolved, and
+	// creating it against an organisation resolved some other way is how a
+	// credential ends up somewhere the tenant cannot see and nothing revokes with
+	// the tenant.
+	//
+	// Failure is reported in Incomplete, not fatal. The browser path does not
+	// depend on this; an application whose service identity is missing loses
+	// cross-application calling and keeps its login, and the caller learns which
+	// capability is absent instead of finding a workload that will not start.
+	if req.ServiceClientName != "" {
+		svc, serr := h.provisioner.EnsureMachineClient(
+			c.Request.Context(), identity.TenantRef, req.ServiceClientName, req.ServiceClientName, false)
+		switch {
+		case serr != nil:
+			identity.Incomplete = append(identity.Incomplete,
+				fmt.Sprintf("provision service identity %q: %v", req.ServiceClientName, serr))
+		default:
+			identity.ServiceClient = svc
+		}
 	}
 
 	// Published before the response. A caller that saw success and then found no
@@ -108,12 +194,43 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		"projectRef": identity.ProjectRef,
 		"clientId":   identity.ClientID,
 	}
+	// What did not finish, when anything did not. Carried in a SUCCESSFUL
+	// response on purpose: the identifiers above are real and must be published,
+	// and the tenant is nonetheless not yet usable. Sending a failure status
+	// instead would suppress the identifiers to report a problem with something
+	// else.
+	if len(identity.Incomplete) > 0 {
+		resp["incomplete"] = identity.Incomplete
+	}
 	// Present ONLY on the call that created the owner's account. Its absence on
 	// later calls is the signal that no new credential exists, so a caller that
 	// persists it unconditionally would overwrite a stored password with an
 	// empty value.
+	// The service identity's client id, and its secret ONLY when this call minted
+	// one. The id is what every TARGET allowlists, so it must reach the caller
+	// even on a reconcile that disclosed no secret -- the receiver's allowlist is
+	// rebuilt from it, and a reconcile that omitted it would look like a caller
+	// that no longer exists.
+	if identity.ServiceClient != nil && identity.ServiceClient.ClientID != "" {
+		svc := gin.H{"clientId": identity.ServiceClient.ClientID}
+		if identity.ServiceClient.ClientSecret != "" {
+			svc["clientSecret"] = identity.ServiceClient.ClientSecret
+		}
+		resp["serviceClient"] = svc
+	}
 	if identity.OwnerPassword != "" {
 		resp["ownerPassword"] = identity.OwnerPassword
+	}
+	if len(identity.Clients) > 0 {
+		out := make([]map[string]string, 0, len(identity.Clients))
+		for _, dc := range identity.Clients {
+			out = append(out, map[string]string{
+				"name":         dc.Name,
+				"clientId":     dc.ClientID,
+				"clientSecret": dc.ClientSecret,
+			})
+		}
+		resp["clients"] = out
 	}
 	c.JSON(http.StatusOK, resp)
 }

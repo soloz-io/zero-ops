@@ -5,21 +5,28 @@
 // KEY LAYOUT (§14.4). Everything belonging to an app lives under one root, and
 // this package owns exactly one subtree of it:
 //
-//	<appId>/<workspaceId>/code/objects/<sha256>       immutable file content
-//	<appId>/<workspaceId>/code/checkpoints/<id>.json  a manifest naming the tree
-//	<appId>/<workspaceId>/code/checkpoints/<id>.sqsh  that checkpoint's image
-//	<appId>/<workspaceId>/code/checkpoints/LATEST     newest checkpoint pointer
-//	<appId>/<workspaceId>/code/archive.sqsh           newest image, for fast restore
+//	<appId>/<workspaceId>/objects/<sha256>       immutable file content
+//	<appId>/<workspaceId>/checkpoints/<id>.json  a manifest naming the tree
+//	<appId>/<workspaceId>/checkpoints/<id>.sqsh  that checkpoint's image
+//	<appId>/<workspaceId>/checkpoints/LATEST     newest checkpoint pointer
+//	<appId>/<workspaceId>/archive.sqsh           newest image, for fast restore
 //
 // The app id is the ROOT, not the workspace id, so an app's other data — chat
-// session assets at <appId>/<sessionId>/..., build artifacts — sits beside its
-// code rather than in an unrelated part of the bucket. Deleting an app becomes
-// one prefix operation.
+// attachments, agent artifacts, build output — sits beside the workspace rather
+// than in an unrelated part of the bucket. Deleting an app becomes one prefix
+// operation.
 //
-// `code/` is what keeps that neighbourliness safe. Every list, sweep and delete
-// in this package is scoped to the prefix below, so retention can never reach a
-// chat attachment or a build artifact even though they share the app's root.
-// The workspace agent reads and writes code, and only code.
+// There is no `code/` segment between the workspace and these names. It used to
+// be here, justified as the thing that kept retention away from an app's other
+// data — but that safety never came from it: every sweep below is scoped to
+// `objects/` or `checkpoints/` specifically, never to the bare workspace
+// prefix, so a chat attachment or a build was never reachable either way. The
+// segment bought nothing and had to be kept identical in two languages.
+//
+// These names are therefore SIBLINGS of the other per-workspace namespaces
+// (`chat-attachments/`, `artifacts/`, `builds/`), which the SDK builds in
+// storage/keys.ts. That file and this one must agree; each pins the layout in
+// its own test so a change to one fails on its own side.
 //
 // Dedup applies within one workspace, not across them (§18.6). That gives up
 // cross-workspace sharing and buys three things worth more: deleting a
@@ -37,6 +44,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,12 +78,49 @@ var ErrNoArchive = errors.New("no squashfs archive for this workspace")
 // to build without being able to overwrite or evict the history it is reading.
 var ErrReadOnly = errors.New("workspace is read-only: refusing to write to object storage")
 
+// manifestDigest is a content digest of a manifest's entries.
+//
+// Over path, hash, mode and size -- everything that makes a restored tree
+// identical -- and NOT over the manifest id, timestamp, description or trigger,
+// which differ on every save by construction and would make every tree look
+// changed.
+//
+// Entries are sorted by path before this is called, so the digest is stable for
+// one tree whatever order the walk produced.
+func manifestDigest(m *Manifest) string {
+	h := sha256.New()
+	for _, e := range m.Entries {
+		fmt.Fprintf(h, "%s\x00%s\x00%d\x00%d\n", e.Path, e.Hash, e.Mode, e.Size)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // ErrNothingToSave means the workspace holds no files worth checkpointing.
 //
 // Distinct from a failure: the request was correct and the answer is "there is
 // nothing here yet". A caller should say so rather than reporting either a
 // successful save of nothing or an error.
 var ErrNothingToSave = errors.New("workspace has no files to save")
+
+// ErrUnchanged means the tree is byte-for-byte what was restored, so a checkpoint
+// would advance the LATEST pointer without recording anything new.
+//
+// WHY THIS IS A REFUSAL AND NOT AN OPTIMISATION
+//
+// Writing it is destructive on a SHARED workspace. Every sandbox mounting one
+// uploads its whole copy as the newest checkpoint on the periodic timer and at
+// teardown, so a session that restored an older copy and changed nothing still
+// becomes LATEST -- overwriting a newer copy another session wrote, and retention
+// then prunes the newer entry to stay inside the bound.
+//
+// Observed 2026-10-01: oranger wrote a brand brief to a shared workspace from one
+// session; video sessions of the same app only read it, and their unchanged
+// uploads replaced the brief with their own older copy until retention removed the
+// checkpoint that had it. Nothing recovered it -- a shared workspace's history
+// lives only in object storage (section 14.2).
+//
+// Saving object bytes is the side effect. Not moving the pointer is the point.
+var ErrUnchanged = errors.New("workspace is unchanged since restore")
 
 // Entry is one file in a manifest.
 type Entry struct {
@@ -103,13 +148,22 @@ type Manifest struct {
 }
 
 type Store struct {
-	c        *minio.Client
-	bucket   string
-	prefix   string
-	staging  string
-	keep     int
-	pinned   string
-	readOnly bool
+	c         *minio.Client
+	bucket    string
+	prefix    string
+	staging   string
+	keep      int
+	pinned    string
+	readOnly  bool
+	noArchive bool
+
+	// restoredDigest is the content digest of the manifest this workspace was
+	// restored from, or of the last checkpoint this process wrote.
+	//
+	// Held in memory only, and deliberately: it describes what THIS pod has
+	// observed, and a value shared between pods would let one session's idea of
+	// "unchanged" silence another's genuine change.
+	restoredDigest string
 
 	// Checkpoints retention must never evict, because a live deployment was
 	// built from them (§14.3). Supplied by the platform, since only it knows
@@ -128,6 +182,9 @@ func (s *Store) Pinned() string { return s.pinned }
 
 // ReadOnly reports whether this store refuses every write (§14.3).
 func (s *Store) ReadOnly() bool { return s.readOnly }
+
+// NoArchive reports whether the squashfs fast path is disabled for this store.
+func (s *Store) NoArchive() bool { return s.noArchive }
 
 // Config is read from the environment the operator injects into this
 // container. The workload container never receives these values (§19.6).
@@ -169,6 +226,20 @@ type Config struct {
 	// overwrite or evict the history of the workspace they are reading.
 	ReadOnly bool
 
+	// NoArchive disables the squashfs fast path in both directions: no archive
+	// is created on checkpoint, and restore goes straight to the
+	// content-addressed objects.
+	//
+	// It exists for the shared-globals instance, which mounts INSIDE another
+	// workspace's root (/workspace/.global). Restoring that through a FUSE
+	// overlay would nest one mount inside another whose lifetime it does not
+	// control, and the squashfs path is what forces the sidecar to be
+	// privileged with /dev/fuse access at all. The globals tree is small text —
+	// brand briefs, not node_modules — so the O(1) restore the archive buys is
+	// worth nothing there, while running unprivileged is worth a good deal
+	// (§19.6).
+	NoArchive bool
+
 	// PinnedCheckpoints are exempt from retention however old they get: a live
 	// deployment was built from them, so evicting one would leave a running app
 	// whose source no longer exists (§14.3).
@@ -183,6 +254,14 @@ type Config struct {
 // checkpoint — because squashfs archives do NOT share blocks with each other.
 const DefaultKeepCheckpoints = 5
 
+// UnboundedKeepCheckpoints is KeepCheckpoints' value for "keep everything"
+// (§14.8). Negative, so planRetention's keep <= 0 rule keeps every checkpoint;
+// zero stays "unset" and means the default.
+const UnboundedKeepCheckpoints = -1
+
+// UnboundedEnvValue is how KEEP_CHECKPOINTS spells UnboundedKeepCheckpoints.
+const UnboundedEnvValue = "unbounded"
+
 func FromEnv() (Config, error) {
 	c := Config{
 		Endpoint:        os.Getenv("S3_ENDPOINT_URL"),
@@ -195,6 +274,7 @@ func FromEnv() (Config, error) {
 		Staging:         os.Getenv("STAGING_ROOT"),
 		KeepCheckpoints: DefaultKeepCheckpoints,
 		CheckpointID:    os.Getenv("CHECKPOINT_ID"),
+		NoArchive:       os.Getenv("WORKSPACE_NO_ARCHIVE") == "true",
 		// Comma-separated, because this is a short list of ids and a
 		// JSON-encoded env var would be one more thing to get wrong for no gain.
 		PinnedCheckpoints: splitList(os.Getenv("PINNED_CHECKPOINTS")),
@@ -207,7 +287,11 @@ func FromEnv() (Config, error) {
 		c.Staging = "/ws-staging"
 	}
 	if v := os.Getenv("KEEP_CHECKPOINTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		// "unbounded" is the operator's rendering of retainAllCheckpoints
+		// (§14.8): a word, so it can never be mistaken for a count.
+		if v == UnboundedEnvValue {
+			c.KeepCheckpoints = UnboundedKeepCheckpoints
+		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.KeepCheckpoints = n
 		}
 	}
@@ -225,13 +309,47 @@ func FromEnv() (Config, error) {
 	return c, nil
 }
 
+// Bounds on every object-storage call.
+//
+// minio-go's defaults are a 1-minute response-header timeout per attempt and 10
+// attempts, every timeout retryable. One stalled call therefore held a save --
+// and the snapshot lock every on-demand /checkpoint waits on -- for 8m33s while
+// the endpoint answered other requests in about a second (2026-10-05). The
+// bounds below make a stalled attempt fail fast, retry it a few times, and give
+// up on the call, so a save fails in about a minute instead of hanging.
+const (
+	// attemptHeaderTimeout: a request whose response headers have not arrived
+	// in this long is abandoned and retried. Healthy calls answer in ~1s.
+	attemptHeaderTimeout = 15 * time.Second
+	// attemptDialTimeout: opening a connection.
+	attemptDialTimeout = 10 * time.Second
+	// callRetries: attempts per call, retries included.
+	callRetries = 3
+	// callBaseBudget: the whole call, all attempts, for a small object. Larger
+	// bodies get callPerMiB more per MiB, so a legitimately big upload is not
+	// cut short by a bound meant for stalls.
+	callBaseBudget = 60 * time.Second
+	callPerMiB     = time.Second
+	// slowCall: a call at least this slow is logged, so the next stall names
+	// the call and the object instead of appearing only as a long total.
+	slowCall = 5 * time.Second
+)
+
 func New(cfg Config) (*Store, error) {
 	ep := strings.TrimPrefix(strings.TrimPrefix(cfg.Endpoint, "https://"), "http://")
 	secure := !strings.HasPrefix(cfg.Endpoint, "http://")
+	tr, err := minio.DefaultTransport(secure)
+	if err != nil {
+		return nil, fmt.Errorf("object store transport: %w", err)
+	}
+	tr.ResponseHeaderTimeout = attemptHeaderTimeout
+	tr.DialContext = (&net.Dialer{Timeout: attemptDialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	c, err := minio.New(ep, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: secure,
-		Region: cfg.Region,
+		Creds:      credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure:     secure,
+		Region:     cfg.Region,
+		Transport:  tr,
+		MaxRetries: callRetries,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("object store client: %w", err)
@@ -241,17 +359,18 @@ func New(cfg Config) (*Store, error) {
 		staging = "/ws-staging"
 	}
 	keep := cfg.KeepCheckpoints
-	if keep <= 0 {
+	if keep == 0 {
 		keep = DefaultKeepCheckpoints
 	}
 	return &Store{
 		c:                 c,
 		bucket:            cfg.Bucket,
-		prefix:            cfg.AppID + "/" + cfg.WorkspaceID + "/code",
+		prefix:            cfg.AppID + "/" + cfg.WorkspaceID,
 		staging:           staging,
 		keep:              keep,
 		pinned:            cfg.CheckpointID,
 		readOnly:          cfg.ReadOnly,
+		noArchive:         cfg.NoArchive,
 		workspaceID:       cfg.WorkspaceID,
 		pinnedCheckpoints: toSet(cfg.PinnedCheckpoints),
 	}, nil
@@ -288,7 +407,20 @@ func (s *Store) checkpointArchiveKey(id string) string {
 // installed dependencies, so it needs an install before it runs. That is
 // seconds-to-minutes of a machine's time against minutes of a person's on every
 // single save.
+// `.global` is here for a different reason than the rest, and it is a routing
+// rule rather than an exclusion: app-scoped artifacts live at
+// /workspace/.global and are checkpointed to their OWN prefix
+// (<appId>/globals/) by a second workspace-sync instance whose WORKSPACE_ROOT
+// is that directory. Without this entry the session's own snapshot would also
+// capture them, so each session would carry a private copy of what is meant to
+// be one shared tree, and whichever session checkpointed last would be the only
+// one whose version a later restore could see.
+//
+// Skipping it here is only correct because of the `p != root` guard in Snapshot
+// — see the comment there.
 var skipDir = map[string]bool{
+	".global":      true,
+	".global-gen":  true, // a refreshing reader's generations of .global (cmd/refresh.go, §14.9)
 	"node_modules": true,
 	".expo":        true,
 	".next":        true,
@@ -299,6 +431,9 @@ var skipDir = map[string]bool{
 	".turbo":       true,
 	"__pycache__":  true,
 	".venv":        true,
+	// The harness's per-turn files (the agents' todo lists): they describe the
+	// run in progress, so a restore must never bring them back.
+	".ephemeral": true,
 }
 
 // hashFile returns the content address of a file. This is the whole basis of
@@ -360,6 +495,9 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	// archive rather than of those files. Attributing the cost needs the
 	// phases separated, so they are.
 	tStart := time.Now()
+	// Logged at the START as well as the end: a save that stalls was invisible
+	// until it finished, so the 8m33s one left no line for eight minutes.
+	log.Printf("checkpoint %s starting (trigger=%s)", m.ID, trigger)
 	var uploadedFiles, dedupedFiles int
 	var uploadedBytes int64
 
@@ -369,7 +507,18 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		}
 		if info.IsDir() {
 			// Derived trees are not checkpointed — see skipDir.
-			if skipDir[info.Name()] {
+			//
+			// `p != root` is load-bearing, not defensive. filepath.Walk invokes
+			// this callback on the root itself first, so a walk deliberately
+			// rooted AT a skipped directory would skip its own root and return
+			// zero entries. That is exactly the globals instance, whose
+			// WORKSPACE_ROOT is /workspace/.global: without the guard it
+			// uploads nothing and reports ErrNothingToSave, which is
+			// indistinguishable from a workspace that is legitimately empty.
+			//
+			// A walk asked to start at a directory always means that directory.
+			// Exclusion only makes sense for what it finds beneath.
+			if skipDir[info.Name()] && p != root {
 				return filepath.SkipDir
 			}
 			return nil
@@ -442,18 +591,40 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 		return nil, ErrNothingToSave
 	}
 
+	// Nothing changed since restore: refuse, rather than advancing LATEST over
+	// another session's newer copy. See ErrUnchanged.
+	//
+	// Compared on the MANIFEST, not on the object uploads. The content-addressed
+	// store already deduplicates bytes -- an unchanged tree logs "uploaded 0/4
+	// files, 4 deduped" and still wrote a manifest and still moved the pointer,
+	// which is exactly the loss this closes. The dedup counters were never the
+	// decision; the manifest is.
+	//
+	// Only when a digest is known. A pod that restored nothing has no baseline, so
+	// its first checkpoint is genuinely new and must be written.
+	digest := manifestDigest(m)
+	if s.restoredDigest != "" && digest == s.restoredDigest {
+		return nil, ErrUnchanged
+	}
+
 	body, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.c.PutObject(ctx, s.bucket, s.manifestKey(m.ID),
-		strings.NewReader(string(body)), int64(len(body)),
-		minio.PutObjectOptions{ContentType: "application/json"}); err != nil {
+	if err := s.call(ctx, "put-manifest", s.manifestKey(m.ID), int64(len(body)), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.manifestKey(m.ID),
+			strings.NewReader(string(body)), int64(len(body)),
+			minio.PutObjectOptions{ContentType: "application/json"})
+		return err
+	}); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
 	if err := s.setLatest(ctx, m.ID); err != nil {
 		return nil, err
 	}
+	// This pod's new baseline. Without it the next periodic tick would re-upload
+	// an unchanged tree, because the only digest it knew was the restored one.
+	s.restoredDigest = digest
 	tManifest := time.Since(tStart) - tObjects
 
 	// Create and upload the squashfs archive for O(1) restore (§14.2).
@@ -470,7 +641,10 @@ func (s *Store) Snapshot(ctx context.Context, root, name, desc, trigger, parent 
 	tBeforeArchive := time.Since(tStart)
 	var tArchiveCreate, tArchiveUpload time.Duration
 	var archiveBytes int64
-	if err := s.CreateArchive(ctx, root, archivePath); err != nil {
+	if s.noArchive {
+		// Nothing to do, and nothing lost: the manifest and its objects above
+		// are the durable checkpoint. See Config.NoArchive.
+	} else if err := s.CreateArchive(ctx, root, archivePath); err != nil {
 		log.Printf("WARNING: squashfs archive creation failed — this checkpoint will restore file-by-file: %v", err)
 		tArchiveCreate = time.Since(tStart) - tBeforeArchive
 	} else {
@@ -596,17 +770,23 @@ func (s *Store) Prune(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list checkpoints: %w", err)
 	}
-	ids, doomed := planRetention(all, s.keep, s.pinnedCheckpoints)
+	// Pins arrive at any time, from whoever needs a checkpoint kept (§14.8),
+	// so they are read at every prune rather than once at startup. A failed
+	// read aborts the prune: deleting without knowing what is pinned is the
+	// one mistake retention cannot undo.
+	marked, err := s.ListPinMarkers(ctx)
+	if err != nil {
+		return fmt.Errorf("list pin markers (aborting prune): %w", err)
+	}
+	ids, doomed := planRetention(all, s.keep, unionSets(s.pinnedCheckpoints, marked))
 	if len(doomed) > 0 {
 		for _, id := range doomed {
-			if err := s.c.RemoveObject(ctx, s.bucket, s.manifestKey(id),
-				minio.RemoveObjectOptions{}); err != nil {
+			if err := s.remove(ctx, s.manifestKey(id)); err != nil {
 				return fmt.Errorf("remove manifest %s: %w", id, err)
 			}
 			// The archive may legitimately be absent — archive creation is
 			// best-effort — so a failure here is not fatal to the prune.
-			if err := s.c.RemoveObject(ctx, s.bucket, s.checkpointArchiveKey(id),
-				minio.RemoveObjectOptions{}); err != nil {
+			if err := s.remove(ctx, s.checkpointArchiveKey(id)); err != nil {
 				log.Printf("retention: could not remove archive for %s: %v", id, err)
 			}
 		}
@@ -642,7 +822,7 @@ func (s *Store) Prune(ctx context.Context) error {
 		if _, ok := live[hash]; ok {
 			continue
 		}
-		if err := s.c.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err := s.remove(ctx, obj.Key); err != nil {
 			return fmt.Errorf("remove object %s: %w", hash, err)
 		}
 		removed++
@@ -662,7 +842,10 @@ func (s *Store) Prune(ctx context.Context) error {
 // the cost of a checkpoint from the cost of its dedup.
 func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) (bool, error) {
 	key := s.objectKey(hash)
-	if _, err := s.c.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{}); err == nil {
+	if err := s.call(ctx, "stat-object", key, 0, func(ctx context.Context) error {
+		_, err := s.c.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+		return err
+	}); err == nil {
 		return false, nil
 	}
 	f, err := os.Open(path)
@@ -670,7 +853,10 @@ func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) 
 		return false, err
 	}
 	defer f.Close()
-	if _, err := s.c.PutObject(ctx, s.bucket, key, f, size, minio.PutObjectOptions{}); err != nil {
+	if err := s.call(ctx, "put-object", key, size, func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, key, f, size, minio.PutObjectOptions{})
+		return err
+	}); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -679,8 +865,11 @@ func (s *Store) putIfAbsent(ctx context.Context, hash, path string, size int64) 
 const latestPointer = "/checkpoints/LATEST"
 
 func (s *Store) setLatest(ctx context.Context, id string) error {
-	_, err := s.c.PutObject(ctx, s.bucket, s.prefix+latestPointer,
-		strings.NewReader(id), int64(len(id)), minio.PutObjectOptions{ContentType: "text/plain"})
+	err := s.call(ctx, "put-latest", s.prefix+latestPointer, int64(len(id)), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.prefix+latestPointer,
+			strings.NewReader(id), int64(len(id)), minio.PutObjectOptions{ContentType: "text/plain"})
+		return err
+	})
 	return err
 }
 
@@ -710,9 +899,21 @@ func (s *Store) Latest(ctx context.Context) (string, error) {
 	defer o.Close()
 	b, err := io.ReadAll(o)
 	if err != nil {
-		// A missing pointer is "this workspace has no checkpoint yet", which is
-		// a legitimate first-run state and not an error.
-		return "", nil
+		// ONLY a missing pointer means "this workspace has no checkpoint yet".
+		//
+		// minio's GetObject is lazy — the request is not made until the first
+		// read — so every transport, credential and bucket error arrives HERE
+		// rather than above. This used to return ("", nil) for all of them,
+		// which turned an unreachable object store into a silent empty restore:
+		// the workload then starts on an empty tree, the periodic backstop
+		// checkpoints that emptiness, and retention evicts the real history
+		// behind it. A workspace is destroyed by a network blip.
+		//
+		// The distinction is the same one downloadTo makes for archives.
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return "", nil
+		}
+		return "", fmt.Errorf("reading LATEST pointer at %s: %w", s.prefix+latestPointer, err)
 	}
 	return strings.TrimSpace(string(b)), nil
 }
@@ -737,6 +938,17 @@ func (s *Store) GetManifest(ctx context.Context, id string) (*Manifest, error) {
 // does, and it is the difference between "restore failed" and a workspace that
 // silently contains something other than what was checkpointed.
 func (s *Store) Restore(ctx context.Context, root string, m *Manifest) error {
+	// The baseline for the unchanged check (see ErrUnchanged).
+	//
+	// Recorded BEFORE the files land, not after. Restore writes into a tree the
+	// workload may already be using, so a digest taken afterwards would include
+	// whatever it wrote in between and this session would then checkpoint a tree
+	// it believes it did not change.
+	//
+	// Entries arrive sorted -- the manifest is written sorted -- so this digest is
+	// directly comparable with the one computed at save time.
+	s.restoredDigest = manifestDigest(m)
+
 	for _, e := range m.Entries {
 		dest := filepath.Join(root, e.Path)
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -830,9 +1042,11 @@ func (s *Store) UploadArchive(ctx context.Context, archivePath string) error {
 		return fmt.Errorf("open archive: %w", err)
 	}
 	defer f.Close()
-	_, err = s.c.PutObject(ctx, s.bucket, s.archiveKey(), f, info.Size(),
-		minio.PutObjectOptions{ContentType: "application/x-squashfs"})
-	return err
+	return s.call(ctx, "put-archive", s.archiveKey(), info.Size(), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.archiveKey(), f, info.Size(),
+			minio.PutObjectOptions{ContentType: "application/x-squashfs"})
+		return err
+	})
 }
 
 // UploadCheckpointArchive uploads a squashfs archive for a specific checkpoint,
@@ -847,15 +1061,23 @@ func (s *Store) UploadCheckpointArchive(ctx context.Context, checkpointID, archi
 		return fmt.Errorf("open archive: %w", err)
 	}
 	defer f.Close()
-	_, err = s.c.PutObject(ctx, s.bucket, s.checkpointArchiveKey(checkpointID), f, info.Size(),
-		minio.PutObjectOptions{ContentType: "application/x-squashfs"})
-	return err
+	return s.call(ctx, "put-checkpoint-archive", s.checkpointArchiveKey(checkpointID), info.Size(), func(ctx context.Context) error {
+		_, err := s.c.PutObject(ctx, s.bucket, s.checkpointArchiveKey(checkpointID), f, info.Size(),
+			minio.PutObjectOptions{ContentType: "application/x-squashfs"})
+		return err
+	})
 }
 
 // DownloadArchive downloads the squashfs archive from S3 to archivePath.
 //
-// Returns an error if the archive does not exist (first-ever checkpoint or
-// S3 misconfiguration). The caller should fall back to file-by-file restore.
+// ErrNoArchive means this checkpoint has none -- a first-ever checkpoint, or
+// one written before archives existed -- and the caller restores from the
+// content-addressed objects, which describe it exactly. That is a second VALID
+// SHAPE of the input, not error recovery.
+//
+// Any other error is a failure and the caller reports it. There is no
+// fall-back-to-file-by-file path: an archive that exists and cannot be used is
+// a fault, and one that resolves itself quietly is a fault nobody sees.
 func (s *Store) DownloadArchive(ctx context.Context, archivePath string) error {
 	return s.downloadTo(ctx, s.archiveKey(), archivePath)
 }
@@ -957,6 +1179,53 @@ func (s *Store) ListCheckpoints(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+// pinsPrefix is the subtree pin markers live in (§14.8):
+// <appId>/<workspaceId>/pins/<checkpointId>/<holder>. The sidecar reads it and
+// never writes it; whoever needs a checkpoint kept owns its own marker.
+func (s *Store) pinsPrefix() string { return s.prefix + "/pins/" }
+
+// ListPinMarkers returns the checkpoint ids that hold at least one pin marker.
+// A marker naming a checkpoint that no longer exists is inert: it is returned,
+// and matches nothing in planRetention.
+func (s *Store) ListPinMarkers(ctx context.Context) (map[string]struct{}, error) {
+	prefix := s.pinsPrefix()
+	ch := s.c.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+	pinned := make(map[string]struct{})
+	for obj := range ch {
+		if obj.Err != nil {
+			return nil, obj.Err
+		}
+		if id := pinMarkerCheckpoint(strings.TrimPrefix(obj.Key, prefix)); id != "" {
+			pinned[id] = struct{}{}
+		}
+	}
+	return pinned, nil
+}
+
+// pinMarkerCheckpoint reads the checkpoint id out of a marker's key below
+// pins/: "<checkpointId>/<holder>". Anything else is not a marker.
+func pinMarkerCheckpoint(rel string) string {
+	id, holder, ok := strings.Cut(rel, "/")
+	if !ok || id == "" || holder == "" || strings.Contains(holder, "/") {
+		return ""
+	}
+	return id
+}
+
+func unionSets(a, b map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(a)+len(b))
+	for k := range a {
+		out[k] = struct{}{}
+	}
+	for k := range b {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
 // splitList parses a comma-separated env value, ignoring blanks so a trailing
 // comma or an empty variable yields no entries rather than one empty id.
 func splitList(v string) []string {
@@ -981,4 +1250,41 @@ func toSet(items []string) map[string]struct{} {
 		set[i] = struct{}{}
 	}
 	return set
+}
+
+// callBudget is the bound on one storage call, all attempts included: a base
+// for the round trips plus time in proportion to the body.
+func callBudget(size int64) time.Duration {
+	return callBaseBudget + time.Duration(size/(1<<20))*callPerMiB
+}
+
+// call runs one object-storage operation under its own deadline, and logs it
+// when it is slow or fails -- by operation and object, so a stall is named
+// where it happens rather than inferred from a long total. Only for calls that
+// complete inside fn: a lazy GetObject would be cancelled with its stream.
+func (s *Store) call(ctx context.Context, op, key string, size int64, fn func(context.Context) error) error {
+	cctx, cancel := context.WithTimeout(ctx, callBudget(size))
+	defer cancel()
+	start := time.Now()
+	err := fn(cctx)
+	d := time.Since(start).Round(time.Millisecond)
+	switch {
+	case err != nil && !isNotFound(err):
+		log.Printf("storage %s %s failed after %s: %v", op, key, d, err)
+	case d >= slowCall:
+		log.Printf("storage %s %s slow: %s", op, key, d)
+	}
+	return err
+}
+
+func (s *Store) remove(ctx context.Context, key string) error {
+	return s.call(ctx, "remove", key, 0, func(ctx context.Context) error {
+		return s.c.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+	})
+}
+
+// isNotFound: a StatObject miss is how dedup learns an object must be uploaded,
+// so it is the expected answer for every new file, not a failure worth a line.
+func isNotFound(err error) bool {
+	return minio.ToErrorResponse(err).Code == "NoSuchKey"
 }

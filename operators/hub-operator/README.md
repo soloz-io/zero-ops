@@ -12,7 +12,7 @@ The hub-operator reconciles two Custom Resources:
 |---|---|
 | **Phase 1** | Secret Zero generation — bootstrap secrets required before ArgoCD syncs dependent services |
 | **Phase 2** | Database setup — executes CNPG migrations and creates database roles |
-| **Phase 3** | External services — configures Infisical (secret backup), Ory Hydra (OAuth clients), and NATS JetStream (streams) |
+| **Phase 3** | External services — configures Infisical (secret backup) and Ory Hydra (OAuth clients) |
 
 ### SpokePool (bootstrap PKI + identity)
 
@@ -68,7 +68,6 @@ SpokePool
   - cert-manager
   - ArgoCD
   - Ory Hydra
-  - NATS JetStream
   - Infisical (with PKI enabled)
 
 ## Dependencies
@@ -77,7 +76,6 @@ SpokePool
 |---|---|
 | `sigs.k8s.io/controller-runtime` | Operator framework |
 | `github.com/golang-migrate/migrate/v4` | Database migrations |
-| `github.com/nats-io/nats.go` | NATS JetStream client |
 | `github.com/cloudnative-pg/cloudnative-pg` | CNPG API types |
 
 ## Development
@@ -115,7 +113,7 @@ operators/hub-operator/
 ├── config/                     # Kubebuilder generated manifests
 ├── internal/
 │   ├── controller/             # HubEnvironment + SpokePool reconcilers
-│   ├── client/                 # External service clients (Infisical, Hydra, NATS)
+│   ├── client/                 # External service clients (Infisical, Hydra)
 │   ├── secrets/                # Secret generation + Infisical credential logic
 │   ├── database/               # Migration and role management
 │   └── embed/                  # Embedded SQL migration files

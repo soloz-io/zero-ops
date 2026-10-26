@@ -1,0 +1,32 @@
+# Local profile: preview-access in local development mode (ADR-108, "Local
+# development mode"). The shared base, with local mode instead of the platform
+# layer: no admission webhook, no certificate, no Cilium policy, no signing key.
+#
+# The application's own values (namespace, origin, development subject,
+# preview URL) are not here: scripts/local/kind-profile.sh adds them from the
+# caller's environment, so this overlay names no product.
+namespace: platform-ops
+resources:
+  - ../../../../operators/ephemeral-job-operator/config/preview-access/base
+  - local-rbac.yaml
+patches:
+  - target:
+      kind: Deployment
+      name: preview-access
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/args
+        value: ["--mode=local", "--network-policy=none"]
+      # The image is the one built locally and loaded into Kind.
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+      # Local mode reads no issuer; it needs its preview domain and the
+      # LOCAL_* values kind-profile.sh appends.
+      - op: replace
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: POD_NAMESPACE
+            valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+          - name: PREVIEW_DOMAIN
+            value: preview.localhost

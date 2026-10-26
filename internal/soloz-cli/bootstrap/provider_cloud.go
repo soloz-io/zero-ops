@@ -12,6 +12,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/soloz-io/zero-ops/internal/assets"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/binaries"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/capi"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
@@ -41,6 +42,7 @@ type CloudProvider struct {
 	driver      CloudDriver
 	clusterName string
 	debug       bool
+	encryption  cluster.EncryptionMode
 }
 
 func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *CloudProvider {
@@ -49,6 +51,14 @@ func NewCloudProvider(driver CloudDriver, clusterName string, debug bool) *Cloud
 		clusterName: clusterName,
 		debug:       debug,
 	}
+}
+
+func (p *CloudProvider) SetEncryption(mode cluster.EncryptionMode) {
+	p.encryption = mode
+}
+
+func (p *CloudProvider) Encryption() cluster.EncryptionMode {
+	return p.encryption
 }
 
 // ── Identity ────────────────────────────────────────────────────────────────
@@ -98,6 +108,14 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	clusterCfg.ClusterName = p.clusterName
 	clusterCfg.Namespace = constants.NamespaceCAPI
 	clusterCfg.GitopsDir = cfg.GitopsDir
+	// Shared, not driver-specific: which issuer a box trusts is a property of the
+	// box, not of the cloud underneath it.
+	clusterCfg.OIDCIssuerURL = cfg.OIDCIssuerURL
+	clusterCfg.OIDCClientID = cfg.OIDCClientID
+	// At-rest encryption is a property of the box, not of the cloud underneath it:
+	// a Hetzner box and a hybrid box encrypt etcd the same way.
+	clusterCfg.Encryption = cfg.Encryption
+	p.encryption = cfg.Encryption
 
 	// Read the shared cilium addon manifest and recompose it with the config half.
 	//
@@ -194,11 +212,24 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	clusterCfg.CiliumManifest = string(gatewayCRDs) + "\n---\n" +
 		string(ciliumRaw) + "\n---\n" + string(ciliumConfigOut)
 
+	// The escrow, for the at-rest encryption key (ADR-003 section 6, ADR-076).
+	//
+	// Constructed here and not inside the provisioner so the failure lands before the
+	// cluster is touched: an escrow that is absent or half-configured is a reason not
+	// to start, not something to discover after a control plane exists. ADR-076
+	// already requires one for a box to be built at all, so this adds no new input.
+	escrowClient, err := escrow.NewEscrowClient(ctx, "")
+	if err != nil {
+		return fmt.Errorf("the management cluster's at-rest encryption key needs an escrow "+
+			"to be kept in, and a box is not built without one (ADR-076): %w", err)
+	}
+
 	provisioner := &cluster.Provisioner{
-		Kubeconfig: cfg.BootstrapKubeconfig,
-		Context:    cfg.BootstrapContext,
-		Config:     clusterCfg,
-		Debug:      p.debug || cfg.Debug,
+		Kubeconfig:   cfg.BootstrapKubeconfig,
+		Context:      cfg.BootstrapContext,
+		Config:       clusterCfg,
+		Debug:        p.debug || cfg.Debug,
+		EscrowClient: escrowClient,
 	}
 
 	// Check if cluster already exists
@@ -245,11 +276,31 @@ func (p *CloudProvider) PivotMove(ctx context.Context, cfg *PivotConfig) (string
 		}
 	}
 
+	// 30 minutes, not 10.
+	//
+	// A worker's join time is not the control plane's. Measured on one fresh
+	// Hetzner box, all three machines created within 25 seconds of each other:
+	//
+	//	control plane      4m
+	//	worker (first)    12m
+	//	worker (second)   44m
+	//
+	// The old budget was 10 minutes, which is shorter than even the FASTER
+	// worker took -- so the phase was not marginal, it was under-provisioned,
+	// and had been passing on luck. It failed here after 10m05s on a machine
+	// that joined perfectly well at 44m, having already built three servers.
+	//
+	// A bound is still wanted: a machine that never joins should be reported,
+	// not waited on for ever. 30m covers the observed spread with room, and the
+	// failure names the machine and what it lacks, so a genuine non-join is
+	// still diagnosable rather than a hang.
 	fmt.Println("[pivot] Waiting for all nodes to join cluster...")
-	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 10*time.Minute); err != nil {
+	if err := waitForAllMachinesRunning(ctx, cfg.BootstrapKubeconfig, cfg.BootstrapContext, 30*time.Minute); err != nil {
 		return "", fmt.Errorf("machines not ready for pivot: %w", err)
 	}
-	fmt.Println("[pivot] ✓ All nodes joined")
+	if cfg.Encryption != "" {
+		p.encryption = cfg.Encryption
+	}
 
 	pivotOrch := &pivot.Orchestrator{
 		BootstrapKubeconfig: cfg.BootstrapKubeconfig,
@@ -281,10 +332,120 @@ func (p *CloudProvider) PivotReady(ctx context.Context, mgmtKubeconfig string) e
 		Debug:               p.debug,
 	}
 
+	// Place the CAPI controllers BEFORE waiting for them to be ready.
+	//
+	// Applied here and not at capi-init: that phase installs the providers into
+	// the KIND bootstrap cluster, where no node carries a placement label, so a
+	// selector set then would leave every provider Pending and fail the install.
+	// By this point the on-prem workers have joined (on-prem-join precedes
+	// pivot-move) and the providers have been moved onto the hub, so the label
+	// they are being sent to exists.
+	//
+	// Before WaitForReady rather than after, because the wait is what those
+	// restarts were failing: rescheduling first means it waits on controllers
+	// that have somewhere to run.
+	if err := p.placeCAPIControllers(ctx, mgmtKubeconfig); err != nil {
+		return err
+	}
+
 	if err := pivotOrch.WaitForReady(ctx, mgmtKubeconfig); err != nil {
 		return fmt.Errorf("pivot ready failed: %w", err)
 	}
 	fmt.Println("[pivot-ready] ✓ Cluster ready on Management Cluster")
+
+	// Re-stage the tailnet credential on the pivoted hub.
+	//
+	// It was written at capi-init, into the BOOTSTRAP cluster, because the hub's
+	// own ClusterClass reads it through contentFrom.secret while the hub Cluster
+	// is being created. `clusterctl move` carries CAPI-owned objects; a plain
+	// Secret is not one, so it does not cross the pivot.
+	//
+	// Nothing noticed, because the hub was already built by then. The first
+	// object to need it on the hub is the first SPOKE, whose KubeadmConfig cannot
+	// render without it:
+	//
+	//   BootstrapReady False  failed to resolve file source: secret not found:
+	//                         platform-capi/tailscale-hybrid-psk
+	//
+	// Every machine then sits Pending for ever -- control plane included -- so the
+	// spoke has no API server, and anything watching it (the burst autoscaler)
+	// fails against an endpoint that will never answer.
+	//
+	// Empty values are correct on a box with no tailnet: every tailscale step in
+	// the ClusterClass is guarded on a non-empty hostname and becomes a no-op.
+	// What matters is that the reference RESOLVES.
+	if err := p.stageTailnetCredentialOnHub(ctx, mgmtKubeconfig); err != nil {
+		return err
+	}
+	return nil
+}
+
+// placeCAPIControllers pins the CAPI provider Deployments to the nodes this
+// provider says they belong on.
+//
+// A no-op unless the driver asks for it, which only the hybrid one does: a pure
+// Hetzner hub has worker nodes already and needs no selector, and applying one
+// it does not carry would strand every controller Pending.
+//
+// The selector goes on the provider CRs rather than on the Deployments. The
+// capi-operator owns those Deployments and reconciles them, so a patch applied
+// directly would be reverted the next time it looked.
+func (p *CloudProvider) placeCAPIControllers(ctx context.Context, kubeconfig string) error {
+	placer, ok := p.driver.(interface{ CAPIPlacement() string })
+	if !ok {
+		return nil
+	}
+	patch := placer.CAPIPlacement()
+	if patch == "" {
+		return nil
+	}
+
+	// Every provider kind the operator manages. Named rather than discovered so a
+	// provider added later is a compile-time edit here, not a silent omission.
+	//
+	// Each object is patched BY NAME. `kubectl patch` has no --all: it takes a
+	// resource name or -f, and passing --all fails with "unknown flag" rather
+	// than patching everything, which is how this first shipped.
+	for _, kind := range []string{
+		"coreprovider", "bootstrapprovider", "controlplaneprovider", "infrastructureprovider",
+	} {
+		listed, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+			"get", kind, "-n", constants.NamespaceCAPI,
+			"-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}").Output()
+		if err != nil {
+			return fmt.Errorf("could not list %s to place its controllers: %w", kind, err)
+		}
+		for _, name := range strings.Fields(string(listed)) {
+			out, err := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfig,
+				"patch", kind, name, "-n", constants.NamespaceCAPI,
+				"--type", "merge", "-p", patch).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("could not place %s/%s: %s: %w",
+					kind, name, strings.TrimSpace(string(out)), err)
+			}
+		}
+	}
+	fmt.Println("[pivot-ready] ✓ CAPI controllers placed off the tenant's premises (see placement.go)")
+	return nil
+}
+
+// stageTailnetCredentialOnHub asks the driver to write its tailnet credential
+// into the pivoted hub, if it has one to write.
+//
+// Type assertion rather than a new interface method, matching OnPremRequested
+// above: only the drivers that provision through a ClusterClass reading this
+// secret implement it, and a driver that does not is not in error.
+func (p *CloudProvider) stageTailnetCredentialOnHub(ctx context.Context, kubeconfig string) error {
+	stager, ok := p.driver.(interface {
+		StageTailscaleCredentials(context.Context, string, string) error
+	})
+	if !ok {
+		return nil
+	}
+	if err := stager.StageTailscaleCredentials(ctx, kubeconfig, constants.NamespaceCAPI); err != nil {
+		return fmt.Errorf("stage tailnet credential on the pivoted hub: %w", err)
+	}
+	fmt.Println("[pivot-ready] ✓ tailnet credential staged on the hub (spokes render without it otherwise)")
 	return nil
 }
 
@@ -362,7 +523,8 @@ type CloudDriver interface {
 	// Name returns the cloud identifier ("hetzner", "aws", "gcp").
 	Name() string
 
-	// OSType returns the OS type for CAPI provisioning ("ubuntu" or "talos").
+	// OSType returns the node operating system for CAPI provisioning
+	// ("ubuntu" is the only supported value, ADR-001).
 	OSType() string
 
 	// PlannedWorkerReplicas is how many cloud workers this driver will provision.

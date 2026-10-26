@@ -1,0 +1,5 @@
+apiVersion: v2
+name: platform-spoke-gateway
+description: The spoke's shared public TLS Gateway — one object, one owner (ADR-096)
+type: application
+version: 0.1.0

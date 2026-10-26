@@ -1,0 +1,82 @@
+# CoreDNS placement for a hybrid cluster (ADR-046).
+#
+# THE PROBLEM THIS SOLVES
+#
+# kubeadm ships CoreDNS with `preferredDuringSchedulingIgnoredDuringExecution`
+# anti-affinity and a control-plane toleration. "Preferred" is a hint the
+# scheduler may ignore, and on this topology it does: both replicas landed on the
+# single Hetzner control-plane node while every workload runs on home workers.
+# Once placed, nothing moves them — anti-affinity is not re-evaluated for running
+# pods.
+#
+# That put every cluster DNS query on the VXLAN-over-Tailscale path between
+# Hetzner and the home LAN, which drops packets. Measured from the ArgoCD
+# application controller: 7 of 8 lookups succeeded, 1 failed. UDP DNS does not
+# retry across that loss quickly enough, so the failures surfaced as
+#
+#   dial tcp: lookup argocd-repo-server on 10.96.0.10:53: no such host
+#
+# and ArgoCD could not generate manifests — a whole Application stopped syncing
+# for reasons that read as "the service does not exist". The same loss explains a
+# string of failures elsewhere that were each dismissed as transient: the Infisical
+# lookups from the operator, the cert-manager DNS-01 solver, and auth-proxy's JWKS
+# fetch at startup.
+#
+# TWO CHANGES, BOTH NEEDED
+#
+# 1. requiredDuringScheduling anti-affinity — replicas may not share a node, so a
+#    second replica cannot sit beside the first. This alone fixes the co-location;
+#    per-node coverage comes from the DaemonSet, not from the replica count.
+# 2. NodeLocal DNSCache (coredns-nodelocal.yaml beside this file) — the real fix.
+#    Every pod resolves against a cache on its OWN node over the loopback address,
+#    so the overlay is only crossed on a cache miss, and then over TCP where loss
+#    is retried by the transport rather than surfacing as NXDOMAIN.
+#
+# Applied as a strategic-merge patch: CoreDNS is kubeadm-owned, so this changes
+# scheduling without taking ownership of the Deployment's image or Corefile.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  # replicas is deliberately ABSENT.
+  #
+  # The right number is a function of cluster size, and cluster size is not a
+  # property this repository knows: the hub runs two nodes today, the spoke three,
+  # and both change. Pinning a number here would be wrong somewhere by
+  # construction — and wrong in a way the required anti-affinity below makes
+  # visible only as permanently Pending pods, which is a worse failure than the
+  # co-location it replaced.
+  #
+  # dns-autoscaler.yaml beside this file derives the count from the live node and
+  # core count instead. Because `replicas` is omitted from this patch, applying it
+  # does not fight the autoscaler over the field.
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          # Required, not preferred. The preferred form is what allowed both
+          # replicas onto one node.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: k8s-app
+                    operator: In
+                    values: ["kube-dns"]
+              topologyKey: kubernetes.io/hostname
+      # Spread as evenly as the cluster allows. ScheduleAnyway rather than
+      # DoNotSchedule: a node briefly unavailable must not leave the cluster with
+      # fewer resolvers than it could have.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule

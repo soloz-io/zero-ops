@@ -60,6 +60,22 @@ type HubEnvironmentSpec struct {
 	// +kubebuilder:validation:Enum=dev;stg;prod;ephemeral
 	Environment string `json:"environment"`
 
+	// ClusterName is this box's cluster, as CAPI and the escrow know it
+	// (e.g. nutgraf-hub).
+	//
+	// Declared rather than derived from metadata.name. HubEnvironment is a
+	// cluster-scoped singleton always named "hub-environment", and that name was
+	// being used as the cluster's identity: the admin kubeconfig was looked for at
+	// platform-capi/hub-environment-kubeconfig, which CAPI never creates, so it
+	// was never escrowed on any box; and the master keys went to the escrow path
+	// /hub-operator/hub-environment, a constant, so every box in a shared escrow
+	// project overwrote the same entry while `soloz kubeconfig` read
+	// /hub-operator/<cluster> and found nothing.
+	//
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	ClusterName string `json:"clusterName,omitempty"`
+
 	// Domain is the base domain for the Hub cluster (e.g., nutgraf.in)
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
@@ -76,10 +92,6 @@ type HubEnvironmentSpec struct {
 	// Database configuration for CNPG cluster and roles
 	// +kubebuilder:validation:Required
 	Database DatabaseConfig `json:"database"`
-
-	// NATS configuration for JetStream streams
-	// +optional
-	NATS *NATSConfig `json:"nats,omitempty"`
 
 	// OAuth configuration for Hydra clients
 	// +optional
@@ -160,37 +172,6 @@ type DatabaseRole struct {
 	Permissions []string `json:"permissions,omitempty"`
 }
 
-// NATSConfig defines NATS JetStream configuration
-type NATSConfig struct {
-	// Streams to be created in NATS JetStream
-	// +optional
-	Streams []NATSStream `json:"streams,omitempty"`
-}
-
-// NATSStream defines a NATS JetStream stream specification
-type NATSStream struct {
-	// Name of the stream
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
-
-	// Subjects that the stream listens to
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	Subjects []string `json:"subjects"`
-
-	// Retention policy for the stream
-	// +kubebuilder:validation:Enum=limits;interest;workqueue
-	// +kubebuilder:default="limits"
-	// +optional
-	Retention string `json:"retention,omitempty"`
-
-	// Storage type for the stream
-	// +kubebuilder:validation:Enum=file;memory
-	// +kubebuilder:default="file"
-	// +optional
-	Storage string `json:"storage,omitempty"`
-}
-
 // OAuthConfig defines OAuth client configuration
 type OAuthConfig struct {
 	// Clients to be registered with Hydra
@@ -258,7 +239,6 @@ type HubEnvironmentStatus struct {
 	// - SecretZeroGenerated: Secret Zero bootstrap secrets have been created
 	// - SecretsBackedUp: Secrets have been uploaded to Infisical
 	// - OAuthClientsRegistered: OAuth clients have been registered with Hydra
-	// - NATSStreamsConfigured: NATS JetStream streams have been created
 	// - Ready: All phases complete successfully
 	// +listType=map
 	// +listMapKey=type

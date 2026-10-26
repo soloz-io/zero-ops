@@ -3,6 +3,58 @@
 **Date:** 2026-08-29
 **Status:** Accepted
 
+---
+
+> **Amendment 2026-09-22 — the issuer is authoritative for the identifier; the
+> platform is authoritative for the name.**
+>
+> §"Client identifiers are declared, never generated" requires that no client is
+> registered under an identifier minted at reconcile time. That is not
+> implementable on this platform's issuer. Zitadel's `AddOIDCAppRequest` carries
+> `project_id`, `name`, `redirect_uris`, `response_types` and `grant_types`, and
+> no `client_id`; the identifier is returned by `AddOIDCAppResponse` and is the
+> issuer's to mint. The rule was written when Ory Hydra was the issuer and Hydra
+> accepted a caller-supplied identifier. The migration to Zitadel removed the
+> capability the rule depends on.
+>
+> **What the rule protects is retained; the mechanism changes.** The property is
+> that a client is addressed by something the platform declares, so that every
+> consumer derives its configuration from one declaration and drift is
+> detectable. That property does not require the platform to choose the
+> identifier. It requires the platform to choose the NAME, and to treat the
+> issuer as the authority on what exists.
+>
+> **A client is declared by name and reconciled against the issuer.** The name is
+> `<tenantId>-<clientName>`, derived from the fleet's declaration and stable for
+> the client's life. Each reconciliation resolves that name at the issuer. Where
+> a client exists under it, its identifier is read and published unchanged; where
+> none exists, one is registered and its identifier published. The identifier is
+> a projection of issuer state, never a value replayed from a store.
+>
+> **A stored identifier is not evidence a client exists.** Reconciliation that
+> re-publishes a previously stored identifier without resolving it produces a
+> tenant whose gateway holds a credential the issuer refuses, reports success on
+> every pass, and is reported by nothing: every Kubernetes resource is healthy,
+> the secret resolves, and the first indication is an authorization request
+> answered `invalid_request` / `Errors.App.NotFound`. A client removed at the
+> issuer must be re-registered by the next reconciliation.
+>
+> This is the arrangement the reference model uses. kubefirst's Vault OIDC module
+> names the client (`vault_identity_oidc_client.name = var.app_name`), derives the
+> secret path from the same name, and lets Vault mint the identifier; Terraform
+> reconciles against the provider, so a client deleted out of band is recreated.
+> The identifier being minted is not the hazard. Replaying it without asking the
+> issuer is.
+>
+> §"Client identifiers are declared, never generated" is superseded by this
+> amendment. Everything else in this ADR stands unchanged: Infisical remains the
+> sole authority for secret material, the identifier remains public and outside
+> ADR-003, consumers are still configured from the declaration that produced
+> them, and a name is still chosen once — a client needing a different name is a
+> different client.
+
+---
+
 ## Context
 
 Tenant authentication via AgentGateway (ADR-050) requires a public browser client using PKCE, which holds no secret material. A fleet may additionally require one or more confidential clients: a server-side component performing delegated token exchange is the first, and a background worker using the client credentials grant is the shape that follows. Confidential clients hold secret material and are the subject of this ADR.
@@ -76,6 +128,8 @@ One credential shared across services is rejected, and redirect URIs are the dec
 The declaration is fleet-registry state, following the same idiom ADR-051 establishes for public hostnames: the fleet declares intent and the platform renders it. A single boolean rendering a fixed pair of clients is withdrawn in favour of a declared list.
 
 ### Client identifiers are declared, never generated
+
+*Superseded by the amendment of 2026-09-22: the issuer mints the identifier and the platform declares the NAME. The paragraphs below describe the Hydra-era mechanism; the consumer rule in the last paragraph stands unchanged.*
 
 Every client is registered under an identifier derived from the tenant and the client name, declared before registration and stable for the client's life. No client is registered under an identifier minted at reconcile time.
 
@@ -188,6 +242,54 @@ Adding the credential to the hub-operator's static application secret registry i
 Implementing confidential client registration, ownership scoping, orphan retirement and a client resource inside a platform operator was considered at length and rejected. It would shorten the rotation window to controller latency and allow emergency revocation through the ordinary path, but it re-implements four capabilities that already exist and are maintained upstream, to govern a credential whose authority is Infisical either way. The rotation window and the revocation path are the two costs of not doing it, and both are accepted above.
 
 Rotating with a period during which two secrets are simultaneously valid is not available. Neither the registration authority's model nor the controller that drives it represents more than one secret per client.
+
+### One credential, one writer, one key (2026-09-30)
+
+*Recorded after wiring the gateway's exchange client, and after getting the
+diagnosis wrong once.*
+
+The exchange client's credentials were being written to Infisical **twice, by the
+same reconcile, under two names**:
+
+```
+the declared-clients loop   OAUTH_<NAME>_CLIENT_ID / _SECRET     (every client)
+publishGatewayExchangeClient  OIDC_EXCHANGE_CLIENT_ID / _SECRET  (this one only)
+```
+
+The exchange client is a declared client -- the platform appends it to whatever
+the fleet declared -- so the first writer already covered it. The second was pure
+duplication: same values, same folder, a second name for one fact. Two names are
+two things to keep in step, and a reader of either cannot tell which is
+authoritative.
+
+**Resolved by deletion, not by documentation.** `publishGatewayExchangeClient` is
+gone, along with a lookup that fell back to the second key. A confidential
+client's credentials live under the `OAUTH_` grammar derived from the client's own
+name, like every other declared client's, and the gateway chart reads that key.
+
+**The first diagnosis was wrong, and the correction matters more than the bug.**
+This section previously claimed the duplication was across two STORES -- Vault and
+Infisical -- because `ensureDeclaredClients` writes through an `ISecretManager`
+whose only implementation is Vault-backed. It does not run. Nothing constructs a
+`ControlPlane`, the identity service wires its route straight to the provider, and
+`internal/kube-sbt/api/handlers/tenant_identity.go` already said so: *"It was
+written on ControlPlane.EnsureTenantIdentity, which nothing reaches."*
+
+So there was never a second store -- only dead code that made it look like there
+was, which is worse than no code, because it is read as architecture. That path is
+now deleted: `controlplane/tenant_identity.go`, `interfaces/secretmanager.go`, the
+`providers/vault` package, and the unused `SecretManager` field. ADR-003 already
+said Infisical is the System of Record for all secret material; the tree now
+agrees with it rather than carrying an unreachable alternative.
+
+**What remains true and is checked.** The issuer discloses a generated secret
+exactly once, so a client already provisioned returns nothing on a later
+reconcile and the publishing loop is correctly silent. That is not acceptable for
+the gateway's exchange client, because every gateway now mints its backend
+credential (ADR-095) and one without it does not start. The operator therefore
+verifies that credential is present in Infisical after publishing, and reports
+what to do -- regenerate at the issuer -- rather than leaving it to be found as a
+gateway that will not start.
 
 ## Ownership
 

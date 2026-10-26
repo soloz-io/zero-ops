@@ -140,3 +140,19 @@ func TestEmbeddedCarriesTheArtifactRegistryAndTenantTemplate(t *testing.T) {
 			"an empty repository", tmpl)
 	}
 }
+
+// `soloz support scope` and `soloz support preview` exist so a tenant can read
+// what would be sent BEFORE it is sent (ADR-077). A released binary could not:
+// the allowlist is the only file those commands read and it was not in the embed
+// set, so both failed with "release 0.1.16-rc.6 carries no
+// manifests/hub-core-services/support-agent/allowlist.yaml" -- naming a file the
+// repository plainly has.
+//
+// Not a Day-0 read, which is why the tests above did not cover it. The rule is
+// wider than Day-0: anything a RELEASED binary reads has to be carried, and a
+// promise a tenant can only keep inside a checkout is not one this platform
+// makes.
+func TestEmbeddedCarriesTheSupportAllowlist(t *testing.T) {
+	embeddedHas(t, filepath.Join("manifests", "hub-core-services",
+		"support-agent", "allowlist.yaml"))
+}

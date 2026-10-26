@@ -1,0 +1,199 @@
+# Configuration for <CLUSTER_NAME>.
+#
+# This file holds only what differs from the bundle's defaults. It is not a copy
+# of them: a default that were copied here would have to be re-proposed into this
+# repository every time the platform changed it, and would conflict with any edit
+# made in the meantime. Add a field to override it; remove it to go back to the
+# default.
+#
+# The platform never writes this file.
+# The tenant that owns this cluster (ADR-064). Written here rather than inferred
+# from the repository name because a cluster instance names exactly one owning
+# tenant, and a validator cannot assert that about a fact it has to guess.
+tenantId: <TENANT_ID>
+
+environmentSlug: <ENVIRONMENT>
+provider: <CLOUD_PROVIDER>
+
+# This cluster's name, pinned at scaffolding for the same reason dns.ownerId is
+# (see below) and never changed afterwards.
+#
+# Written here rather than left for the chart to derive. What the chart derives
+# when this is absent is `<environmentSlug>-<provider>` -- which is identical on
+# every box built from the same pair, and is therefore not a name but a category.
+# Three things key on it and each fails the same way:
+#
+#   * the escrow path holding this box's Infisical master keys and its admin
+#     kubeconfig (ADR-076). Two boxes sharing it overwrite each other's, and a
+#     restore hands one box the other's encryption key.
+#   * the WAL archive prefix for the management cluster's database (ADR-014).
+#     barman refuses a prefix holding another database's segments, so the first
+#     box to use it archives and every later one never backs up at all.
+#   * the external-dns owner id, when dns.ownerId is not pinned separately.
+#
+# Changing it after the box exists orphans everything written under the old name.
+clusterName: <CLUSTER_NAME>
+environmentRevision: <BUNDLE_VERSION>
+# The ACME issuer this environment's public certificates come from.
+#
+# Written by scaffolding rather than defaulted by the chart: an empty issuer
+# yields an ApplicationSet that applies cleanly and a child Application that
+# cannot render, which ArgoCD reports as Healthy while managing nothing.
+publicTlsIssuer: <PUBLIC_TLS_ISSUER>
+
+# The base domain this box publishes on, and the authority every public host
+# derives from (ADR-051): id., api., infisical., argocd.
+#
+# Environment-prefixed except in production, which uses the apex. Written by
+# scaffolding rather than defaulted by the chart: every box has its own, and the
+# default a published chart carried would be some other box's -- which is what
+# happened, leaving each tenant's gateway trusting the PLATFORM's identity
+# provider (ADR-065).
+#
+# Change it only alongside the DNS that serves it; the certificates, the OIDC
+# issuer and the JWKS URL all follow this value.
+# The zone this box publishes under, and the label it sits at within it.
+#
+# Two fields, not one composed value, which is kubefirst's shape: it stores
+# DomainName and SubdomainName separately on the cluster and joins them at render
+# time. The parts are what a person edits; the join is the chart's to do.
+#
+# subdomain is a plain DNS label and carries no meaning beyond placement. It was
+# derived from the environment, which made the box's DNS a function of its
+# environment and so gave the MANAGEMENT cluster an environment of its own --
+# see ADR-051's amendment of 2026-09-18. Leave it empty to publish on the apex.
+domain: <DOMAIN>
+subdomain: <SUBDOMAIN>
+# Cloud worker nodes this cluster runs.
+#
+# Two by default in every environment. A development box briefly defaulted to
+# zero on the reasoning that its capacity should come from your own hardware
+# (ADR-075) -- the right end state, and the wrong default to reach it by, because
+# it made on-prem hardware a precondition for the simplest box the platform can
+# build. Set 0 to run on on-prem capacity alone, or raise it for more cloud.
+#
+# Changing this here is the supported way to scale. Nothing does it for you: a
+# node briefly unreachable should not answer with a bill. Day-0 records the full
+# topology at clusters/<name>/generated/hub-cluster.yaml and your own control
+# plane reconciles it.
+workers: <WORKER_COUNT>
+
+
+platformRepoURL: <PLATFORM_REPO_URL>
+
+# This repository. It holds this box's cluster declarations and its per-tenant
+# values under environments/<env>/values.yaml, and boundaries 05 and 06 read
+# it (ADR-062). Written here because it is a fact true of this box and no other;
+# the chart carries no default, so a box that omits it refuses to render rather
+# than silently reading someone else's repository.
+instanceRepoURL: <GITOPS_REPO_URL>
+
+# Workload selection (ADR-066). The control plane is the same in every box;
+# workloads are chosen. Selection is a value and never a version, so choosing one
+# and upgrading the bundle are independent acts.
+workloads: {}
+# Where this cluster's stateful services run (ADR-046 §11, ADR-075).
+#
+# A placement class is a pair -- a `workload-location` nodeSelector and the
+# storage class provisionable on nodes carrying it -- selected as one name so the
+# two cannot drift:
+#
+#   hetzner  cloud nodes,   hcloud-volumes
+#   hybrid   on-prem nodes, local-path
+#
+# Empty means this cluster's provider. Set `hybrid` once you have joined on-prem
+# nodes and want your platform data on them.
+#
+# This is NOT a reschedule. local-path is node-pinned and has no snapshots, so a
+# stateful service changing class is recreated and restored from backup. Read the
+# migration runbook before editing this on a cluster that holds data.
+placement:
+  class: ""
+
+# DNS for this box, and for the apps you run on it (ADR-051).
+#
+# Your domain is already yours -- scaffolding took it, and external-dns is
+# scoped to it, so this box writes its own hostnames and no others. This is the
+# separate question of WHO IS AUTHORITATIVE for that domain.
+#
+# The default is Hetzner DNS, and that is a real assumption rather than a
+# neutral one: your registrar can be anyone, but the zone's nameservers must be
+# delegated to Hetzner DNS, because that is where external-dns writes. Delegating
+# NS is a one-time change at your registrar.
+#
+# To use your own DNS instead, set `provider` to anything external-dns supports
+# natively -- cloudflare, aws, google, azure, digitalocean and the rest -- and
+# create a Secret named `external-dns-credentials` in platform-ops holding that
+# provider's credential under whatever key names the provider documents
+# (CF_API_TOKEN, AWS_ACCESS_KEY_ID, …). It is injected wholesale, so the platform
+# needs to know none of them and never sees the value.
+#
+# Your apps get DNS records by declaring an HTTPRoute or a DNSEndpoint; those are
+# the two sources external-dns watches. An Ingress or a Service annotation will
+# not produce a record.
+#
+# ownerId keys the TXT records external-dns uses to decide which records are ITS
+# to manage, and `--policy=sync` means it deletes the ones it believes it owns.
+# Two boxes sharing an ownerId against one zone delete each other's records.
+#
+# WRITTEN ONCE, HERE, AND NEVER CHANGED. It is pinned at scaffolding rather than
+# left empty for the chart to derive, because what the chart derived was
+# `clusterName | default "<environmentSlug>-<provider>"` -- and `provider` is a
+# value you are allowed to change. Changing it re-keys every record this box has
+# published, and external-dns does not adopt, update or delete a record whose
+# owner does not match: it ignores it, silently, with nothing in its logs. The
+# hostname keeps resolving to wherever it last pointed, forever.
+#
+# That is not hypothetical. dashboard.dev.nutgraf.in on the platform's own box
+# spent weeks resolving to a decommissioned address because its records were
+# written under an earlier owner id and no later box could claim them. Nothing
+# reported it until a public-endpoint probe tried to open a connection.
+#
+# So: if you ever do change this, the old records are orphaned and must be
+# deleted from the zone by hand before the new owner can publish them. There is
+# no in-cluster fix once it has happened.
+dns:
+  provider: hetzner
+  ownerId: "<CLUSTER_NAME>"
+
+# Capability selection (ADR-066). "A tenant runs what it needs and does not carry
+# the rest."
+#
+# Every one of these defaults true in the bundle, and they are written out here
+# so selecting is an edit rather than something you have to know exists. Setting
+# one to false removes that capability's Application on the next sync; your own
+# ArgoCD does it, and nothing else is touched.
+#
+# Selection is a value and never a version, so choosing a capability and
+# upgrading the bundle are independent acts and neither blocks the other.
+#
+# Turning one OFF is deliberate and has consequences worth knowing:
+#   database       removes the CNPG Postgres this box's platform services use.
+#   observability  removes collection, and with it every platform dashboard.
+#   support        removes the Support Agent. It ships inert and reports nothing
+#                  until you enrol; turning it off is how you remove it after
+#                  ending a support subscription (ADR-077).
+capabilities:
+  database:
+    enabled: true
+  observability:
+    enabled: true
+  support:
+    enabled: true
+
+# On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
+# over your Tailscale tailnet.
+#
+# A capability, not a property of the provider: enable it whenever you want the
+# capacity, disable it when you do not. The datapath every box runs is already
+# sized for it, so turning it on costs no cluster-wide change.
+#
+# Two things to know before enabling on a cluster that already exists. Nodes join
+# the tailnet when they join the cluster, so existing nodes keep the addresses
+# they registered with -- completing the arrangement means replacing the control
+# plane. And the platform cannot see the other half: a machine on your premises,
+# running the join. This value says the cluster will accept them.
+onPrem:
+  enabled: false
+  # Your tailnet, e.g. acme.ts.net. Required when enabled.
+  tailnet: ""

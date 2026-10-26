@@ -2,6 +2,8 @@ package store
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -116,14 +118,29 @@ func TestFromEnvRequiresAllFourS3Values(t *testing.T) {
 // workspace nobody else can see. The symptom is an empty restore much later,
 // with nothing in any log pointing at the cause.
 func TestKeyLayoutIsAppRooted(t *testing.T) {
-	s := &Store{prefix: "app-123" + "/" + "ws-42" + "/code"}
+	// Built through New(), not by hand. The previous version of this test
+	// assembled the prefix itself, so it asserted its own arithmetic and would
+	// have passed unchanged while New() produced something else entirely.
+	st, err := New(Config{
+		Endpoint: "http://localhost:9000", Bucket: "b",
+		AccessKey: "k", SecretKey: "s",
+		AppID: "app-123", WorkspaceID: "ws-42",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if st.prefix != "app-123/ws-42" {
+		t.Fatalf("prefix = %q, want %q — the workspace root, with no segment between it and the names below",
+			st.prefix, "app-123/ws-42")
+	}
 
 	cases := map[string]string{
-		s.objectKey("abc"):            "app-123/ws-42/code/objects/abc",
-		s.manifestKey("cp1"):          "app-123/ws-42/code/checkpoints/cp1.json",
-		s.checkpointArchiveKey("cp1"): "app-123/ws-42/code/checkpoints/cp1.sqsh",
-		s.archiveKey():                "app-123/ws-42/code/archive.sqsh",
-		s.prefix + latestPointer:      "app-123/ws-42/code/checkpoints/LATEST",
+		st.objectKey("abc"):            "app-123/ws-42/objects/abc",
+		st.manifestKey("cp1"):          "app-123/ws-42/checkpoints/cp1.json",
+		st.checkpointArchiveKey("cp1"): "app-123/ws-42/checkpoints/cp1.sqsh",
+		st.archiveKey():                "app-123/ws-42/archive.sqsh",
+		st.prefix + latestPointer:      "app-123/ws-42/checkpoints/LATEST",
 	}
 	for got, want := range cases {
 		if got != want {
@@ -131,13 +148,26 @@ func TestKeyLayoutIsAppRooted(t *testing.T) {
 		}
 	}
 
-	// The `code/` segment is what makes an app-rooted layout safe to share.
-	// Retention deletes everything under <prefix>/objects/ that no surviving
-	// manifest references; without this segment that sweep would sit directly
-	// above the app's chat attachments and build artifacts.
-	for k := range cases {
-		if !strings.HasPrefix(k, "app-123/ws-42/code/") {
-			t.Errorf("key %q escapes the code/ subtree — retention could reach sibling data", k)
+	// The real safety property, which `code/` was mistakenly credited with.
+	//
+	// Retention lists <prefix>/objects/ and <prefix>/checkpoints/ and deletes
+	// within them. What keeps it away from an app's other data is that both
+	// sweeps are scoped to those names — not that a segment sits above them. So
+	// what must hold is that nothing this package sweeps shares a prefix with a
+	// sibling namespace the SDK owns (storage/keys.ts).
+	siblings := []string{
+		"app-123/ws-42/chat-attachments/",
+		"app-123/ws-42/artifacts/",
+		"app-123/ws-42/builds/",
+	}
+	for _, swept := range []string{st.prefix + "/objects/", st.prefix + "/checkpoints/"} {
+		for _, sib := range siblings {
+			if strings.HasPrefix(sib, swept) {
+				t.Errorf("retention sweeps %q, which contains the sibling namespace %q", swept, sib)
+			}
+			if strings.HasPrefix(swept, sib) {
+				t.Errorf("swept prefix %q sits inside sibling namespace %q", swept, sib)
+			}
 		}
 	}
 }
@@ -236,7 +266,7 @@ func TestSplitListIgnoresBlanks(t *testing.T) {
 // including node_modules meant ~21k round trips to object storage per save and
 // a 504 at every layer.
 func TestSkipDirCoversTheCostlyTrees(t *testing.T) {
-	for _, d := range []string{"node_modules", ".expo", "dist", "build", "web-build", ".cache"} {
+	for _, d := range []string{"node_modules", ".expo", "dist", "build", "web-build", ".cache", ".ephemeral"} {
 		if !skipDir[d] {
 			t.Errorf("%q is not excluded; it is derived output and re-adds the cost this list exists to avoid", d)
 		}
@@ -255,6 +285,80 @@ func TestSkipDirCoversTheCostlyTrees(t *testing.T) {
 	}
 }
 
+// TestSkipDirIsNotAppliedToTheWalkRoot pins the guard that makes the globals
+// instance work at all.
+//
+// `.global` is in skipDir so the SESSION snapshot leaves app-scoped artifacts
+// to their own prefix. But the globals instance walks with WORKSPACE_ROOT set
+// to that same directory, and filepath.Walk calls its callback on the root
+// first — so a name-only check skips the root and the walk yields nothing.
+//
+// The failure that guard prevents is silent, which is why it is tested: an
+// empty walk produces ErrNothingToSave, which reads exactly like a workspace
+// that legitimately has no files yet. Globals would simply never be uploaded.
+func TestSkipDirIsNotAppliedToTheWalkRoot(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, ".global", "skills", "brand-brief", "SKILL.md"), "brand")
+	mustWrite(t, filepath.Join(root, "output", "scenes", "scene001", "motion.tsx"), "scene")
+
+	// Session walk, rooted at the workspace: .global is excluded.
+	if got := walkKept(t, root); len(got) != 1 || got[0] != filepath.Join("output", "scenes", "scene001", "motion.tsx") {
+		t.Errorf("session walk should keep only the session tree, got %v", got)
+	}
+
+	// Globals walk, rooted AT .global: the root must not skip itself.
+	globalsRoot := filepath.Join(root, ".global")
+	got := walkKept(t, globalsRoot)
+	if len(got) == 0 {
+		t.Fatal("globals walk returned nothing: skipDir was applied to its own root, " +
+			"so app-scoped artifacts would never be uploaded and the error would look like an empty workspace")
+	}
+	if got[0] != filepath.Join("skills", "brand-brief", "SKILL.md") {
+		t.Errorf("unexpected globals entry %v", got)
+	}
+}
+
+// walkKept mirrors Snapshot's traversal rules — the skipDir check with its
+// `p != root` guard, and the regular-file filter — without needing S3.
+func walkKept(t *testing.T, root string) []string {
+	t.Helper()
+	var kept []string
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if skipDir[info.Name()] && p != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		kept = append(kept, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	return kept
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestEmptyWorkspaceIsNotCheckpointed guards against writing a snapshot of
 // nothing.
 //
@@ -270,5 +374,164 @@ func TestEmptyWorkspaceIsNotCheckpointed(t *testing.T) {
 	}
 	if errors.Is(ErrNothingToSave, ErrNotConfigured) || errors.Is(ErrNothingToSave, ErrReadOnly) {
 		t.Error("ErrNothingToSave must be distinguishable from the other no-op sentinels")
+	}
+}
+
+// TestStagingDirIsPerInstance pins the reason two instances cannot share one
+// staging directory, and therefore why the directory has to be created.
+//
+// The readiness marker is named from StagingDir(). The operator gates the
+// workload's start on an exec probe testing for that file, so two instances
+// sharing a directory would let whichever restored first satisfy both probes —
+// and the workload would start against a tree the other had not finished
+// restoring. Giving the second instance a subdirectory is what keeps the two
+// probes independent, and a subdirectory of an emptyDir is not created by the
+// kubelet: the process must create it or die writing its own marker.
+func TestStagingDirIsPerInstance(t *testing.T) {
+	session, err := New(Config{
+		Endpoint: "http://localhost:9000", Bucket: "b", AccessKey: "k", SecretKey: "s",
+		AppID: "app1", WorkspaceID: "ws1", Staging: "/ws-staging",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	shared, err := New(Config{
+		Endpoint: "http://localhost:9000", Bucket: "b", AccessKey: "k", SecretKey: "s",
+		AppID: "app1", WorkspaceID: "globals", Staging: "/ws-staging/.global",
+		NoArchive: true,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if session.StagingDir() == shared.StagingDir() {
+		t.Fatalf("both instances stage in %q; one's readiness marker would satisfy the other's probe",
+			session.StagingDir())
+	}
+	if !shared.NoArchive() {
+		t.Error("the shared instance must skip squashfs: its root is inside a mount it does not own")
+	}
+	if session.NoArchive() {
+		t.Error("the session instance must keep the squashfs fast path")
+	}
+}
+
+// ── The unchanged-tree guard (ErrUnchanged) ──────────────────────────────────
+//
+// A shared workspace is read by sessions that write nothing, and every one of
+// them used to upload its whole copy as the newest checkpoint. A session holding
+// an older copy therefore overwrote a newer one, and retention pruned the newer
+// entry. oranger lost a brand brief that way on 2026-10-01.
+//
+// The digest is what decides it, so these cover what it must and must not
+// include. A digest that varies per save silently restores the old behaviour.
+
+func manifestWith(entries ...Entry) *Manifest {
+	return &Manifest{ID: "cp-1", Entries: entries}
+}
+
+func TestManifestDigestIgnoresEverythingThatChangesEverySave(t *testing.T) {
+	// id, timestamp, description and trigger differ on every checkpoint by
+	// construction. Including any of them makes every tree look changed and the
+	// guard never fires.
+	e := []Entry{{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 3}}
+	a := &Manifest{ID: "cp-1", Entries: e, Description: "first", Trigger: "periodic"}
+	b := &Manifest{ID: "cp-2", Entries: e, Description: "second", Trigger: "teardown"}
+
+	if manifestDigest(a) != manifestDigest(b) {
+		t.Fatal("digest changed with the manifest's own metadata; the guard would never fire")
+	}
+}
+
+func TestManifestDigestChangesWithContent(t *testing.T) {
+	base := manifestWith(Entry{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 3})
+
+	for _, tc := range []struct {
+		name string
+		m    *Manifest
+	}{
+		{"a changed file", manifestWith(Entry{Path: "a.txt", Hash: "h2", Mode: 0o644, Size: 3})},
+		{"a renamed file", manifestWith(Entry{Path: "b.txt", Hash: "h1", Mode: 0o644, Size: 3})},
+		{"a mode change", manifestWith(Entry{Path: "a.txt", Hash: "h1", Mode: 0o755, Size: 3})},
+		{"a size change", manifestWith(Entry{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 4})},
+		{"an added file", manifestWith(
+			Entry{Path: "a.txt", Hash: "h1", Mode: 0o644, Size: 3},
+			Entry{Path: "b.txt", Hash: "h2", Mode: 0o644, Size: 1},
+		)},
+		{"an emptied tree", manifestWith()},
+	} {
+		if manifestDigest(tc.m) == manifestDigest(base) {
+			t.Fatalf("%s produced the same digest; a real change would be skipped", tc.name)
+		}
+	}
+}
+
+func TestManifestDigestSeparatesEntriesUnambiguously(t *testing.T) {
+	// Without a delimiter, ("ab","c") and ("a","bc") hash alike — so a rename
+	// that shifts a character between path and hash would read as unchanged.
+	a := manifestWith(Entry{Path: "ab", Hash: "c", Mode: 0, Size: 0})
+	b := manifestWith(Entry{Path: "a", Hash: "bc", Mode: 0, Size: 0})
+	if manifestDigest(a) == manifestDigest(b) {
+		t.Fatal("digest is ambiguous across field boundaries")
+	}
+}
+
+func TestRestoredDigestIsTheBaselineAndEmptyMeansNoBaseline(t *testing.T) {
+	// A pod that restored nothing has no baseline, so its first checkpoint is
+	// genuinely new and must be written. Gating on the empty string is what keeps
+	// a fresh workspace saveable.
+	s := &Store{}
+	if s.restoredDigest != "" {
+		t.Fatal("a fresh Store claims a baseline it never observed")
+	}
+}
+
+// TestPinMarkersKeepCheckpointsOutsideTheBound covers §14.8: a checkpoint some
+// holder marked survives retention however old it is, and does not take one
+// of the bound's slots.
+func TestPinMarkersKeepCheckpointsOutsideTheBound(t *testing.T) {
+	ids := []string{"e", "d", "c", "b", "a"} // newest first
+	marked := map[string]struct{}{}
+	for _, rel := range []string{"a/share-1", "a/share-2", "zz/share-3", "b", "/share-4", "c/x/y"} {
+		if id := pinMarkerCheckpoint(rel); id != "" {
+			marked[id] = struct{}{}
+		}
+	}
+	if len(marked) != 2 {
+		t.Fatalf("markers read = %v, want only a and zz: a key without a holder, "+
+			"without an id, or nested deeper is not a marker", marked)
+	}
+	survivors, doomed := planRetention(ids, 2, unionSets(nil, marked))
+	if got := strings.Join(survivors, ","); got != "e,d,a" {
+		t.Errorf("survivors = %s, want e,d,a: the bound keeps the newest two and the marker keeps a", got)
+	}
+	if got := strings.Join(doomed, ","); got != "c,b" {
+		t.Errorf("doomed = %s, want c,b", got)
+	}
+}
+
+// TestKeepCheckpointsUnboundedReadsAsAWord pins the operator's rendering of
+// retainAllCheckpoints: "unbounded" keeps everything, while 0 or garbage stay
+// "unset" and fall back to the default bound.
+func TestKeepCheckpointsUnboundedReadsAsAWord(t *testing.T) {
+	t.Setenv("WORKSPACE_ID", "ws")
+	t.Setenv("APP_ID", "app")
+	for v, want := range map[string]int{
+		UnboundedEnvValue: UnboundedKeepCheckpoints,
+		"12":              12,
+		"0":               DefaultKeepCheckpoints,
+		"lots":            DefaultKeepCheckpoints,
+	} {
+		t.Setenv("KEEP_CHECKPOINTS", v)
+		c, err := FromEnv()
+		if err != nil && !errors.Is(err, ErrNotConfigured) {
+			t.Fatalf("FromEnv: %v", err)
+		}
+		if c.KeepCheckpoints != want {
+			t.Errorf("KEEP_CHECKPOINTS=%q -> %d, want %d", v, c.KeepCheckpoints, want)
+		}
+	}
+	if survivors, doomed := planRetention([]string{"b", "a"}, UnboundedKeepCheckpoints, nil); len(doomed) != 0 || len(survivors) != 2 {
+		t.Errorf("unbounded retention deleted %v", doomed)
 	}
 }

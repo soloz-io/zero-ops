@@ -51,7 +51,7 @@ This is the difference between a platform that cannot compel and one that cannot
 
 ADR-067 conditions the promise on exported telemetry. This ADR conditions it on version currency. Both bound the same promise, and a tenant outside either is outside the full promise: the platform cannot be answerable for a cluster whose state it cannot see, nor for a version it no longer maintains.
 
-### A capability leaving the catalogue carries notice and a path
+### A capability leaving the declaration carries notice and a path
 
 When a capability reaches end-of-life the platform states the date, and offers either a supported successor with a migration path or notice sufficient for a tenant to arrange its own. Deprecation is an announcement with a date, not a withdrawal.
 
@@ -106,6 +106,122 @@ Two conditions now bound the promise — version currency and exported telemetry
 - **Extends ADR-066.** The end-of-life question it names as unsettled is settled here.
 - **Extends ADR-067.** Telemetry and version currency bound the same promise, and both are stated as conditions on it.
 - **Confirms ADR-065.** The platform never compels. Support follows the version rather than the tenant, so declining stays an exercise of authority rather than a breach.
+
+## Addendum 1: the window is declared, and a release without one is refused (2026-09-12)
+
+*"Every published bundle version is supported for a window declared when it is
+published"* was declared nowhere. There was no field, no gate, and no way for
+any tenant — or for the platform — to answer "is what I am running still
+supported". A maintenance promise nobody can evaluate is not one.
+
+`manifests/architecture/support-policy.yaml` is the declaration:
+**2 minor versions or 180 days, whichever is longer**, then 90 days deprecated
+with the end date stated, then unsupported, then end-of-life. Both halves are
+kept because each fails alone — time alone strands a tenant six releases behind
+but still inside its window; versions alone let a burst of releases expire a
+version adopted last week. Whichever is longer governs, so neither can shorten
+the promise.
+
+`scripts/package/support-state.py` evaluates it: given the published releases
+it prints the state of every version today, and answers for one version with an
+exit code. That is what makes *"derivable from what it runs"* true rather than
+merely stated — and it is the retroactive audit, because a version published
+before the window existed carries none and is reported as unevaluable rather
+than assumed supported. An unknown window is not a long one.
+
+It also surfaces something the policy's arithmetic hides: while the platform has
+published only `0.1.x`, every version is within 2 minors of the newest, so the
+version half expires nothing and the effective window is unbounded. That half
+begins to apply at minor 3. The policy is not wrong; it has not started
+operating yet, and a promise that is unbounded by accident is worth knowing
+about before a tenant discovers it.
+
+`scripts/package/support-window.py` turns the policy into the dates a release
+states, `release-metadata.sh` writes them into the release body, and
+`release-discloses.sh` refuses a release that states none. Renovate surfaces
+release notes in the proposal it opens, so the window reaches a tenant reading
+the pull request as well as one reading the release.
+
+**The security clause is now true by construction rather than by intention.**
+*"A security fix is proposed outside the cadence"* holds because there is no
+cadence: the tenant's Renovate carries no `minimumReleaseAge` and no schedule, so
+every published version is proposed as soon as it exists. The policy file records
+that, so introducing a delay later is visibly a change to this promise rather
+than a configuration tweak.
+
+
+## Acceptance
+
+```architecture
+acceptance:
+  - scripts/package/support-state.py
+  - scripts/validate/release-discloses.sh
+```
+
+`release-discloses.sh` refuses a release that declares no window;
+`support-state.py` evaluates the windows that were declared. The first stops the
+promise being unstated, the second stops it being unauditable.
+
+## Addendum 2: what the evidence condition does not cover, and a third way to be outside it (2026-09-19)
+
+This ADR's negative says plainly that *"a tenant can be outside one [condition]
+while inside the other. Which of them is unmet has to be said plainly, or a lapse
+will be read as arbitrary."* Two things that follow from ADR-077 addendum 4 and
+ADR-078 addendum 1 make that concrete, and the second is a case this ADR did not
+anticipate.
+
+### The observability backend is maintained; its internals are not evidenced
+
+ADR-078 puts the store, query surface, alerting and visualisation on the platform's
+side, and makes retention and capacity the platform's responsibility. ADR-078 §8
+keeps the Support Agent out of the observability backend entirely — it observes the
+capability **as Kubernetes objects**, through `kube-state-metrics`, and never
+reaches an observability component's own endpoint.
+
+So the promise over that capability is graded like any other, and the grading line
+is worth stating rather than leaving to be inferred:
+
+> **Evidenced:** whether the store is running, restarting, and how much volume it
+> holds — object state, available to the Support Agent without reading the store.
+>
+> **Not evidenced:** the store's internal health — series cardinality, ingest rate,
+> query latency. The platform maintains the capability and will diagnose it
+> reactively on a case, but makes no proactive undertaking about it.
+
+This is the correct trade and not a gap to close. Reading the store to observe the
+store would make support telemetry depend on a component the tenant may disable,
+and would put whatever the tenant opted in under ADR-078 §7 inside reach of the
+export path — at which point the allowlist would be filtering an unbounded payload,
+which is a preference rather than a boundary.
+
+### A PKI fault produces silence that is not the tenant's choice
+
+This ADR conditions the promise on exported telemetry, and ADR-067 says what is not
+observed is not supported. Both assume silence is something a tenant chose — by
+declining to enrol, by narrowing scope, or by letting a credential lapse.
+
+ADR-032's amendment records a third cause, observed rather than theorised: *"because
+signing authority is central, the effect appeared days later and on a different
+cluster: three Spoke certificates and one tenant workload certificate expired
+together with no renewal available."* A single certificate-authority fault expires
+every Support Agent certificate in one tenant's fleet within a day, hub and spokes
+together, and the resulting silence is indistinguishable from a tenant who stopped
+renewing.
+
+Left alone, the platform would stop being answerable for an entire tenant because of
+an infrastructure fault, and would not know it had.
+
+> **Correlated silence — every enrolment for one tenant going quiet inside one
+> certificate lifetime — does not put that tenant outside the evidence condition.
+> The platform treats it as a fault to investigate, not as a withdrawal of
+> telemetry, and says so to the tenant.**
+
+ADR-077 addendum 4 makes detecting it a Support Plane requirement. It is recorded
+here because this is the ADR that decides what silence *means*, and because the
+negative quoted above already commits the platform to saying which condition is
+unmet. "Your certificates all expired at once and we assumed you had opted out" is
+the lapse that negative was written to prevent.
+
 
 ## References
 

@@ -35,6 +35,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${HERE}/home-lab.env"
 ONLY_NODE=""
 TS_AUTHKEY=""
+# Rebuilding is destructive and is no longer the first thing tried; see
+# phase_recover_existing_vm. --force-rebuild is how an operator asks for the old
+# behaviour, and RECOVER_WAIT_SECONDS is how long the gate waits before giving up.
+FORCE_REBUILD=0
+RECOVER_WAIT_SECONDS="${RECOVER_WAIT_SECONDS:-300}"
 VSWITCH_NAME="Hybrid-Switch"
 # Host side of the guest network. Guests boot static ${HOST_SUBNET_PREFIX}.1<node-idx>
 # addresses with $HOST_GATEWAY_IP as gateway (see the Ignition network unit), so these
@@ -60,7 +65,7 @@ CPU_COUNT="0"            # 0 = auto-detect (all host logical cores)
 #
 # The old flat 20GB default was far too small once the hub moved its workloads to
 # home-lab nodes (ADR-046 §19): a 20GB VHDX yields ~13GB usable after the Flatcar
-# OS, and a hub node carries ArgoCD, cert-manager, Kyverno, Crossplane, ESO, NATS,
+# OS, and a hub node carries ArgoCD, cert-manager, Kyverno, Crossplane, ESO,
 # Redis and Infisical AND platform-db's 10Gi local-path PVC. It hit
 # DiskPressure=True, the kubelet tainted the node, and with the control plane
 # tainted as well nothing could be scheduled anywhere.
@@ -108,10 +113,13 @@ Options:
   --cpus N             OVERRIDE virtual CPU count (default: per-node from registry).
   --disk-gb N          OVERRIDE virtual disk ceiling in GB (default: 100 hub / 60 spoke).
   --verify             Only check Ready status of registered nodes; no changes.
+  --force-rebuild      Skip the recovery gate and rebuild the VM from the base image.
+  --recover-wait N     Seconds to let an existing VM rejoin before rebuilding (default 300).
   -h, --help           Show this help message
 
 Phases per node:
-  [0/6] Offline binary cache verification on Mac
+  [0/6] Offline binary cache verification on Mac, then the recovery gate:
+        an existing VM is started and given time to rejoin before it is replaced
   [1/6] SSH reachability gate
   [2/6] Windows host & Hyper-V preparation
   [3/6] Flatcar base VHDX & Ignition ISO bundle preparation
@@ -140,6 +148,8 @@ while [[ $# -gt 0 ]]; do
     --cpus)          CPU_COUNT="$2"; shift 2 ;;
     --disk-gb)       DISK_SIZE_BYTES="$(($2 * 1024 * 1024 * 1024))"; CLI_DISK_SET=1; shift 2 ;;
     --verify)        MODE="verify"; shift ;;
+    --force-rebuild) FORCE_REBUILD=1; shift ;;
+    --recover-wait)  RECOVER_WAIT_SECONDS="$2"; shift 2 ;;
     -h|--help)       usage 0 ;;
     *) echo "ERROR: unknown option $1" >&2; usage 1 ;;
   esac
@@ -173,13 +183,35 @@ fi
 # it holds real values, so a correction there reaches nobody else.
 _caller_hub_kubeconfig="${HUB_KUBECONFIG:-}"
 
+# HYBRID_SPOKE_NAME, for exactly the same reason and from the same file.
+#
+# home-lab.env:119 assigns it unconditionally too, and the literal it carries --
+# spoke-pool-hybrid-dev-01 -- is the naming ADR-082 replaced. A workload cluster
+# is now named by the tenant (nutgraf-01), so the assignment silently swapped the
+# caller's spoke for one that does not exist. Every lookup keyed on it then asked
+# about the wrong cluster: the kubeconfig Secret, the join Secret, the node
+# registration.
+#
+# Observed 2026-09-19: step 10e exported HYBRID_SPOKE_NAME=nutgraf-01, the source
+# below replaced it, and the run failed on
+#   secret=spoke-pool-hybrid-dev-01-home-worker-join ... token=MISSING
+# while nutgraf-01-home-worker-join sat in platform-capi, correctly minted and
+# untouched. The message blamed hub-operator for work it had already done.
+#
+# Here and not in the env file because that file is gitignored -- it holds real
+# values, so a correction there reaches nobody else.
+_caller_spoke_name="${HYBRID_SPOKE_NAME:-}"
+
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
 if [[ -n "$_caller_hub_kubeconfig" ]]; then
   HUB_KUBECONFIG="$_caller_hub_kubeconfig"
 fi
-unset _caller_hub_kubeconfig
+if [[ -n "$_caller_spoke_name" ]]; then
+  HYBRID_SPOKE_NAME="$_caller_spoke_name"
+fi
+unset _caller_hub_kubeconfig _caller_spoke_name
 
 # Auto-fetch Tailscale authkey from k8-secrets if not passed via CLI
 DEFAULT_TS_AUTHKEY_FILE="${REPO_ROOT}/k8-secrets/tailscale/authkey"
@@ -231,7 +263,7 @@ win_ps() { # Execute PowerShell on the Windows host via SSH (buffered)
 }
 
 win_ps_stream() { # Stream PowerShell output live from Windows host via SSH
-  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|✗|→|===|⚠|Error|Failed|Exception}"
+  local SSH_TARGET="$1" PS_SCRIPT="$2" FILTER="${3:-✓|✗|→|===|⚠|Error|Failed|Exception|VM-CAPACITY|HOST-DISK}"
   printf '%s\n' "$PS_SCRIPT" | ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
     "$SSH_TARGET" "powershell -NoProfile -ExecutionPolicy Bypass -Command -" 2>&1 | \
     grep --line-buffered -E "$FILTER" | sed 's/^/      /' || true
@@ -485,7 +517,13 @@ try {
 
 # ── Phase 3: Flatcar base VHDX & Ignition ISO bundle preparation ─────────────
 phase_prep_flatcar_and_ignition() {
-  local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3"
+  # NODE_IDX is the registry's GLOBAL index -- it sets the VM's IP and SSH port,
+  # which must be unique across every VM on the host. JOIN_ORDINAL is the node's
+  # position within its OWN cluster, which is how hub-operator keys the join
+  # tokens (node-<i>-token, 1-based per spoke). They are different numbers for
+  # every spoke node, and conflating them asked for a token that was never minted.
+  # $4 is CLUSTER_TARGET, declared further down where it is first used.
+  local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3" JOIN_ORDINAL="${5:-$3}"
   echo "    [3/6] Preparing Flatcar base VHDX & Ignition ISO bundle (${VM_NAME})..."
 
   # 1. Ensure Flatcar base VHDX exists on Windows Host
@@ -625,6 +663,49 @@ stringData:
   usage-bootstrap-signing: "true"
   auth-extra-groups: "system:bootstrappers:kubeadm:default-node-token"
 EOF
+    if [[ ${PIPESTATUS[1]:-1} -ne 0 ]]; then
+      echo "    ✗ could not create bootstrap-token-${TOKEN_ID} on the hub" >&2
+      echo "      HUB_KUBECONFIG=${HUB_KUBECONFIG}" >&2
+      return 1
+    fi
+
+    # The token is only usable once the controller has signed cluster-info with
+    # it. kubeadm join reads jws-kubeconfig-<id> from the kube-public
+    # cluster-info ConfigMap and retries until it appears; if it never does, the
+    # node loops for the full join timeout on
+    #
+    #   could not find a JWS signature in the cluster-info ConfigMap for token ID
+    #
+    # which is what a node gets when the token it was handed does not exist on
+    # the cluster it is joining. That happened: the apply above was unchecked and
+    # its output discarded, so a failed create still produced an ISO carrying the
+    # token, the VM booted with it, and ten minutes of retries later the phase
+    # failed pointing at the node. Meanwhile the only tokens on the hub were
+    # kubeadm's own rotating ones, which look exactly like a token that had been
+    # created and had expired.
+    #
+    # Waited for here, before the ISO is built, so a token that will never work
+    # is caught while the cause is still on screen.
+    echo "    → Waiting for the hub to sign cluster-info with ${TOKEN_ID}..."
+    local _jws_ok=0 _jws_wait=0
+    while (( _jws_wait < 60 )); do
+      if kubectl --kubeconfig="${HUB_KUBECONFIG}" get cm -n kube-public cluster-info \
+           -o "jsonpath={.data.jws-kubeconfig-${TOKEN_ID}}" 2>/dev/null | grep -q .; then
+        _jws_ok=1
+        break
+      fi
+      sleep 3
+      _jws_wait=$(( _jws_wait + 3 ))
+    done
+    if [[ $_jws_ok -eq 0 ]]; then
+      echo "    ✗ the hub never signed cluster-info with token ${TOKEN_ID} (${_jws_wait}s)." >&2
+      echo "      The node would retry 'could not find a JWS signature' until it gave up." >&2
+      echo "      Check that HUB_KUBECONFIG names the cluster the node joins:" >&2
+      echo "        HUB_KUBECONFIG=${HUB_KUBECONFIG}" >&2
+      echo "        endpoint the node is given: ${CONTROL_PLANE_ENDPOINT:-<resolved below>}" >&2
+      return 1
+    fi
+    echo "    ✓ cluster-info signed for ${TOKEN_ID}"
 
     CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" get cm -n kube-system kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null \
       | openssl x509 -pubkey -noout 2>/dev/null \
@@ -640,7 +721,7 @@ EOF
     local JOIN_SECRET_NAME="${HYBRID_SPOKE_NAME}-home-worker-join"
     JOIN_TOKEN=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
       get secret "${JOIN_SECRET_NAME}" -n platform-capi \
-      -o jsonpath="{.data.node-${NODE_IDX}-token}" 2>/dev/null | base64 -d || true)
+      -o jsonpath="{.data.node-${JOIN_ORDINAL}-token}" 2>/dev/null | base64 -d || true)
     CA_CERT_HASH=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" \
       get secret "${JOIN_SECRET_NAME}" -n platform-capi \
       -o jsonpath='{.data.ca-cert-hash}' 2>/dev/null | base64 -d || true)
@@ -649,7 +730,30 @@ EOF
       -o jsonpath="{.data.control-plane-endpoint}" 2>/dev/null | base64 -d || true)
 
     if [[ -z "$JOIN_TOKEN" || -z "$CA_CERT_HASH" || -z "$CONTROL_PLANE_ENDPOINT" ]]; then
-      echo "    ✗ Spoke join credentials not ready on Hub. Wait for hub-operator." >&2
+      # "Wait for hub-operator" was the whole message, and it was usually wrong:
+      # the operator had already written this Secret, just not the key being
+      # asked for. Say which part is missing, because the remedies differ.
+      if [[ -n "$CA_CERT_HASH" && -n "$CONTROL_PLANE_ENDPOINT" && -z "$JOIN_TOKEN" ]]; then
+        local _have
+        _have=$(kubectl --kubeconfig="${HUB_KUBECONFIG}" get secret "${JOIN_SECRET_NAME}" \
+          -n platform-capi -o json 2>/dev/null \
+          | tr ',' '\n' | grep -o '"node-[0-9]*-token"' | tr -d '"' | tr '\n' ' ')
+        echo "    ✗ ${JOIN_SECRET_NAME} exists but has no node-${JOIN_ORDINAL}-token." >&2
+        echo "      It holds: ${_have:-none}" >&2
+        echo "      hub-operator mints one token per entry in the claim's home-workers" >&2
+        echo "      annotation (1-based). This node is spoke worker #${JOIN_ORDINAL} by the" >&2
+        echo "      home-lab.env registry, so the registry declares more spoke workers than" >&2
+        echo "      the claim does." >&2
+        echo "      Fix: list every spoke worker in home-workers in" >&2
+        echo "      registry/clusters/${HYBRID_SPOKE_NAME}/infrastructure/spokepool.yaml," >&2
+        echo "      commit and push, and let hub-operator re-mint." >&2
+      else
+        echo "    ✗ Spoke join credentials not ready on Hub. Wait for hub-operator." >&2
+        echo "      secret=${JOIN_SECRET_NAME} ns=platform-capi" >&2
+        echo "      token=$([[ -n "$JOIN_TOKEN" ]] && echo present || echo MISSING)" \
+             "ca-hash=$([[ -n "$CA_CERT_HASH" ]] && echo present || echo MISSING)" \
+             "endpoint=$([[ -n "$CONTROL_PLANE_ENDPOINT" ]] && echo present || echo MISSING)" >&2
+      fi
       return 1
     fi
   fi
@@ -665,12 +769,13 @@ EOF
   TMP_DIR=$(mktemp -d /tmp/ignition-gen-XXXXXX)
   trap 'rm -rf "$TMP_DIR"' RETURN
 
-  local NODE_LABELS="workload-location=on-prem,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
+  # ADR-107 §2: opt-in sandboxed runtime label
+  local NODE_LABELS="workload-location=on-prem,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true$([[ "${SANDBOX_RUNTIME:-}" == "true" ]] && echo ",sandbox.zero-ops.io/runtime=sandboxed")"
   if [[ "$CLUSTER_TARGET" == "hub" ]]; then
-    NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true"
+    NODE_LABELS="workload-location=on-prem,hub-role=worker,topology.kubernetes.io/zone=on-prem,node.kubernetes.io/exclude-from-external-load-balancers=true$([[ "${SANDBOX_RUNTIME:-}" == "true" ]] && echo ",sandbox.zero-ops.io/runtime=sandboxed")"
   fi
 
-  local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64
+  local HOSTNAME_B64 SYSCTL_B64 MODULES_B64 NETWORK_B64 TS_AUTHKEY_B64 JOURNAL_B64
   HOSTNAME_B64=$(printf '%s' "${VM_NAME}" | base64 | tr -d '\r\n')
   # route_localnet is DECLARED here, not left to the `sysctl -w` in the bootstrap
   # DNAT block below.
@@ -701,6 +806,18 @@ DNS=1.1.1.1
 "
   NETWORK_B64=$(printf '%s' "$STATIC_NET" | base64 | tr -d '\r\n')
   TS_AUTHKEY_B64=$(printf '%s' "${TS_AUTHKEY}" | base64 | tr -d '\r\n')
+  # 24-hour log bound, declared rather than defaulted — same argument as the
+  # route_localnet sysctl above: a default nobody set is a default nobody can
+  # see failing. journald's own ceiling is a PERCENTAGE of the filesystem
+  # (10%, i.e. ~6 GB on a 60 GB VHDX) with no age bound at all, and on
+  # 2026-09-25 the Windows host behind these disks hit 0 bytes free and
+  # Hyper-V paused both spoke VMs ("Disk Full") while kubelet — which measures
+  # the guest's disk and can never see the host's — raised no pressure event.
+  # Every byte the guest is free to grow therefore carries its own bound: 24
+  # hours old, 500 MB total. free-spoke.sh applies the same file to nodes
+  # provisioned before this line existed.
+  JOURNAL_B64=$(printf '[Journal]\nMaxRetentionSec=1day\nSystemMaxUse=500M\n' | base64 | tr -d '\r\n')
+  HOST_DISK_B64=$(base64 < "${HERE}/kubelet-host-disk.conf" | tr -d '\r\n')
 
   local ISO_ROOT="${TMP_DIR}/iso-root"
   mkdir -p "${ISO_ROOT}/ignition" "${ISO_ROOT}/bin"
@@ -950,6 +1067,22 @@ SH_EOF
         "contents": {
           "source": "data:text/plain;charset=utf-8;base64,${TS_AUTHKEY_B64}"
         }
+      },
+      {
+        "path": "/etc/systemd/journald.conf.d/24h.conf",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:text/plain;charset=utf-8;base64,${JOURNAL_B64}"
+        }
+      },
+      {
+        "path": "/etc/kubernetes/kubelet.conf.d/50-host-disk.conf",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:text/plain;charset=utf-8;base64,${HOST_DISK_B64}"
+        }
       }
     ]
   },
@@ -982,7 +1115,7 @@ SH_EOF
       {
         "name": "kubelet.service",
         "enabled": true,
-        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
+        "contents": "[Unit]\nDescription=kubelet: The Kubernetes Node Agent\nDocumentation=https://kubernetes.io/docs/\nWants=containerd.service tailscaled.service\nAfter=containerd.service tailscaled.service\nConditionPathExists=/var/lib/kubelet/config.yaml\n\n[Service]\nEnvironment=\"KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}\"\nEnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env\nExecStartPre=/opt/bin/dynamic-node-ip.sh\nExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --config-dir=/etc/kubernetes/kubelet.conf.d --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS\nRestart=always\nStartLimitInterval=0\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
       },
       {
         "name": "kubeadm-join.service",
@@ -1052,6 +1185,18 @@ write_files:
     content: |
       ${TS_AUTHKEY}
 
+  - path: /etc/systemd/journald.conf.d/24h.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      MaxRetentionSec=1day
+      SystemMaxUse=500M
+
+  - path: /etc/kubernetes/kubelet.conf.d/50-host-disk.conf
+    permissions: '0644'
+    content: |
+$(sed 's/^/      /' "${HERE}/kubelet-host-disk.conf")
+
 coreos:
   units:
     - name: systemd-networkd.service
@@ -1107,7 +1252,7 @@ coreos:
         Environment="KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABELS} --provider-id=unmanaged://${VM_NAME}"
         EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
         ExecStartPre=/opt/bin/dynamic-node-ip.sh
-        ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
+        ExecStart=/opt/bin/kubelet --config=/var/lib/kubelet/config.yaml --config-dir=/etc/kubernetes/kubelet.conf.d --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf \$KUBELET_EXTRA_ARGS \$KUBELET_KUBEADM_ARGS
         Restart=always
         StartLimitInterval=0
         RestartSec=10
@@ -1177,8 +1322,69 @@ EOF
   echo "    → Uploading Ignition config and binary ISO bundle to host..."
   local REMOTE_IGN="C:/ProgramData/soloz/flatcar/${VM_NAME}-config.ign"
   local REMOTE_ISO="C:/ProgramData/soloz/flatcar/${VM_NAME}-ignition.iso"
-  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$IGN_FILE" "${SSH_TARGET}:${REMOTE_IGN}" >/dev/null </dev/null
-  scp -o BatchMode=yes -o StrictHostKeyChecking=no "$ISO_OUT" "${SSH_TARGET}:${REMOTE_ISO}" >/dev/null </dev/null
+  # The previous VM must let go of the ISO first.
+  #
+  # Hyper-V holds an open handle on a mounted DVD image, so writing over
+  # ${VM_NAME}-ignition.iso while the old VM still exists fails -- and both scps
+  # below were unchecked, so it failed silently and left YESTERDAY'S ISO in place.
+  # The VM was then destroyed and recreated around that stale image, booting with
+  # the bootstrap token from an earlier run. The node retried
+  #
+  #   could not find a JWS signature in the cluster-info ConfigMap for token ID
+  #
+  # for the full join timeout, against a token the hub had never been given. The
+  # giveaway was on the host: the .ign written this run, the .iso a day older.
+  #
+  # Removing the VM here rather than where it is recreated: the handle has to be
+  # gone before the upload, and that is this side of the call.
+  # One statement, not a multi-line block. win_ps feeds the script to
+  # `powershell -Command -`, which reads stdin a line at a time; a multi-line
+  # if/for is evaluated as it arrives and did not run, while `|| true` swallowed
+  # the evidence. Semicolons keep it to one line, and the result is CHECKED below
+  # rather than assumed.
+  win_ps "$SSH_TARGET" \
+    "Stop-VM -Name '${VM_NAME}' -Force -TurnOff -ErrorAction SilentlyContinue; Remove-VM -Name '${VM_NAME}' -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3" \
+    >/dev/null 2>&1 || true
+
+  # The precondition is not "the VM is gone", it is "the file can be written".
+  # Ask that directly: an open handle from anything at all produces the same
+  # silent scp refusal, and this is the question the upload actually depends on.
+  local _iso_writable
+  _iso_writable=$(win_ps "$SSH_TARGET" \
+    "if (Test-Path '${REMOTE_ISO}') { try { \$f=[IO.File]::Open('${REMOTE_ISO}','Open','Write'); \$f.Close(); 'WRITABLE' } catch { 'LOCKED' } } else { 'ABSENT' }" \
+    2>/dev/null | tr -d '\r' | grep -oE 'WRITABLE|LOCKED|ABSENT' | head -1)
+  if [[ "$_iso_writable" == "LOCKED" ]]; then
+    echo "    ✗ ${REMOTE_ISO} is held open on the host, so the new image cannot replace it." >&2
+    echo "      A VM with it mounted as a DVD does this. Remove it and re-run:" >&2
+    echo "        Remove-VM -Name '${VM_NAME}' -Force" >&2
+    return 1
+  fi
+
+  if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$IGN_FILE" "${SSH_TARGET}:${REMOTE_IGN}" >/dev/null </dev/null; then
+    echo "    ✗ could not upload the Ignition config to ${SSH_TARGET}" >&2
+    return 1
+  fi
+  if ! scp -o BatchMode=yes -o StrictHostKeyChecking=no "$ISO_OUT" "${SSH_TARGET}:${REMOTE_ISO}" >/dev/null </dev/null; then
+    echo "    ✗ could not upload the config ISO to ${SSH_TARGET}" >&2
+    echo "      Most often the VM still holds it as a mounted DVD. Remove it and re-run:" >&2
+    echo "        Remove-VM -Name '${VM_NAME}' -Force" >&2
+    return 1
+  fi
+
+  # Uploaded is not the same as landed. Compare the size the host reports with
+  # the size just built, because a partial or refused write leaves a file that
+  # still exists and is still bootable -- which is exactly how a day-old ISO went
+  # on being used without anything reporting a failure.
+  local _local_iso_size _remote_iso_size
+  _local_iso_size=$(wc -c < "$ISO_OUT" | tr -d ' ')
+  _remote_iso_size=$(win_ps "$SSH_TARGET" \
+    "(Get-Item '${REMOTE_ISO}').Length" 2>/dev/null | tr -d '\r' | grep -oE '^[0-9]+$' | head -1)
+  if [[ "$_remote_iso_size" != "$_local_iso_size" ]]; then
+    echo "    ✗ ${REMOTE_ISO} is ${_remote_iso_size:-absent} bytes; the ISO just built is ${_local_iso_size}." >&2
+    echo "      The host is not holding the image this run produced, so the VM would" >&2
+    echo "      boot someone else's join token." >&2
+    return 1
+  fi
   echo "    ✓ Ignition config & ISO bundle uploaded"
 
   # kvpctl.exe injects the Ignition config over Hyper-V KVP. It ships with neither
@@ -1204,6 +1410,59 @@ phase_provision_flatcar_vm() {
   local SSH_TARGET="$1" VM_NAME="$2" NODE_IDX="$3" CLUSTER_TARGET="${4:-hub}"
   echo "    [4/6] Provisioning Flatcar Gen2 VM via Hyper-V KVP + DVD (${VM_NAME} → ${CLUSTER_TARGET})..."
 
+  # ── Two guards inside the PowerShell below, and why they are there ──────
+  #
+  # NOTE FOR ANYONE EDITING THE POWERSHELL: it is built as a bash DOUBLE-QUOTED
+  # string, so a literal " ends the string early and a backtick runs a command on
+  # the Mac. `bash -n` does not catch either -- both stay syntactically valid and
+  # fail at run time, which is how a comment mentioning "Failed to reserve
+  # resources" once executed local-e2e.sh mid-provision. Keep prose out here,
+  # where it is a bash comment; inside, use no double quotes and no backticks.
+  #
+  # 1. HOST MEMORY CEILING.
+  #    $totalRamBytes and $reserveBytes were computed at the top of the block and
+  #    never read again: the "5 GB Host OS Reserve" in the capacity line was a
+  #    string literal describing a reserve that nothing enforced. A registry row
+  #    asking for more RAM than the host has went straight to New-VM, and failed
+  #    later and elsewhere as Hyper-V refusing to start the VM with "Failed to
+  #    finish reserving resources ... OperationFailed,...StartVM" -- an error
+  #    naming neither memory nor the value that caused it.
+  #
+  #    That is what made it reproducible rather than flaky. The registry asks for
+  #    13 GB startup (min = max = startup, so a hard 13 GB, not a range) on a
+  #    16 GB host. It fits only when nothing else holds memory -- and on the
+  #    FIRST run something always does, because `local-e2e.sh clean` tears down
+  #    the cluster, the kind cluster and the tenant repo but touches no Hyper-V
+  #    object at all, leaving the previous run's VM Running with its 13 GB
+  #    committed. The second run competes with nothing. Fails first, works
+  #    second, every time.
+  #
+  #    Clamped rather than warned about, unlike the vCPU guard: an oversubscribed
+  #    CPU still runs, a VM whose startup memory exceeds the host cannot start at
+  #    all. Min and max follow startup down -- Hyper-V requires
+  #    min <= startup <= max and Set-VMMemory rejects an inconsistent set.
+  #
+  #    Every value is then aligned DOWN to a 2 MB boundary, which Hyper-V
+  #    requires of any memory size. The registry values were whole GB and so
+  #    aligned by accident; the clamped ceiling is host-total minus 5 GB, and
+  #    TotalPhysicalMemory is usable RAM rather than a round number, so it
+  #    lands on an arbitrary byte count. New-VM rejects that with
+  #    Failed to modify device Memory / InvalidParameter -- a message that
+  #    names the device and not the constraint. Integer modulo, not
+  #    math::Floor on a division: these are int64 byte counts.
+  #
+  # 2. WAITING FOR THE MEMORY TO COME BACK.
+  #    The Remove-VM poll waits for the VM OBJECT to disappear, which is
+  #    necessary and not sufficient: the object goes almost at once while the
+  #    worker process exits and releases the committed memory afterwards. The
+  #    wait before Start-VM measures the quantity Start-VM is about to fail on.
+  #
+  #    AvailableBytes from Win32_PerfRawData_PerfOS_Memory, not
+  #    FreePhysicalMemory: "available" counts the standby list, which Windows
+  #    will hand to a starting VM, and "free" does not -- free under-reports and
+  #    would wait out the whole window on a host that was ready. A raw perf
+  #    counter rather than Get-Counter, whose names are localised and would not
+  #    resolve on a non-English host.
   local PS_VM="
 \$vmName = '${VM_NAME}';
 \$solozDir = 'C:\ProgramData\soloz\flatcar';
@@ -1221,17 +1480,49 @@ if (!(Test-Path \$baseVhdx) -and (Test-Path \$rawVhdx)) {
 if (\$existingVM) {
   Stop-VM -Name \$vmName -Force -TurnOff -ErrorAction SilentlyContinue
   Remove-VM -Name \$vmName -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 2
+  # Waited for, not slept through -- but only for the OBJECT. The memory it held
+  # comes back later and is waited for separately, just before Start-VM; see the
+  # note there. The two seconds this used to sleep covered neither.
+  for (\$i = 0; \$i -lt 30; \$i++) {
+    if (-not (Get-VM -Name \$vmName -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Seconds 2
+  }
+  Start-Sleep -Seconds 3
 }
 
 # Clean any stale checkpoint avhdx files
 Get-ChildItem \$solozDir -Filter '${VM_NAME}*.avhdx' | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# Host disk headroom guard (ADR-046): ensure C: has room for bounded growth (60%) plus 20 GB reserve
+\$cFree = [int64](Get-PSDrive C).Free
+\$thisBounded = [int64]($NODE_DISK_BYTES * 0.60)
+\$thisCurrent = if (Test-Path \$vhdPath) { (Get-Item \$vhdPath).Length } else { [int64]0 }
+\$thisGrowth = [math]::Max([int64]0, \$thisBounded - \$thisCurrent)
+
+\$otherGrowth = [int64]0
+\$otherDisks = Get-VM | Where-Object { \$_.Name -ne \$vmName } | ForEach-Object { Get-VMHardDiskDrive -VMName \$_.Name }
+foreach (\$d in \$otherDisks) {
+  if (Test-Path \$d.Path) {
+    \$cur = (Get-Item \$d.Path).Length
+    \$maxBounded = [int64]((Get-VHD \$d.Path).Size * 0.60)
+    \$growth = [math]::Max([int64]0, \$maxBounded - \$cur)
+    \$otherGrowth += \$growth
+  }
+}
+\$reserveBytes = [int64](20GB)
+\$headroom = \$cFree - \$thisGrowth - \$otherGrowth
+if (\$headroom -lt \$reserveBytes) {
+  Write-Output ('    ✗ host disk headroom check failed: C: free ' + [math]::Round(\$cFree/1GB, 1) + ' GB, this VM growth ' + [math]::Round(\$thisGrowth/1GB, 1) + ' GB, other VMs growth ' + [math]::Round(\$otherGrowth/1GB, 1) + ' GB, projected headroom ' + [math]::Round(\$headroom/1GB, 1) + ' GB < 20 GB reserve')
+  Write-Output 'HOST-DISK=FAIL'
+  exit 1
+}
+Write-Output ('    ✓ host disk headroom: C: free ' + [math]::Round(\$cFree/1GB, 1) + ' GB, projected headroom ' + [math]::Round(\$headroom/1GB, 1) + ' GB (>= 20 GB reserve)')
+
 Write-Output '    → Creating fresh VM disk from pristine base Flatcar VHDX...'
 Copy-Item -Path \$baseVhdx -Destination \$vhdPath -Force
 Resize-VHD -Path \$vhdPath -SizeBytes $NODE_DISK_BYTES
 
-Write-Output '    → Creating Generation 2 VM (\$vmName)...'
+Write-Output ('    → Creating Generation 2 VM (' + \$vmName + ')...')
 \$cs = Get-CimInstance Win32_ComputerSystem
 \$totalRamBytes = [int64]\$cs.TotalPhysicalMemory
 \$reserveBytes = [int64](5GB)
@@ -1269,6 +1560,30 @@ if ($MIN_MEMORY_BYTES -gt 0) { \$finalMin = [int64]$MIN_MEMORY_BYTES }
 \$finalCpus = \$autoCpus
 if ($CPU_COUNT -gt 0) { \$finalCpus = [int]$CPU_COUNT }
 
+# Host memory ceiling -- see the note above this PowerShell block.
+\$memAlign = [int64](2MB)
+\$hostCeiling = \$totalRamBytes - \$reserveBytes
+\$hostCeiling = \$hostCeiling - (\$hostCeiling % \$memAlign)
+if (\$hostCeiling -lt [int64](2GB)) {
+  Write-Output ('    ✗ host has ' + [math]::Round(\$totalRamBytes/1GB, 1) + ' GB total; after a ' + [math]::Round(\$reserveBytes/1GB, 1) + ' GB OS reserve there is not enough left to run a node')
+  Write-Output 'VM-CAPACITY=FAIL'
+  exit 1
+}
+if (\$finalStartup -gt \$hostCeiling) {
+  Write-Output ('    ⚠ requested ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB startup memory, but this host has ' + [math]::Round(\$totalRamBytes/1GB, 1) + ' GB total')
+  Write-Output ('    → granting ' + [math]::Round(\$hostCeiling/1GB, 1) + ' GB (host total minus the ' + [math]::Round(\$reserveBytes/1GB, 1) + ' GB OS reserve)')
+  Write-Output ('    → the request comes from the memory columns for this node in scripts/hybrid/home-lab.env')
+  \$finalStartup = \$hostCeiling
+}
+# Hyper-V requires min <= startup <= max, and clamping startup can invalidate
+# either. Both follow it rather than failing Set-VMMemory on an inconsistent set.
+if (\$finalMin -gt \$finalStartup) { \$finalMin = \$finalStartup }
+if (\$finalMaxRam -lt \$finalStartup) { \$finalMaxRam = \$finalStartup }
+if (\$finalMaxRam -gt \$hostCeiling) { \$finalMaxRam = \$hostCeiling }
+\$finalStartup = \$finalStartup - (\$finalStartup % \$memAlign)
+\$finalMin = \$finalMin - (\$finalMin % \$memAlign)
+\$finalMaxRam = \$finalMaxRam - (\$finalMaxRam % \$memAlign)
+
 # Oversubscription guard (ADR-046 §24.5). home-lab.env is gitignored, so a stale
 # cpus column survives every repo change and silently reinstates the condition that
 # powered this class of host off mid-provision. An explicit value still wins — the
@@ -1282,7 +1597,7 @@ if (\$totalCpus -gt \$logical) {
   Write-Output ('    → lower the cpus column in home-lab.env for the VMs on this box')
 }
 
-Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, 5 GB Host OS Reserve)')
+Write-Output ('    ✓ Capacity: ' + \$finalCpus + ' vCPUs, ' + [math]::Round(\$finalStartup/1GB, 1) + ' GB Startup (Dynamic ' + [math]::Round(\$finalMin/1GB, 1) + ' - ' + [math]::Round(\$finalMaxRam/1GB, 1) + ' GB Max, ' + [math]::Round(\$reserveBytes/1GB, 1) + ' GB Host OS Reserve)')
 
 New-VM -Name \$vmName -Generation 2 -MemoryStartupBytes \$finalStartup -VHDPath \$vhdPath -SwitchName '$VSWITCH_NAME' | Out-Null
 Add-VMDvdDrive -VMName \$vmName -Path \$isoPath | Out-Null
@@ -1300,8 +1615,42 @@ if (Test-Path \$kvpctl) {
   & \$kvpctl \$vmName add-ign \$ignPath
 }
 
-Start-VM -Name \$vmName
-Write-Output '    ✓ Started VM'
+# Wait for the host to return the memory -- see the note above this block.
+\$needBytes = \$finalStartup
+for (\$i = 0; \$i -lt 30; \$i++) {
+  \$avail = 0
+  try { \$avail = [int64](Get-CimInstance Win32_PerfRawData_PerfOS_Memory -ErrorAction Stop).AvailableBytes } catch { \$avail = 0 }
+  if (\$avail -eq 0) {
+    try { \$avail = [int64](Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).FreePhysicalMemory * 1024 } catch { \$avail = 0 }
+  }
+  if (\$avail -ge \$needBytes) { break }
+  if (\$i -eq 0) {
+    Write-Output ('    → waiting for the host to return memory: need ' + [math]::Round(\$needBytes/1GB, 1) + ' GB, ' + [math]::Round(\$avail/1GB, 1) + ' GB available')
+  }
+  Start-Sleep -Seconds 2
+}
+
+# Retried as well as waited for. The wait makes the first attempt likely to
+# succeed; the retry covers a host that is still settling, and neither invents
+# memory -- which is why the ceiling above is the actual fix.
+\$started = \$false
+for (\$i = 0; \$i -lt 6; \$i++) {
+  try {
+    Start-VM -Name \$vmName -ErrorAction Stop
+    \$started = \$true
+    break
+  } catch {
+    Write-Output ('    … start attempt ' + (\$i + 1) + ' failed: ' + \$_.Exception.Message)
+    Start-Sleep -Seconds 10
+  }
+}
+if (\$started) {
+  Write-Output '    ✓ Started VM'
+} else {
+  # Said here rather than inferred five minutes later from a node that never
+  # joined. The caller checks Get-VM state after this block regardless.
+  Write-Output '    ✗ Start-VM failed after 6 attempts over ~60s'
+}
 
 Write-Output '    → Setting up host portproxy for SSH...'
 \$vmIp = \$null
@@ -1342,7 +1691,20 @@ Write-Output 'VM-READY=OK'
 }
 
 # ── Phase 6: Verify node Ready ───────────────────────────────────────────────
-node_ready() {
+# node_state answers ONE question about a node, in a way the caller can act on:
+# is it serving, is it registered-but-not-serving, is it not in this cluster at
+# all, or could the cluster not be asked. Echoes exactly one word on stdout —
+# ready | notready | absent | unknown — with any diagnostics on stderr.
+#
+# The distinction between `notready` and `absent` is load-bearing and used to be
+# collapsed. node_ready returns non-zero for both, and the recovery gate read
+# that as "wait for it to come back". A node that is ABSENT from this cluster is
+# not coming back: on a fresh bootstrap the cluster has a new CA and new tokens,
+# so the VM left over from the previous run holds a kubelet certificate for a
+# cluster that no longer exists. Waiting for it is waiting for something that
+# cannot happen -- observed as a 5-minute pause on every `make e2e-fresh` before
+# the rebuild that was always going to be required.
+node_state() {
   local HOSTNAME="$1"
   local CLUSTER_TARGET="${2:-$TARGET_CLUSTER}"
   local TARGET_KC
@@ -1356,30 +1718,185 @@ node_ready() {
           get secret "${HYBRID_SPOKE_NAME}-kubeconfig" \
           -n platform-capi -o jsonpath='{.data.value}' 2>/dev/null \
           | base64 -d > "$TMP_KC"; then
-      echo "    ✗ could not fetch spoke kubeconfig" >&2
       rm -f "$TMP_KC"
-      return 1
+      echo "    ✗ could not fetch spoke kubeconfig" >&2
+      echo unknown
+      return 0
     fi
     TARGET_KC="$TMP_KC"
   fi
 
-  if kubectl --kubeconfig="$TARGET_KC" get node "${HOSTNAME}" &>/dev/null; then
-    local READY
-    READY=$(kubectl --kubeconfig="$TARGET_KC" get node "${HOSTNAME}" \
-      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+  # Whether the API answered at all, separately from what it said. `get node`
+  # failing because the cluster is unreachable is not the same claim as the node
+  # not being in it, and treating the first as the second is how an unreachable
+  # hub came to look like a node that needed rebuilding.
+  local ALL
+  if ! ALL=$(kubectl --kubeconfig="$TARGET_KC" get nodes \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null); then
     [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
-    if [[ "$READY" == "True" ]]; then
-      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} cluster"
+    echo unknown
+    return 0
+  fi
+  [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
+
+  local line name status
+  while IFS= read -r line; do
+    name="${line%%=*}"; status="${line#*=}"
+    if [[ "$name" == "$HOSTNAME" ]]; then
+      [[ "$status" == "True" ]] && echo ready || echo notready
       return 0
-    else
-      echo "    ✗ ${HOSTNAME}: exists in ${CLUSTER_TARGET} but Ready=${READY}" >&2
-      return 1
     fi
-  else
-    [[ -n "$TMP_KC" ]] && rm -f "$TMP_KC"
-    echo "    ✗ ${HOSTNAME}: not a member of ${CLUSTER_TARGET} cluster" >&2
+  done <<< "$ALL"
+  echo absent
+}
+
+# node_ready keeps its original contract -- exit 0 when the node is serving --
+# and now reads node_state so there is one place that asks the cluster.
+node_ready() {
+  local HOSTNAME="$1"
+  local CLUSTER_TARGET="${2:-$TARGET_CLUSTER}"
+  case "$(node_state "$HOSTNAME" "$CLUSTER_TARGET")" in
+    ready)
+      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} cluster"
+      return 0 ;;
+    notready)
+      echo "    ✗ ${HOSTNAME}: exists in ${CLUSTER_TARGET} but is not Ready" >&2
+      return 1 ;;
+    absent)
+      echo "    ✗ ${HOSTNAME}: not a member of ${CLUSTER_TARGET} cluster" >&2
+      return 1 ;;
+    *)
+      echo "    ✗ ${HOSTNAME}: could not ask the ${CLUSTER_TARGET} cluster" >&2
+      return 1 ;;
+  esac
+}
+
+# ── Recovery gate: start what exists before replacing it ─────────────────────
+#
+# Rebuilding is destructive and used to be the only thing this script could do.
+# phase_prep_flatcar_and_ignition sweeps the VM and deletes the Node object;
+# phase_provision_flatcar_vm then replaces the disk from the pristine base image.
+# Between them they cost ~10 minutes and take with them the evidence for why the
+# node dropped out in the first place.
+#
+# A node that has lost its heartbeat usually needs none of that. On a workstation
+# the VM is Off because the host slept, rebooted, or ran out of memory; the guest
+# still holds a valid kubelet client certificate, so starting it is enough — it
+# re-registers itself, which is exactly what was observed on 2026-09-15 after a
+# rebuild had already been triggered to fix it.
+#
+# Returns 0 when the node reached Ready without a rebuild, and the caller then
+# skips every remaining phase for this node. Returns 1 to mean "rebuild", which
+# is also what an absent VM and an unreachable Hyper-V both mean — this gate only
+# ever declines to destroy something, it never decides to.
+phase_recover_existing_vm() {
+  local SSH_TARGET="$1" HOSTNAME="$2" NODE_IDX="$3" CLUSTER_TARGET="${4:-$TARGET_CLUSTER}"
+
+  if [[ "$FORCE_REBUILD" == "1" ]]; then
+    echo "    [0/6] Recovery gate skipped (--force-rebuild)"
     return 1
   fi
+
+  local VM_STATE
+  VM_STATE=$(win_ps "$SSH_TARGET" "(Get-VM -Name '${HOSTNAME}' -ErrorAction SilentlyContinue).State" \
+    | tr -d '\r' | grep -Ex 'Running|Off|Saved|Paused|Starting|Stopping|Reset|Resuming|Other' | tail -1 || true)
+
+  if [[ -z "$VM_STATE" ]]; then
+    echo "    [0/6] Recovery gate: no VM named ${HOSTNAME} on the host — provisioning from scratch"
+    return 1
+  fi
+
+  echo "    [0/6] Recovery gate: ${HOSTNAME} already exists on the host (Hyper-V state: ${VM_STATE})"
+
+  # What the CLUSTER says decides whether recovery is possible at all, and it is
+  # asked before the VM's power state is acted on.
+  case "$(node_state "$HOSTNAME" "$CLUSTER_TARGET")" in
+    ready)
+      # Already serving. The caller's own gate usually catches this, but the
+      # script is also run by hand -- the CLI's failure message tells operators
+      # to do exactly that -- so it must not destroy a healthy node.
+      echo "    ✓ ${HOSTNAME}: already Ready in ${CLUSTER_TARGET} — nothing to do"
+      return 0 ;;
+    absent)
+      # Not a member of this cluster, so there is nothing to wait for. This is
+      # every fresh bootstrap: `local-e2e.sh clean` tears down the cluster, the
+      # kind cluster and the tenant repo but touches no Hyper-V object, so the
+      # previous run's VM is still on the host holding a kubelet certificate for
+      # a cluster that no longer exists. It cannot rejoin one with a new CA --
+      # waiting the full window for it only delays the rebuild it always needed.
+      echo "    → ${HOSTNAME} is not a member of the ${CLUSTER_TARGET} cluster and cannot"
+      echo "      rejoin one it holds no credentials for — rebuilding."
+      return 1 ;;
+  esac
+
+  case "$VM_STATE" in
+    Off|Saved|Paused)
+      echo "    → VM is ${VM_STATE}; starting it rather than replacing it..."
+      # Retried, and for the same reason the rebuild path is: Hyper-V does not
+      # release a VM's memory reservation the instant it stops, and a Start-VM
+      # issued into that window fails with "Failed to finish reserving resources".
+      if ! win_ps "$SSH_TARGET" "
+\$ok = \$false
+for (\$i = 0; \$i -lt 6; \$i++) {
+  try {
+    if ((Get-VM -Name '${HOSTNAME}' -ErrorAction Stop).State -eq 'Paused') {
+      Resume-VM -Name '${HOSTNAME}' -ErrorAction Stop
+    } else {
+      Start-VM -Name '${HOSTNAME}' -ErrorAction Stop
+    }
+    \$ok = \$true
+    break
+  } catch {
+    Write-Output ('    … start attempt ' + (\$i + 1) + ' failed: ' + \$_.Exception.Message)
+    Start-Sleep -Seconds 10
+  }
+}
+if (\$ok) { Write-Output 'START=OK' } else { Write-Output 'START=FAIL' }
+" | tr -d '\r' | grep -q 'START=OK'; then
+        echo "    ✗ could not start ${HOSTNAME} after 6 attempts — falling through to a rebuild" >&2
+        return 1
+      fi
+      echo "    ✓ ${HOSTNAME} started"
+      ;;
+    Running)
+      echo "    → VM is Running but the node is not Ready; giving the kubelet time to rejoin..."
+      ;;
+    *)
+      # Starting, Stopping, Reset, Resuming, Other: transitional or wedged. Not a
+      # state to start from and not one to wait on either.
+      echo "    → VM is ${VM_STATE}, which is neither running nor startable — rebuilding"
+      return 1
+      ;;
+  esac
+
+  # Poll proportionally: a long window wants a quiet loop, and a caller who asked
+  # for a short one (a test, or --recover-wait 30) wants an answer inside it
+  # rather than one fixed ten-second tick later.
+  local POLL=10
+  if (( RECOVER_WAIT_SECONDS < 50 )); then
+    POLL=$(( RECOVER_WAIT_SECONDS / 5 ))
+    (( POLL < 1 )) && POLL=1
+  fi
+
+  local DEADLINE=$(( $(date +%s) + RECOVER_WAIT_SECONDS ))
+  local WAITED=0
+  while true; do
+    if node_ready "$HOSTNAME" "$CLUSTER_TARGET" >/dev/null 2>&1; then
+      echo "    ✓ ${HOSTNAME}: Ready in ${CLUSTER_TARGET} after ${WAITED}s — no rebuild needed"
+      return 0
+    fi
+    if [[ $(date +%s) -ge $DEADLINE ]]; then
+      break
+    fi
+    sleep "$POLL"
+    WAITED=$((WAITED + POLL))
+    if (( WAITED % 60 == 0 )); then
+      echo "        still waiting for ${HOSTNAME} to rejoin (${WAITED}s of ${RECOVER_WAIT_SECONDS}s)"
+    fi
+  done
+
+  echo "    ${HOSTNAME} did not rejoin within ${RECOVER_WAIT_SECONDS}s — rebuilding it" >&2
+  return 1
 }
 
 # ── Phase 5 & 6: Monitor guest boot & verify node Ready ─────────────────────
@@ -1566,6 +2083,44 @@ phase_prep_binaries
 while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET STARTUP_GB MIN_GB MAX_GB CPUS DISK_GB <&3; do
   [[ -z "$SSH_TARGET" ]] && continue
   NODE_IDX=$((NODE_IDX + 1))
+
+  # A host may be reachable at more than one address, and which one answers is
+  # not ours to decide.
+  #
+  # The registry field takes a comma-separated list -- user@a,user@b -- and the
+  # first that accepts a TCP connection on its ssh port wins. Everything below
+  # then uses that one address, so no other code has to know a list was possible.
+  #
+  # A workstation on DHCP changes address, and it changed: the Lenovo was
+  # recorded at .12 on 2026-09-14 with a note that .11 "does not respond", and by
+  # 2026-09-18 .12 refused connections while .11 answered. The provisioner tried
+  # the one address it had been given, six times over thirty seconds, and failed
+  # the whole bootstrap phase on a machine that was up the entire time.
+  #
+  # Probing the PORT rather than pinging: these hosts drop ICMP, so both
+  # addresses look dead to ping while one of them is serving ssh.
+  if [[ "$SSH_TARGET" == *,* ]]; then
+    _resolved=""
+    IFS=',' read -r -a _cands <<< "$SSH_TARGET"
+    for _c in "${_cands[@]}"; do
+      _c="${_c#"${_c%%[![:space:]]*}"}"       # trim leading space
+      [[ -z "$_c" ]] && continue
+      _chost="${_c#*@}"
+      if nc -z -G 3 "$_chost" 22 >/dev/null 2>&1; then
+        _resolved="$_c"
+        break
+      fi
+    done
+    if [[ -n "$_resolved" ]]; then
+      [[ "$_resolved" != "${_cands[0]}" ]] &&
+        echo "    note: ${_cands[0]} is not answering; using ${_resolved}"
+      SSH_TARGET="$_resolved"
+    else
+      # None answered. Keep the first so the reachability gate below reports a
+      # real ssh error against a real address rather than a list.
+      SSH_TARGET="${_cands[0]}"
+    fi
+  fi
   [[ -n "$ONLY_NODE" && "$NODE_IDX" != "$ONLY_NODE" ]] && continue
 
   # Per-node capacity: registry fields are the DEFAULT; CLI flags override.
@@ -1589,6 +2144,31 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   # authoritative; the index heuristic is only a fallback for older registries
   # that predate that column.
   CURR_TARGET="$(cluster_for_entry "${NODE_TARGET:-}" "$NODE_IDX")"
+
+  # The node's ordinal WITHIN its own cluster, counted before the --cluster
+  # filter below so it does not depend on which subset this invocation walks.
+  #
+  # NODE_IDX is the registry's global position and must stay that way: it sets
+  # the VM's IP (172.30.0.$((10 + NODE_IDX))) and its SSH port
+  # ($((2220 + NODE_IDX))), which have to be unique across every VM on the host,
+  # hub and spoke alike. But hub-operator mints join tokens per SPOKE, 1-based --
+  # node-<i>-token for i in 1..len(home-workers) -- so it knows nothing of that
+  # global ordering.
+  #
+  # Using NODE_IDX for both asked for the wrong key every time. Registry entry 1
+  # is always the hub (cluster_for_entry's fallback), so a spoke's first worker
+  # is entry 2 and the script looked up node-2-token while the operator had
+  # minted node-1-token. Verified on nutgraf-01, 2026-09-18: the secret held
+  # exactly [ca-cert-hash, control-plane-endpoint, node-1-token] and the run
+  # failed with "Spoke join credentials not ready on Hub. Wait for hub-operator."
+  # -- a message blaming a controller that had done its work 155 minutes earlier.
+  if [[ "$CURR_TARGET" == "hub" ]]; then
+    HUB_ORDINAL=$((${HUB_ORDINAL:-0} + 1))
+    CLUSTER_ORDINAL="$HUB_ORDINAL"
+  else
+    SPOKE_ORDINAL=$((${SPOKE_ORDINAL:-0} + 1))
+    CLUSTER_ORDINAL="$SPOKE_ORDINAL"
+  fi
 
   # --cluster SELECTS which registered nodes to act on; it does not retarget them.
   #
@@ -1669,6 +2249,14 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
   fi
   echo "    ✓ SSH connected"
 
+  # Before anything destructive: if this node already exists, try to bring it
+  # back rather than replace it. Returns 0 only when it is Ready, in which case
+  # every phase below would be undoing work that is already done.
+  if phase_recover_existing_vm "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
+    echo ""
+    continue
+  fi
+
   # Each phase is a precondition for the next, so a failure stops this node here
   # rather than cascading into unrelated-looking errors further down.
   if ! phase_prep_hyperv "$SSH_TARGET" "$HOSTNAME"; then
@@ -1676,7 +2264,7 @@ while IFS='|' read -r _HOST SSH_TARGET WSL_DISTRO _TAILNET BOX_TAG NODE_TARGET S
     echo ""
     continue
   fi
-  if ! phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET"; then
+  if ! phase_prep_flatcar_and_ignition "$SSH_TARGET" "$HOSTNAME" "$NODE_IDX" "$CURR_TARGET" "$CLUSTER_ORDINAL"; then
     FAILED_NODES+=("${HOSTNAME}")
     echo ""
     continue

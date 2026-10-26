@@ -95,7 +95,7 @@ spec:
       #
       # An application role was once added here and did not belong: its
       # credential arrives by the ordinary path (Infisical -> ESO), so it
-      # belongs to hub-operator's RoleManager like hub_zitadel and openmeter.
+      # belongs to hub-operator's RoleManager like hub_zitadel.
       # Having it here broke it in a way that looked fine: CNPG created the role
       # before the Secret existed, recorded
       #
@@ -187,5 +187,4 @@ spec:
       postInitSQL:
         - CREATE DATABASE control_plane;
         - CREATE DATABASE hub;
-        - CREATE DATABASE openmeter;
         - CREATE DATABASE zitadel;

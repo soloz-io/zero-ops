@@ -28,7 +28,7 @@ type resourceMetadata struct {
 // CAPIProvider represents a CAPI provider to install via the cluster-api-operator
 type CAPIProvider struct {
 	Kind     string // CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider
-	Name     string // e.g., cluster-api, kubeadm, talos, hetzner, docker
+	Name     string // e.g., cluster-api, kubeadm, hetzner, docker
 	Version  string
 	Manifest string // path to embedded manifest, e.g., "core/capi-operator/providers/infrastructure-provider-hetzner.yaml"
 }

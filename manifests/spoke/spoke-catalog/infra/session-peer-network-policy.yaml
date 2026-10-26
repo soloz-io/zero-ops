@@ -1,0 +1,50 @@
+# ADR-106 §4: the base posture of every session peer (a renderer, for instance).
+#
+# A peer is an EphemeralJob with spec.peer; the operator labels its pod
+# compute.nutgraf.in/session-peer, and refuses a peer carrying the sandbox label,
+# so this policy -- not the sandbox ones, which carry the application's declared
+# external hosts -- is what governs it.
+#
+# Ingress: the node only (kubelet probes). Egress: DNS only, through Cilium's
+# DNS proxy, so the operator's per-session policy can admit the session's object
+# storage BY NAME. Everything a peer may otherwise do is stated per session by
+# the operator (<job>-peer and <job>-peer-owner CiliumNetworkPolicies): its own
+# session's app port, and that storage host. Nothing else.
+#
+# The L7 DNS rule is the one that broke DNS for every tenant workload when the
+# shared tenant-dns-egress.yaml carried it on 2026-09-30. Here it selects peers
+# only, which are new, so nothing that works today can break. A peer is usable
+# once probes/106-sandbox-dns-visibility-probe.yaml has passed on this spoke;
+# before that, its storage name cannot resolve through the proxy and it fails
+# loudly rather than reaching anything it should not.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: session-peer-default-deny
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: compute.nutgraf.in/session-peer
+        operator: Exists
+  ingress:
+    - fromEntities:
+        - host
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: node-local-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"

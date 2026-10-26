@@ -24,6 +24,51 @@ VERSION="${1:?usage: publish.sh <version> <ghcr-owner>}"
 OWNER="${2:?usage: publish.sh <version> <ghcr-owner>}"
 SKIP_PUSH="${SKIP_PUSH:-}"
 
+# The tree must not be behind its upstream.
+#
+# Eight components are built by their own workflow, which tags the image with the
+# commit SHA and then COMMITS the resolved digest back:
+#
+#   chore(hub-operator): update image to 43dd4a32...
+#
+# That commit lands after the developer's push, so between pushing and pulling
+# the working tree still pins the PREVIOUS digest. A publish in that window
+# produces a bundle whose charts are new and whose image is old, and says nothing
+# -- the chart renders, the digest is valid, the Application syncs Healthy. It
+# cost 0.1.16-rc.30 and rc.31 in one afternoon: both shipped hub-operator's new
+# manifests against its old image, so the ConfigMap the new code writes never
+# appeared and public DNS stayed empty.
+#
+# Refused rather than recomputed. An earlier attempt derived each digest from git
+# history instead of trusting the commit, and it was unsound: workflows are
+# path-filtered and several share go.mod, so "the newest commit touching this
+# component that has a published image" selected an image OLDER than the one
+# already pinned -- kube-sbt resolved to 58b791ef when the repo correctly pinned
+# a build from cd2d9ae7, an ancestor swap that would have downgraded three
+# components on every publish. The source-to-image mapping is not derivable from
+# history; only the build knows it, and the bot's commit is how it says so.
+#
+# So the invariant is simply that the commit has been pulled. That is exactly and
+# only when the pinned digests are trustworthy.
+#
+# The permanent removal of this window is a CI change, not a script change: build
+# the images and publish the bundle in one run, so there is no asynchronous
+# commit to be behind.
+if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+    git fetch -q origin 2>/dev/null || true
+    behind="$(git rev-list --count 'HEAD..@{u}' 2>/dev/null || echo 0)"
+    if [ "${behind:-0}" -ne 0 ]; then
+        echo "publish: this tree is ${behind} commit(s) behind its upstream." >&2
+        echo >&2
+        git log --oneline 'HEAD..@{u}' | sed 's/^/  /' >&2
+        echo >&2
+        echo "  Image digests are committed by CI AFTER a push, so publishing from here" >&2
+        echo "  would ship these charts against whatever images the tree still pins." >&2
+        echo "  Run: git pull --rebase" >&2
+        exit 1
+    fi
+fi
+
 # Helm requires semver. A tag that is not one would publish a chart nobody can
 # request by version.
 if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
@@ -35,6 +80,26 @@ fi
 # noise. Same message either way, addressed to whoever is reading.
 if [ -n "${GITHUB_ACTIONS:-}" ]; then err() { echo "::error::$*"; }
 else                                 err() { echo "error: $*" >&2; }; fi
+
+# The packaging toolchain, pinned.
+#
+# kustomize's HelmChartInflationGenerator shells out to `helm version -c`, which
+# Helm 4 removed -- so on a machine with Helm 4 on PATH every component that
+# inflates a chart from its kustomization fails with "unknown shorthand flag:
+# 'c'", and it reads like a broken manifest rather than a toolchain fault. The
+# release workflow pins Helm 3 for the same reason; this makes a local run use
+# the same one, which is the property that lets a local package stand in for a
+# released one at all (ADR-068 addendum 1).
+#
+# Skipped in CI, where the workflow has already installed the pinned Helm.
+if [ -z "${GITHUB_ACTIONS:-}" ]; then
+    # shellcheck source=scripts/dev/helm3.sh
+    . "$(cd "$(dirname "$0")/../dev" && pwd)/helm3.sh"
+    require_helm3 || {
+        echo "publish: no Helm 3 available; packaging would differ from a release" >&2
+        exit 1
+    }
+fi
 
 rm -rf dist/charts dist/dist dist/pkg
 mkdir -p dist/charts
@@ -78,7 +143,19 @@ echo "packaged=$published refused=$refused broken=$broken"
 # pushed.
 python3 scripts/package/distribution.py "$VERSION" dist/charts dist/dist
 python3 scripts/package/verify-distribution.py dist/dist/platform dist/charts
-cp -R dist/charts/universal-tenant dist/charts/tenant-public-tls dist/dist/
+# Carry the tenant charts across the swap below, DERIVED from the same glob that
+# packaged them rather than named here.
+#
+# This was `cp -R dist/charts/universal-tenant dist/charts/tenant-public-tls`.
+# tenant-and-catalog-charts.sh packages every directory under
+# manifests/tenants/charts/, so a third chart was built at line 138 and then
+# deleted by the `rm -rf dist/charts` below -- silently, because the copy named
+# the two it knew about and cannot notice a third. The release gate caught it
+# ("names chart 'platform-spoke-gateway', which this release does not publish"),
+# which is the gate working; the packaging step should not have needed it.
+for src in manifests/tenants/charts/*/; do
+    cp -R "dist/charts/$(basename "$src")" dist/dist/
+done
 rm -rf dist/charts && mv dist/dist dist/charts
 ./scripts/package/bundle-chart.sh               "$VERSION" dist/charts
 
@@ -103,17 +180,33 @@ done
 # one cluster's Infisical project IDs, and an Application naming a Helm chart and
 # a Kustomize block together, which ArgoCD refuses outright. Each rendered
 # perfectly.
-for combo in "dev hybrid" "stg hybrid" "prod hetzner"; do
-    set -- $combo
-    echo "  $1+$2"
+#
+# The combinations are READ from supportedMatrix, not listed here. They were
+# listed -- "dev hybrid", "stg hybrid", "prod hetzner" -- and the list is a copy
+# of a decision made elsewhere, so it went stale the moment the matrix changed:
+# moving stg from hybrid to hetzner left this loop rendering stg+hybrid, which
+# the chart now refuses by design, and the publish failed on its own gate having
+# found exactly what it was supposed to find. A gate that has to be edited in
+# lockstep with the thing it checks is a second source of truth.
+while read -r env provider; do
+    [ -n "$env" ] || continue
+    echo "  $env+$provider"
     helm template platform-bundle dist/charts/platform-bundle \
-        --set environmentSlug="$1" --set provider="$2" \
+        --set environmentSlug="$env" --set provider="$provider" \
         --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
         --set instanceRepoURL=https://github.com/example-org/example-gitops \
         --set hubDomain=dev.example.test \
+        --set previewDomain=example-preview.test \
+        --set grafanaCloudStackUrl=https://example.grafana.net --set alerting.alertmanagerUrl=https://alertmanager.example.test --set alerting.alertmanagerId=1 --set 'alerting.emailTo[0]=alerts@example.test' \
         --set bundleVersion="$VERSION" \
     | python3 scripts/validate/application-specs.py dist/charts
-done
+done <<EOF
+$(python3 -c "
+import yaml
+m = yaml.safe_load(open('manifests/argocd/environment-manager/values.yaml')).get('supportedMatrix') or {}
+print('\n'.join(f'{e} {p}' for e, ps in m.items() for p in ps))
+")
+EOF
 
 # Asserts the whole support matrix, both halves. Every environment crossed with
 # every provider: a supported combination must render and must name only charts

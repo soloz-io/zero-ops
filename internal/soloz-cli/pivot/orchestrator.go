@@ -42,7 +42,7 @@ type Orchestrator struct {
 	BootstrapContext string
 	ClusterName      string
 	Namespace        string
-	OSType           string // ubuntu or talos
+	OSType           string // node OS; "ubuntu" is the only supported value (ADR-001)
 	Debug            bool
 }
 
@@ -171,7 +171,7 @@ func (o *Orchestrator) WaitForReady(ctx context.Context, mgmtKubeconfig string) 
 	}
 
 	// Wait for providers ready on Management Cluster
-	if err := o.waitForProvidersReady(ctx, mgmtKubeconfig, 5*time.Minute); err != nil {
+	if err := o.waitForProvidersReady(ctx, mgmtKubeconfig, 20*time.Minute); err != nil {
 		return fmt.Errorf("providers not ready after pivot: %w", err)
 	}
 
@@ -291,7 +291,7 @@ func (o *Orchestrator) installOperatorOnMgmt(ctx context.Context, mgmtKubeconfig
 			"-n", constants.NamespaceCertManager,
 			dep,
 			"--for=condition=Available",
-			"--timeout=3m",
+			"--timeout=5m",
 		)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("cert-manager deployment %s not ready: %w\n%s", dep, err, output)
@@ -309,7 +309,7 @@ spec:
   selfSigned: {}
 `)
 
-	deadline := time.Now().Add(2 * time.Minute)
+	deadline := time.Now().Add(5 * time.Minute)
 	webhookReady := false
 	for time.Now().Before(deadline) {
 		cmd = exec.CommandContext(ctx, "kubectl",
@@ -585,20 +585,10 @@ func (o *Orchestrator) applyProviders(ctx context.Context, kubeconfig string) er
 		return fmt.Errorf("operator CRDs not ready: %w", err)
 	}
 
-	// Determine which providers to install based on OS type
-	var bootstrapProvider, controlPlaneProvider string
-	if o.OSType == "talos" {
-		bootstrapProvider = "bootstrap-provider-talos.yaml"
-		controlPlaneProvider = "controlplane-provider-talos.yaml"
-	} else {
-		bootstrapProvider = "bootstrap-provider-kubeadm.yaml"
-		controlPlaneProvider = "controlplane-provider-kubeadm.yaml"
-	}
-
 	providers := []string{
 		"core-provider.yaml",
-		bootstrapProvider,
-		controlPlaneProvider,
+		"bootstrap-provider-kubeadm.yaml",
+		"controlplane-provider-kubeadm.yaml",
 		"infrastructure-provider-hetzner.yaml",
 	}
 

@@ -1,7 +1,33 @@
 # ADR-057: Tenant User Management
 
 **Date:** 2026-08-31
-**Status:** Accepted
+**Status:** Accepted — but the forwarding rule below is **scoped to a hop inside one
+application** and must not be used across an application boundary.
+**Amended:** 2026-09-30 after external security review of ADR-094/095. The
+shared-secret plus trusted-identity-header hop this ADR defines (bff -> that
+application's own sdk) carries email, roles and a **caller-asserted** tenant. That
+is acceptable within one application, where the caller is the same trust domain and
+a CiliumNetworkPolicy admits nothing else. It is **not** an acceptable
+cross-application trust model: tenant and caller identity must come from a
+validated token, not from a header the caller writes. The review's conclusion is
+that a cross-application hop is **replaced** with ADR-094's model as a deliberate
+change, never retrofitted onto these headers. See ADR-094 "External security
+review, 2026-09-30", requirements 4–7.
+
+> **AMENDED by ADR-099 (2026-10-01).** What this ADR decides — that a person is
+> found by SUBJECT and never by email address, that resolution is a platform
+> library rather than fifty lines in each tenant, and that provisioning and
+> linking are one atomic operation — all stands.
+>
+> What changes is where the tables live. **The platform no longer ships a tenant
+> baseline.** It provisions a database and a role; `users` and `identities` are
+> the application's, declared in its own migrations from
+> `zero-ops-auth/schema/identity.sql`. `resolveUser` issues its own SQL against
+> them again, so the `SECURITY DEFINER` function this ADR's 2026-09-28 amendment
+> introduced is gone, and so are the row-level security policies — they never
+> constrained the application, which sets the claim they read.
+>
+> Read "the baseline" below as "the two tables the application declares".
 
 ## Context
 
@@ -35,6 +61,20 @@ This is stated as a rule rather than left to judgement because the failure it pr
 
 Recording the provider alongside the subject is equally deliberate. Subjects are unique within an issuer, not across issuers, so a tenant federating a second provider must not allow one subject to resolve to a user established by another.
 
+### The provider name is `zitadel`, and it is not a free-text label
+
+The value stored in `identities.provider` names the issuer that actually issued the subject. On this platform that is Zitadel (ADR-060), and the constant lives in one place: `DEFAULT_PROVIDER` in `zero-ops-auth`.
+
+It said `"ory"` until 2026-09-30 — a default carried over from the identity provider that preceded Zitadel, on a fleet whose issuer had only ever been Zitadel. Nothing failed for as long as it was wrong, and that is the point worth recording: this value is only ever compared against itself. The library writes the name, looks the person up by the same name, and matches. A wrong name is perfectly self-consistent, produces no error, and is invisible to every test that exercises resolution. It was found by the oranger team reading a row, not by anything reporting it.
+
+**The stored value and the sent value move in the same change.** `identities` is `UNIQUE(provider, provider_user_id)` and resolution looks a person up by that pair, so changing the name the library sends without rewriting the stored rows makes every existing identity unreachable: the lookup matches nothing, `resolve_user` concludes the person is new, and inserts a **second** `users` row for someone who already has one. That insert succeeds. Nothing reports it, and the person's records stay behind the identifier they no longer resolve to.
+
+So the rename was one change with two halves — a platform migration rewrote every stored row, and `zero-ops-auth` 0.16.0 sent the new name. **Both have run.** An application adopting the schema under ADR-099 inherits rows that already say `zitadel` and must not repeat the rewrite.
+
+**The old name was refused, not aliased.** The platform's `resolve_user` function raised on `provider = 'ory'` while it existed. It is gone with the baseline (ADR-099), and the guard is no longer needed: every stored row was rewritten and no shipped library sends the old name. Accepting both names for one issuer is exactly what creates the duplicate above, and it would do so during the rollout window in which some workloads are upgraded and some are not. A stale caller gets an error naming the version it must upgrade to; a rollout window measured in minutes is the right price for a duplicate that is permanent.
+
+This does not constrain genuine federation. A tenant that really does add a second issuer names it explicitly, which is the case the provider column exists for.
+
 ### A user is provisioned on first authenticated request
 
 A tenant-local user is created the first time an authenticated subject is seen, not by an administrative act in advance. The identity provider is the authority on who may authenticate; the tenant's database holds what that person owns. Requiring a separate provisioning step ahead of first use would place an administrative gate in front of authentication that the platform's own authorisation model does not otherwise impose.
@@ -45,7 +85,45 @@ Two requests from the same person arriving together will both observe no user an
 
 ### Row-level security context is transaction-scoped
 
+> **Amendment 2026-09-28, WITHDRAWN 2026-10-01 (ADR-099).** It read: the RLS
+> context this section specifies had no effect until ADR-093 separated the owner
+> from the runtime role, and `resolveUser` would thereafter reach `identities`
+> through a hardened `SECURITY DEFINER` function.
+>
+> Both halves are withdrawn. The policies were inert, but making them bite was not
+> worth what it cost, and they bound nobody even when they worked: the application
+> supplies the `user_id` they compare against. There are no baseline policies now
+> and no function — `resolveUser` reads the application's own tables directly.
+
 The setting the baseline policies read is established for the duration of a transaction and no longer.
+
+### The database does not authenticate anyone
+
+**The policies trust `request.jwt.claims` completely.** Whatever value is in that
+setting IS the acting user, as far as every policy in the baseline is concerned.
+PostgreSQL does not check it, cannot check it, and has no idea where it came from.
+
+So the security boundary is not the policy. It is the application being the only
+thing that can set that value, and setting it only from a subject it has just
+validated. Row-level security enforces the consequence of an authentication
+decision; it does not make the decision, and a caller that can set the claims to
+an arbitrary user id has already bypassed everything.
+
+Three properties follow, and they are invariants rather than implementation notes:
+
+- The value is derived from a **validated** token (ADR-050), never from a request
+  header, a query parameter, or anything a client can choose.
+- It is set **inside the transaction** that uses it and never left on a pooled
+  connection, which is what the section above is about.
+- Nothing else may set it. A second component with the ability to write that
+  setting is a second authentication authority, whether or not it is treated as
+  one.
+
+This is recorded because the baseline's policies look self-sufficient in `\d` --
+they are visible, enabled, and correct -- and it would be easy to read the schema
+as though the database were enforcing identity. It is enforcing isolation given an
+identity. ADR-093 makes that isolation real; it does not change who establishes the
+identity.
 
 This is not a stylistic preference. Tenants reach the database through a connection pool operating in transaction mode, where a server connection is handed to a different client the instant a transaction completes. A setting established for the session would outlive the request that set it and be inherited by whichever request borrows that connection next, and every policy would then evaluate against another person's identity. Transaction scoping is what makes pooled access safe, and a session-scoped equivalent is a cross-tenant disclosure rather than a lesser form of the same thing.
 
@@ -299,6 +377,15 @@ Per ADR-039.
 ## Impact
 
 - **Extends the tenant baseline's role.** The baseline's user and identity tables become part of the platform's contract with tenants rather than unused scaffolding.
+- **Fixes the provider name in the baseline and the library together** (2026-09-30).
+  A platform migration rewrote every `identities.provider` from `ory` to
+  `zitadel` and `zero-ops-auth` 0.16.0 sends the new name. **Both have run.**
+  Under ADR-099 the platform ships no migrations, so an application adopting
+  `users` and `identities` inherits rows that already say `zitadel` — it must not
+  repeat the rewrite, and nothing in the shipped library sends the old name.
+- **Supersedes ADR-010** (marked 2026-09-28). That decision predates ZITADEL,
+  assumed PostgREST and Atlas, and provisioned users through an administrative API
+  rather than on first authenticated request. It is retained for history only.
 - **Amends ADR-050.** That decision establishes how a tenant authenticates and where identity is validated; this one establishes what the validated identity resolves to inside the tenant's own data.
 - **Requires the platform auth library to be versioned and published** before a tenant can adopt the behaviour, so tenant adoption follows a release rather than a commit.
 - **Extends the platform auth library with a client surface** carrying no dependencies, so browser and native applications consume it directly rather than each restating the identity contract.

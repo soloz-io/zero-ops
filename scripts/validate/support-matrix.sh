@@ -47,6 +47,8 @@ while read -r env; do
             --set environmentSlug="$env" --set provider="$provider" \
             --set instanceRepoURL=https://github.com/example-org/example-gitops \
             --set hubDomain=dev.example.test \
+            --set previewDomain=example-preview.test \
+            --set grafanaCloudStackUrl=https://example.grafana.net --set alerting.alertmanagerUrl=https://alertmanager.example.test --set alerting.alertmanagerId=1 --set 'alerting.emailTo[0]=alerts@example.test' \
             --set publicTlsIssuer=letsencrypt-prod --set hubIngressAddress=127.0.0.1 \
             --set bundleVersion="$VERSION" 2>&1) && ok=0 || ok=1
 

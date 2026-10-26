@@ -1,0 +1,15 @@
+# ADR-107: the sandboxed RuntimeClass and its per-node installer. Usable on any
+# containerd node; the spoke catalogue adds Cilium's bypass beside it
+# (../sandbox-runtime-cilium.yaml), the local Kind profile does not need it.
+resources:
+  - runtime.yaml
+
+# The installer script, as a GENERATED ConfigMap: its name carries a hash of
+# its content, so changing the script changes the DaemonSet's pod template and
+# the installer re-runs on every node. A plain ConfigMap would update in place
+# and leave each node on whatever the last run installed.
+configMapGenerator:
+  - name: sandboxed-runtime-installer
+    namespace: kube-system
+    files:
+      - install.sh

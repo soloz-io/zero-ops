@@ -80,4 +80,10 @@ minimum="${BUNDLE_MINIMUM_FROM:-${PREVIOUS#v}}"
     echo "Nothing here is applied by the platform. A cluster changes when a tenant"
     echo "merges the proposal against its own repository and its own control plane"
     echo "reconciles the result (ADR-065)."
+
+    # ADR-069: the window is declared when the version is published, and this is
+    # that moment. Declared nowhere before this, which made "supported for a
+    # stated window" a sentence no tenant could act on and the platform could
+    # not answer.
+    python3 "$(dirname "$0")/support-window.py" "$VERSION"
 } 

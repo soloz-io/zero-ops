@@ -32,3 +32,12 @@ resources:
   # time. coredns-distribution.yaml deliberately omits `replicas` so the two do
   # not contend for the field.
   - dns-autoscaler.yaml
+
+  # CoreDNS Corefile. Same reasoning as coredns-distribution.yaml above: kubeadm
+  # creates this ConfigMap, so it is listed as a resource and applied server-side
+  # rather than expressed as a patch kustomize would silently drop.
+  #
+  # It pins external forwarding to IPv4-only upstreams. coredns-nodelocal.yaml
+  # states that the IPv4-only pinning "stays in one place (the CoreDNS Corefile)";
+  # until now there was no such file on the hub side and the claim was untrue.
+  - coredns-corefile.yaml

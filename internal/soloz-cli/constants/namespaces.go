@@ -6,7 +6,6 @@ const (
 	NamespaceCAPI = "platform-capi"
 	
 	// Messaging infrastructure
-	NamespaceMessaging = "platform-messaging"
 	
 	// Identity and authentication
 	NamespaceIdentity = "platform-identity"

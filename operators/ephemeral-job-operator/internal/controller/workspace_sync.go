@@ -1,11 +1,14 @@
 package controller
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	computev1alpha1 "github.com/soloz-io/zero-ops/operators/ephemeral-job-operator/api/v1alpha1"
 )
@@ -15,6 +18,10 @@ import (
 const (
 	minKeepCheckpoints int32 = 1
 	maxKeepCheckpoints int32 = 50
+	// unboundedKeepCheckpoints is resolveKeepCheckpoints' answer for
+	// RetainAllCheckpoints. Never a value a fleet can write: the CRD's minimum
+	// for keepCheckpoints is 1.
+	unboundedKeepCheckpoints int32 = 0
 )
 
 // The platform's workspace persistence agent (ADR-052 §14, §14.2). Image and
@@ -52,7 +59,35 @@ var (
 	//     (hub-operator's constant: "For CAPI/CCM/CSI"). It carries S3 keys only
 	//     in waypoint's local Kind manifest; no registry binds it for an SDK, so
 	//     it worked locally and in no deployed environment.
-	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{namespace}-app-secrets")
+	//   - `{namespace}-app-secrets` — the THIRD wrong value, and wrong in a new
+	//     way: no Secret of that name exists in any tenant namespace. The
+	//     reasoning above ("the Secret each fleet's registry already declares")
+	//     was simply not true of any fleet. Verified on nutgraf-01: the namespace
+	//     holds no `*-app-secrets` at all.
+	//
+	// THE REAL SHAPE: a fleet splits these across TWO objects, and no single
+	// name can satisfy the sidecar.
+	//
+	//   credentials  Secret     <appId>-sdk-secrets   S3_ACCESS_KEY_ID,
+	//                                                 S3_SECRET_ACCESS_KEY
+	//   location     ConfigMap  <appId>-config        S3_ENDPOINT_URL,
+	//                                                 S3_BUCKET_NAME
+	//
+	// That is how the SDK itself binds them, read off the running rollout rather
+	// than inferred. So the sidecar reads both, from the same two objects, and a
+	// rotation or a bucket change still lands in exactly one place each.
+	//
+	// Keyed on appId, NOT namespace. After ADR-088 the namespace is
+	// `tenant-<tenantId>-<appId>` while the fleet's own objects are named from the
+	// appId alone, so `{namespace}-sdk-secrets` would resolve to
+	// `tenant-nutgraf-waypoint-sdk-secrets` — a fourth name that does not exist.
+	// `{namespace}` is still accepted for a deployment that wants it.
+	workspaceSyncSecretTemplate = envOr("WORKSPACE_SYNC_SECRET", "{fleetId}-sdk-secrets")
+
+	// The fleet's non-secret S3 location. Separate object, separate template:
+	// endpoint and bucket are not credentials and the fleet does not store them
+	// as such, so injecting them from a Secret was always going to miss.
+	workspaceSyncConfigTemplate = envOr("WORKSPACE_SYNC_CONFIG", "{fleetId}-config")
 )
 
 // resolveWorkspaceSyncSecret expands the template for one job's namespace.
@@ -60,8 +95,78 @@ var (
 // A deployment that sets WORKSPACE_SYNC_SECRET to a literal name still works —
 // the expansion is a no-op on a string with no placeholder — which is what a
 // spoke with a single fleet and a non-conventional Secret name needs.
-func resolveWorkspaceSyncSecret(namespace string) string {
-	return strings.ReplaceAll(workspaceSyncSecretTemplate, "{namespace}", namespace)
+const (
+	// workspaceStagingPath is the sync container's scratch mount. Each instance
+	// gets its OWN subdirectory of it, because the readiness marker
+	// (<staging>/.ready) and the archive/FUSE working dirs are named from it —
+	// two instances sharing one staging dir would see each other's marker and
+	// report ready before their own restore had run.
+	workspaceStagingPath = "/ws-staging"
+
+	// workspaceSyncPort is the loopback port the session instance serves on, and
+	// the one harness-runtime proxies /workspace/checkpoint to. Left at the
+	// binary's own default so there is one number, not two that must agree.
+	workspaceSyncPort = "7070"
+
+	// sharedWorkspaceSyncPort is the SECOND instance's port.
+	//
+	// Containers in a pod share a network namespace, so two instances binding
+	// the same loopback port is not two listeners — it is the second one exiting
+	// with "address already in use" and crashlooping the pod before the workload
+	// starts. code-builders never hit this because it runs exactly one instance.
+	//
+	// The session instance keeps 7070 deliberately: it owns the tree that
+	// /workspace/checkpoint refers to, so harness-runtime's default needs no
+	// knowledge of this one.
+	sharedWorkspaceSyncPort = "7071"
+
+	// sharedWorkspaceDirName is where the shared workspace is mounted inside the
+	// session's tree. It MUST match workspace-sync's skipDir entry: that is what
+	// keeps the session's own snapshot from also capturing these files.
+	sharedWorkspaceDirName = ".global"
+)
+
+func resolveWorkspaceSyncSecret(namespace, fleetID string) string {
+	return expandWorkspaceSyncRef(workspaceSyncSecretTemplate, namespace, fleetID)
+}
+
+// resolveWorkspaceSyncConfig expands the ConfigMap template for one job.
+func resolveWorkspaceSyncConfig(namespace, fleetID string) string {
+	return expandWorkspaceSyncRef(workspaceSyncConfigTemplate, namespace, fleetID)
+}
+
+// expandWorkspaceSyncRef substitutes both placeholders.
+//
+// A literal name with no placeholder passes through unchanged, which is what a
+// spoke with a single fleet and a non-conventional name needs. An appId that is
+// empty leaves `{appId}` unexpanded rather than producing `-sdk-secrets`: a
+// reference to a Secret named `-sdk-secrets` is a silent miss, and a visibly
+// wrong name in `kubectl describe` is the better failure.
+// An appId is lowercased on the way in. They are ULIDs, which are uppercase by
+// specification, and a Secret or ConfigMap reference is an RFC 1123 subdomain —
+// lower case only. An uppercase appId therefore produced a name the API server
+// rejects, and the rejection lands on the POD, not on the EphemeralJob: the CR
+// keeps an empty status with no events while the controller retries with
+// backoff, so a sandbox that can never be admitted looks like one still being
+// provisioned. The objects themselves can only ever carry the lowercase form,
+// for the same reason, so lowercasing here is what makes the reference resolve.
+func expandWorkspaceSyncRef(template, namespace, fleetID string) string {
+	out := strings.ReplaceAll(template, "{namespace}", namespace)
+	// Unconditional. The guard that used to stand here left `{appId}` in the
+	// rendered name whenever appID was empty, which is a fallback masquerading as
+	// safety: a reference to a Secret literally named `{appId}-sdk-secrets`
+	// resolves to nothing, and because every reference the operator injects is
+	// optional that produces empty env and a sidecar reporting "object storage not
+	// configured" -- the exact silent failure this whole path has produced four
+	// times. appId is required by the CRD (MinLength=1), so an empty value is not
+	// a state to degrade into; if one ever arrives, a visibly wrong name in
+	// `kubectl describe` is the failure worth having.
+	//
+	// Lowercased because these become Kubernetes object names and must be RFC 1123
+	// subdomains. An uppercase identifier builds a reference the API server
+	// refuses, and the refusal lands on the POD -- so the EphemeralJob sits with an
+	// empty status, reading as "still provisioning" rather than as a bad name.
+	return strings.ReplaceAll(out, "{fleetId}", strings.ToLower(fleetID))
 }
 
 func envOr(k, def string) string {
@@ -101,9 +206,56 @@ func envOr(k, def string) string {
 // §14.2 changes: both containers mount a staging emptyDir (`ws-staging`) for
 // squashfs archive and FUSE working directories. The sidecar additionally
 // requires FUSE device access (device 229) for squashfuse and fuse-overlayfs.
-func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32, namespace string) corev1.Container {
+func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCheckpoints int32, namespace, fleetID string) corev1.Container {
+	return workspaceSyncContainerFor(ws, keepCheckpoints, namespace, fleetID, workspaceSyncTarget{
+		name:        "workspace-sync",
+		workspaceID: ws.WorkspaceID,
+		root:        WorkspaceMountPath,
+		staging:     workspaceStagingPath,
+		port:        workspaceSyncPort,
+	})
+}
+
+// workspaceSyncTarget is the per-instance part of a sync container: everything
+// that differs between the session workspace and the shared one mounted inside
+// it. The rest — credentials, retention, security context — is identical by
+// construction, which is the point: the shared instance is not a second
+// mechanism, it is the same one pointed at a different workspace id.
+type workspaceSyncTarget struct {
+	name        string
+	workspaceID string
+	root        string
+	staging     string
+
+	// port is the loopback port this instance serves on. Distinct per instance —
+	// see sharedWorkspaceSyncPort.
+	port string
+
+	// readOnly makes THIS instance restore-only: no periodic backstop, no
+	// teardown snapshot, no retention pass. Per instance rather than per spec,
+	// because a session that writes its own workspace and only reads the shared
+	// one needs exactly one of the two silenced.
+	readOnly bool
+
+	// noArchive disables the squashfs fast path. Set for the shared instance,
+	// whose root sits inside the session workspace: a FUSE overlay there would
+	// nest inside a mount it does not own, and skipping it is what allows the
+	// container to run unprivileged.
+	noArchive bool
+
+	// refresh enables POST /refresh and the generation layout it needs (ADR-052
+	// §14.9). Only for the shared instance of a session that reads it.
+	refresh bool
+}
+
+func workspaceSyncContainerFor(
+	ws *computev1alpha1.WorkspacePersistenceSpec,
+	keepCheckpoints int32,
+	namespace, fleetID string,
+	target workspaceSyncTarget,
+) corev1.Container {
 	var sideC corev1.Container
-	workspaceID := ws.WorkspaceID
+	workspaceID := target.workspaceID
 	uid := int64(1000)
 	// Both run as uid 1000, matching the workload rather than the image's own
 	// nonroot uid. The two processes write the same volume, and a uid mismatch
@@ -134,19 +286,61 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	//     capabilities. These do not.
 	//
 	// So the choice is privileged or no FUSE, and the ADR should say so rather
-	// than describe a middle ground that does not exist. What keeps this within
-	// §19.6 is that the container is platform-authored and platform-owned: a
-	// fleet cannot supply it, name its image, or exec into it, and the tenant's
-	// own workload container is unchanged — unprivileged, no added
-	// capabilities, no device access, and still no ServiceAccount token.
-	privileged := true
+	// than describe a middle ground that does not exist.
+	//
+	// SUPERSEDED BY ADR-052 §14.7. The justification that followed here -- that the
+	// container is platform-authored and platform-owned, so the tenant's own
+	// container being unprivileged is enough -- does not hold. Pod Security
+	// Admission evaluates the WHOLE Pod, and this Pod exists to run tenant
+	// code. A privileged container beside that code produces a privileged Pod
+	// containing untrusted workload; who wrote the Pod spec is not a trust
+	// boundary, and no namespace this Pod could be moved to changes that.
+	//
+	// The result is that no sandbox requesting a durable workspace is admitted
+	// into a tenant namespace at all:
+	//
+	//   pods "ej-sandbox-..." is forbidden: violates PodSecurity
+	//   "restricted:latest": privileged (container "workspace-sync" must not
+	//   set securityContext.privileged=true) ...
+	//
+	// §14.7 moves the mount to platform-owned node storage infrastructure, where
+	// the privilege belongs to a component running no tenant code. This container
+	// is what that replaces.
+	//
+	// The SHARED instance is separable and smaller: oranger ADR-002 §5 already
+	// decided it runs unprivileged, and it does drop `privileged` -- it holds uid
+	// 0 only to chown a reserved directory its sibling created as root. See
+	// §14.7's conformance fix.
+	// RESTRICTED, both instances, no exceptions (§14.7).
+	//
+	// §14.2 ran this container `privileged` with `runAsUser: 0` so squashfuse
+	// and fuse-overlayfs could mount an archive. Pod Security Admission
+	// evaluates the WHOLE Pod and this Pod runs tenant code, so that made every
+	// workspace-bearing sandbox inadmissible in a tenant namespace -- the
+	// EphemeralJob was created, the operator retried forever, and nothing
+	// reported a policy decision.
+	//
+	// §14.7 takes the exit §14.2 named for itself: "the fallback is the §14
+	// content-addressed path, which needs none of it." Restore is file-by-file
+	// from content-addressed objects, which needs no device, no setuid helper
+	// and no mount propagation -- so none of the four reasons privilege was
+	// unavoidable for the archive path applies here.
+	//
+	// uid 1000 matches the workload and the pod's own RunAsUser. That equality
+	// is load-bearing: the two processes write one volume, and a mismatch
+	// produces files the other cannot modify. It is also what removes the last
+	// reason this container held root -- the restore chowns the tree it just
+	// wrote, and a process chowning its own files to its own uid needs no
+	// privilege. Running ONE instance as root was what made the other's chown
+	// fail; running both as 1000 makes the operation a no-op that succeeds.
 	sidecarSec := &corev1.SecurityContext{
-		Privileged:             &privileged,
-		RunAsUser:              ptr(int64(0)),
-		RunAsNonRoot:           ptr(false),
-		ReadOnlyRootFilesystem: ptr(true),
+		RunAsUser:                &uid,
+		RunAsNonRoot:             ptr(true),
+		AllowPrivilegeEscalation: ptr(false),
+		ReadOnlyRootFilesystem:   ptr(true),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
-	_ = uid
 	// Mapped key by key, not `envFrom`.
 	//
 	// The key names happen to equal the env names here, so `envFrom` would
@@ -159,7 +353,21 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	// without Infisical (any local Kind cluster) may have no such Secret, and a
 	// sandbox must still start there — checkpoints then no-op, which §14 names
 	// as the one legitimate no-op.
-	secretName := resolveWorkspaceSyncSecret(namespace)
+	secretName := resolveWorkspaceSyncSecret(namespace, fleetID)
+	configName := resolveWorkspaceSyncConfig(namespace, fleetID)
+	// The location half. A ConfigMap, because that is where the fleet keeps it --
+	// endpoint and bucket are not credentials, and reading them from a Secret is
+	// what left every checkpoint no-opping while the sidecar reported only
+	// "object storage not configured".
+	configEnv := func(name, key string) corev1.EnvVar {
+		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{
+			ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: configName},
+				Key:                  key,
+				Optional:             ptr(true),
+			},
+		}}
+	}
 	secretEnv := func(name, key string) corev1.EnvVar {
 		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{
@@ -171,15 +379,28 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	}
 	env := []corev1.EnvVar{
 		{Name: "WORKSPACE_ID", Value: workspaceID},
+		// Which tree this instance owns. Always explicit, even for the session
+		// instance where it equals the default: two instances run in this pod
+		// and an implied root is one nobody can check in `kubectl describe`.
+		{Name: "WORKSPACE_ROOT", Value: target.root},
+		// Per-instance scratch. See workspaceStagingPath — a shared staging dir
+		// would make one instance's readiness marker satisfy the other's probe.
+		{Name: "STAGING_ROOT", Value: target.staging},
+		// Per-instance loopback port. See sharedWorkspaceSyncPort.
+		{Name: "WORKSPACE_SYNC_PORT", Value: target.port},
 		// The key root (§14.4). Every object this sidecar reads or writes lives
-		// under <appId>/<workspaceId>/code/, so getting this wrong does not
+		// under <appId>/<workspaceId>/, so getting this wrong does not
 		// error — it silently addresses a workspace nobody else can see.
 		{Name: "APP_ID", Value: ws.AppID},
 		// Key names as the registry's ExternalSecret renders them
 		// (fleet-registry/tenants/waypoint/dev/values.yaml): SCREAMING_SNAKE,
 		// matching the env names the SDK binds them to.
-		secretEnv("S3_ENDPOINT_URL", "S3_ENDPOINT_URL"),
-		secretEnv("S3_BUCKET_NAME", "S3_BUCKET_NAME"),
+		// Location from the ConfigMap, credentials from the Secret -- exactly as
+		// the SDK's own rollout binds them, read off the running object rather
+		// than inferred. Injecting all four from one Secret is what failed
+		// silently three times.
+		configEnv("S3_ENDPOINT_URL", "S3_ENDPOINT_URL"),
+		configEnv("S3_BUCKET_NAME", "S3_BUCKET_NAME"),
 		secretEnv("S3_ACCESS_KEY_ID", "S3_ACCESS_KEY_ID"),
 		secretEnv("S3_SECRET_ACCESS_KEY", "S3_SECRET_ACCESS_KEY"),
 		// Optional in a stronger sense than the rest: the registry declares no
@@ -189,32 +410,37 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 		// signs against it — Hetzner does. Local setup derives it from the
 		// endpoint host; deployed environments need the key added to the
 		// ExternalSecret before a region-checking provider will authenticate.
-		secretEnv("S3_REGION", "S3_REGION"),
+		configEnv("S3_REGION", "S3_REGION"),
 	}
-	// Bidirectional on the workspace mount is what makes the restore visible.
+	// NO MOUNT PROPAGATION, because there is no longer a mount to propagate.
 	//
-	// Containers in a pod share a network namespace but NOT a mount namespace.
-	// A fuse-overlayfs mount this container makes at /workspace is, by default,
-	// invisible to the workload container — which would go on seeing the bare
-	// emptyDir. The restore would log success and the agent would find nothing.
+	// §14.2 needed Bidirectional here: containers in a pod share a network
+	// namespace but NOT a mount namespace, so a fuse-overlayfs mount made in
+	// this container was invisible to the workload, which would go on seeing
+	// the bare emptyDir while the restore logged success. Bidirectional pushed
+	// the mount back to the host and onward into the workload's
+	// HostToContainer mount -- and the kubelet permits Bidirectional only on a
+	// privileged container, which is the single reason this one was privileged.
 	//
-	// Bidirectional propagates the mount back to the host and onward into the
-	// workload's HostToContainer mount (set in buildPodSpec). Kubernetes allows
-	// Bidirectional ONLY on a privileged container, which is why this one is
-	// privileged — see sidecarSec.
-	bidirectional := corev1.MountPropagationBidirectional
+	// Restoring file-by-file writes into the shared emptyDir instead. A volume
+	// is visible to every container that mounts it without any propagation
+	// setting, so the workload sees the restored tree because it is the same
+	// volume, not because a mount was pushed into its namespace.
+	//
+	// Leaving Bidirectional set would not merely be redundant: it is rejected
+	// outright on a non-privileged container, so this has to go for the
+	// security context above to be admissible at all.
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:             WorkspaceVolumeName,
-			MountPath:        WorkspaceMountPath,
-			MountPropagation: &bidirectional,
+			Name:      WorkspaceVolumeName,
+			MountPath: WorkspaceMountPath,
 		},
-		{Name: "ws-staging", MountPath: "/ws-staging"},
+		{Name: "ws-staging", MountPath: workspaceStagingPath},
 	}
 
 	always := corev1.ContainerRestartPolicyAlways
 	sideC = corev1.Container{
-		Name:            "workspace-sync",
+		Name:            target.name,
 		Image:           workspaceSyncImage,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Args:            []string{"serve"},
@@ -238,7 +464,7 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 		StartupProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				Exec: &corev1.ExecAction{
-					Command: []string{"test", "-f", "/ws-staging/.ready"},
+					Command: []string{"test", "-f", target.staging + "/.ready"},
 				},
 			},
 			InitialDelaySeconds: 1,
@@ -286,7 +512,7 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 			// value that governs a running pod is visible in `kubectl describe`
 			// rather than implied by the sidecar's own fallback. A retention
 			// bound that has to be inferred is one nobody checks.
-			Name: "KEEP_CHECKPOINTS", Value: strconv.Itoa(int(keepCheckpoints)),
+			Name: "KEEP_CHECKPOINTS", Value: keepCheckpointsEnv(keepCheckpoints),
 		},
 	)
 
@@ -295,8 +521,45 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 	if ws.CheckpointID != "" {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "CHECKPOINT_ID", Value: ws.CheckpointID})
 	}
-	if ws.ReadOnly {
+	// Either the whole spec is read-only, or this instance is. The per-instance
+	// flag is what lets a session write its own workspace while only reading the
+	// shared one -- the case in which checkpointing is not merely wasteful but
+	// overwrites another session's newer copy.
+	if ws.ReadOnly || target.readOnly {
 		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_READ_ONLY", Value: "true"})
+	}
+	if target.refresh {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_REFRESH", Value: "true"})
+	}
+	// ALWAYS, for every instance (§14.7).
+	//
+	// The squashfs fast path mounts through squashfuse and fuse-overlayfs, and
+	// both are gone with the privilege that made them possible. Setting this
+	// unconditionally is what makes that explicit to the binary rather than
+	// leaving it to discover at runtime that it cannot mount and fall back --
+	// a fallback whose log line ("archive present but could not be mounted")
+	// would read as a fault on every single sandbox.
+	//
+	// `target.noArchive` stays as a field because the shared instance has
+	// always set it for a DIFFERENT reason -- its root sits inside the session
+	// tree, where a FUSE overlay would nest inside another mount -- and that
+	// reason survives the storage layer arriving in §14.7. The two are
+	// collapsed here only while no instance can mount at all.
+	sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_NO_ARCHIVE", Value: "true"})
+	// The periodic backstop, for a fleet that asked for one. Both instances get
+	// it: an unattended workspace and the app-scoped tree beside it are lost the
+	// same way, and a brand brief written once at the start of a run is exactly
+	// the kind of thing a crash an hour later would otherwise take.
+	// Only when turned OFF: the sidecar's default is to save, and an env var
+	// restating the default is one more thing that can disagree with it.
+	if ws.CheckpointOnShutdown != nil && !*ws.CheckpointOnShutdown {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{Name: "WORKSPACE_SYNC_TEARDOWN", Value: "false"})
+	}
+	if ws.CheckpointIntervalSeconds != nil && *ws.CheckpointIntervalSeconds > 0 {
+		sideC.Env = append(sideC.Env, corev1.EnvVar{
+			Name:  "WORKSPACE_SYNC_INTERVAL_SECONDS",
+			Value: strconv.Itoa(int(*ws.CheckpointIntervalSeconds)),
+		})
 	}
 	if len(ws.PinnedCheckpoints) > 0 {
 		// Comma-separated: a short list of ids, where JSON encoding would add a
@@ -317,7 +580,14 @@ func workspaceSyncContainer(ws *computev1alpha1.WorkspacePersistenceSpec, keepCh
 // validation, would otherwise reach the sidecar — and `keep: 0` there means
 // "prune everything but the newest", while a negative would be read as
 // "unbounded". Neither is a value a fleet can be assumed to have meant.
+//
+// Zero is returned for RetainAllCheckpoints, and only for it: the env writer
+// renders it as KEEP_CHECKPOINTS=unbounded (§14.8), never as a number the
+// sidecar could read as a bound.
 func resolveKeepCheckpoints(ws *computev1alpha1.WorkspacePersistenceSpec) int32 {
+	if ws != nil && ws.RetainAllCheckpoints {
+		return unboundedKeepCheckpoints
+	}
 	if ws == nil || ws.KeepCheckpoints == nil {
 		return computev1alpha1.DefaultKeepCheckpoints
 	}
@@ -329,4 +599,61 @@ func resolveKeepCheckpoints(ws *computev1alpha1.WorkspacePersistenceSpec) int32 
 	default:
 		return n
 	}
+}
+
+// fleetIDLabel is the namespace label the tenant registry writes beside
+// `tenant-id`. It holds the fleet's ADR-088 appId -- `waypoint`, `oranger` --
+// which is what the fleet's own Kubernetes objects are named from.
+const fleetIDLabel = "app-id"
+
+// resolveFleetID returns the fleet whose Secret and ConfigMap hold this
+// namespace's S3 configuration.
+//
+// NOT spec.workspacePersistence.appId. That field is the tenant APPLICATION id, a
+// ULID, and it is load-bearing elsewhere: it is the S3 object-key root
+// (<appId>/<workspaceId>/) and, for an app-scoped session, the workspace id
+// itself. It cannot also name a Secret, and using it to do so produced
+// `01m37pyr33yjdcc6zh338a2gzd-sdk-secrets` -- the fourth wrong value for this
+// reference. Two identifiers wear the word "app" in this system; this function
+// exists so they are not mixed.
+//
+// Read from the namespace label rather than parsed out of the namespace name:
+// splitting `tenant-<tenantId>-<appId>` is unsafe as soon as a tenantId contains a
+// hyphen, and inference is what produced every earlier wrong value.
+//
+// UNCACHED, and that is not incidental. A cached Get on a Namespace makes the
+// manager start a cluster-wide Namespace informer, which needs list and watch on
+// every namespace and BLOCKS MANAGER STARTUP until that cache syncs. The same
+// mistake on Nodes stopped this operator reconciling entirely in September 2026:
+// it came up, failed to sync a cache it had no RBAC for, and picked up no
+// EphemeralJob at all, with nothing in its status to say so. One GET per pod
+// build is the cheaper side of that trade (see APIReader).
+//
+// NO FALLBACK. An unreadable namespace or a missing label yields the empty
+// string, and the reference then renders bare -- visibly wrong in
+// `kubectl describe` rather than quietly pointing at something that does not
+// exist. A deployment whose namespaces carry no such label sets
+// WORKSPACE_SYNC_SECRET and WORKSPACE_SYNC_CONFIG explicitly, which is
+// configuration, not a guess.
+func (r *EphemeralJobReconciler) resolveFleetID(ctx context.Context, namespace string) string {
+	if r == nil || r.APIReader == nil {
+		return ""
+	}
+	var ns corev1.Namespace
+	if err := r.APIReader.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
+		log.FromContext(ctx).Error(err, "could not read the namespace for its fleet id; "+
+			"the workspace-sync S3 reference will render incomplete and checkpoints will no-op",
+			"namespace", namespace, "label", fleetIDLabel)
+		return ""
+	}
+	return ns.Labels[fleetIDLabel]
+}
+
+// keepCheckpointsEnv renders the resolved retention for the sidecar. The
+// unbounded case is a word, not 0, so no reader can mistake it for a count.
+func keepCheckpointsEnv(keep int32) string {
+	if keep == unboundedKeepCheckpoints {
+		return "unbounded"
+	}
+	return strconv.Itoa(int(keep))
 }

@@ -8,16 +8,35 @@ set -uo pipefail
 # ─── Configuration ───────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-ZERO_OPS_DIR="$PROJECT_ROOT"
-LOG_DIR="$ZERO_OPS_DIR/.zero-ops"
+# Honours a caller's ZERO_OPS_DIR, which is the workspace the box was
+# bootstrapped from. Hardcoding PROJECT_ROOT wrote this script's logs into the
+# platform checkout even when it was validating a tenant's box.
+ZERO_OPS_DIR="${ZERO_OPS_DIR:-$PROJECT_ROOT}"
+# .state, not .zero-ops. The latter was replaced, and a script still writing to
+# it recreates the directory on every run.
+LOG_DIR="$ZERO_OPS_DIR/.state/logs"
 LOG_FILE="$LOG_DIR/post-bootstrap-validate.log"
-# Auto-detect kubeconfig (cloud providers use hub.kubeconfig)
+# No default. It used to fall back to k8-secrets/kubeconfig/hub.kubeconfig, a
+# cluster named "hub" -- so a run against a box named anything else silently
+# validated the wrong cluster, or a stale kubeconfig belonging to a deleted one.
+# Every caller passes KUBECONFIG; not being told which cluster to check is an
+# error, not something to guess at.
 if [[ -z "${KUBECONFIG:-}" ]]; then
-    KUBECONFIG="$ZERO_OPS_DIR/k8-secrets/kubeconfig/hub.kubeconfig"
+    echo "post-bootstrap-validate: KUBECONFIG is not set." >&2
+    echo "  Pass the kubeconfig of the box to validate; there is no default." >&2
+    exit 2
 fi
 # Provider matrix: cloud providers use hetzner infra and production spoke.
 CAPI_INFRA_PROVIDER="hetzner"
-SPOKEPOOL_NAME="${SPOKEPOOL_NAME:-spoke-pool-eu-prod-01}"
+# No default. It used to fall back to spoke-pool-eu-prod-01, so a run that
+# forgot to pass one validated a dev box against the PRODUCTION pool name, found
+# nothing, and reported the spoke checks as failures of the box rather than of
+# the invocation. Every caller passes it; not knowing is an error, not a guess.
+if [[ -z "${SPOKEPOOL_NAME:-}" ]]; then
+    echo "post-bootstrap-validate: SPOKEPOOL_NAME is not set." >&2
+    echo "  Pass the SpokePool this box declares; there is no safe default." >&2
+    exit 2
+fi
 
 # Timeout for individual checks (seconds)
 DEPLOY_READY_TIMEOUT="${DEPLOY_READY_TIMEOUT:-120}"
@@ -44,6 +63,48 @@ log_pass()  { log "  ✅ $1"; ((PASS++)); }
 log_fail()  { log "  ❌ $1"; FAILURES+=("$1"); ((FAIL++)); }
 log_warn()  { log "  ⚠️  $1"; WARNINGS+=("$1"); ((WARN++)); }
 log_section() { log ""; log "══════════════════════════════════════════"; log "  $1"; log "══════════════════════════════════════════"; }
+
+# ─── Waiting for converging state ────────────────────────────────────────────
+#
+# Every check below sampled the cluster exactly once. This script runs the
+# instant bootstrap returns, so a component still converging -- a CNPG cluster
+# electing its primary, an Application mid-sync -- was reported as a failure and
+# ended the run on a box that was minutes from correct. On 2026-09-17 three of
+# the five reported failures were healthy by the time anyone looked.
+#
+# The obvious repair is to sleep before validating. This is the better one. A
+# sleep is a guess that does not generalise across a cold image cache or a slower
+# node; it adds its full cost to runs that were going to fail anyway; and after
+# it, a pass means "ready, or we waited long enough" with no way to tell which.
+# settle() waits only as long as it must and reports the condition rather than a
+# timestamp, so "converging" stays distinguishable from "broken".
+#
+# Use it ONLY where waiting can change the answer. A namespace no manifest
+# declares and an image reference that 404s are answers now and in ten minutes;
+# waiting on those turns a correct, instant failure into a slow one.
+SETTLE_DEADLINE="${SETTLE_DEADLINE:-180}"
+SETTLE_INTERVAL="${SETTLE_INTERVAL:-10}"
+
+# settle <what> <command...> — poll until the command succeeds or the deadline
+# passes. Returns 0 if it became true.
+settle() {
+    local what="$1"; shift
+    local waited=0
+
+    "$@" && return 0
+    (( SETTLE_DEADLINE <= 0 )) && return 1
+
+    log "     waiting up to ${SETTLE_DEADLINE}s for $what"
+    while (( waited < SETTLE_DEADLINE )); do
+        sleep "$SETTLE_INTERVAL"
+        waited=$(( waited + SETTLE_INTERVAL ))
+        if "$@"; then
+            log "     $what after ${waited}s"
+            return 0
+        fi
+    done
+    return 1
+}
 
 # ─── kubectl wrapper ──────────────────────────────────────────────────────────
 kc() { kubectl --kubeconfig="$KUBECONFIG" "$@" 2>/dev/null; }
@@ -131,6 +192,15 @@ check_deployment() {
 check_argocd_app() {
     local app="$1"
     local severity="${2:-FAIL}"   # FAIL or WARN
+    # Synced+Healthy is a converging state, so it is waited for rather than
+    # sampled. platform-database was reported OutOfSync on an ExternalSecret that
+    # was Synced a minute later, and that one line failed the run.
+    _app_converged() {
+        [[ "$(kc get application "$app" -n platform-ops -o jsonpath='{.status.sync.status}' 2>/dev/null)" == "Synced" ]] &&
+        [[ "$(kc get application "$app" -n platform-ops -o jsonpath='{.status.health.status}' 2>/dev/null)" == "Healthy" ]]
+    }
+    settle "ArgoCD app $app to reach Synced+Healthy" _app_converged || true
+
     local sync
     sync=$(kc get application "$app" -n platform-ops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
     local health
@@ -248,13 +318,19 @@ preflight_check() {
 # ─── 1. PLATFORM NAMESPACES ───────────────────────────────────────────────────
 check_namespaces() {
     log_section "1. PLATFORM NAMESPACES"
+    # platform-messaging is NOT here, and was.
+    #
+    # Nothing declares it: the platform ships no messaging component, and the
+    # only mention of that namespace left in the tree is a .test.bak file. So
+    # this required a namespace no manifest creates, and every box failed
+    # post-bootstrap validation on it -- a check asserting a component that does
+    # not exist, which reports the platform broken rather than itself.
     local required_ns=(
         platform-ops
         platform-capi
         platform-data
         platform-identity
         platform-billing
-        platform-messaging
         platform-observability
         platform-security
         platform-edge
@@ -335,9 +411,6 @@ check_infisical() {
         "platform-data:hub-db-credentials"
         "platform-data:platform-db-app-credentials"
         "platform-data:control-plane-db-credentials"
-        "platform-billing:openmeter-postgresql"
-        "platform-billing:openmeter-clickhouse"
-        "platform-billing:openmeter-svix"
     )
     for entry in "${key_secrets[@]}"; do
         local ns="${entry%%:*}"
@@ -391,90 +464,9 @@ check_databases() {
     check_namespace_pods "platform-data"
 }
 
-# ─── 7. CLICKHOUSE ────────────────────────────────────────────────────────────
-check_clickhouse() {
-    log_section "7. CLICKHOUSE"
-    check_argocd_app "platform-clickhouse" "FAIL"
-
-    # ClickHouseInstallation CR
-    local chi_status
-    chi_status=$(kc get clickhouseinstallation platform-clickhouse -n platform-data \
-        -o jsonpath='{.status.status}' 2>/dev/null || echo "NotFound")
-    if [[ "$chi_status" == "Completed" ]]; then
-        log_pass "ClickHouseInstallation platform-clickhouse: $chi_status"
-    elif [[ "$chi_status" == "NotFound" ]]; then
-        log_fail "ClickHouseInstallation platform-clickhouse: Not deployed (ArgoCD sync failed?)"
-    else
-        log_warn "ClickHouseInstallation platform-clickhouse: status=$chi_status (may still be provisioning)"
-    fi
-
-    # ClickHouse service reachable
-    local ch_svc
-    ch_svc=$(kc get svc -n platform-data -l "clickhouse.altinity.com/chi=platform-clickhouse" \
-        --no-headers 2>/dev/null | grep -c '' || true)
-    if [[ "${ch_svc:-0}" -gt 0 ]]; then
-        log_pass "ClickHouse services present ($ch_svc found)"
-    else
-        log_fail "ClickHouse services not found in platform-data"
-    fi
-}
-
-# ─── 8. OPENMETER ─────────────────────────────────────────────────────────────
-check_openmeter() {
-    log_section "8. OPENMETER"
-    check_argocd_app "openmeter" "FAIL"
-
-    local om_deployments=(
-        "openmeter-api"
-        "openmeter-balance-worker"
-        "openmeter-billing-worker"
-        "openmeter-notification-service"
-        "openmeter-sink-worker"
-        "openmeter-svix"
-    )
-
-    for deploy in "${om_deployments[@]}"; do
-        local available
-        available=$(kc get deployment "$deploy" -n platform-billing \
-            -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
-        local desired
-        desired=$(kc get deployment "$deploy" -n platform-billing \
-            -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
-        available="${available:-0}"; desired="${desired:-1}"
-        if [[ "$available" -ge "$desired" && "$desired" -gt 0 ]]; then
-            log_pass "OpenMeter $deploy: $available/$desired"
-        else
-            # Show crash reason if CrashLoopBackOff
-            local crash_reason
-            crash_reason=$(kc get pods -n platform-billing -l "app.kubernetes.io/name=$deploy" \
-                --no-headers 2>/dev/null | grep -v "Running" | head -1 || true)
-            log_fail "OpenMeter $deploy: $available/$desired available${crash_reason:+ → $crash_reason}"
-        fi
-    done
-
-    # Kafka (StatefulSet)
-    local kafka_ready_raw
-    kafka_ready_raw=$(kc get statefulset -n platform-billing -l "app.kubernetes.io/name=kafka" \
-        --no-headers 2>/dev/null | awk '{print $2}' | head -1 | tr -d '[:space:]' || echo "0/0")
-    local kafka_ready="${kafka_ready_raw:-0/0}"
-    if echo "$kafka_ready" | grep -qE '^[1-9][0-9]*/[1-9][0-9]*$'; then
-        log_pass "OpenMeter Kafka: $kafka_ready ready"
-    else
-        log_fail "OpenMeter Kafka: ready=$kafka_ready (StatefulSet not ready)"
-    fi
-
-    # Recurring job errors (billing/subscription sync)
-    local failed_jobs
-    failed_jobs=$(kc get jobs -n platform-billing --no-headers 2>/dev/null \
-        | awk '$2 ~ /^0\// {print $1}' | grep -c '')
-    if [[ "$failed_jobs" =~ ^[0-9]+$ ]] && (( failed_jobs > 5 )); then
-        log_warn "OpenMeter: $failed_jobs failed recurring jobs (billing/subscription cronjobs) — may indicate backend not ready"
-    fi
-}
-
-# ─── 9. ORY IDENTITY STACK ────────────────────────────────────────────────────
+# ─── 7. ORY IDENTITY STACK ────────────────────────────────────────────────────
 check_ory() {
-    log_section "9. ORY IDENTITY STACK"
+    log_section "7. ORY IDENTITY STACK"
     check_argocd_app "zitadel" "FAIL"
 
     local ory_deployments=(
@@ -494,35 +486,9 @@ check_ory() {
     done
 }
 
-# ─── 10. NATS MESSAGING ───────────────────────────────────────────────────────
-check_nats() {
-    log_section "10. NATS MESSAGING"
-
-    # NATS is not deployed on every hub: the hybrid provider omits it (no consumer
-    # in hub-core-services, and a single home-lab node should not carry a 10Gi
-    # JetStream volume). Detect that from the cluster rather than duplicating the
-    # provider logic here — if the ApplicationSet never generated the app, NATS was
-    # deliberately not selected for this hub.
-    if ! kc get application platform-nats -n platform-ops >/dev/null 2>&1; then
-        log_pass "NATS not deployed on this hub (no platform-nats Application) — skipping"
-        return 0
-    fi
-
-    check_argocd_app "platform-nats" "FAIL"
-
-    local nats_ready
-    nats_ready=$(kc get pods -n platform-messaging --no-headers 2>/dev/null \
-        | grep -c "Running" || echo "0")
-    if [[ "$nats_ready" -gt 0 ]]; then
-        log_pass "NATS pods running: $nats_ready"
-    else
-        log_warn "NATS: no running pods in platform-messaging"
-    fi
-}
-
-# ─── 11. HUB OPERATOR ─────────────────────────────────────────────────────────
+# ─── 8. HUB OPERATOR ─────────────────────────────────────────────────────────
 check_hub_operator() {
-    log_section "11. HUB-OPERATOR"
+    log_section "8. HUB-OPERATOR"
     check_argocd_app "hub-operator" "FAIL"
     check_deployment "platform-ops" "hub-operator"
 
@@ -560,9 +526,9 @@ check_hub_operator() {
     fi
 }
 
-# ─── 12. KUBE-SBT API ─────────────────────────────────────────────────────────
+# ─── 9. KUBE-SBT API ─────────────────────────────────────────────────────────
 check_kube_sbt_api() {
-    log_section "12. KUBE-SBT API"
+    log_section "9. KUBE-SBT API"
     check_argocd_app "kube-sbt" "FAIL"
     check_namespace_pods "platform-ops" "app=kube-sbt"
 
@@ -575,9 +541,9 @@ check_kube_sbt_api() {
     fi
 }
 
-# ─── 13. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
+# ─── 10. INGRESS + CERT-MANAGER ───────────────────────────────────────────────
 check_ingress() {
-    log_section "13. INGRESS & CERT-MANAGER"
+    log_section "10. INGRESS & CERT-MANAGER"
     # The hub serves its hostnames from the Gateway API; ingress-nginx was
     # retired, so checking for its Application fails every bootstrap.
     check_argocd_app "hub-gateway" "FAIL"
@@ -595,9 +561,9 @@ check_ingress() {
     fi
 }
 
-# ─── 14. SPOKE POOL + CAPI ────────────────────────────────────────────────────
+# ─── 11. SPOKE POOL + CAPI ────────────────────────────────────────────────────
 check_spoke() {
-    log_section "14. SPOKE POOL & CAPI"
+    log_section "11. SPOKE POOL & CAPI"
 
     # Extract the spoke admin kubeconfig for direct spoke-cluster validation.
     get_spoke_kubeconfig
@@ -761,13 +727,23 @@ check_kyverno_crd_established() {
 }
 
 check_spoke_cnpg() {
+    # readyInstances, not the phase string. The phase is human-facing text that
+    # changes between CNPG releases; a ready instance count is the fact, and it is
+    # what "the database works" actually means.
+    _spoke_cnpg_ready() {
+        local ready
+        ready=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
+            -o jsonpath='{.status.readyInstances}' 2>/dev/null || echo "")
+        [[ -n "$ready" && "$ready" -ge 1 ]]
+    }
+
     local phase
-    phase=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
-        -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-    if [[ "$phase" == "Cluster in healthy state" ]]; then
+    if settle "the spoke's database to report a ready instance" _spoke_cnpg_ready; then
         log_pass "Spoke CNPG shared-cnpg: healthy"
     else
-        log_fail "Spoke CNPG shared-cnpg: phase='$phase' (needs healthy storage driver + operator)"
+        phase=$(kc_spoke get clusters.postgresql.cnpg.io shared-cnpg -n platform-data \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        log_fail "Spoke CNPG shared-cnpg: no ready instance after ${SETTLE_DEADLINE}s (phase='$phase'; needs healthy storage driver + operator)"
     fi
 }
 
@@ -909,9 +885,9 @@ check_spoke_datapath() {
     fi
 }
 
-# ─── 15. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
+# ─── 12. CRITICAL ARGOCD APPS (PLATFORM INFRA) ───────────────────────────────
 check_platform_argocd_apps() {
-    log_section "15. CRITICAL ARGOCD APPS"
+    log_section "12. CRITICAL ARGOCD APPS"
 
     # Critical — failure blocks operations
     local critical_apps=(
@@ -924,7 +900,6 @@ check_platform_argocd_apps() {
         "platform-database"
         "hub-environment"
         "hub-operator"
-        "platform-nats"
         "platform-redis"
     )
     for app in "${critical_apps[@]}"; do
@@ -934,9 +909,6 @@ check_platform_argocd_apps() {
     # Warning only — degraded but not blocking
     local warn_apps=(
         "platform-kyverno"
-        "platform-clickhouse"
-        "clickhouse-operator"
-        "openmeter"
         "zitadel"
         "platform-infisical"
     )
@@ -945,9 +917,9 @@ check_platform_argocd_apps() {
     done
 }
 
-# ─── 16. OBSERVABILITY ────────────────────────────────────────────────────────
+# ─── 13. OBSERVABILITY ────────────────────────────────────────────────────────
 check_observability() {
-    log_section "16. OBSERVABILITY"
+    log_section "13. OBSERVABILITY"
     check_argocd_app "victoria-metrics-cluster" "WARN"
     check_argocd_app "victoria-metrics-alerts" "WARN"
     check_argocd_app "grafana-alloy" "WARN"
@@ -1037,10 +1009,7 @@ main() {
     check_eso
     check_infisical
     check_databases
-    check_clickhouse
-    check_openmeter
     check_ory
-    check_nats
     check_hub_operator
     check_kube_sbt_api
     check_ingress
@@ -1058,6 +1027,7 @@ main() {
     log "Running ADR-050/051 validation modules (strict)..."
     local adr_rc=0
     HUB_KUBECONFIG="$KUBECONFIG" ENVIRONMENT="$ENVIRONMENT" SPOKEPOOL_NAME="$SPOKEPOOL_NAME" \
+        HUB_DOMAIN="${HUB_DOMAIN:-}" \
         bash "$(dirname "${BASH_SOURCE[0]}")/validate/run.sh" cluster --mode=final \
         2>&1 | tee -a "$LOG_FILE" || adr_rc=1
 

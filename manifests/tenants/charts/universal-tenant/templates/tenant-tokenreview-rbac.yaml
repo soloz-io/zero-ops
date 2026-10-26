@@ -1,0 +1,69 @@
+{{- if not .Values.deployXR }}
+{{- range .Values.sandboxCallerAuth | default list }}
+{{- $t := include "universal-tenant.tenantId" $ }}
+{{- $a := include "universal-tenant.appId" $ }}
+{{- $ns := include "universal-tenant.namespace" $ }}
+# Permission to VALIDATE a pod-bound identity token (ADR-052).
+#
+# A workload that accepts calls from a sandbox needs to check the projected token
+# the sandbox presents, and the only way to check one is TokenReview. Granted
+# here, by the platform, because the capability is cluster-scoped and
+# tenant-workloads is closed to RBAC authoring (ADR-047 Tier 2).
+#
+# WHY THIS IS A ClusterRole AND NOT A Role
+#
+# Not a choice. `tokenreviews` is a cluster-scoped, virtual resource in
+# authentication.k8s.io: a namespaced Role naming it binds nothing, and the
+# request is refused with a message about the namespace rather than the verb. The
+# chart's `workloadRbac` renders namespaced Roles only, which is why this is its
+# own template rather than another entry there.
+#
+# WHAT THIS DOES AND DOES NOT GRANT
+#
+# `create tokenreviews` is the authenticator privilege: the holder may submit a
+# token it already has and learn whether it is valid, for which audience, and
+# which ServiceAccount and pod it was minted for. It is how every webhook
+# authenticator in Kubernetes works.
+#
+# It does NOT grant minting a token, reading a Secret, impersonating the subject,
+# or reading any other object. A holder cannot manufacture a caller; it can only
+# tell a real one from a forgery. That asymmetry is what makes it safe to give a
+# tenant workload, and it is also why the token is audience-bound: a TokenReview
+# that passes its audience refuses a token minted for anything else, so this
+# cannot be used to accept the automounted API-server token.
+#
+# OPT-IN, PER WORKLOAD. An application that receives no sandbox callers gets no
+# cluster permission, because a capability granted to everything that might one
+# day need it is one nobody can reason about later.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $t }}-{{ $a }}-{{ .serviceAccount }}-tokenreview
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+# Bound to ONE ServiceAccount in ONE namespace. The ClusterRole is cluster-scoped
+# because the resource is; the binding is not, so the grant reaches exactly the
+# workload that was declared and nothing else in the tenant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $t }}-{{ $a }}-{{ .serviceAccount }}-tokenreview
+  labels:
+    tenant-id: {{ $t }}
+    app-id: {{ $a }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $t }}-{{ $a }}-{{ .serviceAccount }}-tokenreview
+subjects:
+  - kind: ServiceAccount
+    name: {{ .serviceAccount }}
+    namespace: {{ $ns }}
+{{- end }}
+{{- end }}

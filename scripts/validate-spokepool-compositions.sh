@@ -39,9 +39,7 @@ static_names=(
 # NB: dynamic names must NOT also appear as bare static entries.
 dynamic_suffixes=(
   "hetzner-credentials"
-  "nats-leaf-credentials"
   "observability-namespace"
-  "messaging-namespace"
   "argocd-agent-params"
   "machine-identity"
   "bootstrap-cert"

@@ -1,0 +1,20 @@
+# The git organisation this box's ArgoCD holds a credential for.
+#
+# A literal here is the platform's own organisation shipped to every tenant: the
+# box gets a credential for a repository it never reads and none for its own,
+# which ArgoCD reports as "authentication required" on the ApplicationSets that
+# reconcile the tenant's declarations.
+- kind: ExternalSecret
+  name: argocd-github-creds
+  fields:
+    - path: [spec, target, template, data, url]
+      value: '{{ .Values.global.gitOrgURL }}'
+
+# The OCI registry this box's ArgoCD reads workload charts from. Same reasoning
+# as the git organisation above: a literal ships the platform's registry to every
+# tenant, and the box then holds a credential for charts it never reads.
+- kind: ExternalSecret
+  name: argocd-chart-registry-creds
+  fields:
+    - path: [spec, target, template, data, url]
+      value: '{{ .Values.global.chartRegistryURL }}/charts'

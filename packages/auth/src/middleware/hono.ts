@@ -1,7 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { JwtValidator } from "../jwt/validator.js";
 import type { AuthenticatedPrincipal } from "../authz/types.js";
-import { AuthError, TokenMissingError, InsufficientScopeError } from "../types.js";
+import type { JwtValidator } from "../jwt/validator.js";
+import { AuthError } from "../types.js";
 
 const PRINCIPAL_KEY = "auth:principal" as const;
 
@@ -12,6 +12,12 @@ export interface AuthMiddlewareOptions {
   requiredScopes?: string[];
   /** Custom header to extract token from (default: "Authorization") */
   headerName?: string;
+  /**
+   * Where a JWKS failure's detail goes (URL, cause, attempts). Defaults to
+   * console.warn. The response carries only the code: that detail describes the
+   * service's own infrastructure and is not the caller's to read.
+   */
+  onDependencyError?: (err: unknown) => void;
 }
 
 /**
@@ -23,11 +29,20 @@ export interface AuthMiddlewareOptions {
  *   // c.get("principal") → AuthenticatedPrincipal
  */
 export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
+  const reportDependency =
+    opts.onDependencyError ??
+    ((err: unknown) => {
+      console.warn(
+        "[zero-ops-auth] JWKS unavailable:",
+        err instanceof Error ? err.message : "unknown error",
+      );
+    });
+
   return async (c, next) => {
     const headerName = opts.headerName ?? "Authorization";
     const auth = c.req.header(headerName);
 
-    if (!auth || !auth.startsWith("Bearer ")) {
+    if (!auth?.startsWith("Bearer ")) {
       return c.json({ error: "Unauthorized", code: "TOKEN_MISSING" }, 401);
     }
 
@@ -62,15 +77,32 @@ export function authMiddleware(opts: AuthMiddlewareOptions): MiddlewareHandler {
         tenantTier: claims.tenant_tier,
         roles: claims.roles,
         issuer: claims.iss,
-        audience: typeof claims.aud === "string" ? claims.aud : Array.isArray(claims.aud) ? claims.aud[0] : undefined,
+        audience:
+          typeof claims.aud === "string"
+            ? claims.aud
+            : Array.isArray(claims.aud)
+              ? claims.aud[0]
+              : undefined,
       };
 
       c.set(PRINCIPAL_KEY, principal);
       await next();
     } catch (err) {
       if (err instanceof AuthError) {
-        const status = err.code === "TOKEN_EXPIRED" ? 401 : 401;
-        return c.json({ error: "Unauthorized", code: err.code, message: err.message }, status);
+        // The keys could not be fetched: the token was never examined, so the
+        // caller is not at fault and must not be told its credential is bad.
+        if (err.code === "JWKS_FETCH_ERROR") {
+          reportDependency(err);
+          return c.json(
+            {
+              error: "Service Unavailable",
+              code: err.code,
+              message: "Credentials cannot be verified right now",
+            },
+            503,
+          );
+        }
+        return c.json({ error: "Unauthorized", code: err.code, message: err.message }, 401);
       }
       return c.json({ error: "Unauthorized", code: "TOKEN_INVALID" }, 401);
     }

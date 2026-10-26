@@ -98,6 +98,19 @@ package_path() {
 # supplies it, and one that does not is refused upstream by the hubDomain helper.
 global:
   hubDomain: ""
+  # The box's own Infisical identity, empty for the same reason: a chart with no
+  # default for a key its templates read renders NOTHING -- the lookup is a nil
+  # map and helm fails the whole render, which emit_chart reports as a component
+  # producing no objects and blames the component.
+  #
+  # Empty is also the correct value to ship. These identify one box's Infisical
+  # organisation and projects; a default here would be whichever box was
+  # bootstrapped when it was written, which is exactly how the platform's own ids
+  # reached every tenant.
+  infisical:
+    organizationId: ""
+    projectId: ""
+    secretsProjectId: ""
 VALS
         fi
     fi
@@ -122,6 +135,30 @@ PY
 done
 
 package_path platform-storage manifests/hub-core-services/storage
+
+# ADR-078's collection layer. Inline rather than a descriptor because its
+# PRESENCE is a function of a value (capabilities.observability.enabled), and a
+# descriptor cannot carry that test -- the released path globs descriptors out
+# of the chart and the development path reads them from git, so a gate on a
+# descriptor would take effect in one and not the other.
+#
+# Moving it out of manifests/argocd/components/03/ also moved it out of the
+# packager's reach: component-chart.sh iterates descriptors, so without this line
+# the bundle would name a chart no release published -- the exact defect
+# bundle-completeness.py exists to catch, and the reason this script exists.
+package_path grafana-alloy manifests/hub-core-services/grafana-alloy
+
+# ADR-078 add.3 §4: the Grafana Operator and the dashboards it reconciles into
+# the box owner's stack, inline and capability-gated with grafana-alloy.
+package_path platform-dashboards manifests/hub-core-services/platform-dashboards
+
+# ADR-078 add.4: the stack's alert routing, inline and capability-gated likewise.
+package_path platform-alert-routing manifests/hub-core-services/platform-alert-routing
+
+# ADR-077's agent, inline for the same reason as grafana-alloy: its presence is a
+# function of capabilities.support.enabled. Leaving it out here would publish a
+# bundle naming a chart no release produced.
+package_path support-agent manifests/hub-core-services/support-agent
 
 # Parameterised paths: one chart per combination the boundary can ask for.
 # A directory a sibling overlay lists as a resource is a Kustomize base, not an

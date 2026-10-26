@@ -68,6 +68,14 @@ on:
       GITOPS_TOKEN:
         description: Write access to this repository, so Day-0 can commit the artifacts it generates.
         required: true
+      INFISICAL_ADMIN_EMAIL:
+        description: >-
+          The administrator of this box's own Infisical. Day-0 creates it, and
+          hub-operator signs in as it; there is no default.
+        required: true
+      INFISICAL_ADMIN_PASSWORD:
+        description: That administrator's password.
+        required: true
       INFISICAL_ESCROW_URL:
         description: >-
           An Infisical the TENANT controls and this box does not host -- usually
@@ -84,6 +92,71 @@ on:
         required: false
       INFISICAL_ESCROW_CLIENT_SECRET:
         description: The matching machine identity client secret.
+        required: false
+      GHCR_USERNAME:
+        description: >-
+          The tenant's container registry username, for pulling their own private
+          images. REQUIRED: ADR-066 makes workloads the tenant's, and
+          universal-tenant's pull-secret-es.yaml and the stateless-web rollout
+          both mount the Secret built from this, so a tenant keeping their
+          packages private cannot run them without it. Day-0 refuses rather than
+          producing a box that looks configured and cannot pull.
+        required: true
+      GHCR_TOKEN:
+        description: The matching token, scoped to read the tenant's own packages.
+        required: true
+      S3_ACCESS_KEY_ID:
+        description: >-
+          Object storage for CNPG Barman backups of the platform database. A
+          DESTINATION rather than a capability: absent, the box bootstraps and
+          runs with no backups and says so. Mandatory in practice for production
+          -- a backup has to go somewhere a lost node cannot take with it.
+        required: false
+      S3_SECRET_ACCESS_KEY:
+        description: The matching secret access key.
+        required: false
+      GRAFANA_CLOUD_TELEMETRY_TOKEN:
+        description: >-
+          Where this box ships its OWN metrics and logs: the tenant's account and
+          the tenant's data. Nothing to do with support -- ADR-067 makes support
+          telemetry a separate channel with its own enrolment (ADR-077), and
+          conflating the two is how a tenant's private monitoring account came to
+          look like a licence check. Required: the tenant's Grafana Cloud stack is
+          the box's observability backend (ADR-078 add.3). metrics:write and
+          logs:write.
+        required: true
+      GRAFANA_CLOUD_PROMETHEUS_URL:
+        description: The tenant's stack Prometheus URL (…/api/prom).
+        required: true
+      GRAFANA_CLOUD_PROMETHEUS_USER:
+        description: The matching Prometheus user.
+        required: true
+      GRAFANA_CLOUD_LOKI_URL:
+        description: The tenant's stack Loki URL (the host).
+        required: true
+      GRAFANA_CLOUD_LOKI_USER:
+        description: The matching Loki user.
+        required: true
+      GRAFANA_CLOUD_RULES_TOKEN:
+        description: A stack token with rules:read and rules:write, for rule sync.
+        required: true
+      GRAFANA_CLOUD_DASHBOARDS_TOKEN:
+        description: A stack service-account token (Editor), for dashboard provisioning.
+        required: true
+      GRAFANA_CLOUD_ALERTS_TOKEN:
+        description: A stack token with alerts:read and alerts:write, for alert routing.
+        required: true
+      GRAFANA_IRM_ALERTMANAGER_URL:
+        description: The stack's IRM Alertmanager integration URL.
+        required: true
+      GRAFANA_IRM_HEARTBEAT_URL:
+        description: The same integration's heartbeat URL.
+        required: true
+      ZITADEL_SMTP_URL:
+        description: >-
+          The identity provider's outbound mail, as an SMTP URL
+          (smtps://resend:<api-key>@smtp.resend.com:465). Without it the issuer
+          runs but cannot send verification or password-reset mail.
         required: false
       TS_AUTHKEY:
         description: >-
@@ -158,7 +231,25 @@ jobs:
             exit 1
           fi
 
-      - name: Bootstrap
+      # Step 1 of two. This builds the MANAGEMENT cluster and stops there:
+      # `soloz bootstrap-mgmt` returns when the hub's phases are done, which says
+      # nothing about the workload cluster the hub then composes. Splitting the
+      # two makes a run that got the hub up and the workload cluster wrong show as
+      # one step green and the next red, instead of one green step and a tenant
+      # discovering it later.
+      # Checked out at the version being bootstrapped, so the gates and probes
+      # match the bundle. The tenant repository carries no scripts, and this
+      # workflow is already a platform artefact pinned by the caller at
+      # @v<version>. Used by the workload step below and by the endpoint probes.
+      - name: Check out the platform's scripts
+        uses: actions/checkout@v4
+        with:
+          repository: soloz-io/zero-ops
+          ref: v${{ inputs.bundle-version }}
+          path: .platform-validators
+
+      - name: Bootstrap the management cluster
+        id: bootstrap-mgmt
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITOPS_TOKEN }}
@@ -169,6 +260,33 @@ jobs:
           # Read by hub-operator through the Secret Day-0 creates from them. Empty
           # is a box whose master keys exist only inside it, which the bootstrap
           # says out loud rather than passing over.
+          # Required for the hub to come up HEALTHY, not optional extras. Absent,
+          # the cluster bootstraps and then sits with ExternalSecrets retrying
+          # forever: no database backups, an observability agent that will not
+          # start, and no way to pull the tenant's own private images (ADR-066
+          # makes those workloads theirs). Scaffolding collects them and refuses
+          # to dispatch without them; this passes them to the Day-0 that writes
+          # them into the cluster.
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          GRAFANA_CLOUD_TELEMETRY_TOKEN: ${{ secrets.GRAFANA_CLOUD_TELEMETRY_TOKEN }}
+          GRAFANA_CLOUD_PROMETHEUS_URL: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_URL }}
+          GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
+          GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}
+          GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
+          GRAFANA_CLOUD_RULES_TOKEN: ${{ secrets.GRAFANA_CLOUD_RULES_TOKEN }}
+          GRAFANA_CLOUD_DASHBOARDS_TOKEN: ${{ secrets.GRAFANA_CLOUD_DASHBOARDS_TOKEN }}
+          GRAFANA_CLOUD_ALERTS_TOKEN: ${{ secrets.GRAFANA_CLOUD_ALERTS_TOKEN }}
+          GRAFANA_IRM_ALERTMANAGER_URL: ${{ secrets.GRAFANA_IRM_ALERTMANAGER_URL }}
+          GRAFANA_IRM_HEARTBEAT_URL: ${{ secrets.GRAFANA_IRM_HEARTBEAT_URL }}
+          ZITADEL_SMTP_URL: ${{ secrets.ZITADEL_SMTP_URL }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          # The box's own Infisical administrator. Required by Day-0 and by
+          # hub-operator: the defaults they replace were a personal email and the
+          # literal "Password@123" on every box, platform and tenant alike.
+          INFISICAL_ADMIN_EMAIL: ${{ secrets.INFISICAL_ADMIN_EMAIL }}
+          INFISICAL_ADMIN_PASSWORD: ${{ secrets.INFISICAL_ADMIN_PASSWORD }}
           INFISICAL_ESCROW_URL: ${{ secrets.INFISICAL_ESCROW_URL }}
           INFISICAL_ESCROW_PROJECT_ID: ${{ secrets.INFISICAL_ESCROW_PROJECT_ID }}
           INFISICAL_ESCROW_CLIENT_ID: ${{ secrets.INFISICAL_ESCROW_CLIENT_ID }}
@@ -210,7 +328,40 @@ jobs:
             workers=(--workers "${{ inputs.workers }}")
           fi
 
-          ./soloz bootstrap \
+          # hub-bootstrap.sh, not `soloz bootstrap-mgmt` directly.
+          #
+          # The CLI builds the management cluster and stops there. The steps that
+          # decide whether the box is USABLE -- Tailscale for a hybrid box, GitHub
+          # access, the namespace and secret waits, Infisical, ESO, the database --
+          # and the gates that refuse to continue on a broken foundation live in
+          # that script, and it runs the CLI itself as its first step.
+          #
+          # Without it a tenant's CI did the hub and none of the rest, so the
+          # developer path ran ten gates and the tenant path ran none: the people
+          # the gates exist to protect were the only ones not getting them. The
+          # workload step below already sources this script for two of its
+          # functions, which made the asymmetry easy to miss.
+          #
+          # --spoke is required by the script and is read from the tenant's own
+          # declaration, because the claim arrives through boundary 03 from this
+          # repository and the cluster is the only thing that knows which pools
+          # this box has.
+          # The SpokePool this box declares, read from the platform manifests --
+          # the same source the developer path uses, and the only one available
+          # before the cluster exists to be asked.
+          pooldir=".platform-validators/manifests/spoke/spoke-pools/${{ inputs.environment }}/${{ inputs.provider }}"
+          pool=$(grep -h -A3 '^kind: SpokePool' "$pooldir"/*.yaml 2>/dev/null \
+                 | grep -m1 '  name:' | awk '{print $2}')
+          if [ -z "$pool" ]; then
+            echo "::error::no SpokePool is declared for ${{ inputs.environment }}/${{ inputs.provider }}"
+            exit 1
+          fi
+          echo "spoke pool: $pool"
+
+          ZERO_OPS_DIR="$PWD" \
+          SOLOZ_BINARY="$PWD/soloz" \
+          bash .platform-validators/scripts/hub-bootstrap.sh \
+            --spoke "$pool" \
             --name "${{ inputs.cluster }}" \
             --provider "${{ inputs.provider }}" \
             --region "${{ inputs.region }}" \
@@ -247,31 +398,158 @@ jobs:
       # Checked out at the version being bootstrapped, so the probes match the
       # bundle. The tenant repository carries no scripts, and this workflow is
       # already a platform artefact pinned by the caller at @v<version>.
-      - name: Check out the platform's validators
-        if: steps.verify.outcome == 'success'
-        uses: actions/checkout@v4
-        with:
-          repository: soloz-io/zero-ops
-          ref: v${{ inputs.bundle-version }}
-          path: .platform-validators
-
-      - name: Verify the published endpoints answer
-        id: endpoints
+      # Step 2 of two: the WORKLOAD cluster.
+      #
+      # After the hub converges, because the workload cluster is composed there
+      # by Crossplane from a claim in the tenant's repository -- there is nothing
+      # to wait for until the hub is reconciling.
+      #
+      # Runs the platform's own gates rather than reimplementing them. They are
+      # the ones that catch a workload cluster whose control plane never started:
+      # the claim reporting Ready AND Synced, and the CAPI Cluster reporting
+      # ControlPlaneReady, which a claim can contradict. Nothing invoked them
+      # from this workflow before, which is why such a cluster could sit
+      # Ready=False behind a run that reported success.
+      #
+      # Sourced, not executed: the script's main() runs the whole sequence, and
+      # what is wanted here is two of its functions. Same shape local-e2e.sh uses,
+      # so the developer path and the tenant path exercise the same code.
+      #
+      # These two ALSO ran inside the bootstrap step above, which now runs the
+      # whole script. That is deliberate rather than redundant: the workload
+      # cluster is a separate claim from the hub, and a run that satisfied one
+      # should not read as satisfying both -- so it is asserted and reported on its
+      # own. The cost is small and the checks are idempotent. step10_wait_spokepool
+      # is checkpointed in bootstrap-workload.json and returns immediately once the
+      # pool is ready; step10e is deliberately NOT checkpointed, because a home
+      # worker is an unmanaged machine that can stop between one step and the next
+      # (ADR-046 §24.2), so re-checking it here is the point rather than the waste.
+      - name: Bring up the workload cluster
+        id: bootstrap-workload
         if: steps.verify.outcome == 'success'
         continue-on-error: true
         env:
-          HUB_KUBECONFIG: k8-secrets/kubeconfig/${{ inputs.cluster }}.kubeconfig
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+          kc="k8-secrets/kubeconfig/${{ inputs.cluster }}.kubeconfig"
+          if [ ! -r "$kc" ]; then
+            echo "no kubeconfig at $kc; the management cluster did not finish" >&2
+            exit 1
+          fi
+
+          # The claim names the cluster. Read it rather than taking it as an
+          # input: the claim arrives through boundary 03 from this repository, so
+          # the cluster is the only thing that knows which ones this box has.
+          pool=$(KUBECONFIG="$kc" kubectl get spokepools.nutgraf.in -A \
+                   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -z "$pool" ]; then
+            echo "no workload cluster declared on this box; nothing to bring up"
+            exit 0
+          fi
+          echo "workload cluster: $pool"
+          echo "pool=$pool" >> "$GITHUB_OUTPUT"
+
+          CLUSTER_NAME="${{ inputs.cluster }}" \
+          PROVIDER="${{ inputs.provider }}" \
+          ENVIRONMENT="${{ inputs.environment }}" \
+          SPOKEPOOL_NAME="$pool" \
+          ZERO_OPS_DIR="$PWD" \
+          SOLOZ_BINARY="$PWD/soloz" \
+          bash -c '
+            source .platform-validators/scripts/hub-bootstrap.sh
+            read_kubeconfig_from_state
+            export KUBECONFIG="$KUBECONFIG_PATH"
+            step10_wait_spokepool || exit 1
+            step10e_spoke_home_worker "$SPOKEPOOL_NAME"
+          '
+
+      # Step 3 of three: the box as a whole, after both clusters exist.
+      #
+      # This is the same script hub-bootstrap.sh runs as its own final, fatal
+      # step, and the same one local-e2e's `verify` phase runs -- one
+      # implementation, so the developer path and the tenant path make the same
+      # claim. It checks the platform components, then runs EVERY module under
+      # validate/cluster/ at --mode=final.
+      #
+      # --mode=final is the stricter half of the severity model: `soft_fail` is a
+      # warning mid-bootstrap, where a resource that has not appeared yet is not
+      # a defect, and a hard failure here, where it is.
+      #
+      # This step used to probe one module (35-public-api-endpoints) and nothing
+      # else, so a tenant run asserted far less about the box than a developer
+      # running the same version locally -- including 40-tenant-ingress, which is
+      # the path that actually serves tenant traffic under ADR-051.
+      - name: Validate the platform
+        id: validate
+        if: steps.verify.outcome == 'success'
+        continue-on-error: true
+        env:
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
+          kc="$PWD/k8-secrets/kubeconfig/${{ inputs.cluster }}.kubeconfig"
+
           # The zone the box actually publishes on, read from what it declares
-          # rather than assumed from the environment name (ADR-051).
-          HUB_DOMAIN=$(./soloz kubeconfig --cluster "${{ inputs.cluster }}" >/dev/null 2>&1; \
-            kubectl --kubeconfig "$HUB_KUBECONFIG" get hubenvironment hub-environment \
-              -n platform-ops -o jsonpath='{.spec.domain}')
-          echo "probing endpoints on $HUB_DOMAIN"
-          HUB_DOMAIN="$HUB_DOMAIN" bash .platform-validators/scripts/validate/run.sh \
-            cluster --mode=final --only=35-public-api-endpoints
+          # rather than assumed from the environment name (ADR-051). Without it
+          # the probes fall back to the PLATFORM's own zone, and a tenant's box
+          # would be judged by hostnames that are not its own.
+          ./soloz kubeconfig --cluster "${{ inputs.cluster }}" >/dev/null 2>&1 || true
+          HUB_DOMAIN=$(kubectl --kubeconfig "$kc" get hubenvironment hub-environment \
+            -n platform-ops -o jsonpath='{.spec.domain}')
+          if [ -z "$HUB_DOMAIN" ]; then
+            echo "::error::the hub declares no domain; the endpoint probes would target the platform's zone"
+            exit 1
+          fi
+          echo "validating $HUB_DOMAIN"
+
+          # The pool the step above resolved, and only that. It read the cluster
+          # once; a second read here would be a second answer to the same
+          # question, free to disagree with the cluster that was actually
+          # brought up.
+          pool="${{ steps.bootstrap-workload.outputs.pool }}"
+          if [ -z "$pool" ]; then
+            echo "::error::the workload step resolved no SpokePool; there is nothing to validate against"
+            exit 1
+          fi
+
+          KUBECONFIG="$kc" \
+          HUB_DOMAIN="$HUB_DOMAIN" \
+          ENVIRONMENT="${{ inputs.environment }}" \
+          SPOKEPOOL_NAME="$pool" \
+          ZERO_OPS_DIR="$PWD" \
+          CLUSTER_NAME="${{ inputs.cluster }}" \
+          bash .platform-validators/scripts/validate-all.sh --only=platform
+
+      # The workload cluster reported separately from the hub, because "the box
+      # is bootstrapped" is two claims and a run that satisfies one of them
+      # should not read as satisfying both.
+      - name: Say whether the workload cluster is up
+        if: always()
+        run: |
+          case "${{ steps.bootstrap-workload.outcome }}" in
+            success)
+              {
+                echo "### ✅ Workload cluster up"
+                echo "Its claim reports Ready and Synced, its CAPI Cluster reports ControlPlaneReady, and its nodes are joined."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            skipped)
+              {
+                echo "### ⏭️ Workload cluster not checked"
+                echo "The hub did not converge, so there was nothing reconciling the claim yet."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              {
+                echo "### ❌ Workload cluster is NOT usable"
+                echo
+                echo "The hub is up; the cluster it composes is not. Workloads targeting it cannot be scheduled."
+                echo "The step above names which gate failed and what it last observed."
+                echo
+                echo "A claim that is Synced but not Ready means the composition reconciled and the"
+                echo "infrastructure it created did not come up -- most often a control plane that"
+                echo "never started. The node's /var/log/cloud-init-output.log says why."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
 
       - name: Say whether the hub is serving
         if: always()
@@ -293,12 +571,57 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Reported, because it was not. The endpoint probe this replaces had no
+      # summary at all: it could fail and the run surfaced nothing about it.
+      # The record, not just the outcome. A summary line says whether it passed;
+      # this says which phases ran, which were skipped and why -- the distinction
+      # that matters when a box is reported healthy and was never checked.
+      - name: Publish the validation record
+        if: always()
+        run: |
+          f=".state/validation.json"
+          if [[ -f "$f" ]]; then
+            {
+              echo "### Validation record"
+              echo
+              echo '```json'
+              cat "$f"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Say whether the platform validated
+        if: always()
+        run: |
+          case "${{ steps.validate.outcome }}" in
+            success)
+              {
+                echo "### ✅ Platform validated"
+                echo "Every component check and every validate/cluster module passed at --mode=final: public endpoints answer over a trusted chain, tenant ingress serves, secrets resolve, the spoke is joined."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            skipped)
+              {
+                echo "### ⏭️ Platform not validated"
+                echo "The hub did not converge, so the strict checks had nothing settled to assert against."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              {
+                echo "### ❌ Platform validation FAILED"
+                echo
+                echo "Both clusters exist and the box does not work. The step above names every"
+                echo "check that failed; at --mode=final a check that would be 'still converging'"
+                echo "mid-bootstrap is a defect, because bootstrap is over."
+                echo
+                echo "Re-running is safe: the validation reads, it does not change the box."
+              } >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+
       - name: Report where the bootstrap reached
         # Always, because the state is most useful when the run failed: it says
         # which phase stopped it and what a re-run will skip.
         if: always()
         run: |
-          f=".state/bootstrap/${{ inputs.cluster }}.json"
+          f=".state/${{ inputs.cluster }}.json"
           if [[ -f "$f" ]]; then
             {
               echo "### Bootstrap state"

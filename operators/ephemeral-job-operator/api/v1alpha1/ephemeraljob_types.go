@@ -67,6 +67,20 @@ const (
 	// but it is a spurious error in someone's logs for a workflow that already
 	// resumed correctly.
 	ConditionCallbackDelivered = "CallbackDelivered"
+
+	// ConditionReadyNotified records that CallbackURL has been told the workload
+	// is serving (Service mode only).
+	//
+	// SEPARATE from ConditionCallbackDelivered, and it has to be. That condition
+	// is what makes the terminal callback fire once; a ready notification that
+	// set it would suppress the terminal callback entirely, so a sandbox would
+	// report that it started and never that it ended.
+	//
+	// Reset when the pod is replaced, which is what makes a second Running
+	// callback possible. A Service-mode workload whose pod is lost gets a new one
+	// rather than a terminal state, so the receiver needs to hear that it is
+	// serving again — see the comment on PodName.
+	ConditionReadyNotified = "ReadyNotified"
 )
 
 // Reasons for ConditionCapacity. These are the three outcomes ADR-052 §12
@@ -76,6 +90,33 @@ const (
 	ReasonWaitingForCapacity  = "WaitingForCapacity"  // wait — a node is being provisioned
 	ReasonCapacityUnavailable = "CapacityUnavailable" // terminal for now — maxNodes reached
 	ReasonScheduled           = "Scheduled"
+
+	// ReasonPlacementUnsatisfiable: no node in the cluster carries the labels
+	// this pod requires, and none is being provisioned.
+	//
+	// A FOURTH outcome, distinct from the three above because waiting cannot
+	// change it. CapacityUnavailable means a node group exists and has hit its
+	// ceiling; a smaller pod, or a raised ceiling, resolves it. This means the
+	// selector names a node that does not exist and is not coming — a fleet
+	// asking for a placement class the cluster does not offer, or a platform
+	// bug in the class's own definition.
+	//
+	// It is separated because reporting it as WaitingForCapacity sent an
+	// operator looking for nodes for three and a half hours. The pods could not
+	// age out either: readinessDeadlineSeconds starts when a pod RUNS,
+	// idleTimeoutSeconds when the workload first SERVES, and neither had
+	// happened — leaving maxLifetimeSeconds at eight hours as the only bound on
+	// a job that was never going to run.
+	ReasonPlacementUnsatisfiable = "PlacementUnsatisfiable"
+
+	// ReasonCapacityTimeout: the workload waited longer for capacity than its
+	// configured capacityWaitSeconds budget.
+	ReasonCapacityTimeout = "CapacityTimeout"
+
+	// ReasonAdmissionRejected: the API server refused to create the Job -- a
+	// policy, Pod Security or schema said no. Terminal, and reported to the
+	// caller: the same Job is refused the same way on every retry.
+	ReasonAdmissionRejected = "AdmissionRejected"
 )
 
 // +kubebuilder:object:root=true
@@ -102,6 +143,34 @@ type EphemeralJob struct {
 	Status EphemeralJobStatus `json:"status,omitempty"`
 }
 
+// IdentityToken requests a pod-bound, audience-scoped Kubernetes identity for
+// the workload container (ADR-052).
+type IdentityToken struct {
+	// Audience the token is minted for, and the only audience that will accept
+	// it. REQUIRED, and deliberately so: a token with no audience is accepted by
+	// the Kubernetes API server, which turns this field from an identity into a
+	// cluster credential inside a sandbox.
+	//
+	// The receiver MUST pass the same value to its TokenReview. A TokenReview
+	// with no audience validates the token against the API server's own
+	// audience, which an audience-bound token fails -- so a receiver that omits
+	// it rejects every caller, and one that omits it while the token was minted
+	// without an audience accepts anything the cluster issued.
+	// +kubebuilder:validation:MinLength=1
+	Audience string `json:"audience"`
+
+	// ExpirationSeconds is how long each minted token is valid. The kubelet
+	// renews it in place well before expiry, so this bounds the damage of a
+	// leaked token rather than the life of the pod.
+	//
+	// Defaults to 600 and may not be lower: the API server refuses a projected
+	// token below 600s, and a request for less would be a pod that never starts
+	// rather than a shorter-lived credential.
+	// +kubebuilder:validation:Minimum=600
+	// +optional
+	ExpirationSeconds *int64 `json:"expirationSeconds,omitempty"`
+}
+
 type EphemeralJobSpec struct {
 	// Image is the workload container image. It MUST be an immutable digest
 	// reference: the tenant ABI (kyverno-tenant-abi, rule 2) rejects mutable
@@ -117,6 +186,34 @@ type EphemeralJobSpec struct {
 	Args []string `json:"args,omitempty"`
 	// +optional
 	Env map[string]string `json:"env,omitempty"`
+
+	// IdentityToken mounts a pod-bound Kubernetes identity into the WORKLOAD
+	// container, so a sandbox can authenticate to a service without holding a
+	// shared secret.
+	//
+	// WHY A PROJECTED TOKEN AND NOT A CREDENTIAL IN Env
+	//
+	// Env above is a map of plain strings written into this object, so every
+	// value in it is stored in etcd and readable by anything that can read this
+	// resource (ADR-052 section 19.6). A sandbox runs tenant-authored agent code,
+	// so a shared secret handed to it is a secret that has left the platform's
+	// control: it can be exfiltrated, it does not expire, and revoking it revokes
+	// it for every sandbox at once.
+	//
+	// A projected service account token is none of those things. It is minted by
+	// the kubelet, never stored in this object, bound to an audience so it cannot
+	// be replayed against the Kubernetes API, bound to this POD so it stops
+	// working when the pod is deleted, and short-lived with automatic renewal.
+	//
+	// The receiver validates it with a TokenReview and reads the pod's identity
+	// out of the token, so the CALLER sends no identifier the receiver has to
+	// trust. That is the property Env can never have: a value in Env proves only
+	// that whoever holds it holds it.
+	//
+	// AutomountServiceAccountToken stays false. A projected volume is not the
+	// automount, and the automounted token is the one with no audience -- usable
+	// against the API server, which is exactly what must not be in a sandbox.
+	IdentityToken *IdentityToken `json:"identityToken,omitempty"`
 
 	// Resources is the workload's requested envelope, and it is what the
 	// submitter should state: only the submitter knows what its workload needs,
@@ -138,9 +235,24 @@ type EphemeralJobSpec struct {
 	// +optional
 	Output *OutputSpec `json:"output,omitempty"`
 
-	// CallbackURL is called by the result sidecar on terminal state. It MUST be
-	// in-cluster: a burst node is an ordinary node of this spoke (ADR-052 §0),
-	// so cluster DNS resolves and no egress exception is required.
+	// CallbackURL is where this workload's lifecycle events are posted. It MUST be
+	// in-cluster: a burst node is an ordinary node of this spoke (ADR-052 §0), so
+	// cluster DNS resolves and no egress exception is required.
+	//
+	// Posted by the OPERATOR, not by the result sidecar -- this said sidecar until
+	// 2026-10-02 and was wrong.
+	//
+	// Job mode receives one event, the terminal one. Service mode receives two
+	// kinds: `Running` when the workload starts serving, again if its pod is
+	// replaced, and a terminal event when it ends.
+	//
+	// Not sent for cancellation or deletion. Both are caller-initiated, so the
+	// caller already knows, and a delete callback would need a finalizer -- which
+	// would make this operator a blocker on garbage collection.
+	//
+	// Delivery is at-least-once. `terminalEventId` is the deduplication key for
+	// each event, and `uid` identifies the incarnation: a caller that recycles a
+	// workload under one name must drop events carrying any other uid.
 	// +optional
 	CallbackURL string `json:"callbackUrl,omitempty"`
 
@@ -151,6 +263,16 @@ type EphemeralJobSpec struct {
 	// +kubebuilder:default=600
 	// +optional
 	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
+
+	// CapacityWaitSeconds bounds how long a workload may wait for capacity
+	// before timing out.
+	//
+	// When unset, a workload waits indefinitely for capacity subject only to
+	// MaxLifetimeSeconds. When set and exceeded while waiting for capacity, the
+	// job transitions to PhaseTimedOut with reason CapacityTimeout.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CapacityWaitSeconds *int32 `json:"capacityWaitSeconds,omitempty"`
 
 	// TTLSecondsAfterFinished is how long the EphemeralJob and its Job are
 	// retained after reaching a terminal phase.
@@ -335,6 +457,58 @@ type EphemeralJobSpec struct {
 	// that can be made incapable of saying so.
 	// +optional
 	WorkspacePersistence *WorkspacePersistenceSpec `json:"workspacePersistence,omitempty"`
+
+	// Isolation selects how strongly the workload is separated from the node
+	// (ADR-107). Empty is the ordinary container runtime. Sandboxed runs every
+	// container of the pod under the platform's sandboxed RuntimeClass: a
+	// user-space kernel between the workload and the host, for code the fleet
+	// does not trust -- an untrusted browser, for instance.
+	//
+	// The pod schedules only onto nodes that offer the runtime. Where none do,
+	// it stays Pending and says so; it is never run without the isolation it
+	// asked for.
+	// +optional
+	// +kubebuilder:validation:Enum=Sandboxed
+	Isolation Isolation `json:"isolation,omitempty"`
+
+	// Peer makes this job a companion of another job in the same session
+	// (ADR-106 §4) -- a renderer that loads the session's app, for instance.
+	//
+	// A peer is contained more tightly than a sandbox, not less: it accepts
+	// connections only from its owning job, reaches only the owning job's app
+	// port, the session's object storage and DNS, and always runs Sandboxed.
+	// The operator renders the network policy for exactly that pair, so no
+	// other session's pods can reach it and it can reach none of them.
+	// +optional
+	Peer *PeerSpec `json:"peer,omitempty"`
+}
+
+// Isolation is the node-isolation level of a job's pod (ADR-107).
+type Isolation string
+
+const (
+	// IsolationSandboxed runs the pod under the sandboxed RuntimeClass.
+	IsolationSandboxed Isolation = "Sandboxed"
+)
+
+// PeerSpec pairs a job with the session job it serves (ADR-106 §4).
+type PeerSpec struct {
+	// JobName is the owning EphemeralJob, in this job's namespace. It must
+	// exist, must not itself be a peer, and must not have finished.
+	// +kubebuilder:validation:MinLength=1
+	JobName string `json:"jobName"`
+
+	// TargetPort is the owning job's app port this peer may reach, over HTTP
+	// and WebSocket. It must be one of the owning job's spec.ports.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	TargetPort int32 `json:"targetPort"`
+
+	// ListenPort is this job's port the owning job may reach -- where it
+	// sends work. It must be one of this job's spec.ports.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	ListenPort int32 `json:"listenPort"`
 }
 
 // WorkspacePersistenceSpec asks for a durable /workspace (ADR-052 §14, §14.2).
@@ -347,7 +521,11 @@ type EphemeralJobSpec struct {
 // KeepCheckpoints is the exception, and the distinction is worth stating: it
 // does not change any mechanism, only how much history is retained. That is a
 // product question about the fleet's own users ("how far back can they undo?"),
-// which the platform is in no position to answer for them.
+// which the platform is in no position to answer for them. RetainAllCheckpoints
+// is the same question answered "everything" (§14.8).
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.keepCheckpoints) && has(self.retainAllCheckpoints) && self.retainAllCheckpoints)",message="set keepCheckpoints or retainAllCheckpoints, not both"
+// +kubebuilder:validation:XValidation:rule="!(has(self.sharedWorkspaceRefresh) && self.sharedWorkspaceRefresh) || (has(self.sharedWorkspaceId) && self.sharedWorkspaceId != '' && has(self.sharedWorkspaceReadOnly) && self.sharedWorkspaceReadOnly)",message="sharedWorkspaceRefresh needs a sharedWorkspaceId read with sharedWorkspaceReadOnly: only a reader of the shared workspace refreshes it"
 type WorkspacePersistenceSpec struct {
 	// WorkspaceID identifies the WORKSPACE, not this request.
 	//
@@ -366,7 +544,7 @@ type WorkspacePersistenceSpec struct {
 
 	// AppID is the ROOT of every object key for this workspace (§14.4):
 	//
-	//	<appId>/<workspaceId>/code/...
+	//	<appId>/<workspaceId>/...
 	//
 	// Required, not optional. The layout is app-rooted so that an app's other
 	// data — chat session assets at <appId>/<sessionId>/..., build artifacts —
@@ -380,6 +558,73 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	AppID string `json:"appId"`
+
+	// CheckpointIntervalSeconds turns on the periodic backstop.
+	//
+	// Unset (the default) means no periodic checkpoint: the workspace reaches
+	// object storage when someone asks for it and when the pod shuts down
+	// gracefully. That is right for an INTERACTIVE fleet, where a person is
+	// present and a Save control exists — a periodic upload of a tree being
+	// edited would mostly checkpoint half-finished states.
+	//
+	// It is wrong for an UNATTENDED one. A fleet whose agent runs a long
+	// pipeline with nobody watching has no one to press Save, so between the
+	// start of a run and its end the only thing standing between the work and
+	// nothing is an orderly shutdown — and SIGKILL, a node failure and an OOM
+	// kill all give no graceful window at all. This bounds that loss to one
+	// interval.
+	//
+	// It does not replace the teardown checkpoint, which stays and is the one
+	// checkpoint in the design taken while nothing is writing the tree.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=30
+	// +kubebuilder:validation:Maximum=3600
+	CheckpointIntervalSeconds *int32 `json:"checkpointIntervalSeconds,omitempty"`
+
+	// CheckpointOnShutdown controls the teardown checkpoint — the snapshot taken
+	// when the pod is stopped gracefully (idle reap, CR delete, drain, rollout).
+	//
+	// Unset means TRUE. It is the only checkpoint in the design taken while
+	// nothing is writing the tree, because a native sidecar is signalled after
+	// the workload has exited, so it is both the cheapest and the most
+	// trustworthy one. A fleet disabling it is asserting that its workspace is
+	// reproducible or disposable — a claim only that fleet can make, and not one
+	// to infer from silence.
+	//
+	// It is not a substitute for CheckpointIntervalSeconds and vice versa: this
+	// covers orderly shutdown, the interval covers everything that gives no
+	// graceful window at all.
+	//
+	// +optional
+	CheckpointOnShutdown *bool `json:"checkpointOnShutdown,omitempty"`
+
+	// SharedWorkspaceID names a SECOND workspace mounted inside this one, at
+	// <WorkspaceMountPath>/.global, for artifacts that belong to the APP
+	// rather than to this session.
+	//
+	// It is an ordinary workspace id under the same AppID — nothing about the
+	// key layout is special-cased:
+	//
+	//	<appId>/<workspaceId>/        this session
+	//	<appId>/<sharedWorkspaceId>/  shared across every session of the app
+	//
+	// Why a second workspace rather than a directory inside the first: a
+	// workspace's prefix, manifests and LATEST pointer are per-workspaceId. A
+	// session-scoped fleet (one workspace per session, which is what a
+	// per-artefact product like video generation needs) would therefore give
+	// every session its own private copy of the shared tree, and no session
+	// would ever see another's. Promoting the shared tree to its own workspace
+	// is what makes it shared, and costs no new mechanism.
+	//
+	// The session's own snapshot excludes `.global` (workspace-sync's skipDir),
+	// so the two never capture each other. A fleet that leaves this unset gets
+	// exactly today's behaviour: one workspace, nothing mounted inside it.
+	//
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	SharedWorkspaceID string `json:"sharedWorkspaceId,omitempty"`
 
 	// KeepCheckpoints is how many checkpoints this workspace retains
 	// (ADR-052 §14.2). Unset means 5.
@@ -409,6 +654,18 @@ type WorkspacePersistenceSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=50
 	KeepCheckpoints *int32 `json:"keepCheckpoints,omitempty"`
+
+	// RetainAllCheckpoints asks for no retention bound at all (ADR-052 §14.8):
+	// every checkpoint this workspace takes is kept for the workspace's life.
+	//
+	// A separate, explicit field rather than a magic KeepCheckpoints value,
+	// because the two are different promises: a number is "how far back undo
+	// reaches", this is "the whole history is the product". Storage then grows
+	// with every checkpoint, by one compressed image each, and that cost is the
+	// fleet's choice. Setting both is refused.
+	//
+	// +optional
+	RetainAllCheckpoints bool `json:"retainAllCheckpoints,omitempty"`
 
 	// CheckpointID pins the workspace to one exact checkpoint (ADR-052 §14.3).
 	// Unset means the latest, which is what an interactive sandbox wants.
@@ -449,6 +706,55 @@ type WorkspacePersistenceSpec struct {
 	//
 	// +optional
 	ReadOnly bool `json:"readOnly,omitempty"`
+
+	// SharedWorkspaceReadOnly makes the SHARED workspace restore-only, while the
+	// session workspace stays read-write.
+	//
+	// WHY ReadOnly ABOVE CANNOT SERVE THIS
+	//
+	// It governs both instances. A session that must write its own workspace and
+	// only read the shared one has no setting, so it checkpoints both -- and the
+	// shared one is where that is destructive.
+	//
+	// THE DATA LOSS THIS PREVENTS, OBSERVED 2026-10-01
+	//
+	// Every sandbox mounting a shared workspace uploads its whole copy as the
+	// newest checkpoint, on the periodic timer and at teardown, whether or not it
+	// changed anything. A sandbox that restored an older copy therefore overwrites
+	// a newer one written by a different session, and retention then prunes the
+	// newer entry to stay within the bound.
+	//
+	// oranger wrote a brand brief to a shared workspace from one session; video
+	// sessions of the same app only read it. Their uploads replaced the brief with
+	// their own older copy, and retention removed the checkpoint that had it. The
+	// brief was unrecoverable -- source history for a shared workspace lives only
+	// in object storage (section 14.2).
+	//
+	// oranger ADR-002 records last-writer-wins on this pointer as an open
+	// consequence, but assumed SIMULTANEOUS WRITERS. A reader that writes nothing
+	// triggers it just as well, which is why a reader needs a way to say so.
+	//
+	// Set, the shared instance mounts its checkpoint and stops: no periodic
+	// backstop, no teardown snapshot, no retention pass. The directory stays
+	// writable to the workload -- the overlay's upper layer is local scratch that
+	// dies with the pod -- so a tool that writes there is not broken, its writes
+	// simply do not become a checkpoint.
+	//
+	// +optional
+	SharedWorkspaceReadOnly bool `json:"sharedWorkspaceReadOnly,omitempty"`
+
+	// SharedWorkspaceRefresh lets a READER of the shared workspace ask, from
+	// inside the pod, for the latest save of it (ADR-052 §14.9): POST /refresh on
+	// the shared instance. The whole newer tree replaces the old one in one
+	// switch, or nothing changes; a refresh never writes to the shared
+	// workspace. Requires SharedWorkspaceID and SharedWorkspaceReadOnly.
+	//
+	// It changes the layout at pod start -- /workspace/.global becomes a link to
+	// a restored generation -- so it is chosen per session and is off unless
+	// asked for; a session without it behaves exactly as before.
+	//
+	// +optional
+	SharedWorkspaceRefresh bool `json:"sharedWorkspaceRefresh,omitempty"`
 
 	// PinnedCheckpoints are exempt from retention however old they become
 	// (ADR-052 §14.3): a live deployment was built from them.

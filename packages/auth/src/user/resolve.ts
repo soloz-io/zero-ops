@@ -1,12 +1,20 @@
 import type { TenantClaims } from "../jwt/claims.js";
-import type {
-  ResolveUserOptions,
-  ResolvedUser,
-  SqlExecutor,
-  SqlTransactor,
-} from "./types.js";
+import type { ResolvedUser, ResolveUserOptions, SqlExecutor, SqlTransactor } from "./types.js";
 
-const DEFAULT_PROVIDER = "ory";
+// The issuer this platform runs.
+//
+// It was "ory" until 2026-09-30 -- a default carried over from an identity
+// provider that preceded Zitadel. Nothing failed for as long as it was wrong,
+// because this value is only ever compared against itself: the library writes it,
+// looks a person up by it, and matches. A wrong name stays consistent with itself
+// and is invisible to every test of resolution. It was found by reading a row.
+//
+// `identities` is UNIQUE(provider, provider_user_id), so this value and the
+// stored one must move together. If you ever change it, rewrite the stored rows
+// in the same change -- otherwise every existing identity becomes unreachable,
+// resolution judges each person new, and a SECOND user row is created for them.
+// That insert succeeds, so nothing reports it.
+const DEFAULT_PROVIDER = "zitadel";
 const DEFAULT_SCHEMA = "public";
 
 /** Reject anything that could not be a bare SQL identifier. */
@@ -67,7 +75,18 @@ export async function resolveUser(
   const email = claims.email || null;
 
   return db.transaction(async (tx) => {
-    const existing = await tx.query<{ user_id: string; email: string }>(
+    // THE APPLICATION'S OWN TABLES, READ AND WRITTEN DIRECTLY.
+    //
+    // This briefly called a SECURITY DEFINER function the platform created in the
+    // tenant's database, because ADR-093 had taken these tables away from the
+    // application and row-level security then blocked a lookup that runs BEFORE
+    // any user context exists. Both are gone: the platform provisions a database
+    // and a role, and everything inside it is the application's, so there is no
+    // privilege here the caller lacks and no function for the platform to own.
+    //
+    // What survives is the part that was never about privilege -- the race, and
+    // the rule about email below.
+    const found = await tx.query<{ user_id: string; email: string | null }>(
       `SELECT i.user_id, u.email
          FROM ${schema}.identities i
          JOIN ${schema}.users u ON u.id = i.user_id
@@ -75,73 +94,116 @@ export async function resolveUser(
       [provider, claims.sub],
     );
 
-    if (existing.length > 0) {
-      const row = existing[0]!;
-      // Refresh a changed address so the tenant does not display a stale one.
-      // Guarded on inequality: an unconditional UPDATE would write on every
-      // request and produce needless WAL and row versions.
-      if (email && email !== row.email) {
+    if (found[0]) {
+      // Refresh a changed address so the application does not display a stale
+      // one. Guarded on inequality: an unconditional UPDATE would write on every
+      // authenticated request.
+      if (email && email !== found[0].email) {
         await tx.query(`UPDATE ${schema}.users SET email = $1 WHERE id = $2`, [
           email,
-          row.user_id,
+          found[0].user_id,
         ]);
       }
-      return { userId: row.user_id, email: email ?? row.email, isNew: false };
+      return { userId: found[0].user_id, email: email ?? found[0].email ?? "", isNew: false };
     }
 
+    // FIRST SIGHTING.
+    //
+    // An address is required to create, because `users.email` is NOT NULL in the
+    // shape this expects. Said here, naming the subject, rather than letting the
+    // insert fail: a not-null violation on a column the caller never mentioned is
+    // a confusing way to learn that the login produced no email claim.
     if (!email) {
-      // users.email is NOT NULL in the baseline, so a first sighting without one
-      // cannot be provisioned. Fail loudly rather than inventing a placeholder
-      // that would later collide on the unique index.
       throw new Error(
-        `cannot provision a user for subject ${claims.sub}: no email claim present`,
+        `cannot provision a user for subject ${claims.sub} without an email claim; ` +
+          `the login must request the "email" scope`,
       );
     }
 
-    const created = await tx.query<{ id: string }>(
-      `INSERT INTO ${schema}.users (email, email_verified)
-            VALUES ($1, $2)
-       ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-         RETURNING id`,
-      [email, claims.email_verified === true],
+    // An address already registered to a DIFFERENT subject is refused rather than
+    // adopted. `users.email` is UNIQUE, so the insert would fail anyway -- but the
+    // reason matters: linking a second subject to an existing person is an
+    // account-linking decision that needs proof the same human holds both, and
+    // silently attaching one is how an address reassigned at the provider hands a
+    // stranger someone else's records.
+    const taken = await tx.query<{ id: string }>(
+      `SELECT id FROM ${schema}.users WHERE email = $1`,
+      [email],
     );
-    const userId = created[0]!.id;
+    if (taken[0]) {
+      throw new Error(
+        `address is already registered to a different identity; linking subject ` +
+          `${claims.sub} to it requires an explicit verified-linking flow`,
+      );
+    }
+
+    // Two requests from the same person can arrive together, both see nothing
+    // above, and both try to create. The unique constraint on
+    // (provider, provider_user_id) decides it, and `ON CONFLICT DO NOTHING` makes
+    // the loser take a path that returns no row rather than raising.
+    const created = await tx.query<{ id: string }>(
+      `INSERT INTO ${schema}.users (email) VALUES ($1) RETURNING id`,
+      [email],
+    );
+    const candidate = created[0]?.id;
+    if (!candidate) {
+      throw new Error(`could not create a user for subject ${claims.sub}`);
+    }
 
     const linked = await tx.query<{ user_id: string }>(
       `INSERT INTO ${schema}.identities (user_id, provider, provider_user_id)
-            VALUES ($1, $2, $3)
+       VALUES ($1, $2, $3)
        ON CONFLICT (provider, provider_user_id) DO NOTHING
-         RETURNING user_id`,
-      [userId, provider, claims.sub],
+       RETURNING user_id`,
+      [candidate, provider, claims.sub],
     );
 
-    if (linked.length === 0) {
-      // Another request won the race. Its row is authoritative — returning ours
-      // would hand out a user id that no identity points at.
-      const raced = await tx.query<{ user_id: string }>(
-        `SELECT user_id FROM ${schema}.identities
-          WHERE provider = $1 AND provider_user_id = $2`,
-        [provider, claims.sub],
-      );
-      if (raced.length === 0) {
-        throw new Error(
-          `identity for subject ${claims.sub} could neither be created nor found`,
-        );
-      }
-      return { userId: raced[0]!.user_id, email, isNew: false };
+    if (linked[0]) {
+      return { userId: linked[0].user_id, email: email ?? "", isNew: true };
     }
 
-    return { userId, email, isNew: true };
+    // The loser. Its `users` row is an orphan nothing points at -- exactly the
+    // record ADR-057 names as invisible to every later lookup and re-created on
+    // every request -- so it is removed before adopting the winner. Deleting it
+    // is safe because it was inserted in THIS transaction and nothing else can
+    // have referenced it yet.
+    await tx.query(`DELETE FROM ${schema}.users WHERE id = $1`, [candidate]);
+
+    const winner = await tx.query<{ user_id: string; email: string | null }>(
+      `SELECT i.user_id, u.email
+         FROM ${schema}.identities i
+         JOIN ${schema}.users u ON u.id = i.user_id
+        WHERE i.provider = $1 AND i.provider_user_id = $2`,
+      [provider, claims.sub],
+    );
+    if (!winner[0]) {
+      // The insert conflicted, so a row exists; not finding it means the unique
+      // constraint is not the one this assumes. Surfaced rather than returning an
+      // id of undefined that fails somewhere later.
+      throw new Error(
+        `identity for subject ${claims.sub} conflicted but could not be read back; ` +
+          `check that ${schema}.identities has UNIQUE (provider, provider_user_id)`,
+      );
+    }
+    return { userId: winner[0].user_id, email: email ?? winner[0].email ?? "", isNew: false };
   });
 }
 
 /**
  * Run `fn` in a transaction whose row-level security context is set to this user.
  *
- * The platform baseline's RLS policies read
- * `current_setting('request.jwt.claims')::json->>'user_id'`. Nothing sets it, so
- * those policies currently match no rows and the protection they describe is
- * inert. This is what engages them.
+ * FOR AN APPLICATION THAT CHOOSES ROW-LEVEL SECURITY. The platform ships no
+ * policies -- it provisions a database and a role, and the schema is the
+ * application's -- so nothing here is engaged unless the application wrote a
+ * policy that reads
+ * `current_setting('request.jwt.claims')::json->>'user_id'`.
+ *
+ * Worth knowing before adopting it: such a policy binds the application only
+ * while the application sets the claim honestly. It catches a handler that forgot
+ * a WHERE clause; it does not constrain code that sets a different user_id,
+ * because the application holds the connection. That makes it a backstop against
+ * developer error, not a security boundary -- which is a fine thing to want, as
+ * long as it is not mistaken for the other.
  *
  * TRANSACTION-SCOPED, AND THAT IS NOT A DETAIL
  *

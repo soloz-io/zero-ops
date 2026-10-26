@@ -1,0 +1,43 @@
+{{- /*
+ADR-106 item 2: what may reach this tenant's sandboxes.
+
+The platform's agent-sandbox-default-deny (spoke-catalog) gives every sandbox
+pod an ingress section admitting only the node, which makes sandbox ingress
+default-deny everywhere. This admits back the one in-cluster caller a sandbox
+has: this application's SDK, from this namespace, on the sandbox port. It is
+the ingress side of sdk-to-sandbox (sandbox-sdk-egress.yaml), which is the
+SDK's egress side of the same connection.
+
+Rendered for every application, not only for those enabling agentVault. The
+deny comes from the platform and applies whatever the fleet declares, so the
+admission must not depend on a flag either: a fleet with sandboxes and the flag
+off would otherwise lose its SDK's connection the moment the deny lands.
+
+Nothing from another namespace is admitted, including another app of the same
+tenant: CiliumNetworkPolicy fromEndpoints without a namespace label match the
+policy's own namespace only (Cilium v1.17.18,
+Documentation/security/policy/kubernetes.rst:67-71).
+*/}}
+{{- if not .Values.deployXR }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sandbox-ingress-from-sdk
+  namespace: {{ include "universal-tenant.namespace" . }}
+  labels:
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: agents.x-k8s.io/sandbox
+        operator: Exists
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:app: sdk
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+{{- end }}

@@ -14,10 +14,7 @@ export interface SqlExecutor {
    * Parameters are $1, $2, … — every value below is passed this way rather than
    * interpolated, including the JSON handed to set_config.
    */
-  query<T = Record<string, unknown>>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<T[]>;
+  query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>;
 }
 
 /**
@@ -51,9 +48,13 @@ export interface ResolveUserOptions {
   /**
    * Identity provider name recorded in `identities.provider`.
    *
-   * Defaults to "ory", the platform's provider. Overriding it is only correct
-   * when a tenant genuinely federates a second provider — the same subject from
-   * two providers must not collapse to one user.
+   * Defaults to "zitadel", the issuer this platform runs. Overriding it is only
+   * correct when a tenant genuinely federates a second provider — the same
+   * subject from two providers must not collapse to one user.
+   *
+   * "ory" is not accepted: it was this default until 0.16.0 and the tenant
+   * baseline now rejects it, because accepting both names for one issuer is what
+   * creates a second user row for a person who already has one.
    */
   provider?: string;
   /** Schema holding the platform baseline tables. Defaults to "public". */

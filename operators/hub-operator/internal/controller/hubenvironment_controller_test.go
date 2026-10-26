@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -72,6 +73,12 @@ var _ = Describe("HubEnvironment Controller", func() {
 					Spec: opsv1alpha1.HubEnvironmentSpec{
 						Domain:      "dev.example.com",
 						Environment: "dev",
+						// The cluster this box is, which is what keys the escrow. Not
+						// metadata.name: that is the singleton "hub-environment" on every
+						// box, and using it put the master keys at one constant escrow
+						// path and looked for the admin kubeconfig at a secret CAPI never
+						// creates.
+						ClusterName: "test-hub",
 						// database is a required struct; omitting it leaves the reconciler
 						// addressing objects with an empty namespace, which the API server
 						// rejects on create.
@@ -94,7 +101,39 @@ var _ = Describe("HubEnvironment Controller", func() {
 			By("Cleanup the specific resource instance HubEnvironment")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
+		// The escrow is not optional, and this is the assertion that says so.
+		//
+		// It read "should successfully reconcile the resource" and asserted only
+		// that Reconcile returned no error -- which it did, on a box with no
+		// escrow, by logging that fact at Info and continuing with a nil client.
+		// So the test passed for exactly the configuration in which the Infisical
+		// master keys are generated, used, and kept nowhere but inside the cluster
+		// they decrypt. envtest configures no escrow, so the refusal is what this
+		// environment must produce.
+		It("refuses to generate master keys when there is no escrow", func() {
+			// ISOLATED FROM THE CHECKOUT, and this is load-bearing.
+			//
+			// The escrow settings are read from the environment and, failing that,
+			// from `k8-secrets/infisical/` in the checkout -- which is what lets an
+			// operator run the CLI without exporting four values. This test runs
+			// inside the checkout, so without this it finds the REAL escrow
+			// credentials of whoever ran it: the reconcile then succeeds, the
+			// assertion below fails, and a developer is one mistake from a test
+			// that writes to the live escrow.
+			//
+			// Chdir rather than clearing the environment, because the environment is
+			// not where the value comes from.
+			prevWd, err := os.Getwd()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(os.Chdir(GinkgoT().TempDir())).To(Succeed())
+			defer func() { Expect(os.Chdir(prevWd)).To(Succeed()) }()
+			for _, k := range []string{
+				"INFISICAL_ESCROW_URL", "INFISICAL_ESCROW_PROJECT_ID",
+				"INFISICAL_ESCROW_CLIENT_ID", "INFISICAL_ESCROW_CLIENT_SECRET",
+			} {
+				GinkgoT().Setenv(k, "")
+			}
+
 			By("Reconciling the created resource")
 			controllerReconciler := &HubEnvironmentReconciler{
 				Client: k8sClient,
@@ -105,12 +144,11 @@ var _ = Describe("HubEnvironment Controller", func() {
 				Scheme:         k8sClient.Scheme(),
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("escrow"))
 		})
 	})
 })

@@ -19,8 +19,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 	"github.com/soloz-io/zero-ops/internal/platform/embedded"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/versions"
 )
 
 // ReadFile returns platform content by its repository-relative path, for
@@ -51,6 +51,30 @@ func ReadFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	return os.ReadFile(filepath.Join(root, path))
+}
+
+// Origin describes where platform content is being read from, for errors that
+// would otherwise blame the content for a property of the build.
+//
+// A development build resolves against the working directory. Run from anywhere
+// but a checkout of zero-ops -- and bootstrap runs from the TENANT's repository
+// (ADR-072), so that is the normal case -- every lookup misses, and each caller
+// reports its own miss as though the content were absent. "No spec.domain
+// declared for environment dev in any overlay" is a true statement about a
+// directory that was never the right place to look, and it cost a bootstrap run
+// before it said so.
+func Origin() string {
+	if versions.IsReleaseBuild() {
+		return fmt.Sprintf("release %s, read from the binary's embedded tree",
+			versions.BundleVersion)
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		root = "the working directory"
+	}
+	return fmt.Sprintf("development build, read from the working directory (%s); "+
+		"a development build has no embedded tree, so it only resolves platform "+
+		"content when run from a checkout of zero-ops (ADR-063)", root)
 }
 
 // ReadDir lists a directory of platform content, sorted, names only.

@@ -20,12 +20,10 @@ import (
 type HetznerDriver struct {
 	Token             string
 	Region            string
-	OS                string // "ubuntu" or "talos"
-	ImageID           string
+	OS                string // node OS; "ubuntu" is the only supported value (ADR-001)
 	NetworkCIDR       string
 	SSHKey            string
 	Debug             bool
-	BuildTalosImage   bool
 	BuildFlatcarImage bool
 
 	// Environment decides whether this box provisions cloud workers at all
@@ -118,16 +116,6 @@ func (d *HetznerDriver) PreflightValidators() []preflight.Validator {
 		&preflight.DockerValidator{},
 		&preflight.KindValidator{},
 		&preflight.HetznerTokenValidator{Token: d.Token},
-	}
-
-	if d.OS == "talos" {
-		v = append(v, &preflight.TalosImageValidator{
-			Token:       d.Token,
-			ImageID:     d.ImageID,
-			BuildImage:  d.BuildTalosImage,
-			Region:      d.Region,
-			ClusterName: "",
-		})
 	}
 
 	if d.SSHKey != "" {
@@ -274,17 +262,10 @@ func (d *HetznerDriver) CAPIProviders() []capi.CAPIProvider {
 		{Kind: "CoreProvider", Name: "cluster-api", Version: versions.CAPIVersion, Manifest: "core/capi-operator/providers/core-provider.yaml"},
 	}
 
-	if d.OS == "ubuntu" {
-		providers = append(providers,
-			capi.CAPIProvider{Kind: "BootstrapProvider", Name: "kubeadm", Version: versions.KubeadmBootstrapProviderVersion, Manifest: "core/capi-operator/providers/bootstrap-provider-kubeadm.yaml"},
-			capi.CAPIProvider{Kind: "ControlPlaneProvider", Name: "kubeadm", Version: versions.KubeadmControlPlaneProviderVersion, Manifest: "core/capi-operator/providers/controlplane-provider-kubeadm.yaml"},
-		)
-	} else {
-		providers = append(providers,
-			capi.CAPIProvider{Kind: "BootstrapProvider", Name: "talos", Version: versions.TalosBootstrapProviderVersion, Manifest: "core/capi-operator/providers/bootstrap-provider-talos.yaml"},
-			capi.CAPIProvider{Kind: "ControlPlaneProvider", Name: "talos", Version: versions.TalosControlPlaneProviderVersion, Manifest: "core/capi-operator/providers/controlplane-provider-talos.yaml"},
-		)
-	}
+	providers = append(providers,
+		capi.CAPIProvider{Kind: "BootstrapProvider", Name: "kubeadm", Version: versions.KubeadmBootstrapProviderVersion, Manifest: "core/capi-operator/providers/bootstrap-provider-kubeadm.yaml"},
+		capi.CAPIProvider{Kind: "ControlPlaneProvider", Name: "kubeadm", Version: versions.KubeadmControlPlaneProviderVersion, Manifest: "core/capi-operator/providers/controlplane-provider-kubeadm.yaml"},
+	)
 
 	providers = append(providers, capi.CAPIProvider{
 		Kind:     "InfrastructureProvider",
@@ -316,10 +297,10 @@ func (d *HetznerDriver) OnCAPIInit(ctx context.Context, kubeconfig, context, nam
 	// A box with no on-prem nodes gets EMPTY values: every tailscale command in the
 	// ClusterClass is guarded on `[ -s /etc/tailscale-hostname ]` and becomes a
 	// no-op.
-	return d.stageTailscaleCredentials(ctx, kubeconfig, namespace)
+	return d.StageTailscaleCredentials(ctx, kubeconfig, namespace)
 }
 
-// stageTailscaleCredentials puts this box's control plane on the tenant's tailnet,
+// StageTailscaleCredentials puts this box's control plane on the tenant's tailnet,
 // or leaves the credentials empty when it has no on-prem nodes.
 //
 // ADR-046 invariant 6: Cilium derives its VXLAN tunnel endpoint from a node's
@@ -332,7 +313,7 @@ func (d *HetznerDriver) OnCAPIInit(ctx context.Context, kubeconfig, context, nam
 // live only there, which is why a hetzner box with --on-prem staged nothing: the
 // flag was read, the capability was reported, and the credential the ClusterClass
 // needed was written empty anyway.
-func (d *HetznerDriver) stageTailscaleCredentials(ctx context.Context, kubeconfig, namespace string) error {
+func (d *HetznerDriver) StageTailscaleCredentials(ctx context.Context, kubeconfig, namespace string) error {
 	if !d.OnPremEnabled {
 		if err := writeTailscaleSecret(ctx, kubeconfig, namespace, "", ""); err != nil {
 			return fmt.Errorf("failed to create placeholder tailscale secret: %w", err)
@@ -367,14 +348,9 @@ func (d *HetznerDriver) stageTailscaleCredentials(ctx context.Context, kubeconfi
 func (d *HetznerDriver) PopulateClusterConfig(cfg *cluster.Config) {
 	subnetCIDR := d.NetworkCIDR[:len(d.NetworkCIDR)-2] + "24"
 
-	imageID := d.ImageID
-	if d.OS == "ubuntu" {
-		imageID = "ubuntu-24.04"
-	}
-
 	cfg.Region = d.Region
 	cfg.OSType = d.OS
-	cfg.ImageID = imageID
+	cfg.ImageID = "ubuntu-24.04"
 	cfg.KubernetesVersion = "v1.31.6"
 	cfg.NetworkCIDR = d.NetworkCIDR
 	cfg.SubnetCIDR = subnetCIDR

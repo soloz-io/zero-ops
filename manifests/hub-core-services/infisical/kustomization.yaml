@@ -4,7 +4,7 @@ kind: Kustomization
 
 # Infisical (ADR-046 §FIX).
 #
-# Renders the infisical-standalone helm chart through kustomize (the OpenMeter
+# Renders the infisical-standalone helm chart through kustomize (the same
 # pattern) so we can:
 #   1. Force `strategy: Recreate` on the Deployment — the chart template does
 #      not expose strategy and defaults to RollingUpdate (maxSurge 25%), which

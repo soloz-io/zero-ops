@@ -20,9 +20,13 @@ func TestTenantStateIsOutsideWhatTheClusterReconciles(t *testing.T) {
 		t.Errorf("bootstrap state must not sit in a reconciled directory, got %q",
 			m.statePath)
 	}
-	if !strings.HasPrefix(m.statePath, filepath.Join("/repo", ".state", "bootstrap")) {
-		t.Errorf("state belongs under .state/bootstrap, namespaced by the command "+
-			"that writes it, got %q", m.statePath)
+	// .state/, the one directory the box's state lives in. It asserted
+	// .state/, which was the only thing still saying so: the shell half
+	// of Day-0 writes .state/bootstrap-mgmt.json and reads the CLI's record from
+	// .state/<cluster>.json, so the extra segment put the writer and the reader in
+	// different directories -- and this test held it there.
+	if !strings.HasPrefix(m.statePath, filepath.Join("/repo", ".state")+"/") {
+		t.Errorf("state belongs under .state/, got %q", m.statePath)
 	}
 	if !strings.HasSuffix(m.statePath, "acme-hub.json") {
 		t.Errorf("state is per cluster, got %q", m.statePath)

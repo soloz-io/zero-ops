@@ -1,0 +1,102 @@
+# The issuer's outbound mail sender.
+#
+# ADR-060 (Amendment 2026-09-26): the issuer owns the credential lifecycle, which
+# it can only do if it can send mail. Without a sender there is no initialisation
+# mail and no password reset, so the platform had to invent a password, store it
+# where nothing read it, and leave the owner unable to sign in. This is what
+# closes that.
+#
+# ADR-054 is NOT reopened. Nothing here runs a mail server: the transport is an
+# external sending service reached over SMTP, owning no ports on a home node and
+# issuing no certificate. The rejection was of OPERATING a mail server.
+---
+# A second store, because the first one cannot see this key.
+#
+# infisical-backend is scoped `secretsPath: "/"` with recursive false, so it reads
+# root keys only -- `hub-zitadel-masterkey` and its neighbours. The SMTP
+# credential lives one level down, under the tenant's own management folder, and a
+# non-recursive store at "/" does not descend into it. Turning recursion on there
+# instead would widen EVERY ExternalSecret bound to that store to the whole
+# project and make a key name collide across folders, so the narrower store is the
+# smaller change.
+#
+# The path is templated, not literal: `global.tenantId` is what the
+# environment-manager already emits to every component, so a second box renders
+# its own folder rather than reaching into nutgraf's.
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: infisical-tenant-mgmt
+spec:
+  provider:
+    infisical:
+      # Keep base host only; ESO Infisical client appends API path segments.
+      hostAPI: "http://infisical-standalone-infisical.platform-security.svc:8080"
+      secretsScope:
+        projectSlug: "hub-secrets"
+        environmentSlug: "dev"
+        secretsPath: "/nutgraf-mgmt"
+      auth:
+        universalAuthCredentials:
+          clientId:
+            name: infisical-auth
+            key: client-id
+            namespace: platform-ops
+          clientSecret:
+            name: infisical-auth
+            key: client-secret
+            namespace: platform-ops
+---
+# The SMTP PASSWORD, and nothing else.
+#
+# Everything else about the sender -- host, user, TLS, from, from-name -- is
+# declared in values.yaml beside ExternalDomain, because none of it is secret and
+# all of it is this box's configuration. This file carries the one field that
+# cannot sit in git.
+#
+# THE SPLIT IS LOAD-BEARING, not tidiness. `{{ .smtpPassword }}` below is ESO's
+# templating, not Helm's, so this file must be packaged VERBATIM -- the packager
+# emits files/ content through .Files.Get precisely so that ExternalSecret bodies
+# survive. A file packaged verbatim cannot also carry a Helm substitution, and one
+# that carried both (a templated From address alongside this placeholder) failed to
+# package at all:
+#
+#   parse error at (templated.yaml:64): unexpected "\" in command
+#
+# because escaping the ESO braces inside an already-quoted YAML scalar produces
+# \" sequences that Helm's parser rejects inside a template action. So this file
+# is named in no templated-fields declaration, and must not be.
+#
+# The chart appends one --config per source and ZITADEL merges them in order, so a
+# fragment holding only the password merges with configmapConfig rather than
+# replacing it.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: zitadel-smtp-config
+  namespace: platform-identity
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-tenant-mgmt
+    kind: ClusterSecretStore
+  target:
+    name: zitadel-smtp-config
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+      engineVersion: v2
+      mergePolicy: Replace
+      data:
+        # `config-yaml` is the key values.yaml names in configSecretKey. The chart
+        # mounts it and appends `--config /zitadel-secret-config-yaml/config-yaml`.
+        config-yaml: |
+          DefaultInstance:
+            SMTPConfiguration:
+              SMTP:
+                Password: "{{ .smtpPassword }}"
+  data:
+    - secretKey: smtpPassword
+      remoteRef:
+        key: zitadel_smtp_password

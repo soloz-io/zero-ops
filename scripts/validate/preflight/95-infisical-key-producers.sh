@@ -18,7 +18,7 @@
 validate_infisical_key_producers() {
     section "Every Infisical-backed ExternalSecret key has a producer"
 
-    local out
+    local out rc=0
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
 import glob, os, re, yaml
 
@@ -30,11 +30,19 @@ import glob, os, re, yaml
 EXTERNAL = {
     "S3_ACCESS_KEY_ID":              "k8-secrets/s3/access-key-id — Hetzner Object Storage key (starts 0A…, NOT the hcloud-token)",
     "S3_SECRET_ACCESS_KEY":          "k8-secrets/s3/secret-access-key — Hetzner Object Storage secret (CNPG Barman backups)",
-    "GRAFANA_CLOUD_API_KEY":         "k8-secrets/grafana-cloud/api-key",
+    "GRAFANA_CLOUD_TELEMETRY_TOKEN":         "k8-secrets/grafana-cloud/telemetry-token",
     "GRAFANA_CLOUD_LOKI_URL":        "k8-secrets/grafana-cloud/loki-url",
     "GRAFANA_CLOUD_LOKI_USER":       "k8-secrets/grafana-cloud/loki-user",
     "GRAFANA_CLOUD_PROMETHEUS_URL":  "k8-secrets/grafana-cloud/prometheus-url",
     "GRAFANA_CLOUD_PROMETHEUS_USER": "k8-secrets/grafana-cloud/prometheus-user",
+    "GRAFANA_CLOUD_RULES_TOKEN":     "k8-secrets/grafana-cloud/rules-token — rules:read + rules:write (ADR-078 add.3 §6)",
+    "GRAFANA_CLOUD_DASHBOARDS_TOKEN": "k8-secrets/grafana-cloud/dashboards-token — stack service-account token (Editor)",
+    "GRAFANA_CLOUD_ALERTS_TOKEN":    "k8-secrets/grafana-cloud/alerts-token — alerts:read + alerts:write (ADR-078 add.4)",
+    "GRAFANA_IRM_ALERTMANAGER_URL":  "k8-secrets/grafana-cloud/irm-alertmanager-url — IRM Alertmanager integration URL",
+    "GRAFANA_IRM_HEARTBEAT_URL":     "k8-secrets/grafana-cloud/irm-heartbeat-url — IRM heartbeat URL",
+    # Uploaded from the zitadel-smtp Secret as the URL's PASSWORD only, to the
+    # owner's /<tenant>-mgmt folder (CLISecretMappings, TransformURLPassword).
+    "zitadel_smtp_password":         "k8-secrets/smtp/resend (or ZITADEL_SMTP_URL) — the Resend SMTP URL, smtps://resend:<api-key>@smtp.resend.com:465",
 }
 
 # Known-missing producers awaiting a decision, reported as a WARNING rather than a
@@ -126,6 +134,11 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
     except Exception:
         continue
     for d in docs:
+        # A top-level LIST document (templated-fields.yaml and friends) is not a
+        # resource. Calling .get() on one raised AttributeError, python exited
+        # non-zero, and the empty stdout that produced was read as "no findings".
+        if not isinstance(d, dict):
+            continue
         if d.get("kind") != "ExternalSecret":
             continue
         store = (d.get("spec", {}).get("secretStoreRef") or {}).get("name", "")
@@ -194,7 +207,15 @@ for k in sorted(EXTERNAL):
     if k in wanted or k in wanted_cell:
         print("\t".join(["SEED", k, EXTERNAL[k]]))
 PY
-)
+) || rc=$?
+
+    # rc is captured because an EMPTY result and a CRASHED checker are the same
+    # string, and `-z "$out"` below cannot tell them apart. A checker that could
+    # not run has not found nothing.
+    if (( rc != 0 )); then
+        hard_fail "the checker exited ${rc} — it inspected nothing, and an empty result from a crashed checker is not a passing one"
+        return 1
+    fi
 
     if [[ -z "$out" ]]; then
         pass "no Infisical-backed ExternalSecrets found to check"

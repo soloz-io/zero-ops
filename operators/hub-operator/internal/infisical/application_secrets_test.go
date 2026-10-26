@@ -2,6 +2,7 @@ package infisical
 
 import (
 	"encoding/hex"
+	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"testing"
 )
 
@@ -113,4 +114,65 @@ func TestCellScopedKeysAreRepairable(t *testing.T) {
 			t.Errorf("%s is cell-scoped but declares no HexBytes: a malformed value there can never be detected", def.CellScopedKey)
 		}
 	}
+}
+
+// ── Escrowed secrets (ADR-076, "What the escrow holds") ──────────────────────
+//
+// The membership test is whether a value can be regenerated WITHOUT LOSS. These
+// pin the registry against that test, because every way of getting it wrong is
+// silent: an unescrowed unrotatable key behaves identically until the day the
+// cluster is gone, and an escrowed rotatable one adds a credential outside the box
+// for no benefit.
+
+func TestOnlyUnrotatableSecretsAreEscrowed(t *testing.T) {
+	// Encodes the test as a decision per entry, so adding a secret to the registry
+	// forces the question rather than inheriting a default. A new key that belongs
+	// in the escrow fails here instead of being discovered during a recovery.
+	regenerableWithoutLoss := map[string]bool{
+		"hub-control-plane-db-password":   true,  // rotate, update the role
+		"hub-centralized-db-password":     true,  // same
+		"hub-zitadel-db-password":         true,  // same
+		"hub-zitadel-masterkey":           false, // encrypts every column written
+		"agentgateway-oidc-cookie-secret": true,  // rotating only ends sessions
+		"hub-secret-encryption-key":       false, // etcd AND every etcd backup are encrypted with it
+	}
+
+	for _, d := range ApplicationSecretMappings {
+		if d.PasswordKey == "" {
+			continue // key-pair entries carry no password
+		}
+		rotatable, known := regenerableWithoutLoss[d.PasswordKey]
+		if !known {
+			t.Fatalf("%q is in the registry but not classified here: decide whether it can be "+
+				"regenerated without loss, and escrow it if it cannot (ADR-076)", d.PasswordKey)
+		}
+		switch {
+		case rotatable && d.EscrowArtifact != "":
+			t.Fatalf("%q is rotatable but escrowed as %q; an escrow for a value that can be "+
+				"regenerated is a credential outside the box for no benefit", d.PasswordKey, d.EscrowArtifact)
+		case !rotatable && d.EscrowArtifact == "":
+			t.Fatalf("%q cannot be regenerated without loss and is escrowed nowhere; a box that "+
+				"loses its secret store cannot recover it (ADR-076)", d.PasswordKey)
+		}
+	}
+}
+
+func TestTheZitadelMasterkeyIsEscrowedUnderTheNameTheAdrLists(t *testing.T) {
+	// The name is the contract: a recovery reads the escrow by it, and ADR-076's
+	// list is checked against this constant by preflight 91. A rename on one side
+	// only produces an escrow nobody restores from.
+	for _, d := range ApplicationSecretMappings {
+		if d.PasswordKey != "hub-zitadel-masterkey" {
+			continue
+		}
+		if d.EscrowArtifact != escrow.ArtifactZitadelMasterkey {
+			t.Fatalf("escrow artefact = %q, want %q", d.EscrowArtifact, escrow.ArtifactZitadelMasterkey)
+		}
+		// Unrotatable and hex-shaped: both are why it is escrowed and validated.
+		if d.HexBytes != 16 {
+			t.Fatalf("HexBytes = %d, want 16 (32 characters, which is what the consumer counts)", d.HexBytes)
+		}
+		return
+	}
+	t.Fatal("hub-zitadel-masterkey is no longer in the registry")
 }

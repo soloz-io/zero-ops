@@ -15,7 +15,7 @@
 validate_certificate_ttl_ceiling() {
     section "Certificate durations fit their profile ceiling (ADR-035 §5)"
 
-    local out
+    local out rc=0
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
 import glob, os, re, yaml
 
@@ -39,6 +39,11 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
     except Exception:
         continue
     for d in docs:
+        # A top-level LIST document (templated-fields.yaml and friends) is not a
+        # resource. Calling .get() on one raised AttributeError, python exited
+        # non-zero, and the empty stdout that produced was read as "no findings".
+        if not isinstance(d, dict):
+            continue
         if d.get("kind") not in ("ClusterIssuer", "Issuer"):
             continue
         tmpl = (d.get("spec") or {}).get("certificateTemplateName")
@@ -60,6 +65,11 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
     except Exception:
         continue
     for d in docs:
+        # A top-level LIST document (templated-fields.yaml and friends) is not a
+        # resource. Calling .get() on one raised AttributeError, python exited
+        # non-zero, and the empty stdout that produced was read as "no findings".
+        if not isinstance(d, dict):
+            continue
         if d.get("kind") != "Certificate":
             continue
         spec = d.get("spec") or {}
@@ -80,11 +90,19 @@ for f in glob.glob("manifests/**/*.yaml", recursive=True):
                              f"requests {spec['duration']} through {slug} (ceiling {ceiling}d) "
                              f"— renewal would break {h/24:.0f} days from issuance, not at apply time"]))
 PY
-)
+) || rc=$?
 
     if grep -q $'^SKIP\t' <<< "$out" 2>/dev/null; then
         warn "could not read the profile registry — TTL ceilings unverified"
         return 0
+    fi
+
+    # rc is captured because an EMPTY result and a CRASHED checker are the same
+    # string, and `-z "$out"` below cannot tell them apart. A checker that could
+    # not run has not found nothing.
+    if (( rc != 0 )); then
+        hard_fail "the checker exited ${rc} — it inspected nothing, and an empty result from a crashed checker is not a passing one"
+        return 1
     fi
 
     if [[ -z "$out" ]]; then

@@ -21,6 +21,11 @@ import (
 const (
 	// Enterprise Alignment: ADR-003 / ADR-031 Isolation Boundaries
 	InfisicalSharedPathFormat = "/spoke-pool/%s/shared"
+	// Takes cellId and APP id. The segment named `tenants` holds a product and
+	// always has -- before ADR-088 the field feeding it was called tenantId but
+	// held one. Correcting the NAME is deferred: moving live key material is a
+	// data migration, and bundling it with an identifier rename made the
+	// riskiest step serve the least valuable part of the change.
 	InfisicalTenantPathFormat = "/spoke-pool/%s/tenants/%s"
 
 	// credentialRotationBackoff is the minimum interval between self-healing
@@ -1076,9 +1081,9 @@ func (c *InfisicalClient) rotateSharedIdentityCredentials(ctx context.Context, c
 //   - If missing AND isFirstTime → copy infisical-credentials from shared path,
 //     generate db-credentials, upload, return Created.
 //   - If missing AND !isFirstTime → return Missing (manual intervention required).
-func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
-	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "cell", cellId)
-	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, tenantId)
+func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId, appId string, isFirstTime bool, oauthClients []OAuthClient, cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*EnsureTenantCredentialsResult, error) {
+	logger := log.FromContext(ctx).WithValues("tenant", tenantId, "app", appId, "cell", cellId)
+	tenantPath := fmt.Sprintf(InfisicalTenantPathFormat, cellId, appId)
 
 	// Declared with the other outcomes so every early return reports it. A
 	// tenant with no cache reports Skipped, never AlreadyExists — the controller
@@ -1166,13 +1171,34 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 			logger.Error(err, "Failed to generate password for tenant")
 			return nil, fmt.Errorf("failed to generate password for tenant %s: %w", tenantId, err)
 		}
-		username := fmt.Sprintf("tenant-%s-user", tenantId)
 
-		logger.Info("Generated credentials for tenant", "usernameLength", len(username), "passwordLength", len(password))
+		logger.Info("Generated database password for tenant", "passwordLength", len(password))
 
+		// THE PASSWORD, AND NOTHING ELSE.
+		//
+		// This used to write a username too, built as "tenant-<tenantId>-user".
+		// The role it named is created by the spoke composition from a DIFFERENT
+		// axis, and nothing compared the two, so the credential named a role that
+		// did not exist. The failure surfaced only as
+		//
+		//	psql: FATAL: password authentication failed for user "tenant-<tenant>-user"
+		//
+		// inside the tenant baseline migration Job, three systems away from either
+		// half of the name, and its visible effect was a fleet with no users table.
+		// It had passed for a year because the first tenant's tenantId WAS its
+		// appId; two apps of one tenant would additionally have COLLIDED on one
+		// role, since a postgres role is cluster-wide.
+		//
+		// The name now has exactly one definition -- spec.dbRoleName on the XR,
+		// composed by the chart -- and the composition patches it into the
+		// ExternalSecret's template. A username is a derived NAME, not a secret,
+		// and it only lived here because it was generated beside a password.
+		//
+		// A key left over from before is simply unread: nothing fetches
+		// `property: username` any more.
+		//
 		// COMPOSITE SECRET: Marshal to JSON for ESO 'property' parsing
 		dbJsonBytes, err := json.Marshal(map[string]string{
-			"username": username,
 			"password": password,
 		})
 		if err != nil {
@@ -1195,7 +1221,31 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 	// rather than each fleet hand-writing a file whose format nothing validates.
 	// Generated once under the same rule as everything else here: its later absence
 	// is a fault, because regenerating locks out a running cache's clients.
-	if cacheEnabled {
+	//
+	// SEEDED WHATEVER cacheEnabled SAYS, and the parameter is kept only to report
+	// the outcome. This was `if cacheEnabled`, and it disagreed with the other half
+	// of the platform: the AINativeSaaS composition renders the cache Deployment,
+	// Service, Certificate, NetworkPolicy and ExternalSecret for EVERY tenant. Its
+	// own comment claims they are "rendered only when the fleet declares
+	// spec.cache.enabled", but it is a classic Composition with no pipeline and no
+	// conditional function, so nothing gates them and nothing ever did.
+	//
+	// The two halves therefore contradicted each other, and the contradiction was
+	// not inert: a tenant with cache.enabled=false received a cache ExternalSecret
+	// naming a CACHE_PASSWORD the operator refused to write, so it failed
+	// SecretSyncedError forever and the cache Deployment never became ready. That
+	// is oranger's state on 2026-09-30, and it is the state of every future tenant
+	// that leaves the cache off.
+	//
+	// Seeding unconditionally is the cheap half of the fix and it is sound: the
+	// platform itself always asks for this credential, so writing it is not
+	// "seeding something nobody asked for". An unused password costs nothing.
+	//
+	// The other half -- actually gating those resources on spec.cache.enabled --
+	// needs the composition converted to a pipeline, which is a larger change than
+	// this file. Until then a tenant with the cache off gets a working cache it
+	// does not use, which is waste rather than breakage.
+	{
 		exists, err := c.SecretExists(ctx, tenantPath, InfisicalCachePasswordKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check Infisical for %s: %w", InfisicalCachePasswordKey, err)
@@ -1238,7 +1288,8 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 			if err := c.CreateSecret(ctx, tenantPath, InfisicalCachePasswordKey, value); err != nil {
 				return nil, fmt.Errorf("failed to write %s for tenant %s: %w", InfisicalCachePasswordKey, tenantId, err)
 			}
-			logger.Info("Seeded tenant cache credential", "path", tenantPath, "key", InfisicalCachePasswordKey)
+			logger.Info("Seeded tenant cache credential", "path", tenantPath,
+				"key", InfisicalCachePasswordKey, "cacheEnabled", cacheEnabled)
 			dbOutcome = EnsureCreated
 			cacheOutcome = EnsureCreated
 		}
@@ -1272,6 +1323,43 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 		}
 	}
 
+	// Step 4b: the application's internal service token (ADR-057).
+	//
+	// PLATFORM-SEEDED, like the cookie key above and for the same reason: nobody
+	// chooses its value. The fleet's own declaration says so in as many words --
+	// "any long random value" -- and a secret whose value nobody chooses is
+	// plumbing, not configuration.
+	//
+	// It was supplied by hand, once per application, and the cost of that showed
+	// up exactly where a manual step always does. oranger's was never written, so
+	// both ExternalSecrets failed, so neither Secret was created, so bff-workload
+	// and sdk-workload sat in CreateContainerConfigError for a day naming a
+	// Kubernetes Secret rather than the Infisical key that was actually missing.
+	// Nothing in that chain says "a human forgot to run a command", and every new
+	// application would have met the same wall.
+	//
+	// Written on absence whatever the tenant's age. An absent token means neither
+	// workload has ever started holding one, so there is no live channel to break
+	// -- the same argument the cookie key makes. Once present it is never
+	// rewritten here: rotating it is a deliberate act that must restart both
+	// sides, and a reconcile must not do that to a running application.
+	internalTokenKey := InfisicalInternalTokenKey(appId)
+	exists, err := c.SecretExists(ctx, tenantPath, internalTokenKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check Infisical for %s: %w", internalTokenKey, err)
+	}
+	if !exists {
+		value, err := GenerateHexKey(32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate internal token for tenant %s: %w", tenantId, err)
+		}
+		if err := c.CreateSecret(ctx, tenantPath, internalTokenKey, value); err != nil {
+			return nil, fmt.Errorf("failed to write %s for tenant %s: %w", internalTokenKey, tenantId, err)
+		}
+		logger.Info("Seeded application internal service token", "path", tenantPath, "key", internalTokenKey)
+		dbOutcome = EnsureCreated
+	}
+
 	// Step 5: OAuth confidential client credentials (ADR-053).
 	//
 	// Reached whether or not step 2 generated anything, because a tenant
@@ -1300,6 +1388,27 @@ func (c *InfisicalClient) EnsureTenantFolderAndCredentials(ctx context.Context, 
 // ExternalSecret templates both the ACL file and the connection URL from this one
 // value, so nothing downstream stores a second copy of it.
 const InfisicalCachePasswordKey = "CACHE_PASSWORD"
+
+// InfisicalInternalTokenKey names an application's internal service token: the
+// credential its BFF presents to its own SDK (ADR-057's forwarding rule).
+//
+// DERIVED FROM THE APPLICATION ID, and that derivation is the platform contract:
+// an application whose workloads want an internal token read
+// `<APPID>_INTERNAL_TOKEN`, and the platform seeds it. Both applications on this
+// platform already spell it that way -- ORANGER_INTERNAL_TOKEN,
+// WAYPOINT_INTERNAL_TOKEN -- so this names an existing convention rather than
+// imposing a new one, and a fleet that spells it differently is simply not served
+// by the platform and supplies its own.
+//
+// Not a tenant identifier in platform code (ADR-047): the appId is an input, and
+// this is a function of it. A constant here would give every application of every
+// customer the same key name in its own folder, which is fine, and the same VALUE
+// only if the folder were shared, which it is not -- but it would also stop the
+// key naming the application it belongs to, which is what makes a workload's env
+// readable.
+func InfisicalInternalTokenKey(appId string) string {
+	return OAuthKeySegment(appId) + "_INTERNAL_TOKEN"
+}
 
 // InfisicalGatewayCookieSecretKey names the tenant gateway's session-cookie
 // encryption key.
@@ -1331,14 +1440,22 @@ const InfisicalGatewayCookieSecretKey = "AGENTGATEWAY_OIDC_COOKIE_SECRET"
 // The tenant is not part of the key. The folder path already scopes it, and
 // repeating it here would put a tenant identifier in platform code (ADR-047).
 func InfisicalOAuthClientIDKey(clientName string) string {
-	return "OAUTH_" + oauthKeySegment(clientName) + "_CLIENT_ID"
+	return "OAUTH_" + OAuthKeySegment(clientName) + "_CLIENT_ID"
 }
 
 func InfisicalOAuthClientSecretKey(clientName string) string {
-	return "OAUTH_" + oauthKeySegment(clientName) + "_CLIENT_SECRET"
+	return "OAUTH_" + OAuthKeySegment(clientName) + "_CLIENT_SECRET"
 }
 
-func oauthKeySegment(clientName string) string {
+// OAuthKeySegment turns an application or client name into the form a key name
+// uses: upper case, hyphens as underscores.
+//
+// Exported because the key GRAMMAR is one rule and several producers follow it --
+// the OAuth client keys here, and the per-dependency backend keys the controller
+// publishes. A second copy would be a second grammar that drifts silently, since
+// a key nobody writes is a key nobody reads and the failure is an ExternalSecret
+// that never resolves.
+func OAuthKeySegment(clientName string) string {
 	return strings.ToUpper(strings.ReplaceAll(clientName, "-", "_"))
 }
 

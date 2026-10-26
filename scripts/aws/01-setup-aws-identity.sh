@@ -63,7 +63,7 @@ else
         --name "${SSM_KEY_PATH}" \
         --value "$(cat sa-signer.key)" \
         --type "SecureString" \
-        --description "Talos Service Account Signing Key for ${ENVIRONMENT}" \
+        --description "Service Account Signing Key for ${ENVIRONMENT}" \
         --overwrite
 fi
 
@@ -242,7 +242,7 @@ aws iam attach-role-policy \
   --policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${POLICY_NAME}" 2>/dev/null || true
 
 # ------------------------------------------------------------------
-# Part F: Output for Talos
+# Part F: Output
 # ------------------------------------------------------------------
 echo ""
 echo "✅ AWS OIDC Identity is synced."

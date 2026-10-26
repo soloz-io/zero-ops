@@ -2,8 +2,10 @@ package zitadel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
@@ -38,19 +40,54 @@ var defaultRoles = []struct{ Key, Display string }{
 // The order is a dependency chain, not a preference: an application belongs to a
 // project, a project belongs to an organisation, and a role belongs to a
 // project.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+// ErrOrgUnadopted is returned when an organisation already exists under this
+// tenant's name but no immutable binding records it as this tenant's.
+//
+// It is not a failure to fix by retrying. It means the platform cannot tell
+// whether that organisation is this tenant's -- carrying its users, grants and
+// OAuth clients -- or someone else's that happens to share a name. Creating a
+// second one resolves the ambiguity by destroying it: a ZITADEL organisation is
+// a security boundary and a user belongs to exactly one, so the tenant ends up
+// with two principals and every live session on the wrong side of the split.
+//
+// That is what happened on 2026-09-24. Renaming waypoint to nutgraf made the
+// name search miss, a second organisation was created with its own clients, and
+// logins failed with an audience the gateway had never issued for.
+var ErrOrgUnadopted = errors.New("zitadel: organisation exists but is not adopted")
+
+// EnsureTenantIdentity reconciles one tenant's identity against a KNOWN
+// organisation.
+//
+// knownOrgID is the immutable binding (ADR-088), held in the tenant record.
+// Empty means the tenant has none yet, and the only safe outcomes are then:
+// create an organisation because none exists, or return ErrOrgUnadopted because
+// one does. The name is never used to decide that an existing organisation is
+// this tenant's -- a name is a presentation attribute and changes.
+//
+// project selects the APPLICATION's project inside that organisation (ADR-094):
+// its clients, redirect URIs, roles and grants live there, so a second
+// application of one tenant gets its own client rather than being handed the
+// first one's.
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
 
-	orgID, err := a.ensureOrg(ctx, tenantID)
+	// What did not finish. Every step below that is non-fatal -- the tenant is
+	// still worth returning, because its client id must not be lost -- appends
+	// here rather than discarding its error, and the function returns them with
+	// the partial identity. A caller receives both: the identifiers it can
+	// publish, and the reason the tenant is not yet usable.
+	var incomplete []string
+
+	orgID, err := a.resolveOrg(ctx, tenantID, knownOrgID)
 	if err != nil {
-		return nil, fmt.Errorf("ensure organisation for %q: %w", tenantID, err)
+		return nil, fmt.Errorf("resolve organisation for %q: %w", tenantID, err)
 	}
 
-	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
+	projectID, err := a.resolveProject(ctx, orgID, project)
 	if err != nil {
-		return nil, fmt.Errorf("ensure project for %q: %w", tenantID, err)
+		return nil, fmt.Errorf("resolve project for %q: %w", tenantID, err)
 	}
 
 	// Roles must exist before any grant can reference them, and the project must
@@ -103,7 +140,7 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// GrantRequired the moment they try to use it.
 	if selfRegistration {
 		if gerr := a.grantUngrantedMembers(ctx, orgID, projectID); gerr != nil {
-			_ = gerr
+			incomplete = append(incomplete, fmt.Sprintf("grant self-registered members: %v", gerr))
 		}
 	}
 
@@ -111,7 +148,12 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	// Non-fatal: the tenant's identity is correct either way, and failing here
 	// would discard a client id that was already allocated.
 	if rerr := a.EnsureTenantSelfRegistration(ctx, orgID, selfRegistration); rerr != nil {
-		_ = rerr
+		// Reported, not discarded. This policy is what the login UI reads to
+		// decide whether to offer a register link at all -- Zitadel's
+		// apps/login/src/components/username-form.tsx gates it on allowRegister
+		// -- so losing this error leaves a tenant whose users have no way in and
+		// nothing saying why.
+		incomplete = append(incomplete, fmt.Sprintf("set self-registration=%v: %v", selfRegistration, rerr))
 	}
 
 	out := &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, ClientID: clientID}
@@ -122,9 +164,32 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 	owner, err := a.findUserByEmail(ctx, ownerEmail)
 	if err != nil && !isNotFound(err) {
 		// Could not tell whether the owner exists. Creating one now risks a
-		// duplicate account, so the tenant is reported without an owner and the
-		// next reconcile retries.
+		// duplicate account, so the tenant is returned without an owner and the
+		// next reconcile retries -- but INCOMPLETE, because a tenant with no
+		// owner account refuses every login.
+		incomplete = append(incomplete, fmt.Sprintf("look up owner %q: %v", ownerEmail, err))
+		out.Incomplete = incomplete
 		return out, nil
+	}
+
+	// THIS organisation's user, or none. The search is global -- it carries no
+	// organisation -- so it answers "does this email exist anywhere in the
+	// issuer", which is a different question from the one being asked.
+	//
+	// Adopting whatever it returns has two consequences and both are silent. The
+	// tenant gets no owner account of its own, so its organisation stays empty
+	// and every login at its hostname is refused with "User not found in the
+	// system" while the tenant looks fully provisioned from every other side.
+	// And the grant below is then applied to a user belonging to SOMEONE ELSE's
+	// organisation -- most likely the platform's own, since that is where an
+	// operator's address already exists -- which hands a foreign account admin
+	// on this tenant's project.
+	//
+	// The response already carries the owning organisation; the caller discarded
+	// it. Compared here, so a user found outside this organisation is treated as
+	// absent and one is created in the right place.
+	if owner != nil && owner.TenantID != orgID {
+		owner = nil
 	}
 
 	if owner == nil {
@@ -133,38 +198,139 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail st
 		// usable: the issuer refuses anyone holding no role, so a tenant with no
 		// owner account is a tenant whose every login fails.
 		//
-		// A password is generated because the issuer has no mail transport
-		// configured here, so an invitation cannot be delivered. It is returned
-		// exactly once, for the caller to persist where an operator can retrieve
-		// it; it is never reset on a later reconcile.
-		pw, perr := generateInitialPassword()
-		if perr != nil {
-			return out, nil
-		}
+		// Created WITHOUT a password, so the ISSUER owns the credential from here
+		// (ADR-060, Amendment 2026-09-26).
+		//
+		// This generated one until 2026-09-26, because the issuer had no mail
+		// sender and an invitation could not be delivered. That reasoning was
+		// sound and its consequence was not: the generated value was filed in the
+		// tenant's secret store as OWNER_INITIAL_PASSWORD, which nothing in the
+		// repository ever read, and it was sent with changeRequired false — so a
+		// random string nobody could retrieve became the account's standing
+		// credential. Observed on an owner created 2026-09-22: the bootstrap hash
+		// still in place four days later, exactly one successful password check in
+		// the account's entire history, and only failures after it. A browser
+		// holding the session from that one success kept working, so it presented
+		// as intermittent rather than as permanently un-enterable.
+		//
+		// Omitting the password is precisely what makes the issuer send its
+		// initialisation mail: shouldAddInitCode requires no password supplied OR
+		// an unverified address (internal/command/user_human.go:437), so the empty
+		// password satisfies it on its own and the address can stay verified. The
+		// user follows the mail and chooses their own credential; the platform
+		// never holds one.
+		//
+		// This depends on the instance having a mail sender. EnsureSMTP reconciles
+		// that (smtp.go) and the chart carries the same intent for a rebuilt box.
+		// With no sender the account is created and no mail arrives, which is why
+		// that reconcile is not optional.
 		created, cerr := a.CreateUser(ctx, models.User{
 			Email:    ownerEmail,
 			Name:     ownerEmail,
 			TenantID: orgID,
-			Password: pw,
 			Roles:    []string{"admin"},
 		})
 		if cerr != nil {
+			// A 409 here is NOT "the same person, attach them". A user belongs
+			// to exactly one ZITADEL organisation and cannot be moved between
+			// them; the same address in two organisations is two accounts, not
+			// one principal. Email equality is not an identity key, and reading
+			// it as one would let a rename silently re-home a tenant's owner.
+			//
+			// So it is reported, with what it actually means, and the tenant is
+			// returned incomplete. Resolving it is an explicit decision about
+			// WHICH organisation is this tenant's (ADR-088).
+			detail := cerr.Error()
+			if strings.Contains(detail, "409") || strings.Contains(detail, "already exists") {
+				detail = fmt.Sprintf("%v -- this address already has an account in ANOTHER organisation. "+
+					"A user cannot be moved between organisations, so this is not resolved by retrying: "+
+					"either this tenant is bound to the wrong organisation (check status.identity.zitadelOrgId) "+
+					"or the owner needs a distinct account here", cerr)
+			}
+			incomplete = append(incomplete, fmt.Sprintf("create owner %q: %s", ownerEmail, detail))
+			out.Incomplete = incomplete
 			return out, nil
 		}
 		owner = created
-		out.OwnerPassword = pw
 	}
 
 	// Idempotent, and repeated on every reconcile so a grant removed by hand
 	// converges back rather than leaving the owner locked out of their own
 	// tenant.
-	_ = a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"})
-	_ = a.EnsureOrgOwner(ctx, orgID, owner.ID)
+	// An owner holding no role is refused at login with GrantRequired, so these
+	// are part of "the tenant is usable" rather than decoration.
+	if gerr := a.GrantRole(ctx, orgID, projectID, owner.ID, []string{"admin"}); gerr != nil {
+		incomplete = append(incomplete, fmt.Sprintf("grant the owner a project role: %v", gerr))
+	}
+	if oerr := a.EnsureOrgOwner(ctx, orgID, owner.ID); oerr != nil {
+		incomplete = append(incomplete, fmt.Sprintf("make the owner an organisation manager: %v", oerr))
+	}
+
+	out.Incomplete = incomplete
 
 	return out, nil
 }
 
-func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
+// resolveOrg turns a tenant into its organisation id WITHOUT trusting the name.
+//
+//	knownOrgID set   -> verify it still exists and use it. The name may have
+//	                    changed; that is expected and is not this function's
+//	                    business.
+//	knownOrgID empty -> a name search decides only between "create" and
+//	                    "stop". A hit is NOT adoption: it is an organisation
+//	                    whose ownership the platform cannot establish, so it
+//	                    returns ErrOrgUnadopted and the operator reports it.
+//
+// The asymmetry is the point. Creating on a miss is safe -- nothing exists to
+// conflict with. Adopting on a hit is not, because a name is not an identity.
+func (a *Auth) resolveOrg(ctx context.Context, name, knownOrgID string) (string, error) {
+	if knownOrgID != "" {
+		ok, err := a.orgExists(ctx, knownOrgID)
+		if err != nil {
+			return "", fmt.Errorf("verify bound organisation %s: %w", knownOrgID, err)
+		}
+		if !ok {
+			// Deleted upstream. Silently creating a replacement would strip
+			// every user and grant the tenant had; say so instead.
+			return "", fmt.Errorf("%w: bound organisation %s no longer exists and will not be recreated automatically", ErrOrgUnadopted, knownOrgID)
+		}
+		return knownOrgID, nil
+	}
+
+	existing, err := a.findOrgByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	if existing != "" {
+		return "", fmt.Errorf("%w: %q is organisation %s, which no tenant record claims. Adopt it explicitly (record status.identity.zitadelOrgId) or rename it; a second organisation would split this tenant's users from its clients", ErrOrgUnadopted, name, existing)
+	}
+	return a.createOrg(ctx, name)
+}
+
+// orgExists answers whether an organisation id is still live.
+func (a *Auth) orgExists(ctx context.Context, orgID string) (bool, error) {
+	var got struct {
+		Org struct {
+			ID string `json:"id"`
+		} `json:"org"`
+	}
+	if err := a.api.do(ctx, http.MethodGet, "/management/v1/orgs/me", orgID, nil, &got); err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "NotFound") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// findOrgByName returns an organisation id, or "" when none carries the name.
+//
+// Split out of the old ensureOrg deliberately. Finding and creating were one
+// call, so "no organisation of this name" and "this tenant has no organisation"
+// were the same answer -- and a rename made the first true while the second was
+// false. Separating them lets the caller decide, which is where the decision
+// belongs (ADR-088).
+func (a *Auth) findOrgByName(ctx context.Context, name string) (string, error) {
 	var found struct {
 		Result []struct {
 			ID   string `json:"id"`
@@ -182,7 +348,10 @@ func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
 			return o.ID, nil
 		}
 	}
+	return "", nil
+}
 
+func (a *Auth) createOrg(ctx context.Context, name string) (string, error) {
 	var created struct {
 		ID string `json:"id"`
 	}
@@ -192,11 +361,66 @@ func (a *Auth) ensureOrg(ctx context.Context, name string) (string, error) {
 	return created.ID, nil
 }
 
+// RenameOrg changes an organisation's NAME, leaving its id untouched.
+//
+// This is how a tenant rename reaches the identity provider: the binding is the
+// id, the name is presentation. Note that ZITADEL may derive the default domain
+// from the name, which can affect login names -- so this is an explicit
+// migration step with its own verification, never a side effect of
+// reconciliation.
+func (a *Auth) RenameOrg(ctx context.Context, orgID, name string) error {
+	return a.api.do(ctx, http.MethodPut, "/management/v1/orgs/me", orgID, map[string]any{"name": name}, nil)
+}
+
+// resolveProject turns an application's project binding into a project id.
+//
+//	KnownID set  -> verify it still exists and use it. Deleted upstream is an
+//	                error, not a recreate: a new project has none of the
+//	                application's clients, roles or grants, and recreating it
+//	                would sign everyone out under a new client id.
+//	KnownID empty -> find or create by Name within the bound organisation, or
+//	                the configured legacy project when Name is empty.
+func (a *Auth) resolveProject(ctx context.Context, orgID string, b models.ProjectBinding) (string, error) {
+	if b.KnownID != "" {
+		ok, err := a.projectExists(ctx, orgID, b.KnownID)
+		if err != nil {
+			return "", fmt.Errorf("verify bound project %s: %w", b.KnownID, err)
+		}
+		if !ok {
+			return "", fmt.Errorf("bound project %s no longer exists and will not be recreated automatically", b.KnownID)
+		}
+		return b.KnownID, nil
+	}
+	name := b.Name
+	if name == "" {
+		name = a.cfg.ProjectName
+	}
+	return a.ensureProject(ctx, orgID, name)
+}
+
+// projectExists answers whether a project id is live in this organisation.
+func (a *Auth) projectExists(ctx context.Context, orgID, projectID string) (bool, error) {
+	var got struct {
+		Project struct {
+			ID string `json:"id"`
+		} `json:"project"`
+	}
+	err := a.api.do(ctx, http.MethodGet, "/management/v1/projects/"+projectID, orgID, nil, &got)
+	if isNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return got.Project.ID == projectID, nil
+}
+
 func (a *Auth) ensureProject(ctx context.Context, orgID, name string) (string, error) {
 	var found struct {
 		Result []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			State string `json:"state"`
 		} `json:"result"`
 	}
 	q := map[string]any{
@@ -205,10 +429,23 @@ func (a *Auth) ensureProject(ctx context.Context, orgID, name string) (string, e
 	if err := a.api.do(ctx, http.MethodPost, "/management/v1/projects/_search", orgID, q, &found); err != nil {
 		return "", err
 	}
+	// An inactive project takes its applications out of service with it, so the
+	// same reasoning as ensureApp applies: existence in the search index is not
+	// usability, and a project accepted without checking its state yields
+	// applications whose client ids the issuer refuses. Reactivated rather than
+	// replaced, because a new project would strip every grant and role the
+	// tenant's users hold.
 	for _, p := range found.Result {
-		if p.Name == name {
-			return p.ID, nil
+		if p.Name != name {
+			continue
 		}
+		if p.State == "PROJECT_STATE_INACTIVE" {
+			if err := a.api.do(ctx, http.MethodPost,
+				"/management/v1/projects/"+p.ID+"/_reactivate", orgID, map[string]any{}, nil); err != nil {
+				return "", fmt.Errorf("reactivate project %q (%s): %w", name, p.ID, err)
+			}
+		}
+		return p.ID, nil
 	}
 
 	var created struct {
@@ -264,8 +501,48 @@ func projectSettings(name string) map[string]any {
 // existed would otherwise never gain it, and the symptom is silent: tokens carry
 // no roles even though the scope was requested and the grant is in place.
 func (a *Auth) ensureRoleAssertion(ctx context.Context, orgID, projectID string) error {
+	// The project's OWN name, not the configured one.
+	//
+	// Zitadel's PUT replaces the whole project, name included, so sending
+	// a.cfg.ProjectName here RENAMES whatever project this is to the shared
+	// default. That was invisible while every application lived in that one
+	// project -- the PUT set the name to what it already was. The moment
+	// ADR-094 gave an application a project of its own it became a rename into
+	// a name the organisation already holds:
+	//
+	//   PUT /management/v1/projects/<oranger's project>
+	//   409 Project already exists on organization (V3-DKcYh)
+	//
+	// which surfaced as a 502 from the identity service, an AINativeSaaS whose
+	// status.identity stayed empty, no OIDC_CLIENT_ID in Infisical, an
+	// ExternalSecret in SecretSyncedError, and finally a gateway pod stuck in
+	// CreateContainerConfigError behind "no healthy upstream". Six symptoms, one
+	// field.
+	name, err := a.projectName(ctx, orgID, projectID)
+	if err != nil {
+		return fmt.Errorf("read project %s before updating it: %w", projectID, err)
+	}
 	return a.api.do(ctx, http.MethodPut, "/management/v1/projects/"+projectID, orgID,
-		projectSettings(a.cfg.ProjectName), nil)
+		projectSettings(name), nil)
+}
+
+// projectName reads a project's current name, so an update can preserve it.
+func (a *Auth) projectName(ctx context.Context, orgID, projectID string) (string, error) {
+	var got struct {
+		Project struct {
+			Name string `json:"name"`
+		} `json:"project"`
+	}
+	if err := a.api.do(ctx, http.MethodGet, "/management/v1/projects/"+projectID, orgID, nil, &got); err != nil {
+		return "", err
+	}
+	if got.Project.Name == "" {
+		// Refused rather than defaulted. Falling back to the configured name is
+		// exactly the bug above, and a project with no name is a response this
+		// code does not understand.
+		return "", fmt.Errorf("zitadel: project %s returned no name", projectID)
+	}
+	return got.Project.Name, nil
 }
 
 // GrantProjectToOrg delegates a project to ANOTHER organisation.
@@ -370,8 +647,20 @@ func (a *Auth) ensureRoles(ctx context.Context, orgID, projectID string) error {
 }
 
 func (a *Auth) ensureOIDCApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string) (string, error) {
-	id, _, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone)
-	return id, err
+	// The CLIENT id, which is the second return value. ensureApp returns
+	// (appID, clientID, clientSecret): taking the first hands back Zitadel's
+	// internal application id, and the two are indistinguishable by inspection --
+	// both are numeric strings of the same shape.
+	//
+	// Published as a client id it is refused at the authorization endpoint with
+	// `Errors.App.NotFound`, the same answer an identifier that was never
+	// allocated receives, so nothing in the refusal says the value is of the
+	// wrong KIND. Every layer above reports success: the application really was
+	// created, the operator really did publish what it was given, the
+	// ExternalSecret resolves, and the tenant's gateway starts. Only a login
+	// fails, and it fails identically to a tenant that was never provisioned.
+	_, clientID, _, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, postLogoutURIs, authMethodNone, false)
+	return clientID, err
 }
 
 // OIDC client authentication methods, in the issuer's own vocabulary.
@@ -390,12 +679,13 @@ const (
 // already existed, because the issuer returns it once at creation and will not
 // disclose it again; recovering it means regenerating, which is a separate and
 // deliberately explicit act (see RegenerateClientSecret).
-func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string, authMethod string) (appID, clientID, clientSecret string, err error) {
+func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string, authMethod string, tokenExchange bool) (appID, clientID, clientSecret string, err error) {
 
 	var existing struct {
 		Result []struct {
 			ID         string `json:"id"`
 			Name       string `json:"name"`
+			State      string `json:"state"`
 			OIDCConfig struct {
 				ClientID string `json:"clientId"`
 			} `json:"oidcConfig"`
@@ -406,10 +696,38 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 		map[string]any{"query": map[string]any{"limit": 100}}, &existing); err != nil {
 		return "", "", "", err
 	}
+	// STATE, not merely existence. The search returns inactive applications
+	// alongside active ones, and an inactive application is not resolvable for
+	// authorization: the issuer answers `Errors.App.NotFound` for its client id,
+	// the same answer it gives for an identifier that was never allocated.
+	//
+	// Accepting one produced a loop that could not repair itself. This function
+	// returned the inactive application's client id, the caller published it as
+	// though provisioning had succeeded, the tenant's gateway presented it, and
+	// every login was refused. Each reconciliation found the same application
+	// and repeated the same answer, so the condition survived indefinitely while
+	// every layer above reported success — the Kubernetes resources healthy, the
+	// ExternalSecret resolving, the operator logging "Tenant identity
+	// provisioned" on every pass.
+	//
+	// An inactive application is reactivated rather than replaced. Its client id
+	// is already held by the tenant's gateway and by anything else configured
+	// from it, so replacing it would require every consumer to converge on a new
+	// identifier; reactivation restores the one they hold. A reactivation that
+	// fails leaves the application inactive and returns the error, because
+	// continuing would publish an identifier that still does not authorize.
 	for _, app := range existing.Result {
-		if app.Name == appName && app.OIDCConfig.ClientID != "" {
-			return app.ID, app.OIDCConfig.ClientID, "", nil
+		if app.Name != appName || app.OIDCConfig.ClientID == "" {
+			continue
 		}
+		if app.State == "APP_STATE_INACTIVE" {
+			if err := a.api.do(ctx, http.MethodPost,
+				"/management/v1/projects/"+projectID+"/apps/"+app.ID+"/_reactivate",
+				orgID, map[string]any{}, nil); err != nil {
+				return "", "", "", fmt.Errorf("reactivate application %q (%s): %w", appName, app.ID, err)
+			}
+		}
+		return app.ID, app.OIDCConfig.ClientID, "", nil
 	}
 
 	// A PUBLIC client: authMethodType NONE, no secret, PKCE carries the proof.
@@ -418,12 +736,28 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 	//
 	// Role assertion is set on the app as well as the project because both gate
 	// the claim, and only the pair produces a token carrying roles.
+	//
+	// The token-exchange grant is added ONLY when asked for. Zitadel gates the
+	// grant on the client -- without it the token endpoint refuses the exchange
+	// -- and its own guidance is to put it on confidential clients only,
+	// because a client holding it can turn a token it was handed into one for a
+	// different audience. Granting it to every confidential client would hand
+	// that to fleet-declared back-ends that never asked for it; granting it to
+	// a PUBLIC client would hand it to anything that can read a browser bundle.
+	grantTypes := []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"}
+	if tokenExchange {
+		if authMethod != authMethodBasic {
+			return "", "", "", fmt.Errorf("zitadel: refusing token exchange on non-confidential application %q", appName)
+		}
+		grantTypes = append(grantTypes, "OIDC_GRANT_TYPE_TOKEN_EXCHANGE")
+	}
+
 	body := map[string]any{
 		"name":                     appName,
 		"redirectUris":             redirectURIs,
 		"postLogoutRedirectUris":   postLogoutURIs,
 		"responseTypes":            []string{"OIDC_RESPONSE_TYPE_CODE"},
-		"grantTypes":               []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"},
+		"grantTypes":               grantTypes,
 		"appType":                  "OIDC_APP_TYPE_WEB",
 		"authMethodType":           authMethod,
 		"accessTokenType":          "OIDC_TOKEN_TYPE_JWT",
@@ -636,21 +970,19 @@ func (a *Auth) grantUngrantedMembers(ctx context.Context, orgID, projectID strin
 // reconcile would invalidate the credential the running workload is holding, and
 // the failure lands on the next token exchange rather than on the reconcile that
 // caused it.
-func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName string, regenerateIfExists bool) (clientID, clientSecret string, err error) {
-	if tenantID == "" {
-		return "", "", fmt.Errorf("zitadel: tenantID is required")
+//
+// orgID and projectID are the ones EnsureTenantIdentity just resolved, never
+// looked up again here. This used to find the organisation BY NAME and use the
+// configured project, so an application in its own project (ADR-094) had its
+// confidential clients -- the gateway's exchange client among them -- created in
+// a different project from its browser client, and a renamed tenant had them
+// created in no organisation at all.
+func (a *Auth) EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error) {
+	if orgID == "" || projectID == "" {
+		return "", "", fmt.Errorf("zitadel: a confidential client needs the application's resolved organisation and project; provision its identity first")
 	}
 	if appName == "" {
 		return "", "", fmt.Errorf("zitadel: appName is required")
-	}
-
-	orgID, err := a.ensureOrg(ctx, tenantID)
-	if err != nil {
-		return "", "", fmt.Errorf("ensure organisation for %q: %w", tenantID, err)
-	}
-	projectID, err := a.ensureProject(ctx, orgID, a.cfg.ProjectName)
-	if err != nil {
-		return "", "", fmt.Errorf("ensure project for %q: %w", tenantID, err)
 	}
 
 	// A confidential client has no redirect of its own in the browser sense; the
@@ -658,9 +990,9 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName s
 	// supplies through the tenant's public host. Passing none here would make the
 	// app unusable for the code flow, so the caller's redirects are reused: both
 	// clients serve the same tenant at the same host.
-	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic)
+	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic, tokenExchange)
 	if err != nil {
-		return "", "", fmt.Errorf("ensure confidential application for %q: %w", tenantID, err)
+		return "", "", fmt.Errorf("ensure confidential application %q: %w", appName, err)
 	}
 	if secret != "" {
 		return clientID, secret, nil
@@ -672,7 +1004,7 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, tenantID, appName s
 	}
 	secret, err = a.regenerateClientSecret(ctx, orgID, projectID, appID)
 	if err != nil {
-		return "", "", fmt.Errorf("regenerate client secret for %q: %w", tenantID, err)
+		return "", "", fmt.Errorf("regenerate client secret for %q: %w", appName, err)
 	}
 	return clientID, secret, nil
 }

@@ -1,8 +1,56 @@
-# The zone external-dns may write.
+# What external-dns writes, and where.
 #
-# The apex, previously: a tenant's external-dns was authorised over the whole of
-# the platform's domain. Scoped to the box's own domain instead, which is both
-# correct and narrower -- a box publishes its own hostnames and no others.
+# The domain was the apex once: a tenant's external-dns was authorised over the
+# whole of the platform's domain. Scoped to the box's own domain instead, which
+# is both correct and narrower -- a box publishes its own hostnames and no
+# others.
+#
+# The other two were literals from the platform's own dev box, which is the same
+# defect wearing different clothes.
 - kind: Deployment
   name: external-dns
-  fields: [{replaceAll: {from: nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}]
+  fields:
+    # The zone this box may write.
+    - {replaceAll: {from: nutgraf.in, with: '{{ .Values.global.hubDomain }}'}}
+    # TXT ownership. `--policy=sync` means external-dns DELETES the records it
+    # believes it owns, so two boxes sharing an owner id against one zone delete
+    # each other's records. It was the literal `hub-hybrid-dev` on every box --
+    # the spoke catalogue already templates its equivalent and its own comment
+    # says why.
+    #
+    # The records that literal wrote are still in the zone. Templating changed
+    # what this box calls itself, and external-dns silently disowns -- never
+    # adopts or deletes -- every record keyed to the previous name. That is why
+    # dashboard.dev.nutgraf.in still resolves to a decommissioned address. Fixing
+    # it means deleting those records from the zone by hand; nothing in the
+    # cluster can. Scaffolding now pins ownerId per box so the value cannot be
+    # re-derived out from under records that already exist.
+    - {replaceAll: {from: hub-hybrid-dev, with: '{{ .Values.global.dns.ownerId }}'}}
+    # The DNS service that holds the zone.
+    #
+    # `webhook` plus the Hetzner sidecar is the default, and it is a real
+    # assumption: the registrar can be anyone, but the zone's nameservers must be
+    # delegated to Hetzner DNS. A tenant whose DNS lives elsewhere sets
+    # dns.provider to any provider external-dns supports natively, supplies its
+    # credential in dns.credentialSecret, and the sidecar is not deployed.
+    #
+    # Targeted by PATH, not replaceAll: "webhook" also appears in
+    # --webhook-provider-url and in the sidecar's container name, and replacing
+    # every occurrence renamed both and produced a Deployment that rendered
+    # nothing. The arg's position is stable because this list is written here.
+    #
+    # TRANSLATED, not passed through. `dns.provider` names the DNS SERVICE the
+    # zone lives in; external-dns's --provider names the INTEGRATION it uses to
+    # reach one, and it has no "hetzner" value -- its enum is akamai,
+    # alibabacloud, aws, ..., webhook. Hetzner DNS is reached through the
+    # hetzner-webhook sidecar this Deployment runs, so the selector "hetzner"
+    # becomes "webhook" here.
+    #
+    # Passing it through unmapped made external-dns exit on "flag parsing error:
+    # enum value must be one of ...", so nothing published a record and every hub
+    # hostname was unreachable -- argocd, id, api and infisical alike.
+    #
+    # Any other value is a provider external-dns supports natively and is
+    # forwarded unchanged; the sidecar is not deployed for those.
+    - path: [spec, template, spec, containers, 0, args, 4]
+      value: '--provider={{ if eq .Values.global.dns.provider "hetzner" }}webhook{{ else }}{{ .Values.global.dns.provider }}{{ end }}'

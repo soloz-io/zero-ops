@@ -60,6 +60,31 @@ instanceRepoURL: ""
 # Day-0 supplies it: scaffolding is given the tenant's domain.
 hubDomain: ""
 
+# ADR-108: the registrable domain session previews are served from, e.g.
+# nutgraf-preview.in. It must NOT be hubDomain or share its registrable domain:
+# a preview runs untrusted code, and a shared registrable domain would let it
+# set and read the platform's cookies. Until it is set, the preview-access
+# service refuses to start (and says why), PreviewAccess creates are refused at
+# admission, and the preview listener is not rendered.
+previewDomain: ""
+
+# ADR-078 add.3: the box owner's Grafana Cloud stack, https://<stack>.grafana.net
+# -- the box's observability backend and UI. Required while observability is
+# enabled: the dashboards are provisioned into it, and the render fails without
+# it rather than provisioning nowhere.
+grafanaCloudStackUrl: ""
+
+# ADR-078 addendum 4: where the stack's alerts are delivered. Required while
+# observability is enabled: an Alertmanager with no route delivers nothing.
+alerting:
+  # The stack's Alertmanager (https://alertmanager-<region>.grafana.net) and its
+  # instance ID, from the stack's details.
+  alertmanagerUrl: ""
+  alertmanagerId: ""
+  # Who receives platform alerts by email. Critical and warning alerts also go
+  # to the stack's IRM; the heartbeat goes to IRM's heartbeat.
+  emailTo: []
+
 # Where this box's stateful services run (ADR-046 §11, ADR-075).
 #
 # A placement class is a pair -- a `workload-location` nodeSelector and the
@@ -79,6 +104,102 @@ hubDomain: ""
 # expecting pods to migrate.
 placement:
   class: ""
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DNS
+# ──────────────────────────────────────────────────────────────────────────────
+# Which DNS service holds the zone this box publishes into, and the credential
+# that writes to it.
+#
+# The DOMAIN is already yours -- scaffolding takes it and external-dns is scoped
+# to it, so a box writes its own hostnames and no others. This is the separate
+# question of who is AUTHORITATIVE for that domain, which the platform used to
+# answer for you.
+#
+# Default `hetzner`, and that is a real assumption rather than a neutral one:
+# your registrar can be anyone -- the platform's own nutgraf.in is registered at
+# Hostinger -- but the zone's nameservers must be delegated to Hetzner DNS,
+# because that is what external-dns is configured to write to. Delegating NS is
+# a one-time change at the registrar and costs nothing afterwards.
+#
+# Set `provider` to anything external-dns supports natively (cloudflare, aws,
+# google, azure, digitalocean, …) to use your own DNS instead. Then:
+#   - create a Secret named `external-dns-credentials` in platform-ops holding
+#     that provider's credential, using whatever key names the provider
+#     documents -- CF_API_TOKEN, AWS_ACCESS_KEY_ID, and so on. It is injected
+#     wholesale, so the platform needs to know none of them. You create it; the
+#     platform never sees it.
+# The Hetzner webhook sidecar is only deployed for `hetzner`, so choosing another
+# provider removes it rather than leaving it running against nothing.
+#
+# ownerId keys the TXT records external-dns uses to decide which records are ITS
+# to manage -- and `--policy=sync` means it deletes the ones it believes it owns.
+# Two boxes sharing an ownerId against one zone will therefore delete each
+# other's records.
+#
+# Scaffolding pins this per box (see the tenant template's values.yaml). Left
+# empty it falls back to `clusterName | default "<environmentSlug>-<provider>"`,
+# and an earlier version of this comment called that "the cluster name, which is
+# unique per box". It is neither: on the platform's own box the fallback yields
+# `dev-hybrid` while the cluster is named `acme-hub`, and every dev+hybrid box
+# would share it.
+#
+# The mutability is what does the damage. `provider` is tenant-configurable, so
+# changing it re-keys every record the box has published, and external-dns
+# neither adopts nor deletes a record it does not own -- it ignores it, with
+# nothing logged. The hostname keeps resolving to wherever it last pointed. The
+# only repair is deleting the orphaned records from the zone by hand.
+dns:
+  provider: hetzner
+  ownerId: ""
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Capability selection (ADR-066)
+# ──────────────────────────────────────────────────────────────────────────────
+# "A tenant runs what it needs and does not carry the rest." That sentence was
+# true of nothing: every capability was unconditionally on, so selection existed
+# in the ADR and nowhere else.
+#
+# Selection is a VALUE and never a version, so adopting a capability and
+# upgrading a bundle stay independent acts and neither blocks the other. A tenant
+# sets these in its own cluster values file.
+#
+# EVERY DEFAULT IS `true`, and that is not a style choice. These capabilities are
+# running on every existing box; a default of `false` would remove them on the
+# next sync of the version that introduced the flag -- a promotion that silently
+# deletes a tenant's database is the worst thing this mechanism could do. A
+# tenant turns one OFF deliberately, and never by accepting an upgrade.
+#
+# Selecting a capability does not make it the tenant's to maintain. Both selected
+# and required capabilities are platform, and the platform maintains what a box
+# actually runs (ADR-066).
+#
+# Declared in manifests/architecture/components.yaml and checked by
+# scripts/validate/architecture-consistency.py, which refuses a selectable
+# capability that names no `enable` path.
+capabilities:
+  # CNPG Postgres. The platform maintains the operator, the version, the backups
+  # and the failover; the schemas in it are the tenant's.
+  database:
+    enabled: true
+  # Collection, and under ADR-078 the store, query and dashboards that go with it.
+  observability:
+    enabled: true
+
+  # ADR-077's Support Agent. Ships to every box and is INERT until enrolled.
+  #
+  # Default true, as ADR-077 decision 1 requires. An unenrolled box runs the
+  # agent with no endpoint, no certificate and nowhere to report: it logs that it
+  # is not enrolled and idles. That is the designed resting state, not a
+  # degraded one, and running it is how the "ships inert" claim is tested rather
+  # than asserted.
+  #
+  # There is no Support Plane yet, so today every box is in that state. Turning
+  # this off is how a tenant removes the agent after ending a subscription --
+  # their own GitOps prunes it, and no platform component ever does (ADR-077
+  # addendum 3, decisions 2 and 4).
+  support:
+    enabled: true
 
 # On-prem nodes (ADR-075): machines on the tenant's own premises, joining over
 # their tailnet. A selectable capability (ADR-066), not a property of the
@@ -200,7 +321,19 @@ oidcJwksUrl: ""
 # in its own claims mints them only for the scope that asks; omit one and the
 # token still verifies, it simply arrives without the claim, and the failure
 # surfaces later as a missing tenant or an empty role list.
-oidcScopes: []
+oidcScopes:
+  # Zitadel carries tenancy STRUCTURALLY -- an Organization owns the user rather
+  # than the tenant being an attribute written onto them -- and mints the claim
+  # that says so only for the scope that asks. Without this the token verifies,
+  # carries no tenancy, and every consumer reading the claim contract resolves
+  # an empty tenant: auth-proxy rejects the request, zero-ops-auth's validator
+  # refuses the token as tenant-less, and a fleet's SPA renders its
+  # "no tenant" state on a successful login.
+  - urn:zitadel:iam:user:resourceowner
+  # Roles, nested as { roleKey: { grantingOrgID: domain } }. Same property: the
+  # claim exists only for this scope, and its absence means no roles rather than
+  # an error -- so every requireRole() check denies and nothing says why.
+  - urn:zitadel:iam:org:project:roles
 
 # Coordinates of this cluster's Infisical instance, consumed by the Hub's PKI
 # ClusterIssuers (ADR-035).
@@ -257,14 +390,20 @@ infisical:
 # spoke-pool-hybrid-dev-01 as a literal, so a hetzner box ran an autoscaler
 # waiting forever on a kubeconfig for a hybrid spoke it never provisioned, while
 # the pool it did provision had none.
-burstSpokePool:
-  dev:
-    hetzner: spoke-pool-eu-dev-01
-    hybrid: spoke-pool-hybrid-dev-01
-  stg:
-    hybrid: spoke-pool-hybrid-stg-01
-  prod:
-    hetzner: spoke-pool-eu-prod-01
+# The workload cluster this box's burst autoscaler watches.
+#
+# Empty here, and set per box. It held a table --
+#   dev:  {hetzner: spoke-pool-eu-dev-01, hybrid: spoke-pool-hybrid-dev-01}
+#   stg:  {hetzner: spoke-pool-eu-stg-01}
+#   prod: {hetzner: spoke-pool-eu-prod-01}
+# -- which put workload-cluster names inside the published bundle, so every box
+# that pulled it resolved the same name. And it could not express a box with two
+# workload clusters in one environment on one provider: one key, two answers.
+#
+# A box that declares a burst pool sets this in clusters/<mgmt>/values.yaml to
+# the name it gave that cluster. A box with no cloud burst capacity leaves it
+# empty, which is what a home-lab box genuinely has.
+burstSpokePool: ""
 
 supportedMatrix:
   dev:
@@ -275,6 +414,17 @@ supportedMatrix:
     - hetzner
     - hybrid
   stg:
-    - hybrid
+    # hetzner, not hybrid. hybrid is a DEVELOPMENT-ONLY provider: its capacity
+    # comes from a workstation, its nodes join over a tailnet and carry their own
+    # placement rules (ADR-046 §11), and its platform database sits on node-local
+    # storage. Staging exists to rehearse production, and production is hetzner --
+    # a staging environment on hybrid was exercising failure modes no tenant has
+    # and missing the ones they do.
+    #
+    # The spoke-pool source for this was created with the change
+    # (manifests/spoke/spoke-pools/stg/hetzner); the spoke-catalog already had
+    # environments/stg/hetzner. Listing a combination before its sources exist is
+    # what the comment above this block refuses, so the order matters.
+    - hetzner
   prod:
     - hetzner

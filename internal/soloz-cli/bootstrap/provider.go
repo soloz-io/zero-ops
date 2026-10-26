@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
 
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/capi"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/preflight"
@@ -104,6 +105,25 @@ type ProvisionConfig struct {
 	// one (ADR-072), so the topology it provisions can be recorded there and
 	// changed afterwards. Empty for the platform's own box.
 	GitopsDir string
+
+	// OIDCIssuerURL and OIDCClientID name the identity provider the API server
+	// accepts tokens from (ADR-076). Empty on a first build, because the issuer
+	// runs on the cluster being created and does not exist yet.
+	//
+	// Carried so a REBUILD of an environment whose issuer is already running can
+	// declare them at creation, instead of provisioning without them and then
+	// replacing the control plane to add them. The ClusterClass patch is
+	// conditioned on both, so supplying one is refused rather than half-applied.
+	OIDCIssuerURL string
+	OIDCClientID  string
+
+	// Encryption selects how this box encrypts Secrets at rest.
+	//
+	// Carried through Day-0 rather than applied afterwards because the provider
+	// configuration is control-plane FILE content: CAPI reads it while the management
+	// cluster is being created, and changing it later replaces the control plane.
+	// Empty Encryption means secretbox, which is what every box has had.
+	Encryption cluster.EncryptionMode
 }
 
 // PivotConfig carries state from the orchestrator into Phase 6.
@@ -112,6 +132,7 @@ type PivotConfig struct {
 	BootstrapKubeconfig string
 	BootstrapContext    string
 	Debug               bool
+	Encryption          cluster.EncryptionMode
 }
 
 // FinalizeConfig carries state from the orchestrator into Phase 12.

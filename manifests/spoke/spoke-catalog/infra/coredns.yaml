@@ -1,15 +1,47 @@
-# CoreDNS override — IPv4-only upstreams.
+# CoreDNS override — no AAAA, and IPv4-only upstreams.
 #
-# Why: the CP node's /etc/resolv.conf lists Hetzner's IPv6-first nameservers
-# (2a01:4ff:ff00::add:2). CoreDNS forwards external queries to that file, so
-# `infisical.dev.nutgraf.in` (which has both A + AAAA) resolves to its IPv6 address
-# first. Cluster nodes have no working IPv6 default route, so ESO's dial to
-# the IPv6 address hangs ("lookup ... i/o timeout") and every ExternalSecret
-# fails. The cluster CAN reach the IPv4 A record (65.109.41.89:443) — it just
-# never gets a chance because resolution prefers AAAA.
+# Two separate faults are addressed here, and an earlier version of this file
+# conflated them into one claim that is not true.
 #
-# Fix: pin the forward plugin to IPv4 public resolvers instead of the node's
-# resolv.conf. IPv4-only → A records are returned → IPv4 dial succeeds.
+# 1. Upstream reachability (the original fix)
+#    The CP node's /etc/resolv.conf lists Hetzner's IPv6 nameservers
+#    (2a01:4ff:ff00::add:2). Cluster nodes have no working IPv6 route, so
+#    CoreDNS forwarding to resolv.conf could not reach any upstream and external
+#    lookups timed out. Pinning `forward` to IPv4 resolvers fixes that.
+#
+# 2. AAAA answers (added after measuring, 2026-09-15)
+#    The original comment here reasoned that IPv4-only upstreams mean "A records
+#    are returned". That is not how DNS works: the transport used to reach a
+#    resolver has nothing to do with the record types it returns. Measured on the
+#    hub after making exactly this change:
+#
+#      nslookup -type=AAAA acme-v02.api.letsencrypt.org
+#        Address: 2606:4700:60:0:f53d:5624:85c7:3a2c
+#
+#    Pods here have no IPv6 address (cilium `enable-ipv6: false` in
+#    manifests/providers/hetzner/k8s/cilium-config-base.yaml, which spokes share)
+#    and the nodes have no IPv6 default route, so a name with both A and AAAA is
+#    resolvable but half-unreachable. Which half a client picks is a property of
+#    its resolver: glibc sets AI_ADDRCONFIG and never asks for AAAA on a host
+#    without IPv6, while Go's resolver has no equivalent and Happy Eyeballs
+#    prefers the AAAA it gets back. So the failure appears only in Go components
+#    and reads as a bug in whichever one hit it first -- on the hub it presented
+#    in turn as cert-manager, agentgateway and external-secrets faults.
+#
+#    `template ANY AAAA` answers every AAAA with NOERROR and no records: NODATA,
+#    which is the correct answer on a network where no name has a usable IPv6
+#    address, and exactly what AI_ADDRCONFIG does for glibc clients -- applied
+#    once at the resolver so every client gets it regardless of language.
+#
+#    It is deliberately unscoped: there is no zone here where an AAAA is useful.
+#    If the pod network ever gains IPv6, this stanza is the single thing to
+#    delete, and `enable-ipv6` is the condition to key that on.
+#
+# force_tcp for the reason ADR-056 gives: a lost UDP datagram is reported to the
+# caller as a name that does not exist.
+#
+# See manifests/hub-core-services/dns/coredns-corefile.yaml for the hub's copy
+# and the incident that produced the measurement.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,6 +55,9 @@ data:
            lameduck 5s
         }
         ready
+        template ANY AAAA {
+           rcode NOERROR
+        }
         kubernetes cluster.local in-addr.arpa ip6.arpa {
            pods insecure
            fallthrough in-addr.arpa ip6.arpa

@@ -48,3 +48,46 @@ with nothing behind it, so any PVC naming it hangs for ever with no obvious caus
 {{- define "environment-manager.onPremCapable" -}}
 {{- if or .Values.onPrem.enabled (eq .Values.provider "hybrid") -}}true{{- end -}}
 {{- end -}}
+
+{{/*
+Placement for the platform's own control components on a box with on-prem nodes.
+
+ArgoCD and the CAPI providers are the platform reconciling itself. They talk to
+the API server continuously -- leader-election leases, watches, manifest
+generation -- and on a hybrid box that traffic crosses VXLAN-over-Tailscale to
+the tenant's premises, because the Hetzner control-plane node carries
+`node-role.kubernetes.io/control-plane:NoSchedule` and the on-prem worker is the
+only untainted node. Everything without a toleration lands there by default.
+
+Measured on acme-hub, 2026-09-16: every CAPI controller, every CAPH controller
+and all three ArgoCD components were on the on-prem node. CAPH had restarted 9
+times with "failed to renew lease ... timed out waiting for the condition;
+leader election lost", ArgoCD's repo-server failed DNS for its own Service, and
+Applications reported ComparisonError. Each was read as its own transient fault
+for most of a session; they are one fault, and it is placement.
+
+Expressed as NotIn on-prem rather than a control-plane nodeSelector: a hybrid box
+may also have Hetzner workers, and those are a correct home for these. The
+toleration is what actually makes the control-plane node reachable to the
+scheduler; without it the affinity matches a node nothing may schedule on and the
+pods stay Pending, which is a worse failure than the one being fixed.
+
+Emits nothing on a box with no on-prem nodes, where every node is already cloud
+and the default scheduler is right.
+*/}}
+{{- define "environment-manager.cloudControlPlacement" -}}
+{{- if include "environment-manager.onPremCapable" . -}}
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: workload-location
+              operator: NotIn
+              values: ["on-prem"]
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+{{- end }}
+{{- end -}}

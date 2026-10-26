@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 		},
 	}
 
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	// 1. Workspace volume must be emptyDir, not PVC.
 	var ws *corev1.Volume
@@ -124,9 +125,29 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 	if sync == nil {
 		t.Fatal("no workspace-sync container")
 	}
-	if sync.SecurityContext == nil || sync.SecurityContext.Privileged == nil || !*sync.SecurityContext.Privileged {
-		t.Error("workspace-sync is not privileged — squashfuse, fuse-overlayfs and Bidirectional " +
-			"mount propagation all require it (§14.2)")
+	// §14.7: the sidecar is restricted, like every other container in this Pod.
+	//
+	// It was privileged under §14.2 so squashfuse and fuse-overlayfs could
+	// mount. Pod Security Admission judges the whole Pod, this Pod runs tenant
+	// code, and the result was that no workspace-bearing sandbox was ever
+	// admitted into a tenant namespace. Archive materialisation moves to
+	// platform-owned node storage; nothing in the Pod mounts anything.
+	sc := sync.SecurityContext
+	if sc == nil {
+		t.Fatal("workspace-sync has no security context")
+	}
+	if sc.Privileged != nil && *sc.Privileged {
+		t.Error("workspace-sync is privileged; a tenant namespace enforces restricted and refuses the Pod")
+	}
+	if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot {
+		t.Error("workspace-sync must set runAsNonRoot")
+	}
+	if sc.RunAsUser == nil || *sc.RunAsUser != 1000 {
+		t.Errorf("workspace-sync RunAsUser = %v, want 1000 — it shares the workspace volume with the workload",
+			sc.RunAsUser)
+	}
+	if sc.Capabilities == nil || len(sc.Capabilities.Drop) != 1 || sc.Capabilities.Drop[0] != "ALL" {
+		t.Error("workspace-sync must drop ALL capabilities")
 	}
 	if sc := spec.Containers[0].SecurityContext; sc != nil {
 		if sc.Privileged != nil && *sc.Privileged {
@@ -139,12 +160,13 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 		}
 	}
 
-	// 6. Mount propagation, both halves.
+	// 6. Mount propagation is GONE, and its absence is the assertion.
 	//
-	// Containers in a pod share a network namespace but not a mount namespace,
-	// so the sidecar's fuse-overlayfs mount reaches the workload only through
-	// this pair. With either half missing, restore reports success and the
-	// agent sees an empty directory — a silent failure with no error anywhere.
+	// §14.2 needed a Bidirectional/HostToContainer pair to carry the sidecar's
+	// fuse-overlayfs mount into the workload's mount namespace. Restoring into
+	// the shared volume directly needs no such thing: a volume is visible to
+	// every container that mounts it. Bidirectional is also rejected on a
+	// non-privileged container, so leaving it would make the Pod inadmissible.
 	if len(sync.VolumeMounts) == 0 {
 		t.Fatal("workspace-sync has no volume mounts")
 	}
@@ -157,9 +179,9 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 	if syncWs == nil {
 		t.Fatal("workspace-sync does not mount the workspace volume")
 	}
-	if syncWs.MountPropagation == nil || *syncWs.MountPropagation != corev1.MountPropagationBidirectional {
-		t.Errorf("workspace-sync workspace mount propagation = %v, want Bidirectional — "+
-			"without it the FUSE mount never leaves this container", syncWs.MountPropagation)
+	if syncWs.MountPropagation != nil {
+		t.Errorf("workspace-sync sets mount propagation %v; nothing is mounted, and Bidirectional "+
+			"is rejected outright on a non-privileged container", *syncWs.MountPropagation)
 	}
 	var loadWs *corev1.VolumeMount
 	for i := range spec.Containers[0].VolumeMounts {
@@ -170,9 +192,11 @@ func TestPersistedWorkspaceIsAnEmptyDir(t *testing.T) {
 	if loadWs == nil {
 		t.Fatal("workload does not mount the workspace volume")
 	}
-	if loadWs.MountPropagation == nil || *loadWs.MountPropagation != corev1.MountPropagationHostToContainer {
-		t.Errorf("workload workspace mount propagation = %v, want HostToContainer — "+
-			"without it the agent sees the bare emptyDir", loadWs.MountPropagation)
+	// The workload's half may remain HostToContainer -- it is valid on an
+	// unprivileged container and harmless -- but it must never be Bidirectional,
+	// which would demand privilege on the container running tenant code.
+	if loadWs.MountPropagation != nil && *loadWs.MountPropagation == corev1.MountPropagationBidirectional {
+		t.Error("workload requests Bidirectional propagation, which requires privilege on tenant code")
 	}
 
 	// 7. The staging volume must NOT reach the workload: it holds the overlay's
@@ -198,7 +222,7 @@ func TestWithoutPersistenceWorkspaceStaysEphemeral(t *testing.T) {
 		},
 	}
 
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	for _, v := range spec.Volumes {
 		if v.Name == WorkspaceVolumeName {
@@ -233,7 +257,7 @@ func TestNoServiceAccountTokenInTenantPods(t *testing.T) {
 		},
 	}
 
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	if spec.AutomountServiceAccountToken == nil {
 		t.Fatal("AutomountServiceAccountToken is unset, which defaults to TRUE — tenant code can read an API credential (ADR-052 §19.6)")
@@ -296,7 +320,7 @@ func TestJobIgnoresDisruptionFailures(t *testing.T) {
 		},
 	}
 
-	job := r.buildJob(ej, "j", p)
+	job := r.buildJob(context.Background(), ej, "j", p)
 	if job.Spec.PodFailurePolicy == nil {
 		t.Fatal("no podFailurePolicy: disruption would consume the retry budget (ADR-052 §16.3)")
 	}
@@ -331,7 +355,7 @@ func TestWorkspaceSyncIsANativeSidecar(t *testing.T) {
 			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
 		},
 	}
-	spec := r.buildPodSpec(ej, p, corev1.Container{Name: "workload"})
+	spec := r.buildPodSpec(context.Background(), ej, p, corev1.Container{Name: "workload"})
 
 	// 1. It must NOT be an ordinary container. A never-exiting process in
 	//    .spec.containers means a mode: Job pod can never reach Succeeded,
@@ -409,7 +433,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
 
 	// Unset: the floor applies.
-	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                img,
 			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
@@ -422,7 +446,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 
 	// A fleet asking for MORE keeps it: this is a floor, not an override.
 	longer := int64(minWorkspaceGraceSeconds + 300)
-	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec = r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                         img,
 			WorkspacePersistence:          &computev1alpha1.WorkspacePersistenceSpec{WorkspaceID: "app-1", AppID: "app-1"},
@@ -435,7 +459,7 @@ func TestPersistedWorkspaceGetsAGracePeriodFloor(t *testing.T) {
 
 	// And a job without persistence is untouched by any of this.
 	shorter := int64(5)
-	spec = r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec = r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image:                         img,
 			TerminationGracePeriodSeconds: &shorter,
@@ -501,7 +525,7 @@ func TestKeepCheckpointsReachesTheSidecar(t *testing.T) {
 	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
 
 	env := func(ws *computev1alpha1.WorkspacePersistenceSpec) string {
-		spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 			Spec: computev1alpha1.EphemeralJobSpec{Image: img, WorkspacePersistence: ws},
 		}, p, corev1.Container{Name: "workload"})
 		for _, c := range spec.InitContainers {
@@ -528,6 +552,13 @@ func TestKeepCheckpointsReachesTheSidecar(t *testing.T) {
 		WorkspaceID: "app-1", AppID: "app-1", KeepCheckpoints: &n,
 	}); got != "12" {
 		t.Errorf("KEEP_CHECKPOINTS with a fleet value of 12 = %q, want \"12\"", got)
+	}
+	// §14.8: keeping everything is a word the sidecar reads as "no bound",
+	// never a number it could read as a count.
+	if got := env(&computev1alpha1.WorkspacePersistenceSpec{
+		WorkspaceID: "app-1", AppID: "app-1", RetainAllCheckpoints: true,
+	}); got != "unbounded" {
+		t.Errorf("KEEP_CHECKPOINTS with retainAllCheckpoints = %q, want \"unbounded\"", got)
 	}
 }
 
@@ -561,7 +592,7 @@ func TestPinnedReadOnlyWorkspaceReachesTheSidecar(t *testing.T) {
 	img := "example.com/img@sha256:" + strings.Repeat("a", 64)
 
 	envOf := func(ws *computev1alpha1.WorkspacePersistenceSpec) map[string]string {
-		spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+		spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 			Spec: computev1alpha1.EphemeralJobSpec{Image: img, WorkspacePersistence: ws},
 		}, p, corev1.Container{Name: "workload"})
 		for _, c := range spec.InitContainers {
@@ -622,7 +653,7 @@ func TestAppIDReachesTheSidecar(t *testing.T) {
 	r := &EphemeralJobReconciler{}
 	p, _ := ResolvePlacement("home")
 
-	spec := r.buildPodSpec(&computev1alpha1.EphemeralJob{
+	spec := r.buildPodSpec(context.Background(), &computev1alpha1.EphemeralJob{
 		Spec: computev1alpha1.EphemeralJobSpec{
 			Image: "example.com/img@sha256:" + strings.Repeat("a", 64),
 			WorkspacePersistence: &computev1alpha1.WorkspacePersistenceSpec{
@@ -641,7 +672,7 @@ func TestAppIDReachesTheSidecar(t *testing.T) {
 		}
 		if got["APP_ID"] != "app-123" {
 			t.Errorf("APP_ID = %q, want app-123 — without it the sidecar cannot build "+
-				"<appId>/<workspaceId>/code and refuses to start", got["APP_ID"])
+				"<appId>/<workspaceId> and refuses to start", got["APP_ID"])
 		}
 		if got["WORKSPACE_ID"] != "ws-42" {
 			t.Errorf("WORKSPACE_ID = %q, want ws-42", got["WORKSPACE_ID"])

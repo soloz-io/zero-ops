@@ -8,16 +8,22 @@ import (
 	"strings"
 
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/bootstrap"
+	"github.com/soloz-io/zero-ops/internal/soloz-cli/cluster"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/preflight"
 	"github.com/spf13/cobra"
 )
 
 var (
+	bootstrapEncryption string
+)
+
+var (
 	// Required flags
-	clusterName string
-	gitopsDir   string
-	region      string
-	imageID     string
+	clusterName   string
+	gitopsDir     string
+	oidcIssuerURL string
+	oidcClientID  string
+	region        string
 
 	// Optional flags
 	provider          string
@@ -29,7 +35,6 @@ var (
 	networkCIDR       string
 	upgrade           bool
 	sshKey            string
-	buildTalosImage   bool
 	buildFlatcarImage bool
 	debug             bool
 	environment       string
@@ -47,6 +52,38 @@ var (
 
 // workerReplicasOverride is the --workers value, or nil when it was not passed.
 // Zero is a real count, so the flag uses a negative sentinel and this converts it.
+// requireTailnetCredentials refuses an on-prem bootstrap that cannot put the
+// control plane on the tenant's tailnet.
+//
+// Both halves are needed and they come from different places: the authkey joins
+// the tailnet, the name is what the box is called on it. Checked together so a
+// half-configured run is refused once, with both gaps named, rather than failing
+// twice.
+func requireTailnetCredentials(tailnet string) error {
+	var missing []string
+
+	if strings.TrimSpace(tailnet) == "" {
+		missing = append(missing, "  --tailnet-name is empty. Pass the tenant's tailnet, e.g. --tailnet-name acme.ts.net")
+	}
+
+	keyed := os.Getenv("TS_AUTHKEY") != "" || os.Getenv("TAILSCALE_AUTHKEY") != ""
+	if !keyed {
+		if _, err := os.Stat(filepath.Join("k8-secrets", "tailscale", "authkey")); err != nil {
+			missing = append(missing, "  no Tailscale authkey. Set TS_AUTHKEY (or TAILSCALE_AUTHKEY), "+
+				"or write one to k8-secrets/tailscale/authkey")
+		}
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("--on-prem needs the control plane on the tenant's tailnet:\n%s\n\n"+
+		"Without it Cilium cannot route pod traffic between the control plane and on-prem\n"+
+		"nodes, and the cluster reports every node Ready while one direction silently fails\n"+
+		"(ADR-046 invariant 6). Refused here rather than discovered later.",
+		strings.Join(missing, "\n"))
+}
+
 func workerReplicasOverride() *int {
 	if workerReplicas < 0 {
 		return nil
@@ -128,26 +165,47 @@ func hcloudTokenPaths(rel string) []string {
 
 func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "bootstrap",
-		Short: "Bootstrap a Hub Cluster",
+		Use:   "bootstrap-mgmt",
+		Short: "Bootstrap the management cluster (one step of a box)",
 		Long: `Bootstrap a self-hosted Hub (Management) Cluster using Cluster API (CAPI).
-Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab workers).`,
+Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab workers).
+
+Naming follows kubefirst: the MANAGEMENT cluster runs the platform, WORKER
+clusters run tenant workloads. This command builds the former.
+
+This is ONE STEP of a box. It stands up the management control plane and stops there:
+the gates that decide whether the box is usable -- secrets present, Infisical
+reachable, the database provisioned, the declared worker clusters actually up --
+are separate steps, and ` + "`soloz bootstrap`" + ` runs all of them in order.
+
+Running this directly gives you a reconciled management cluster and no assurance about anything
+else. That is a legitimate thing to want while developing; it is not a bootstrapped
+box, and on 2026-09-15 the difference was a worker cluster that had been dead for
+sixteen hours behind a run that reported success.`,
 		PreRunE: validateFlags,
 		RunE:    runBootstrap,
 	}
 
 	// Required flags
 	cmd.Flags().StringVar(&clusterName, "name", "", "Hub Cluster name (alphanumeric + hyphens)")
+	// ADR-076. Empty on a first build: the issuer runs on the cluster being
+	// created, so at this moment it does not exist and cannot be pointed at.
+	// Supplied on a REBUILD of an environment whose issuer already runs, which is
+	// the case where declaring them here avoids provisioning without them and then
+	// replacing the control plane to add them.
+	cmd.Flags().StringVar(&oidcIssuerURL, "oidc-issuer-url", "",
+		"identity provider the API server accepts tokens from (ADR-076); requires --oidc-client-id")
+	cmd.Flags().StringVar(&oidcClientID, "oidc-client-id", "",
+		"OIDC client the API server names; requires --oidc-issuer-url")
 	cmd.Flags().StringVar(&gitopsDir, "gitops-dir", "",
 		"a checkout of the tenant's own repository; the cluster is seeded with the declaration it holds (ADR-072)")
 	cmd.Flags().StringVar(&provider, "provider", "hetzner", "Infrastructure provider: hetzner (default) or hybrid (home-lab)")
 
 	// Hetzner-specific flags (required when provider=hetzner)
 	cmd.Flags().StringVar(&region, "region", "", "Hetzner region (fsn1, nbg1, hel1)")
-	cmd.Flags().StringVar(&imageID, "image-id", "", "OS image ID (Talos snapshot ID or ubuntu image name)")
 
 	// Optional flags
-	cmd.Flags().StringVar(&osType, "os", "ubuntu", "OS type: ubuntu (default) or talos")
+	cmd.Flags().StringVar(&osType, "os", "ubuntu", "OS type: ubuntu (default; the only supported node OS, ADR-001)")
 	cmd.Flags().StringVar(&bootstrapContext, "bootstrap-context", "", "Use existing K8s cluster instead of Kind")
 	cmd.Flags().BoolVar(&keepBootstrap, "keep-bootstrap", false, "Preserve Kind cluster after successful pivot")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate prerequisites and generate manifests without provisioning")
@@ -155,7 +213,6 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 	cmd.Flags().StringVar(&networkCIDR, "network-cidr", "10.0.0.0/16", "Custom CIDR for Hetzner private network")
 	cmd.Flags().BoolVar(&upgrade, "upgrade", false, "Reconcile/update existing cluster components to match CLI version")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "SSH key name for Hetzner Rescue Mode emergencies only")
-	cmd.Flags().BoolVar(&buildTalosImage, "build-talos-image", false, "Trigger Packer build for Talos image")
 	cmd.Flags().BoolVar(&buildFlatcarImage, "build-flatcar-image", false, "Trigger Packer build for Flatcar image")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable verbose logging")
 	cmd.Flags().StringVar(&environment, "environment", "", "Environment slug (dev, stg, prod, ephemeral). Defaults to prod for hetzner, hybrid")
@@ -163,6 +220,8 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 		"cloud worker nodes to provision (default: 2, every environment). Pass 0 to run "+
 			"on on-prem capacity alone, which then has to be there (ADR-075)")
 	cmd.Flags().StringVar(&topology, "topology", "single", "Topology mode: single (default) or multi (bridged)")
+	cmd.Flags().StringVar(&bootstrapEncryption, "encryption-mode", string(cluster.EncryptionSecretbox),
+		"how this box encrypts Secrets at rest: secretbox (ADR-003 §6, default)")
 	cmd.Flags().StringVar(&gating, "gating", "sequenced", "Cluster creation mode (ADR-055): sequenced (default, boundaries activated in phase order) or converged (all boundaries reconcile concurrently)")
 
 	// Hybrid-provider flags (ADR-046 §WS4)
@@ -177,6 +236,15 @@ Supports multiple infrastructure providers: hetzner (cloud) and hybrid (home-lab
 }
 
 func validateFlags(cmd *cobra.Command, args []string) error {
+	// Both or neither. The ClusterClass patch is conditioned on both being set,
+	// so one alone is not a partial configuration -- it is silently no
+	// configuration, and the API server comes up trusting nothing while the flag
+	// that was passed suggests otherwise (ADR-076).
+	if (oidcIssuerURL == "") != (oidcClientID == "") {
+		return fmt.Errorf("--oidc-issuer-url and --oidc-client-id are supplied together or not at all; " +
+			"one alone configures no OIDC at all and looks as though it did")
+	}
+
 	// Validate provider
 	validProviders := map[string]bool{
 		"hetzner": true,
@@ -207,11 +275,8 @@ func validateFlags(cmd *cobra.Command, args []string) error {
 		if !validRegions[region] {
 			return fmt.Errorf("invalid region: must be one of fsn1, nbg1, hel1")
 		}
-		if osType != "ubuntu" && osType != "talos" {
-			return fmt.Errorf("invalid OS type: must be 'ubuntu' or 'talos'")
-		}
-		if osType == "talos" && imageID == "" && !buildTalosImage {
-			return fmt.Errorf("for Talos: either --image-id or --build-talos-image must be provided")
+		if osType != "ubuntu" {
+			return fmt.Errorf("unsupported OS type %q: ubuntu is the only supported node operating system (ADR-001)", osType)
 		}
 		if err := resolveHCloudToken(); err != nil {
 			return err
@@ -245,6 +310,38 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   Tailnet: %s\n", tailnetName)
 	}
 
+	// On-prem requires a tailnet, and the requirement is checked HERE -- before
+	// anything is provisioned -- rather than warned about inside a phase.
+	//
+	// ADR-046 invariant 6: Cilium takes its VXLAN tunnel endpoint from a node's
+	// InternalIP. An on-prem node's only InternalIP is its tailnet address, so
+	// unless the control plane is on the tailnet too, cross-node pod traffic dies
+	// in one direction WHILE BOTH NODES REPORT READY. That last part is why this
+	// is fatal rather than advisory: the cluster looks healthy and cannot route.
+	//
+	// It used to be a warning printed by capi-init. A resumed bootstrap skips
+	// completed phases, so on the run that mattered the warning was never
+	// printed, the control plane had no tailnet address, and the failure surfaced
+	// much later as cert-manager's webhook timing out from the API server --
+	// three layers from its cause.
+	if onPremEnabled {
+		if err := requireTailnetCredentials(tailnetName); err != nil {
+			return err
+		}
+	}
+
+	// At-rest encryption is settled HERE, before anything is provisioned, for the
+	// same reason the tailnet check above is: the control-plane provider
+	// configuration is FILE content CAPI reads while the management cluster is being
+	// created, so a box that gets to phase 5 without a usable key authority has
+	// already provisioned infrastructure it will have to tear down. A resumed
+	// bootstrap skips completed phases, so a check inside the phase is a check that
+	// does not run on the attempt that matters.
+	encryptionMode, err := resolveEncryptionMode()
+	if err != nil {
+		return err
+	}
+
 	// Build provider based on --provider flag
 	var bp bootstrap.Provider
 
@@ -255,11 +352,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Token:             hcloudToken,
 			Region:            region,
 			OS:                osType,
-			ImageID:           imageID,
 			NetworkCIDR:       networkCIDR,
 			SSHKey:            sshKey,
 			Debug:             debug,
-			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
 			Environment:       environment,
 			OnPremEnabled:     onPremEnabled,
@@ -273,11 +368,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 			Token:             hcloudToken,
 			Region:            region,
 			OS:                osType,
-			ImageID:           imageID,
 			NetworkCIDR:       networkCIDR,
 			SSHKey:            sshKey,
 			Debug:             debug,
-			BuildTalosImage:   buildTalosImage,
 			BuildFlatcarImage: buildFlatcarImage,
 			Environment:       environment,
 			OnPremEnabled:     onPremEnabled,
@@ -338,6 +431,9 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		Topology:         topology,
 		Gating:           gatingMode,
 		GitopsDir:        gitopsDir,
+		OIDCIssuerURL:    oidcIssuerURL,
+		OIDCClientID:     oidcClientID,
+		Encryption:       encryptionMode,
 	}
 
 	if err := orchestrator.Run(ctx); err != nil {
@@ -345,6 +441,21 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// resolveEncryptionMode validates --encryption-mode.
+//
+// `secretbox` (ADR-003 §6) is the platform's at-rest encryption mechanism.
+func resolveEncryptionMode() (cluster.EncryptionMode, error) {
+	mode := cluster.EncryptionMode(strings.TrimSpace(bootstrapEncryption))
+	switch mode {
+	case cluster.EncryptionSecretbox, "":
+		return cluster.EncryptionSecretbox, nil
+	default:
+		return "", fmt.Errorf(
+			"--encryption-mode %q is not supported; expected %q (ADR-003 §6)",
+			bootstrapEncryption, cluster.EncryptionSecretbox)
+	}
 }
 
 func maskToken(token string) string {

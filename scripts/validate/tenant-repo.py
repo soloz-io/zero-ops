@@ -50,7 +50,7 @@ CHART_REVISION = re.compile(r"^\s*targetRevision:\s*(\S+)\s*$")
 
 
 def clusters(repo):
-    root = os.path.join(repo, "clusters")
+    root = os.path.join(repo, "registry", "clusters")
     if not os.path.isdir(root):
         return []
     return sorted(n for n in os.listdir(root)
@@ -89,7 +89,7 @@ def main() -> int:
     checked = 0
 
     for name in names:
-        cdir = os.path.join(repo, "clusters", name)
+        cdir = os.path.join(repo, "registry", "clusters", name)
         bundle = os.path.join(cdir, "bundle.yaml")
         values = os.path.join(cdir, "values.yaml")
         if not os.path.exists(bundle):

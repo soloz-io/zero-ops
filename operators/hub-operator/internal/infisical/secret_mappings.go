@@ -1,5 +1,7 @@
 package infisical
 
+import "github.com/soloz-io/zero-ops/internal/platform/escrow"
+
 // ============================================================================
 // SECRET MAPPINGS REGISTRY
 // ============================================================================
@@ -37,7 +39,32 @@ type SecretMapping struct {
 	SourceKey       string // Key within the K8s secret
 	InfisicalKey    string // Key name in Infisical
 	Description     string // Human-readable description for logging
+
+	// InfisicalPath is the folder the key is written to. Empty means "/". It may
+	// contain TenantPlaceholder, replaced by this box's tenant id (TENANT_ID, from
+	// hub-bootstrap-config) -- for a credential that belongs to the box owner and
+	// so lives in their /<tenant>-mgmt folder, not at the project root.
+	InfisicalPath string
+
+	// Transform, when set, derives the uploaded value from the source value. For
+	// a credential the owner keeps in a richer form than its consumer reads, such
+	// as an SMTP URL whose password is the only secret part.
+	Transform ValueTransform
 }
+
+// TenantPlaceholder in an InfisicalPath is replaced by the box's tenant id.
+const TenantPlaceholder = "{tenant}"
+
+// ValueTransform derives the value uploaded to Infisical from the source value.
+type ValueTransform string
+
+const (
+	// TransformNone uploads the source value unchanged.
+	TransformNone ValueTransform = ""
+	// TransformURLPassword uploads the password component of a URL,
+	// e.g. smtps://user:<password>@smtp.example.com:465.
+	TransformURLPassword ValueTransform = "url-password"
+)
 
 // CLISecretMappings is the registry of CLI and Bootstrap secrets to upload to Infisical
 //
@@ -168,9 +195,9 @@ var CLISecretMappings = []SecretMapping{
 	{
 		SourceNamespace: NamespaceOps,
 		SourceName:      "grafana-cloud",
-		SourceKey:       "api-key",
-		InfisicalKey:    "GRAFANA_CLOUD_API_KEY",
-		Description:     "Grafana Cloud API key (alloy remote write)",
+		SourceKey:       "telemetry-token",
+		InfisicalKey:    "GRAFANA_CLOUD_TELEMETRY_TOKEN",
+		Description:     "Grafana Cloud telemetry token (alloy remote write of metrics and logs)",
 	},
 	{
 		SourceNamespace: NamespaceOps,
@@ -199,6 +226,41 @@ var CLISecretMappings = []SecretMapping{
 		SourceKey:       "loki-user",
 		InfisicalKey:    "GRAFANA_CLOUD_LOKI_USER",
 		Description:     "Grafana Cloud Loki user id",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "rules-token",
+		InfisicalKey:    "GRAFANA_CLOUD_RULES_TOKEN",
+		Description:     "Grafana Cloud token with rules:read and rules:write (rule sync)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "dashboards-token",
+		InfisicalKey:    "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
+		Description:     "Grafana Cloud stack service-account token (dashboard provisioning)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "alerts-token",
+		InfisicalKey:    "GRAFANA_CLOUD_ALERTS_TOKEN",
+		Description:     "Grafana Cloud token with alerts:read and alerts:write (Alertmanager routing)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "irm-alertmanager-url",
+		InfisicalKey:    "GRAFANA_IRM_ALERTMANAGER_URL",
+		Description:     "Grafana IRM Alertmanager integration URL (critical and warning alerts)",
+	},
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "grafana-cloud",
+		SourceKey:       "irm-heartbeat-url",
+		InfisicalKey:    "GRAFANA_IRM_HEARTBEAT_URL",
+		Description:     "Grafana IRM heartbeat URL (the alert path's dead-man's switch)",
 	},
 
 	// ========================================================================
@@ -304,6 +366,26 @@ var CLISecretMappings = []SecretMapping{
 		InfisicalKey:    "hub-identity-service-token",
 		Description:     "Identity service credential for provisioning tenants at the issuer",
 	},
+
+	// ========================================================================
+	// ZITADEL SMTP PASSWORD (box owner's credential, ADR-060 amendment)
+	// ========================================================================
+	// The issuer sends verification and password-reset mail through the box
+	// owner's own sending service (Resend). Only the password is secret; host,
+	// user and sender are in the Zitadel values. The owner keeps the whole SMTP
+	// URL in k8-secrets/smtp/resend (or ZITADEL_SMTP_URL), hub-bootstrap step 6b
+	// turns it into this Secret, and the password component is uploaded to the
+	// owner's /<tenant>-mgmt folder, where zitadel-smtp-config reads it through
+	// the infisical-tenant-mgmt store.
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "zitadel-smtp",
+		SourceKey:       "resend",
+		InfisicalKey:    "zitadel_smtp_password",
+		InfisicalPath:   "/" + TenantPlaceholder + "-mgmt",
+		Transform:       TransformURLPassword,
+		Description:     "Zitadel SMTP password (Resend), from the owner's SMTP URL",
+	},
 }
 
 // ============================================================================
@@ -343,6 +425,27 @@ type ApplicationSecretDefinition struct {
 	// secret material. Stored in the mapping for downstream components to consume.
 	// Only used when KeyType != ""
 	Selector string
+
+	// EscrowArtifact, when non-empty, names the escrow artefact this value is kept
+	// under outside the box (ADR-076).
+	//
+	// Set for a value that CANNOT BE REGENERATED WITHOUT LOSS -- a key something
+	// was encrypted with, as opposed to a credential that can be rotated. That is
+	// the membership test ADR-076 states, and it is the whole of why this field
+	// exists: for a rotatable secret an escrow is redundant, and for an unrotatable
+	// one its absence is undetectable until a recovery.
+	//
+	// Setting it changes three things about how the value is handled:
+	//
+	//   generation      the escrow is consulted FIRST. A rebuilt box adopts the
+	//                   escrowed value instead of minting a new one, which is the
+	//                   only reason the escrow is worth having.
+	//   absence         generation is REFUSED when no escrow is reachable, rather
+	//                   than producing a value that exists nowhere else.
+	//   malformed       repair by regeneration is REFUSED. For a rotatable secret
+	//                   regenerating a malformed value is a fix; here it destroys
+	//                   what the value protected.
+	EscrowArtifact string
 
 	// CellScopedKey, when non-empty, ALSO produces this secret once per SpokePool at
 	// /spoke-pool/<cellId>/shared under this key name, with an independently
@@ -425,37 +528,30 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Username:    "",
 		HexBytes:    16,
 		Description: "Zitadel masterkey for encryption at rest",
+		// Escrowed because it is never rotated: see EscrowArtifact, and ADR-076's
+		// membership test. Without this the box's secret store is recoverable and
+		// its identity data is not.
+		EscrowArtifact: escrow.ArtifactZitadelMasterkey,
 	},
-	{
-		UsernameKey: "nats-leaf-username",
-		PasswordKey: "nats-leaf-password",
-		Username:    "leafnode",
-		Description: "NATS Leaf Node credentials for spoke clusters",
-	},
-	{
-		UsernameKey: "openmeter-postgresql-username",
-		PasswordKey: "openmeter-postgresql-password",
-		Username:    "openmeter",
-		Description: "OpenMeter PostgreSQL credentials",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "platform-clickhouse-admin-password",
-		Username:    "",
-		Description: "Platform ClickHouse admin user password (bootstrap jobs, separate for rotation independence)",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "openmeter-clickhouse-password",
-		Username:    "",
-		Description: "OpenMeter ClickHouse user password (logical database access)",
-	},
-	{
-		UsernameKey: "",
-		PasswordKey: "openmeter-svix-signing-secret",
-		Username:    "",
-		Description: "OpenMeter Svix signing secret (also generates JWT token)",
-	},
+	// The API server's at-rest encryption key is NOT in this registry, and that
+	// absence is a decision (2026-10-04).
+	//
+	// It was added here on 2026-10-02 and removed two days later without ever
+	// having encrypted anything, because it created a SECOND WRITER for a value
+	// that must have exactly one. This registry writes to the Infisical project
+	// ROOT -- one fleet-wide value for every cluster -- while ADR-100 decides the
+	// encryption key is PER CLUSTER, held in the escrow and scoped by cluster id.
+	// Both paths existed, neither knew about the other, and on this box they had
+	// already diverged to two different keys.
+	//
+	// Had a control plane rolled in that state, it would have encrypted with one
+	// key while the ExternalSecret reasserted the other, and everything written in
+	// between would have become unreadable at the next restart.
+	//
+	// The encryption key's lifecycle is therefore entirely outside this registry:
+	// the escrow is the recovery source, `soloz encryption enable` and the Day-0
+	// provisioner are the only writers, and there is no Infisical copy to disagree
+	// with them (ADR-003 section 6, ADR-100).
 	// AgentGateway's OIDC session cookie encryption key. It belongs here because
 	// it is a random value with no external source, so leaving it out of this
 	// registry made it the one cookie secret an operator had to seed by hand into

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -193,6 +194,73 @@ func (c *InfisicalClient) CreateOrUpdateSecretRaw(ctx context.Context, projectSl
 
 	logger.Info("Creating new secret in Infisical", "key", key)
 	return c.createSecret(ctx, workspaceId, environmentSlug, secretPath, key, value)
+}
+
+// EnsureFolderRaw creates folderPath, one segment at a time, in the project named
+// by its slug. Idempotent: a segment that already exists is not an error.
+//
+// The uploader needs it because a mapping may target a folder below "/" (the box
+// owner's /<tenant>-mgmt), and Infisical refuses to create a secret in a folder
+// that does not exist -- on a fresh box nothing else has made it.
+func (c *InfisicalClient) EnsureFolderRaw(ctx context.Context, projectSlug, environmentSlug, folderPath string) error {
+	if folderPath == "" || folderPath == "/" {
+		return nil
+	}
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+	workspaceId, err := c.getWorkspaceIdFromSlug(ctx, projectSlug)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	accumulated := ""
+	for _, segment := range strings.Split(strings.Trim(folderPath, "/"), "/") {
+		if segment == "" {
+			continue
+		}
+		accumulated = path.Join(accumulated, segment)
+		parent := path.Dir(accumulated)
+		if parent == "." {
+			parent = "/"
+		} else {
+			parent = "/" + parent
+		}
+
+		body, err := json.Marshal(map[string]interface{}{
+			"projectId":   workspaceId,
+			"environment": environmentSlug,
+			"path":        parent,
+			"name":        segment,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to marshal folder request for %s: %w", segment, err)
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+constant.APIEndpointFolders, bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("failed to create request for folder %s: %w", segment, err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.token)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to execute folder request for %s: %w", segment, err)
+		}
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		switch {
+		case resp.StatusCode == http.StatusConflict,
+			resp.StatusCode == http.StatusBadRequest && bytes.Contains(respBody, []byte("already exists")):
+			continue
+		case resp.StatusCode >= 500:
+			return fmt.Errorf("failed to create folder %s with status %d (transient)", segment, resp.StatusCode)
+		case resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated:
+			return fmt.Errorf("failed to create folder %s with status %d: %s", segment, resp.StatusCode, string(respBody))
+		}
+	}
+	return nil
 }
 
 // getWorkspaceIdFromSlug converts projectSlug to workspaceId
@@ -492,7 +560,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 
 	if resp.StatusCode == http.StatusBadRequest {
 		bodyStr := string(bodyBytes)
-		if contains(bodyStr, "already exists") {
+		if strings.Contains(bodyStr, "already exists") {
 			logger.Info("Folder already exists in Infisical (400)", "folderPath", folderPath)
 			return nil
 		}
@@ -512,7 +580,7 @@ func (c *InfisicalClient) createFolder(ctx context.Context, workspaceId, environ
 // ADR-003: The folder hierarchy /spoke-pool/<cellId>/tenants/<tenantId> must exist before
 // secrets can be placed inside it. The ESO Infisical provider splits remoteRef.key on the
 // last '/' so the secret name is the final segment and the folder path is the prefix.
-func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID string) error {
+func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, environmentSlug, cellID, tenantID, appID string) error {
 	logger := log.FromContext(ctx)
 
 	// Ensure we have a valid token
@@ -528,13 +596,15 @@ func (c *InfisicalClient) EnsureTenantFolder(ctx context.Context, projectSlug, e
 
 	// Build folder hierarchy from root to leaf. ESO remoteRef.key uses the last path
 	// segment as the secret name and the prefix as the folder path, so the folder
-	// hierarchy need only go to /spoke-pool/<cellId>/tenants/<tenantId>.
-	// ADR-003: path pattern /spoke-pool/<cellId>/tenants/<tenantId>
+	// hierarchy need only go to /spoke-pool/<cellId>/tenants/<tenantId>/apps/<appId>.
+	// ADR-003 path pattern, extended by ADR-088 with the app level: one
+	// customer's two products keep separate folders, so a key written for one
+	// is not readable by the other's ExternalSecret.
 	foldersToEnsure := []string{
 		"/spoke-pool",
 		fmt.Sprintf("/spoke-pool/%s", cellID),
 		fmt.Sprintf("/spoke-pool/%s/tenants", cellID),
-		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, tenantID),
+		fmt.Sprintf("/spoke-pool/%s/tenants/%s", cellID, appID),
 	}
 
 	for _, folder := range foldersToEnsure {

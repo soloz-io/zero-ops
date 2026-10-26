@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { TokenSet } from "../authz/types.js";
 
 export interface OidcClientOptions {
@@ -118,20 +118,18 @@ export class OidcClient {
    * Build an authorization URL with optional PKCE support.
    * Returns the URL, state, and code verifier (if PKCE was used).
    */
-  async buildAuthorizationUrl(
-    opts?: {
-      state?: string;
-      codeChallenge?: string;
-      codeChallengeMethod?: "S256";
-      /**
-       * The verifier matching `codeChallenge`. Passed through to the return value so
-       * a caller can hand both to exchangeCode() without threading it separately —
-       * the previous signature promised a codeVerifier it could never produce.
-       */
-      codeVerifier?: string;
-      additionalParams?: Record<string, string>;
-    },
-  ): Promise<{ url: string; state: string; codeVerifier?: string }> {
+  async buildAuthorizationUrl(opts?: {
+    state?: string;
+    codeChallenge?: string;
+    codeChallengeMethod?: "S256";
+    /**
+     * The verifier matching `codeChallenge`. Passed through to the return value so
+     * a caller can hand both to exchangeCode() without threading it separately —
+     * the previous signature promised a codeVerifier it could never produce.
+     */
+    codeVerifier?: string;
+    additionalParams?: Record<string, string>;
+  }): Promise<{ url: string; state: string; codeVerifier?: string }> {
     const provider = await this.discover();
     const state = opts?.state ?? randomBytes(32).toString("hex");
 
@@ -182,10 +180,7 @@ export class OidcClient {
   /**
    * Exchange an authorization code for tokens.
    */
-  async exchangeCode(opts: {
-    code: string;
-    codeVerifier?: string;
-  }): Promise<TokenSet> {
+  async exchangeCode(opts: { code: string; codeVerifier?: string }): Promise<TokenSet> {
     const body: Record<string, string> = {
       grant_type: "authorization_code",
       code: opts.code,

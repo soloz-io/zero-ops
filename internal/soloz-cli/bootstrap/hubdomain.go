@@ -49,10 +49,6 @@ type HubEndpoints struct {
 	// literal would let the two drift into an account nobody can authenticate as.
 	ZitadelOrg string
 
-	// VictoriaMetrics carries an extra "hub." label no other host uses. WS4 §C1
-	// requires this to be normalised or recorded as intentional; it is recorded
-	// here so re-deriving it cannot silently change the hostname.
-	VictoriaMetrics string
 }
 
 // DeriveHubEndpoints produces the endpoint set for a base domain.
@@ -80,7 +76,6 @@ func DeriveHubEndpoints(zone string) HubEndpoints {
 		MCP:             host("mcp"),
 		Dashboard:       host("dashboard"),
 		ZitadelOrg:      host("zitadel.id"),
-		VictoriaMetrics: host("victoriametrics.hub"),
 	}
 }
 
@@ -134,5 +129,8 @@ func ReadHubZone(projectRoot, environmentSlug string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no spec.domain declared for environment %q in any overlay; "+
-		"the environment overlay is the system of record for the base domain (ADR-051)", environmentSlug)
+		"the environment overlay is the system of record for the base domain (ADR-051).\n"+
+		"  Looked in: %s\n"+
+		"  Source: %s",
+		environmentSlug, strings.Join(candidates, ", "), platform.Origin())
 }

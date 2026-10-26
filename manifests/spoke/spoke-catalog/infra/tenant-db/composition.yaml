@@ -57,17 +57,30 @@ spec:
                         template:
                           type: Opaque
                           data:
-                            username: "{{ .username }}"
+                            # PATCHED from spec.dbRoleName, not fetched.
+                            #
+                            # A username is not a secret. It is a derived NAME, and
+                            # it sat in the secret store only because it was
+                            # generated next to a password -- which made the secret
+                            # store a second source of truth for an identity the
+                            # composition already owns. database/host/port/sslmode
+                            # beside it are patched or literal for exactly this
+                            # reason; username was the one exception.
+                            #
+                            # That exception was the defect: the hub operator wrote
+                            # it from tenantId while this composition created the
+                            # role from appId, and nothing compared them. The only
+                            # symptom was a psql FATAL inside a migration Job.
+                            username: ""  # Patched from spec.dbRoleName
                             password: "{{ .password }}"
                             database: ""  # Patched dynamically from spec.databaseName
                             host: "shared-cnpg-rw.platform-data.svc.cluster.local"
                             port: "5432"
                             sslmode: "require"  # HARDENING (ADR-030): Explicit TLS enforcement
                       data:
-                        - secretKey: username
-                          remoteRef:
-                            key: ""  # Patched
-                            property: username
+                        # ONE ENTRY. Infisical holds the password and nothing else
+                        # about this identity; username is patched into the
+                        # template above from spec.dbRoleName.
                         - secretKey: password
                           remoteRef:
                             key: ""  # Patched
@@ -79,7 +92,7 @@ spec:
                   status: "True"
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -87,7 +100,7 @@ spec:
                       type: Format
                       fmt: "%s-db-credentials-restore"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -95,7 +108,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-db-credentials-restore"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -103,7 +116,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
@@ -114,25 +127,19 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbRoleName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.username
               # EXACT KEY PATH MATCHING FOR JSON COMPOSITE OBJECT
               - type: CombineFromComposite
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.appId
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
 
           # Resource 2: CNPG Database CR
           - name: database
@@ -152,7 +159,7 @@ spec:
                     spec:
                       cluster:
                         name: shared-cnpg
-                      owner: ""  # Patched to tenant_<id>_user
+                      owner: ""  # Patched to spec.dbRoleName
                       ensure: present
             patches:
               - type: FromCompositeFieldPath
@@ -169,14 +176,22 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.name
+              # appId, NOT scopeId, and ADR-088 already settled this (de2162c4):
+              # the credentials the workload holds name tenant-<appId>-user, and a
+              # renamed role is a NEW role that owns nothing -- the migration then
+              # connects successfully and is refused CREATE SCHEMA.
+              #
+              # scopeId is left building namespaces and cluster-scoped names, which
+              # are the things that would actually collide between two apps of one
+              # tenant. The db-user Role below must use appId for the same reason.
+              # The role the application connects as (ADR-099). It was the
+              # separate owner role under ADR-093, so that the baseline's
+              # row-level security would bind the application; the platform ships
+              # no baseline and no policies now, and the schema is the
+              # application's, so there is one role and it owns its database.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.manifest.spec.owner
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
 
           # Resource 3b: Pooler App Secret (for Workloads)
           # Follows ADR-003: Infisical as single source of truth (Pattern B: Application Secrets)
@@ -208,7 +223,21 @@ spec:
                           engineVersion: v2
                           data:
                             # HARDENING (ADR-030): Discrete keys for poolers, sidecars, and audit tooling
-                            username: "{{ .username }}"
+                            # PATCHED from spec.dbRoleName, not fetched.
+                            #
+                            # A username is not a secret. It is a derived NAME, and
+                            # it sat in the secret store only because it was
+                            # generated next to a password -- which made the secret
+                            # store a second source of truth for an identity the
+                            # composition already owns. database/host/port/sslmode
+                            # beside it are patched or literal for exactly this
+                            # reason; username was the one exception.
+                            #
+                            # That exception was the defect: the hub operator wrote
+                            # it from tenantId while this composition created the
+                            # role from appId, and nothing compared them. The only
+                            # symptom was a psql FATAL inside a migration Job.
+                            username: ""  # Patched from spec.dbRoleName
                             password: "{{ .password }}"
                             database: ""   # Patched dynamically
                             host: ""       # Patched dynamically (pooler host)
@@ -216,10 +245,9 @@ spec:
                             sslmode: "require"
                             url: ""        # Patched dynamically with urlquery-encoded DSN
                       data:
-                        - secretKey: username
-                          remoteRef:
-                            key: ""  # Patched
-                            property: username
+                        # ONE ENTRY. Infisical holds the password and nothing else
+                        # about this identity; username is patched into the
+                        # template above from spec.dbRoleName.
                         - secretKey: password
                           remoteRef:
                             key: ""  # Patched
@@ -231,7 +259,7 @@ spec:
                   status: "True"
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -239,7 +267,7 @@ spec:
                       type: Format
                       fmt: "%s-pooler-app-secret"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -247,7 +275,7 @@ spec:
                       type: Format
                       fmt: "%s-pooler-app-externalsecret"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -255,7 +283,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.target.name
                 transforms:
                   - type: string
@@ -267,27 +295,21 @@ spec:
                 combine:
                   variables:
                     - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
+                    - fromFieldPath: spec.appId
                   strategy: string
                   string:
                     fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
                 toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
-              - type: CombineFromComposite
-                combine:
-                  variables:
-                    - fromFieldPath: spec.cellId
-                    - fromFieldPath: spec.tenantId
-                  strategy: string
-                  string:
-                    fmt: "/spoke-pool/%s/tenants/%s/db-credentials"
-                toFieldPath: spec.forProvider.manifest.spec.data[1].remoteRef.key
               # Dynamic configuration values (not secrets)
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.databaseName
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.database
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.dbRoleName
+                toFieldPath: spec.forProvider.manifest.spec.target.template.data.username
               # HARDENING (ADR-030): Pooler host as discrete key for sidecars and audit tooling
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.host
                 transforms:
                   - type: string
@@ -298,11 +320,18 @@ spec:
               - type: CombineFromComposite
                 combine:
                   variables:
-                    - fromFieldPath: spec.tenantId
+                    # The pooler is app-named (<app>-pooler) -- it was before the
+                    # split too, when the field feeding it was called tenantId
+                    # and held a product. Renaming it would break every chart
+                    # that references waypoint-pooler-app.
+                    # dbRoleName first: the DSN used to interpolate ESO's
+                    # {{ .username }}, which no longer exists as a fetched key.
+                    - fromFieldPath: spec.dbRoleName
+                    - fromFieldPath: spec.appId
                     - fromFieldPath: spec.databaseName
                   strategy: string
                   string:
-                    fmt: "postgresql://{{ .username }}:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
+                    fmt: "postgresql://%s:{{ .password | urlquery }}@%s-pooler.platform-data.svc.cluster.local:5432/%s?sslmode=require"
                 toFieldPath: spec.forProvider.manifest.spec.target.template.data.url
 
           # Resource 4: provider-sql Role (tenant user)
@@ -311,7 +340,28 @@ spec:
             base:
               apiVersion: postgresql.sql.crossplane.io/v1alpha1
               kind: Role
-              metadata: {}
+              metadata:
+                annotations:
+                  # THE POSTGRES ROLE NAME LIVES HERE, not in metadata.name.
+                  #
+                  # provider-sql reads the role name from this annotation and
+                  # nowhere else: `meta.GetExternalName(mg)` is the only source at
+                  # every site -- the pg_roles lookup in Observe, CREATE ROLE,
+                  # ALTER ROLE and DROP ROLE -- and Role.spec.forProvider carries
+                  # no name field at all. It is always wrapped in
+                  # pq.QuoteIdentifier, so '_' is safe and nothing is case-folded.
+                  # Verified against both the pinned v0.14.0 and the vendored
+                  # v0.16.1 in reference-projects/provider-sql; neither calls
+                  # SetExternalName, so the annotation is never rewritten.
+                  #
+                  # It has to be separate from metadata.name because a Kubernetes
+                  # object name is an RFC 1123 name, which forbids '_' -- and '_'
+                  # is exactly what makes the role name injective over
+                  # (tenantId, appId). Three namespaces, one job each:
+                  #   metadata.name  Kubernetes identity
+                  #   external-name  postgres identity
+                  #   spec.dbRoleName  the canonical platform value both derive from
+                  crossplane.io/external-name: ""  # Patched from spec.dbRoleName
               spec:
                 forProvider:
                   privileges:
@@ -326,16 +376,40 @@ spec:
                   name: default
                 deletionPolicy: Delete
             patches:
+              # appId, matching the database owner above and the credentials the
+              # workload actually holds (tenant-<appId>-user, from the secret
+              # store). de2162c4 moved the owner and this name to appId together
+              # for that reason; this one was left on scopeId, and the two only
+              # agreed because the pre-ADR-088 role of the old name still existed
+              # in PostgreSQL and satisfied both.
+              #
+              # Rebuilding the cluster from empty removed it and split them apart:
+              # the composition created tenant-nutgraf-waypoint-user while the SDK
+              # authenticated as tenant-waypoint-user and got
+              #   FATAL 28P01: password authentication failed for user
+              #   "tenant-waypoint-user"
+              # on every start, which reads like a rotated password and is not one.
+              #
+              # Only the ROLE NAME moves. passwordSecretRef.namespace below stays
+              # scopeId: that is a namespace (tenant-<tenantId>-<appId>), and
+              # namespaces are exactly what scopeId is still for.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "tenant-%s-user"
+              # The postgres identity. metadata.name above is deliberately left on
+              # its legacy shape: repatching it deletes this composed resource and
+              # DROP ROLE fails on a role that owns a database. Renaming it belongs
+              # to the role migration, after ownership has moved.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.dbRoleName
+                toFieldPath: metadata.annotations[crossplane.io/external-name]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.passwordSecretRef.namespace
                 transforms:
                   - type: string
@@ -343,13 +417,39 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.passwordSecretRef.name
                 transforms:
                   - type: string
                     string:
                       type: Format
                       fmt: "tenant-%s-db-credentials"
+
+          # The OWNER role was retired on 2026-10-01 (ADR-099).
+          #
+          # It existed for one consumer: the tenant-baseline migration Job, which
+          # created tables in the tenant's database on the platform's behalf and
+          # had to own them so that ADR-093's row-level security would bind the
+          # application. The platform no longer creates anything in a tenant's
+          # database -- it provisions a database and a role, and the schema is the
+          # application's -- so there is nothing for a second role to own.
+          #
+          # Removed rather than left in place: it is a LOGIN role with a password
+          # in a connection secret, and a standing credential that nothing uses is
+          # the hardest kind to notice the loss of.
+          #
+          # ITS DELETION IS NOT SAFE ON ITS OWN. deletionPolicy was Delete, so
+          # dropping this resource issues DROP ROLE -- which PostgreSQL refuses
+          # while the role owns any object, and on every database provisioned
+          # before today it owns the baseline tables and whatever the application's
+          # own libraries created while the Job was running. Ownership must be
+          # handed to the application's role FIRST:
+          #
+          #   docs/runbooks/retire-the-tenant-database-owner-role.md
+          #
+          # That runbook is a prerequisite to syncing this composition, in exactly
+          # the way tenant-database-role-cutover.md is for ADR-090.
+
 
           # Resource 4b: give crossplane_admin ADMIN OPTION on the tenant role.
           #
@@ -385,7 +485,7 @@ spec:
                 deletionPolicy: Delete
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -393,101 +493,21 @@ spec:
                       type: Format
                       fmt: "tenant-%s-user-admin-option"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.dbRoleName
                 toFieldPath: spec.forProvider.memberOf
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
 
-          # Resource 5: provider-sql DefaultPrivileges (ALL privileges on tables in public schema)
-          - name: default-privileges-tables
-            base:
-              apiVersion: postgresql.sql.crossplane.io/v1alpha1
-              kind: DefaultPrivileges
-              metadata: {}
-              spec:
-                forProvider:
-                  privileges:
-                    - SELECT
-                    - INSERT
-                    - UPDATE
-                    - DELETE
-                    - TRUNCATE
-                    - REFERENCES
-                    - TRIGGER
-                  role: ""  # Patched to tenant_<id>_user
-                  database: ""  # Patched to tenant-<id>-db
-                  schema: "public"
-                  objectType: "table"
-                  targetRole: "crossplane_admin"  # When crossplane_admin creates tables, grant to tenant user
-                providerConfigRef:
-                  name: default
-                deletionPolicy: Delete
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-default-privileges-tables"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.role
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.databaseName
-                toFieldPath: spec.forProvider.database
+          # Resources 5 and 6, the DefaultPrivileges, were removed on 2026-10-01
+          # (ADR-099).
+          #
+          # They granted the application DML on objects created by the OWNER role,
+          # which is what the two-role split required: the migration Job created
+          # tables as the owner and the application had to be let in afterwards.
+          #
+          # With one role there is nothing to grant. The application creates its
+          # own tables and owns them, and a default privilege from a role to
+          # itself is a no-op that still has to be reconciled, observed and
+          # explained.
 
-          # Resource 6: provider-sql DefaultPrivileges (ALL privileges on sequences in public schema)
-          - name: default-privileges-sequences
-            base:
-              apiVersion: postgresql.sql.crossplane.io/v1alpha1
-              kind: DefaultPrivileges
-              metadata: {}
-              spec:
-                forProvider:
-                  privileges:
-                    - SELECT
-                    - UPDATE
-                    - USAGE
-                  role: ""  # Patched to tenant_<id>_user
-                  database: ""  # Patched to tenant-<id>-db
-                  schema: "public"
-                  objectType: "sequence"
-                  targetRole: "crossplane_admin"  # When crossplane_admin creates sequences, grant to tenant user
-                providerConfigRef:
-                  name: default
-                deletionPolicy: Delete
-            patches:
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: metadata.name
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-default-privileges-sequences"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
-                toFieldPath: spec.forProvider.role
-                transforms:
-                  - type: string
-                    string:
-                      type: Format
-                      fmt: "tenant-%s-user"
-              - type: FromCompositeFieldPath
-                fromFieldPath: spec.databaseName
-                toFieldPath: spec.forProvider.database
-
-          # ──────────────────────────────────────────────────────────────────
           # Resource 7: ServiceAccount for CNPG CA cert reader
           # ADR-035: CNPG manages its own TLS PKI. Consumers obtain the CA
           # certificate from the CNPG-generated Secret. This ServiceAccount
@@ -511,7 +531,7 @@ spec:
                       name: cnpg-ca-reader
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -519,7 +539,7 @@ spec:
                       type: Format
                       fmt: "%s-cnpg-ca-sa"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -553,7 +573,7 @@ spec:
                         verbs: ["get"]
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -561,7 +581,7 @@ spec:
                       type: Format
                       fmt: "%s-cnpg-ca-role"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -597,7 +617,7 @@ spec:
                         namespace: ""  # Patched to tenant-<id>
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -605,7 +625,7 @@ spec:
                       type: Format
                       fmt: "%s-cnpg-ca-rb"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.metadata.name
                 transforms:
                   - type: string
@@ -613,7 +633,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-cnpg-ca-reader"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.appId
                 toFieldPath: spec.forProvider.manifest.roleRef.name
                 transforms:
                   - type: string
@@ -621,7 +641,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s-cnpg-ca-reader"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.subjects[0].namespace
                 transforms:
                   - type: string
@@ -664,7 +684,7 @@ spec:
                               namespace: ""
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -672,7 +692,7 @@ spec:
                       type: Format
                       fmt: "%s-cnpg-ca-store"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string
@@ -680,7 +700,7 @@ spec:
                       type: Format
                       fmt: "tenant-%s"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.spec.provider.kubernetes.auth.serviceAccount.namespace
                 transforms:
                   - type: string
@@ -723,7 +743,7 @@ spec:
                             property: ca.crt
             patches:
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: metadata.name
                 transforms:
                   - type: string
@@ -731,7 +751,7 @@ spec:
                       type: Format
                       fmt: "%s-shared-cnpg-ca"
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.tenantId
+                fromFieldPath: spec.scopeId
                 toFieldPath: spec.forProvider.manifest.metadata.namespace
                 transforms:
                   - type: string

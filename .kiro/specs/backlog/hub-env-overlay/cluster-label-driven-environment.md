@@ -196,7 +196,6 @@ type BootstrapState struct {
     ClusterName      string          `json:"clusterName"`
     Region           string          `json:"region"`
     Environment      string          `json:"environment"`      // NEW
-    TalosImageId     string          `json:"talosImageId,omitempty"`
     NetworkCIDR      string          `json:"networkCIDR"`
     CurrentPhase     BootstrapPhase  `json:"currentPhase"`
     CompletedPhases  []BootstrapPhase `json:"completedPhases"`

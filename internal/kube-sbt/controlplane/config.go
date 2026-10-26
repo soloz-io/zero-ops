@@ -9,7 +9,7 @@ import (
 )
 
 // Config holds all dependencies and settings for the Control Plane.
-// Billing, Metering, TierManager, and SecretManager are optional.
+// Billing, Metering and TierManager are optional.
 type Config struct {
 	// Required
 	Auth     interfaces.IAuth
@@ -17,11 +17,10 @@ type Config struct {
 	Storage  interfaces.IStorage
 
 	// Optional
-	Billing       interfaces.IBilling
-	Metering      interfaces.IMetering
-	TierManager   interfaces.ITierManager
-	SecretManager interfaces.ISecretManager
-	SystemAdmin   interfaces.ISystemAdmin
+	Billing     interfaces.IBilling
+	Metering    interfaces.IMetering
+	TierManager interfaces.ITierManager
+	SystemAdmin interfaces.ISystemAdmin
 
 	// Kubernetes client for reading ConfigMaps during bootstrap
 	K8sClient kubernetes.Interface

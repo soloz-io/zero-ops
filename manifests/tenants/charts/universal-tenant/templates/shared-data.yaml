@@ -1,0 +1,79 @@
+{{/*
+Data shared between two apps of one tenant (ADR-088).
+
+THE RULE THIS IMPLEMENTS
+
+Data follows the application. Each app has its own logical database, and being
+siblings grants nothing: two apps of one customer are as separated in their data
+as two apps of different customers, because the namespace is the isolation
+boundary and a datastore reachable from two of them is a hole in both.
+
+Sharing therefore takes a declaration that names both sides. It is never
+inherited from "same tenant" -- which is the whole point. With the axis in place
+and no rule, "same tenant" becomes an argument for access, made case by case, by
+whoever is unblocking something on the day. The rule is that it is never an
+argument; only a declaration is.
+
+WHY THE OWNER KEEPS THE DATABASE
+
+A reader is granted a role ON the owner's database. Two apps OWNING one database
+would make schema migration a negotiation between two release cycles, which is
+the coupling ADR-074 left the platform least able to absorb -- it withdrew the
+migration mechanism and named no replacement, so there is no arbiter of "whose
+migration runs first".
+
+WHAT IS NOT RENDERED HERE
+
+The route. A reader already has egress to the shared CloudNativePG cluster from
+its own chart's Postgres rule, because it has a database of its own to reach.
+Adding a second allowance for the same destination would be a rule that looks
+load-bearing and is not.
+
+  sharedData:
+    - name: user-directory
+      owner: waypoint          # the app whose database it is
+      readers: [oranger]       # apps granted a role on it
+*/}}
+{{- if not .Values.deployXR }}
+{{- range .Values.sharedData }}
+{{- $decl := . }}
+{{- if not $decl.owner }}{{ fail (printf "sharedData %q names no owner: a grant on nobody's database is not a grant" $decl.name) }}{{ end }}
+{{- if not $decl.readers }}{{ fail (printf "sharedData %q names no readers: a share with nobody is a declaration that does nothing, which is worse than absent because it reads as access that exists" $decl.name) }}{{ end }}
+{{- range $reader := $decl.readers }}
+{{- if eq $reader $decl.owner }}{{ fail (printf "sharedData %q lists its owner %q as a reader: the owner already has its own database, and a self-grant hides the fact that nothing is shared" $decl.name $decl.owner) }}{{ end }}
+---
+# {{ $decl.owner }}'s `{{ $decl.name }}`, read by {{ $reader }}.
+#
+# Both are apps of {{ include "universal-tenant.tenantId" $ }}. A reader in
+# another TENANT is not expressible here and is not meant to be: cross-tenant
+# access is refused and ADR-088 gives it no mechanism.
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ include "universal-tenant.tenantId" $ }}-{{ $decl.owner }}-{{ $decl.name }}-to-{{ $reader }}
+  labels:
+    {{- include "universal-tenant.abiLabels" $ | nindent 4 }}
+    shared-data: {{ $decl.name }}
+spec:
+  forProvider:
+    # The reader's own role, which its TenantDatabase created. It is not given a
+    # new identity for this: an app that reaches a second database is still the
+    # same principal, and a per-share role would make revocation a question of
+    # which of several roles to drop.
+    role: {{ include "universal-tenant.tenantId" $ }}-{{ $reader }}
+    database: {{ include "universal-tenant.tenantId" $ }}-{{ $decl.owner }}-db
+    # CONNECT only, by default and deliberately. A share is read access to a
+    # database the reader does not own; anything beyond it -- writes, schema
+    # changes -- belongs to the owner's own release cycle and would reintroduce
+    # the two-writers coupling this file exists to avoid.
+    privileges:
+      {{- toYaml ($decl.privileges | default (list "CONNECT")) | nindent 6 }}
+  providerConfigRef:
+    name: default
+  # Retain, not Delete. Removing a declaration removes the GRANT; it must not be
+  # able to remove data, and a Delete policy on a Grant whose database is the
+  # owner's is one composition bug away from doing so.
+  deletionPolicy: Orphan
+{{- end }}
+{{- end }}
+{{- end }}

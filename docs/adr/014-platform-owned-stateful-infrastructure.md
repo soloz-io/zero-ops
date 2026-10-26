@@ -7,6 +7,42 @@
 - [ADR 002: Hub CNPG Database Migration Pattern](./002-hub-cnpg-database-migration-pattern.md)
 - [ADR 006: Multi-Tenant Database Pattern](./006-multi-tenant-database-pattern.md)
 
+## Addendum 1: ClickHouse has been withdrawn (2026-09-12)
+
+This ADR governs three stateful capabilities — PostgreSQL, Redis and ClickHouse
+— and **ClickHouse is no longer shipped**. Its manifests, its Altinity operator,
+its ExternalSecrets and the two Infisical mappings that seeded its passwords have
+been removed from the platform.
+
+Everything below about ClickHouse is therefore historical: the
+`ClickHouseInstallation` topology, its placement rules, its database-level
+isolation and its backup contract describe a component no box runs. **The
+decisions about PostgreSQL and Redis are unaffected and remain in force**,
+including the rule that every stateful workload runs on worker nodes and never
+on a control-plane node.
+
+ADR-049 had already deferred ClickHouse from the active pipeline; this completes
+that by removing it. OpenMeter, which used it as its event store, is retained and
+now has no aggregation backend configured — choosing one is a metering decision
+this ADR does not make (see ADR-078, "Out of scope").
+
+## Addendum 2: the archive prefix is per cluster (2026-09-17, ADR-082)
+
+The backup contract's archive prefix derives from the cluster's name rather than a
+literal path with a manually incremented server name.
+
+The literal was packaged into the bundle (ADR-063), so every box that pulled it
+archived to one prefix. barman refuses to archive into a prefix already holding
+another database's write-ahead logs, so the first box to use it worked and every
+later one had continuous archiving permanently false, no base backup behind it, and
+the management cluster's root-of-trust database on node-local storage with no copy
+anywhere. Observed on 2026-09-17 with an archive holding backups from boxes that no
+longer existed, while the running box had never archived a segment.
+
+Incrementing a suffix by hand remains necessary in one case the derivation cannot
+distinguish: one named cluster rebuilt from an empty database, whose predecessor's
+segments are still under the same prefix.
+
 ## Context
 
 Applications requiring stateful infrastructure (PostgreSQL, Redis, ClickHouse) can either deploy embedded databases via Helm chart dependencies or consume platform-provided centralized services.
@@ -90,20 +126,31 @@ This rule is platform-wide and topology-independent. It carries forward the node
 ```
 platform-data Namespace
 ├── shared-cnpg (Cluster)
-│   ├── crossplane_admin (owner - migrations)
-│   ├── tenant-{id}-user (application - via provider-sql)
-│   ├── tenant-{id}-db (logical database)
+│   ├── tenant_<tenantId>_<appId>_owner (owns objects - runs migrations)
+│   ├── tenant_<tenantId>_<appId>_user (application - RLS applies - via provider-sql)
+│   ├── <tenantId>-<appId>-db (logical database)
 │   └── shared-cnpg-rw (Pooler service)
 ├── Database Lifecycle
 │   ├── Creation: Crossplane provider-sql (declarative)
 │   ├── Credentials: Infisical → ESO → Secrets
-│   ├── Migrations: crossplane_admin (platform-owned)
+│   ├── Migrations: tenant_<tenantId>_<appId>_owner (per app - ADR-093)
 │   └── Access: Least-privilege via DefaultPrivileges
 └── Backup Strategy
     ├── Continuous WAL archiving (CNPG)
     ├── Scheduled snapshots (Barman)
     └── Point-in-time recovery capability
 ```
+
+> **Amendment 2026-09-28 (ADR-090).** The role and database names above were
+> written when the platform had ONE identifier for the customer and the product.
+> After ADR-088 split them, `tenant-{id}-user` was ambiguous and read as an
+> endorsement of a per-app role name — which is not safe, because a PostgreSQL
+> role is cluster-wide (`pg_authid` is a shared catalog) and a single spoke serves
+> multiple tenants (ADR-051), so two tenants with an app of the same name would
+> have shared one role owning both their databases. The role is now
+> `tenant_<tenantId>_<appId>_user`, delimited with `_` because the identifier
+> grammar forbids it and therefore makes the encoding injective. ADR-090 is
+> canonical for the name; this diagram is descriptive only.
 
 #### Redis (StatefulSet + Service)
 ```
@@ -324,6 +371,79 @@ destination fields of its own. Retention: `30d`.
 above is platform-owned and enforced by post-bootstrap validation. ADR-046 §11
 holds the isolation mechanics and the cutover procedure that implements this
 contract.
+
+### Recovery point
+
+**Recovery point is bounded by the latest successfully archived WAL. The latest
+successful base backup provides the recovery base. WAL-archive and base-backup
+freshness are continuously monitored and alertable.**
+
+Stated deliberately in those terms rather than as "RPO equals the backup
+interval", which understates the guarantee and misdescribes the mechanism.
+CloudNativePG replays archived WAL forward from the base backup, so a spoke whose
+nightly backup last succeeded at 01:00 and whose archive kept working until 13:55
+recovers to 13:55, not to 01:00 — an observed difference of thirteen hours on
+2026-09-25. The corollary is the part that matters operationally: the recovery
+point is set by the ARCHIVE, not by the schedule, so an archive that has silently
+stopped freezes the recovery point while every base backup and every dashboard
+continues to look unremarkable.
+
+### Recovery is a bootstrap, and incarnations are explicit
+
+CloudNativePG has no in-place recovery. Restoring a physical backup **is** the
+bootstrap of a new cluster, and `spec.bootstrap` is read exactly once, at
+creation, then ignored for the life of the cluster. Restoring is therefore a
+manifest transition followed by a delete/recreate — never a command issued
+against a running cluster — and a cluster that already exists cannot be restored
+by editing it.
+
+Because a rebuild lands in an object store that already holds the previous
+cluster's WALs, and barman refuses to interleave two databases under one
+`serverName`, each rebuild takes a new **incarnation**: `shared-cnpg-v<N>`. Two
+fields must move together and must never be equal:
+
+| field | value |
+|---|---|
+| `spec.bootstrap.recovery.source` | the PREVIOUS incarnation, read-only |
+| `spec.backup.barmanObjectStore.serverName` | the NEXT incarnation |
+
+A cluster whose archive target is also its recovery source is recovering from
+itself. A cluster that archives to an incarnation already in use archives
+nothing: `WAL archive check failed ... Expected empty archive`, which leaves
+`ContinuousArchiving=False`, blocks every base backup queued behind it, and does
+so while the Cluster reports `healthy`.
+
+**`bootstrap.recovery` is not the steady state.** `destinationPath` is per-spoke,
+so a newly provisioned spoke has no archive under any incarnation; a provider
+manifest that permanently declared recovery would make every first-ever
+provisioning fail to bootstrap at all. `initdb` is the declared default and
+recovery is a deliberate, validated, temporary transition.
+
+**The transition is tool-enforced, not hand-edited.** `make
+cnpg-bump-incarnation PROVIDER=<provider>` moves both fields and refuses to write
+anything unless the manifest is in exactly the expected shape;
+`make cnpg-settle-incarnation` returns it to `initdb` once the recovered cluster
+is healthy and archiving. `make cnpg-incarnation-check` reports any provider left
+mid-recovery — that state restores the same old incarnation on the next rebuild
+and silently discards everything written since, which is the failure this
+mechanism exists to prevent and the one that leaves no trace until someone goes
+looking for missing data. It is deliberately NOT a merge gate: the release that
+performs a recovery is mid-recovery by construction, so gating merges on it would
+block the change it exists to support. The condition is temporal — mid-recovery
+for an hour is the procedure, mid-recovery for a week is the bug — so it belongs
+on a schedule. The repository previously carried this rule as a
+comment reading "BUMP THE SUFFIX whenever the cluster is recreated"; it was
+honoured once and missed on the next rebuild. A comment is not a mechanism.
+
+### Recoverability is alerted, because health is not
+
+Every alert in `spoke-catalog/infra/victoriametrics/cnpg-backup-alerts.yaml`
+fires on a condition CNPG itself reports as compatible with `Cluster in healthy
+state`, and that is the point: the operator is not wrong when it says Postgres is
+up and serving, it simply has no opinion about whether the box is recoverable.
+The signals are unarchived WAL backlog, a cluster that has never completed a
+backup, a stale newest backup, failures newer than the last success, and an
+archive reporting no recoverability point.
 
 ## References
 

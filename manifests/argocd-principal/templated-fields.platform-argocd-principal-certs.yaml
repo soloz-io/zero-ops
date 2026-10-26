@@ -1,6 +1,6 @@
 # The argocd-agent principal's server certificates.
 #
-# Spokes dial the principal by name -- the NATS leaf node and the agent both
+# Spokes dial the principal by name -- the agent
 # reach argocd-principal.<zone>:7422 -- so these names must be the box's own.
 # They were the platform's, which asked a tenant's cert-manager to issue for a
 # hostname in the platform's zone: DNS-01 fails outright, and had it succeeded

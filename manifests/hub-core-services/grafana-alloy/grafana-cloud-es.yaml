@@ -25,6 +25,11 @@ spec:
     - secretKey: LOKI_USER
       remoteRef:
         key: GRAFANA_CLOUD_LOKI_USER
-    - secretKey: API_KEY
+    - secretKey: TELEMETRY_TOKEN
       remoteRef:
-        key: GRAFANA_CLOUD_API_KEY
+        key: GRAFANA_CLOUD_TELEMETRY_TOKEN
+    # ADR-078 add.3 §6: rules:read and rules:write, for the cluster agent's rule
+    # sync. Separate from TELEMETRY_TOKEN, which is write-only for metrics and logs.
+    - secretKey: RULES_TOKEN
+      remoteRef:
+        key: GRAFANA_CLOUD_RULES_TOKEN

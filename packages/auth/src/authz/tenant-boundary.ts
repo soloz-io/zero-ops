@@ -1,5 +1,4 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { TenantMismatchError } from "../types.js";
 import { getPrincipal } from "../middleware/hono.js";
 
 export interface TenantBoundaryOptions {
@@ -32,7 +31,11 @@ export function requireTenantBoundary(opts?: TenantBoundaryOptions): MiddlewareH
 
     if (!resourceTenantId) {
       return c.json(
-        { error: "Bad Request", code: "TENANT_ID_REQUIRED", message: "Tenant ID is required for this operation" },
+        {
+          error: "Bad Request",
+          code: "TENANT_ID_REQUIRED",
+          message: "Tenant ID is required for this operation",
+        },
         400,
       );
     }

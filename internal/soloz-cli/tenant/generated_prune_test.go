@@ -24,7 +24,7 @@ func TestGeneratedApplicationNeverPrunes(t *testing.T) {
 	root := repoRootForTest(t)
 	base := filepath.Join(root, "manifests", "tenants", "gitops-template", "templates")
 
-	for _, kind := range []string{"control-plane", "spoke-cluster"} {
+	for _, kind := range []string{"mgmt", "workload-cluster"} {
 		path := filepath.Join(base, kind, "generated.yaml")
 		raw, err := os.ReadFile(path)
 		if err != nil {

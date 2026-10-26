@@ -1,0 +1,49 @@
+# The spoke's shared :443 Gateway. PLATFORM-owned, despite living under
+# manifests/tenants/charts/ — that directory is what the packager publishes
+# (scripts/package/tenant-and-catalog-charts.sh globs it), not a statement about
+# who owns the content. Nothing here is tenant-authored.
+
+# The complete listener set for this spoke, GENERATED — never hand-edited.
+#
+# Produced by aggregating every app's `public.hosts` on this spoke into
+# registry/clusters/<spoke>/generated/values/public-hosts.yaml. One producer,
+# and a preflight check asserts the aggregate equals the declarations exactly,
+# so a host added to an app and not to the aggregate fails review rather than
+# arriving as a hostname that does not resolve.
+#
+#   publicHosts:
+#     - host: waypoint.dev.nutgraf.in
+#       tlsSecret: nutgraf-waypoint-public-tls
+#
+# EMPTY IS VALID and renders a Gateway with no listeners: a spoke with no public
+# app still owns the object, so the first app to declare a host adds a listener
+# to something that already exists rather than racing to create it.
+publicHosts: []
+
+# The IP external-dns publishes for these hostnames.
+#
+# Required because the Cilium gateway Service is ClusterIP under hostNetwork
+# (ADR-046 §8), so external-dns cannot discover a target from the Service. With
+# no target it publishes nothing and every hostname here is unreachable.
+externalDnsTarget: ""
+
+gatewayName: tenant-tls-gateway
+namespace: platform-ops
+
+# ADR-108: session previews, served at <preview>.<domain> on this same :443
+# Gateway -- a second Gateway cannot bind :443 on the host network beside this
+# one (probes/l2-dual-gateway-probe.yaml, probe-c).
+#
+# domain is the environment's preview registrable domain, passed by the
+# environment manager (previewDomain). EMPTY renders nothing: no listener, no
+# certificate, no route. The domain must be delegated to the DNS service the
+# ACME issuer's dns01 solver writes to, and listed in that solver's dnsZones
+# (spoke-catalog/infra/acme-cluster-issuer.yaml), before it is set here.
+preview:
+  domain: ""
+  tlsSecret: preview-wildcard-tls
+  issuer: letsencrypt-prod
+
+# The platform's own domain, passed by the environment manager, so a preview
+# domain inside it is refused at render: it would share the platform's cookies.
+hubDomain: ""

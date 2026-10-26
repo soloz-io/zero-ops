@@ -4,11 +4,11 @@
 # Reconciles the three tenant lifecycle resources for each fleet:
 #   {fleetId}-xr       → AINativeSaaS XR on the Hub (Crossplane data plane)
 #   {fleetId}-spoke    → namespace + Tier-2 platform-rendered capabilities on the spoke
-#   tenant-{fleetId}-workloads → fleet workload app (Tier 3) on the spoke
+#   tenant-{fleetId}-{env}-{app} → one app per fleet workload (Tier 3) on the spoke
 # Fleet values are read from this box's own instance repository (ADR-062) at
-# environments/<env>/<fleet>/values.yaml. Which repository that is comes from Day-0,
+# environments/<env>/values.yaml. Which repository that is comes from Day-0,
 # never from a default: see _instance-repo.tpl.
-# The env slug is derived from the matched path: environments/<env>/<fleet>/,
+# The env slug is derived from the matched path: environments/<env>/,
 # so the environment is segment 1. Env-first keeps every fleet in one
 # environment together, which is the axis promotion moves along (ADR-037).
 
@@ -35,11 +35,56 @@ spec:
     # exist (e.g. waypoint/prod before its spoke is provisioned).
     - matrix:
         generators:
-          - git:
-              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
-              revision: main
-              files:
-                - path: 'environments/*/*/values.yaml'
+          - matrix:
+              generators:
+                # Fleet DIRECTORIES, not a filename glob -- because `exclude`
+                # exists on a directories generator and does NOT exist on a
+                # files one (GitFileGeneratorItem declares only `path`).
+                #
+                # That asymmetry is the whole reason this is shaped like this.
+                # `*` in either generator crosses `/`, so
+                # `environments/*/*/values.yaml` matched a WORKLOAD's chart
+                # values three levels down as readily as a fleet's declaration
+                # two levels down. The workload file carries no `cellId`, the
+                # cluster selector below interpolates one, and the generator
+                # failed outright:
+                #
+                #   failed to execute go template {{"{{"}} .cellId {{"}}"}}:
+                #   map has no entry for key "cellId"
+                #
+                # Nothing looked broken. Every Application already generated
+                # stayed, kept syncing its own source and went on reporting
+                # Healthy; what stopped was the platform's ability to create,
+                # retarget or remove any of them.
+                #
+                # Setting `exclude` on the files generator instead is worse than
+                # the bug: the field is not in the CRD, so server-side apply
+                # REFUSES the ApplicationSet and the parent Application cannot
+                # diff at all.
+                #
+                #   .spec.generators[0].matrix.generators[0].git.files[1]
+                #   .exclude: field not declared in schema
+                #
+                # Depth is expressible here and only here.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    # Prefixed so it cannot collide with the `.path` the files
+                    # generator below exports; downstream templates read that
+                    # one, unchanged.
+                    pathParamPrefix: fleetdir
+                    directories:
+                      - path: 'environments/*/*'
+                      - path: 'environments/*/*/*'
+                        exclude: true
+
+                # That fleet's declaration, addressed exactly rather than
+                # matched. Supplies tenantId, appId and cellId, and `.path`.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    files:
+                      - path: '{{"{{"}} .fleetdir.path.path {{"}}"}}/values.yaml'
 
           - clusters:
               selector:
@@ -48,9 +93,10 @@ spec:
 
   template:
     metadata:
-      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-xr'
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-xr'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: xr
@@ -99,7 +145,7 @@ spec:
 
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}'
 
       syncPolicy:
         automated:
@@ -140,11 +186,56 @@ spec:
     # 2. Target spoke cluster is registered in ArgoCD (by capi2argo) with the cell-id label
     - matrix:
         generators:
-          - git:
-              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
-              revision: main
-              files:
-                - path: 'environments/*/*/values.yaml'
+          - matrix:
+              generators:
+                # Fleet DIRECTORIES, not a filename glob -- because `exclude`
+                # exists on a directories generator and does NOT exist on a
+                # files one (GitFileGeneratorItem declares only `path`).
+                #
+                # That asymmetry is the whole reason this is shaped like this.
+                # `*` in either generator crosses `/`, so
+                # `environments/*/*/values.yaml` matched a WORKLOAD's chart
+                # values three levels down as readily as a fleet's declaration
+                # two levels down. The workload file carries no `cellId`, the
+                # cluster selector below interpolates one, and the generator
+                # failed outright:
+                #
+                #   failed to execute go template {{"{{"}} .cellId {{"}}"}}:
+                #   map has no entry for key "cellId"
+                #
+                # Nothing looked broken. Every Application already generated
+                # stayed, kept syncing its own source and went on reporting
+                # Healthy; what stopped was the platform's ability to create,
+                # retarget or remove any of them.
+                #
+                # Setting `exclude` on the files generator instead is worse than
+                # the bug: the field is not in the CRD, so server-side apply
+                # REFUSES the ApplicationSet and the parent Application cannot
+                # diff at all.
+                #
+                #   .spec.generators[0].matrix.generators[0].git.files[1]
+                #   .exclude: field not declared in schema
+                #
+                # Depth is expressible here and only here.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    # Prefixed so it cannot collide with the `.path` the files
+                    # generator below exports; downstream templates read that
+                    # one, unchanged.
+                    pathParamPrefix: fleetdir
+                    directories:
+                      - path: 'environments/*/*'
+                      - path: 'environments/*/*/*'
+                        exclude: true
+
+                # That fleet's declaration, addressed exactly rather than
+                # matched. Supplies tenantId, appId and cellId, and `.path`.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    files:
+                      - path: '{{"{{"}} .fleetdir.path.path {{"}}"}}/values.yaml'
 
           - clusters:
               selector:
@@ -153,9 +244,10 @@ spec:
 
   template:
     metadata:
-      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-spoke'
+      name: '{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-spoke'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
         provisioning-type: gitops
         resource-type: spoke
@@ -199,10 +291,13 @@ spec:
               # Environment-owned, never fleet-supplied (ADR-050). Passed as a
               # parameter so it overrides anything a fleet's values file might
               # set, rather than merging with it.
+              # Derived from this box's hub domain when not set explicitly.
+              # Read the raw value and these were empty on every box whose seed
+              # is declared in its own repository -- see _oidc-issuer.tpl.
               - name: oidcIssuer
-                value: {{ .Values.oidcIssuer | quote }}
+                value: {{ include "environment-manager.oidcIssuer" $ | quote }}
               - name: oidcJwksUrl
-                value: {{ .Values.oidcJwksUrl | quote }}
+                value: {{ include "environment-manager.oidcJwksUrl" $ | quote }}
 {{- if .Values.oidcScopes }}
             # A list, so it cannot go through `parameters` — those are flat
             # name/value strings.
@@ -220,7 +315,7 @@ spec:
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
-        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}'
 
       syncPolicy:
         automated:
@@ -250,10 +345,17 @@ spec:
 ---
 # ApplicationSet for fleet application workloads (Tier 3).
 # ADR-073: a workload is published as a versioned chart and consumed by this
-# repository naming that version. The path below holds a Chart.yaml declaring
-# those versions as dependencies, and a values.yaml -- the same shape kubefirst
-# renders at registry/environments/<env>/<app>/. No rendered workload state, no
-# image digest and no overlay is written here by a build.
+# repository naming that version. Each application directory holds a Chart.yaml
+# declaring one dependency at a version, and a values.yaml -- the same shape
+# kubefirst renders at registry/environments/<env>/<app>/. No rendered workload
+# state, no image digest and no overlay is written here by a build.
+#
+# ONE APPLICATION PER APPLICATION, not one per fleet. A single Application over
+# the whole fleet directory gives a tenant's applications one sync, one
+# health state and one blast radius: an unresolvable chart version in any of them
+# leaves every other workload unreconciled, and ArgoCD reports the set degraded
+# without naming which member caused it. It also puts every application's build
+# on one Chart.yaml, which is the contention ADR-073 exists to remove.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -268,13 +370,50 @@ spec:
   generators:
     # Matrix: only generate an application when BOTH the fleet values file
     # exists in the instance repository AND the target spoke cluster is registered.
+    #
+    # Nested, because three facts are needed and a matrix takes two children. The
+    # inner matrix pairs each fleet with each of its application directories; the
+    # outer pairs that with the spoke the fleet's cellId selects. cellId is a
+    # property of the fleet and the application name is a property of the
+    # directory, so neither generator can supply both.
     - matrix:
         generators:
-          - git:
-              repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
-              revision: main
-              files:
-                - path: 'environments/*/*/values.yaml'
+          - matrix:
+              generators:
+                # One entry per fleet per environment. Supplies tenantId and
+                # cellId, and its path supplies the environment.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    files:
+                      - path: 'environments/*/*/values.yaml'
+
+                # One entry per application directory under that fleet. A
+                # directory generator rather than a files generator over
+                # Chart.yaml: what is needed here is the application's name, and
+                # that is the directory. Reading the chart would also make every
+                # Application re-generate whenever a version changed, which is
+                # the thing builds change most often.
+                #
+                # The glob is every directory beside the environment's
+                # values.yaml, which is a file and so never matches. Anything
+                # added here as a DIRECTORY is generated as an application, so a
+                # future per-environment concern belongs in values.yaml or in
+                # another file, never in a sibling directory.
+                - git:
+                    repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
+                    revision: main
+                    # Both generators in this matrix are git generators, and both
+                    # export `.path`. Without a prefix the two collide and the
+                    # FLEET's path wins, so every Application is named for the
+                    # environment instead of the application and sources the
+                    # fleet directory -- which holds no chart, so it syncs
+                    # nothing and reports Healthy. That is the false green this
+                    # whole arrangement is meant to avoid, produced by the
+                    # arrangement itself.
+                    pathParamPrefix: app
+                    directories:
+                      - path: '{{"{{"}} .path.path {{"}}"}}/*'
 
           - clusters:
               selector:
@@ -283,10 +422,24 @@ spec:
 
   template:
     metadata:
-      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-workloads'
+      # .path is the APPLICATION directory (environments/<env>/<app>), from the
+      # files generator; .app.path is a WORKLOAD directory beneath it, from the
+      # directories generator under its pathParamPrefix.
+      #
+      # `.app` is the prefix's name and now names a workload rather than an
+      # app (ADR-088 moved the values file down a level). Renaming the prefix
+      # would be clearer and is not worth a generator rewrite on a live fleet;
+      # read it as "the thing under the values file".
+      #
+      # The appId segment is what stops two apps of one tenant colliding: both
+      # have a `bff` workload in `dev`, and without it each pair generates one
+      # Application name twice -- where the second silently replaces the first.
+      name: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}-{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}-{{"{{"}} .app.path.basename {{"}}"}}'
       labels:
         tenant-id: '{{"{{"}} .tenantId {{"}}"}}'
+        app-id: '{{"{{"}} .appId {{"}}"}}'
         environment-slug: '{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}'
+        workload: '{{"{{"}} .app.path.basename {{"}}"}}'
         resource-type: workload
         target-cluster: '{{"{{"}} .name {{"}}"}}'
 
@@ -310,11 +463,11 @@ spec:
         # versions, in the Chart.yaml that path holds.
         - repoURL: {{ include "environment-manager.instanceRepoURL" . | quote }}
           targetRevision: main
-          path: 'environments/{{"{{"}} index (splitList "/" .path.path) 1 {{"}}"}}/{{"{{"}} .tenantId {{"}}"}}/workloads'
+          path: '{{"{{"}} .app.path.path {{"}}"}}'
 
       destination:
         name: '{{"{{"}} .name {{"}}"}}'
-        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}'
+        namespace: 'tenant-{{"{{"}} .tenantId {{"}}"}}-{{"{{"}} .appId {{"}}"}}'
 
       syncPolicy:
         automated:

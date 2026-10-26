@@ -23,14 +23,20 @@ export class TokenExpiredError extends AuthError {
 
 export class InvalidIssuerError extends AuthError {
   constructor(expected: string, actual: string) {
-    super({ code: "INVALID_ISSUER", message: `Invalid issuer: expected "${expected}", got "${actual}"` });
+    super({
+      code: "INVALID_ISSUER",
+      message: `Invalid issuer: expected "${expected}", got "${actual}"`,
+    });
     this.name = "InvalidIssuerError";
   }
 }
 
 export class InvalidAudienceError extends AuthError {
   constructor(expected: string, actual: string | string[]) {
-    super({ code: "INVALID_AUDIENCE", message: `Invalid audience: expected "${expected}", got "${JSON.stringify(actual)}"` });
+    super({
+      code: "INVALID_AUDIENCE",
+      message: `Invalid audience: expected "${expected}", got "${JSON.stringify(actual)}"`,
+    });
     this.name = "InvalidAudienceError";
   }
 }
@@ -47,14 +53,20 @@ export class InsufficientScopeError extends AuthError {
 
 export class TenantMismatchError extends AuthError {
   constructor(expected: string, actual: string) {
-    super({ code: "TENANT_MISMATCH", message: `Tenant mismatch: expected "${expected}", got "${actual}"` });
+    super({
+      code: "TENANT_MISMATCH",
+      message: `Tenant mismatch: expected "${expected}", got "${actual}"`,
+    });
     this.name = "TenantMismatchError";
   }
 }
 
 export class RoleDeniedError extends AuthError {
   constructor(required: string[]) {
-    super({ code: "ROLE_DENIED", message: `Role denied: required one of [${required.join(", ")}]` });
+    super({
+      code: "ROLE_DENIED",
+      message: `Role denied: required one of [${required.join(", ")}]`,
+    });
     this.name = "RoleDeniedError";
   }
 }
@@ -66,10 +78,26 @@ export class TokenMissingError extends AuthError {
   }
 }
 
+/**
+ * The receiver could not obtain the issuer's keys. Nothing is known about the
+ * token, so this is the RECEIVER's failure, not the caller's: middleware answers
+ * it 503, never 401 (a 401 tells a client its credential is bad, and it is not).
+ *
+ * The message names the URL, the cause and the attempts. It is for the service's
+ * own logs; a response body carries only the code.
+ */
 export class JwksFetchError extends AuthError {
-  constructor(url: string, cause?: unknown) {
-    super({ code: "JWKS_FETCH_ERROR", message: `Failed to fetch JWKS from ${url}`, cause });
+  /** The upstream HTTP status, when there was one. */
+  readonly status?: number;
+
+  constructor(url: string, cause?: unknown, detail?: string, status?: number) {
+    super({
+      code: "JWKS_FETCH_ERROR",
+      message: `Failed to fetch JWKS from ${url}${detail ? `: ${detail}` : ""}`,
+      cause,
+    });
     this.name = "JwksFetchError";
+    this.status = status;
   }
 }
 
@@ -77,5 +105,47 @@ export class KeyNotFoundError extends AuthError {
   constructor(kid: string) {
     super({ code: "KEY_NOT_FOUND", message: `Key not found in JWKS: ${kid}` });
     this.name = "KeyNotFoundError";
+  }
+}
+
+/**
+ * A token that identifies a login was presented where a credential for this API
+ * was required.
+ *
+ * Separate from TOKEN_INVALID deliberately: the token is well-formed, correctly
+ * signed by the right issuer, and carries the right audience. It is the wrong
+ * KIND of token, and an operator reading TOKEN_INVALID would look for a signing
+ * or clock problem that does not exist (ADR-095).
+ */
+export class IdTokenPresentedError extends AuthError {
+  constructor() {
+    super({
+      code: "ID_TOKEN_PRESENTED",
+      message:
+        "An ID token was presented where an access token is required: the token carries at_hash, which only an ID token does. APIs accept access tokens (ADR-095).",
+    });
+    this.name = "IdTokenPresentedError";
+  }
+}
+
+/**
+ * The token names a calling application that is not on this receiver's
+ * allowlist, or names none at all (ADR-094 invariant 2).
+ *
+ * Its own code because the remedy differs from every other rejection: the token
+ * is valid, the user is real, and what is wrong is WHICH application asked for
+ * it. That is a configuration answer -- add the caller to the allowlist, or stop
+ * it calling -- not a credential one.
+ */
+export class CallerNotAllowedError extends AuthError {
+  constructor(azp: string | undefined, allowed: string[]) {
+    super({
+      code: "CALLER_NOT_ALLOWED",
+      message:
+        azp === undefined
+          ? `Token carries no azp/client_id, so the calling application cannot be established; this receiver admits only [${allowed.join(", ")}] (ADR-094 invariant 2).`
+          : `Calling application "${azp}" is not permitted by this receiver; it admits only [${allowed.join(", ")}] (ADR-094 invariant 2).`,
+    });
+    this.name = "CallerNotAllowedError";
   }
 }

@@ -15,6 +15,18 @@ type Orchestrator struct {
 	Debug       bool
 	Force       bool
 	ClusterName string // Optional: specific spoke cluster name, if empty will delete all
+	// MgmtCluster is the management cluster, excluded from discovery.
+	//
+	// kubefirst's vocabulary (kubefirst-api/pkg/types/cluster.go: Type is one of
+	// mgmt|workload), which internal/soloz-cli/tenant already follows -- see
+	// WorkloadCluster.MgmtCluster and `tenant add-cluster --mgmt-cluster`.
+	//
+	// CAPH labels the management cluster's servers caph-cluster-<name>=owned
+	// exactly as it labels a workload cluster's, so a discovery keyed on that
+	// label alone cannot tell them apart. The old code excluded it by accident,
+	// matching only names beginning "spoke-pool-"; with tenant-chosen names
+	// (ADR-082) that accident is gone and the exclusion has to be stated.
+	MgmtCluster string
 }
 
 // Run executes the spoke operation
@@ -95,21 +107,32 @@ func (o *Orchestrator) discoverSpokeClusters(ctx context.Context, client *hcloud
 	}
 
 	for _, server := range allServers {
-		// Check for CAPI spoke labels
+		// CAPH labels every server it owns caph-cluster-<cluster>=owned, and the
+		// cluster name is the whole of what follows the prefix.
+		//
+		// This read it three wrong ways at once, all of them rooted in the name
+		// spoke-pool-<region>-<env>-01 no longer existing. It matched the prefix
+		// "caph-cluster-spoke", which a tenant-named cluster (nutgraf-01, ADR-082)
+		// never carries, so nothing was discovered and `soloz spoke teardown` was
+		// a no-op that reported success. It then took parts[2:5] of the split,
+		// which even for the old name yielded "spoke-pool-eu" rather than the
+		// "spoke-pool-eu-prod-01" its own comment claimed -- a name matching no
+		// cluster, so the deletes that followed found nothing either. And it fell
+		// back to server names beginning "spoke-pool-", a prefix a tenant-named
+		// spoke does not have.
 		for labelKey := range server.Labels {
-			if strings.HasPrefix(labelKey, "caph-cluster-spoke") {
-				// Extract spoke name from label pattern: caph-cluster-spoke-pool-eu-prod-01-*
-				parts := strings.Split(labelKey, "-")
-				if len(parts) >= 5 {
-					spokeName := strings.Join(parts[2:5], "-") // "spoke-pool-eu-prod-01"
-					spokeNames[spokeName] = true
-				}
+			name := strings.TrimPrefix(labelKey, "caph-cluster-")
+			if name == labelKey || name == "" {
+				continue // not a CAPH ownership label
 			}
-		}
-		
-		// Also check server names
-		if strings.HasPrefix(server.Name, "spoke-pool-") {
-			spokeNames[server.Name] = true
+			// The management cluster carries the same label shape and must never be
+			// swept by a workload teardown: ClusterName is optional here, and empty
+			// means "every workload cluster", which without this exclusion would
+			// mean the management cluster too.
+			if o.MgmtCluster != "" && name == o.MgmtCluster {
+				continue
+			}
+			spokeNames[name] = true
 		}
 	}
 

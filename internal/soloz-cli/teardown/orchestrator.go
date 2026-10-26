@@ -19,10 +19,85 @@ type Orchestrator struct {
 	ClusterName string
 	Force       bool
 	Debug       bool
+
+	// DNS states the box's external-dns identity when the cluster cannot be asked
+	// for it. Empty on a normal teardown, which reads it from the live cluster.
+	DNS DNSOverride
+
+	// DNSOnly releases the records and touches nothing else. For a box that is
+	// already gone and left records behind: there is no cluster to tear down, and
+	// the records are the only thing remaining.
+	DNSOnly bool
+
+	// ReleasedDNSRecords is how many records the run actually released, so the
+	// caller can report the outcome instead of the intent.
+	ReleasedDNSRecords int
+
+	// GitopsDir is the tenant repository this box was bootstrapped from, and is
+	// where its state and kubeconfig actually live.
+	//
+	// Without it teardown resolved both against its own working directory while
+	// bootstrap wrote them under --gitops-dir, so a teardown launched from
+	// anywhere else found no state, fell through to --context=kind-<cluster>,
+	// and every kubectl call reached localhost:8080. Nothing failed: the cluster
+	// simply answered nothing. It listed no spokes and left their servers
+	// running, read no DNS ownership and left the records orphaned, and reported
+	// a completed teardown -- the box was reachable the whole time.
+	GitopsDir string
+
+	// TenantPrefix is the box's own name, and everything it owns starts with it.
+	//
+	// A box derives every cluster name from its domain (ADR-082): nutgraf.in
+	// gives nutgraf-hub and nutgraf-01, and CAPH names each server for the
+	// cluster that owns it. So one prefix identifies every server this box
+	// created, without needing the hub alive or the tenant repository present.
+	//
+	// That matters because both of the other sources fail at exactly the moment
+	// teardown runs. spokeClusterNames asks the hub, which is the thing being
+	// destroyed; --spoke comes from the tenant repository, which `clean` removes
+	// in the same breath and which never existed at all if scaffolding failed. On
+	// a run that got as far as provisioning a spoke and no further, neither
+	// source knows the spoke's name, so its servers were left running and
+	// billing -- reported by reportOrphanedSpokes and deleted by nobody.
+	//
+	// It is safe to delete on where the other evidence is not: a caph-cluster
+	// label proves a server belongs to SOME cluster, while this prefix is the
+	// name of THIS box, and a Hetzner project holding two boxes holds two
+	// prefixes.
+	TenantPrefix string
+
+	// Spokes names the spoke clusters this box declares, for when the hub cannot
+	// be asked for them.
+	//
+	// spokeClusterNames reads the list from the running hub, which is the right
+	// source while there is one and returns nothing once there is not -- and a
+	// hub that is already gone is exactly when its spokes get stranded. The
+	// servers carry the SPOKE's name and label and mention the hub nowhere, so a
+	// teardown scoped to the hub walks past them, and reportOrphanedSpokes
+	// correctly refuses to delete on a label that proves only "some cluster".
+	//
+	// A name supplied here is different evidence: it comes from what this box
+	// DECLARES, which survives the cluster. It is the same lookup local-e2e and
+	// the tenant workflow use to know which pool a box has.
+	Spokes []string
 }
 
 // Run executes immediate forceful deletion of Kubernetes CAPI resources, Hetzner Cloud infra, Kind/Docker, and local state.
 func (o *Orchestrator) Run(ctx context.Context) error {
+	// Records only. Everything below this assumes a cluster to dismantle; a box
+	// whose records outlived it has none, and running the rest would report
+	// failures for infrastructure that is correctly absent.
+	if o.DNSOnly {
+		own, ok := o.resolveDNSOwnership(ctx)
+		if !ok {
+			return fmt.Errorf("cannot release DNS records: no owner, zone or token.\n\n" +
+				"For a box that still exists these are read from it. For one that does not,\n" +
+				"state them: --dns-owner, --dns-zone, and HETZNER_DNS_API_TOKEN in the environment.")
+		}
+		o.ReleasedDNSRecords = o.releaseDNSRecords(ctx, own)
+		return nil
+	}
+
 	if o.Debug {
 		fmt.Println("[DEBUG] Teardown.Run() started")
 		fmt.Printf("[DEBUG] ClusterName: %s, Force: %v\n", o.ClusterName, o.Force)
@@ -32,23 +107,89 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Step 1: Let the CCM deprovision its own load balancers while it is still
 	// alive. Must run before anything else is destroyed — see the function comment.
+	// Ask the hub which spokes it owns while it can still answer. Everything
+	// below this line destroys, and after it nothing knows.
+	// Whether the box can be reached at all, established once and reported.
+	// Unreachable is not "nothing to do": every read below returns empty, and a
+	// teardown that destroys nothing and says it succeeded is worse than one
+	// that fails, because the servers keep billing and nobody is told.
+	_, reachable := o.resolveKubectlBaseArgs()
+	if !reachable {
+		fmt.Printf("[teardown] ⚠️  No kubeconfig for '%s' under %q.\n",
+			o.ClusterName, o.gitopsDirForMessage())
+		fmt.Println("[teardown]     The cluster cannot be read, so its spokes and DNS")
+		fmt.Println("[teardown]     ownership are unknown. Pass --gitops-dir pointing at the")
+		fmt.Println("[teardown]     tenant repository this box was bootstrapped from.")
+	}
+
+	spokes := o.spokeClusterNames(ctx)
+	if len(spokes) == 0 && len(o.Spokes) > 0 {
+		// The hub could not be asked. Fall back to what the box declares. This is
+		// a last resort and not the mechanism: the hub is the source of truth and
+		// is queried first, above, while it is still alive.
+		spokes = o.Spokes
+		fmt.Printf("[teardown] The hub could not be asked for its spokes; using the "+
+			"declared pool(s): %s\n", strings.Join(spokes, ", "))
+	}
+	if len(spokes) == 0 && len(o.Spokes) == 0 && !reachable {
+		fmt.Println("[teardown] ⚠️  No spoke is known, from the cluster or the command line.")
+		fmt.Println("[teardown]     Any spoke servers this box provisioned will be LEFT RUNNING.")
+		fmt.Println("[teardown]     Name the pool with --spoke to remove them.")
+	}
+	if len(spokes) > 0 {
+		fmt.Printf("[teardown] This hub provisioned %d spoke cluster(s): %s\n",
+			len(spokes), strings.Join(spokes, ", "))
+	}
+
+	// Read the box's DNS identity and credential now, for the same reason: both
+	// live only in the cluster, and the credential arrives by ExternalSecret and
+	// dies with it. The records themselves are released at the end -- external-dns
+	// recreates anything it is still watching.
+	dnsOwn, hasDNS := o.resolveDNSOwnership(ctx)
+
 	ccmLoadBalancerIPs := o.drainLoadBalancerServices(ctx)
 
 	// Step 2: Strip Kubernetes finalizers & delete CAPI CRs fast (non-blocking)
 	o.stripKubernetesFinalizers(ctx)
 
 	// Step 3: Delete Hetzner cloud infrastructure directly via Hetzner API
-	if err := o.deleteHetznerResources(ctx, ccmLoadBalancerIPs); err != nil {
+	if err := o.deleteHetznerResources(ctx, ccmLoadBalancerIPs, spokes); err != nil {
 		fmt.Printf("[teardown] ⚠️  Hetzner cloud resource cleanup encountered warnings: %v\n", err)
 	}
 
-	// Step 3: Local Kind, Docker, and state cleanup
+	// Step 4: Release the DNS records this box published, now that nothing is
+	// left to recreate them. A record outliving its cluster is not inert: it
+	// keeps resolving to a decommissioned address, and no later box can correct
+	// it, because external-dns silently ignores records it does not own.
+	if hasDNS {
+		o.releaseDNSRecords(ctx, dnsOwn)
+	} else {
+		fmt.Println("[teardown] ⚠️  DNS ownership could not be read from the cluster, so any")
+		fmt.Println("[teardown]     records it published are left in place. If this box served")
+		fmt.Println("[teardown]     public hostnames, check the zone: an orphaned record cannot")
+		fmt.Println("[teardown]     be reclaimed by a future box and must be deleted by hand.")
+	}
+
+	// Step 5: Local Kind, Docker, and state cleanup
 	if err := o.localCleanup(ctx); err != nil {
 		fmt.Printf("[teardown] ⚠️  Local cleanup encountered warnings: %v\n", err)
 	}
 
 	fmt.Printf("\n✓ Teardown of cluster '%s' completed\n", o.ClusterName)
 	return nil
+}
+
+// gitopsDirForMessage names where teardown looked, so the warning is actionable
+// rather than just negative.
+func (o *Orchestrator) gitopsDirForMessage() string {
+	if o.GitopsDir != "" {
+		return o.GitopsDir
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "the working directory"
+	}
+	return wd
 }
 
 // resolveKubectlBaseArgs locates the kubeconfig (or kind context) for the cluster
@@ -60,15 +201,20 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 // strips finalizers on another would be worse than doing neither.
 func (o *Orchestrator) resolveKubectlBaseArgs() (baseArgs []string, ok bool) {
 	stateMgr := state.NewStateManager(o.ClusterName)
+	if o.GitopsDir != "" {
+		stateMgr = state.NewTenantStateManager(o.GitopsDir, o.ClusterName)
+	}
 	bootstrapState, _ := stateMgr.Load()
 
 	var kubeconfig string
 	if bootstrapState != nil && bootstrapState.MgmtKubeconfig != "" {
 		kubeconfig = bootstrapState.MgmtKubeconfig
 	} else {
+		// Against the tenant repository, not the working directory. These are
+		// where bootstrap puts them, and it puts them under --gitops-dir.
 		possiblePaths := []string{
-			fmt.Sprintf("k8-secrets/kubeconfig/%s.kubeconfig", o.ClusterName),
-			fmt.Sprintf("%s.kubeconfig", o.ClusterName),
+			filepath.Join(o.GitopsDir, "k8-secrets", "kubeconfig", o.ClusterName+".kubeconfig"),
+			filepath.Join(o.GitopsDir, o.ClusterName+".kubeconfig"),
 		}
 		for _, path := range possiblePaths {
 			if _, err := os.Stat(path); err == nil {
@@ -91,6 +237,65 @@ func (o *Orchestrator) resolveKubectlBaseArgs() (baseArgs []string, ok bool) {
 		return nil, false
 	}
 	return []string{"--kubeconfig", kubeconfig}, true
+}
+
+// spokeClusterNames returns the CAPI clusters this hub provisioned, other than
+// the hub itself.
+//
+// Asked BEFORE anything is destroyed, because the hub is the only thing that
+// knows. A spoke's servers carry the spoke's name and the spoke's
+// caph-cluster-<spoke> label and mention the hub nowhere, so a teardown scoped
+// to the hub's name walks straight past them: one cx33 control plane for
+// spoke-pool-hybrid-dev-01 survived every `local-e2e clean` in this repository
+// and was still billing when someone thought to look.
+//
+// Empty when the hub cannot be reached. That is not the same as "no spokes", and
+// the caller must not treat it as such -- see reportOrphanedSpokes.
+func (o *Orchestrator) spokeClusterNames(ctx context.Context) []string {
+	baseArgs, ok := o.resolveKubectlBaseArgs()
+	if !ok {
+		return nil
+	}
+	args := append([]string{}, baseArgs...)
+	args = append(args, "get", "clusters.cluster.x-k8s.io", "-A",
+		"-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}")
+	out, err := exec.CommandContext(ctx, "kubectl", args...).Output()
+	if err != nil {
+		return nil
+	}
+
+	var spokes []string
+	for _, line := range strings.Split(string(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || name == o.ClusterName {
+			continue
+		}
+		spokes = append(spokes, name)
+	}
+	return spokes
+}
+
+// reportOrphanedSpokes names the CAPH-managed servers this teardown did not
+// touch, so a hub that could not be asked does not silently leave a bill.
+//
+// It reports and does not delete. The label says a server belongs to SOME
+// cluster, not that it belongs to THIS box, and a Hetzner project can hold more
+// than one -- deleting on that evidence would make a cleanup command capable of
+// destroying a cluster it was never pointed at.
+func reportOrphanedSpokes(servers []string) {
+	if len(servers) == 0 {
+		return
+	}
+	fmt.Println("[teardown] ⚠️  CAPH-managed servers remain, and this teardown could not")
+	fmt.Println("[teardown]     confirm they belong to this box (the hub was unreachable, so")
+	fmt.Println("[teardown]     its spoke list could not be read):")
+	for _, name := range servers {
+		fmt.Printf("[teardown]       %s\n", name)
+	}
+	fmt.Println("[teardown]     They are NOT deleted. If they are yours:")
+	for _, name := range servers {
+		fmt.Printf("[teardown]       hcloud server delete %s\n", name)
+	}
 }
 
 // drainLoadBalancerServices deletes every type=LoadBalancer Service on the cluster
@@ -244,7 +449,7 @@ func (o *Orchestrator) stripKubernetesFinalizers(ctx context.Context) {
 // it to this cluster, so the name/label matcher below cannot see it. The IP match
 // needs no cooperation from naming conventions, which also means it covers
 // LoadBalancer Services authored by a fleet, not just platform ones.
-func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalancerIPs []string) error {
+func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalancerIPs, spokes []string) error {
 	fmt.Println("\n[teardown] Forcefully deleting Hetzner Cloud infrastructure resources...")
 
 	hcloudToken := os.Getenv("HCLOUD_TOKEN")
@@ -260,21 +465,58 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	}
 
 	client := hcloud.NewClient(hcloud.WithToken(hcloudToken))
-	labelPattern := fmt.Sprintf("caph-cluster-%s", o.ClusterName)
+
+	// Every cluster this box owns, matched the same way.
+	//
+	// The hub and its spokes are named differently -- acme-hub against
+	// spoke-pool-hybrid-dev-01 -- but CAPH marks them identically, with the
+	// server name carrying the cluster name and a caph-cluster-<cluster> label
+	// declaring ownership. One convention, applied to the whole set, so a spoke
+	// is not a special case that someone has to remember.
+	owned := append([]string{o.ClusterName}, spokes...)
 
 	matchesCluster := func(name string, labels map[string]string) bool {
-		if strings.HasPrefix(name, o.ClusterName) || strings.Contains(name, o.ClusterName) {
-			return true
-		}
-		for k, v := range labels {
-			if strings.HasPrefix(k, labelPattern) || strings.Contains(k, o.ClusterName) {
+		// The box's own prefix first: it needs neither the hub nor the tenant
+		// repository, and both are gone or going by the time this runs.
+		if o.TenantPrefix != "" {
+			if strings.HasPrefix(name, o.TenantPrefix+"-") {
 				return true
 			}
-			if v == o.ClusterName || strings.Contains(v, o.ClusterName) {
+			for k := range labels {
+				if strings.HasPrefix(k, "caph-cluster-"+o.TenantPrefix+"-") {
+					return true
+				}
+			}
+		}
+		for _, cluster := range owned {
+			if strings.Contains(name, cluster) {
 				return true
+			}
+			for k, v := range labels {
+				if strings.HasPrefix(k, "caph-cluster-"+cluster) || strings.Contains(k, cluster) {
+					return true
+				}
+				if strings.Contains(v, cluster) {
+					return true
+				}
 			}
 		}
 		return false
+	}
+
+	// Whatever CAPH owns and this teardown did not claim. Reported, never
+	// deleted -- see reportOrphanedSpokes.
+	var unclaimed []string
+	noteIfUnclaimed := func(name string, labels map[string]string) {
+		if matchesCluster(name, labels) {
+			return
+		}
+		for k := range labels {
+			if strings.HasPrefix(k, "caph-cluster-") {
+				unclaimed = append(unclaimed, name)
+				return
+			}
+		}
 	}
 
 	deletedServerIDs := make(map[int]bool)
@@ -283,6 +525,7 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	allServers, err := client.Server.All(ctx)
 	if err == nil {
 		for _, server := range allServers {
+			noteIfUnclaimed(server.Name, server.Labels)
 			if matchesCluster(server.Name, server.Labels) {
 				deletedServerIDs[server.ID] = true
 				fmt.Printf("[teardown] Deleting server: %s (ID: %d)\n", server.Name, server.ID)
@@ -447,6 +690,10 @@ func (o *Orchestrator) deleteHetznerResources(ctx context.Context, ccmLoadBalanc
 	}
 
 	fmt.Println("[teardown] ✓ Hetzner Cloud resource cleanup completed")
+
+	// Said last, so it is the final thing on screen rather than scrolled away by
+	// the deletions above.
+	reportOrphanedSpokes(unclaimed)
 	return nil
 }
 
@@ -499,14 +746,27 @@ func (o *Orchestrator) localCleanup(ctx context.Context) error {
 		}
 	}
 
-	// Remove talosconfig
-	talosconfigPath := fmt.Sprintf("%s.talosconfig", o.ClusterName)
-	if err := os.Remove(talosconfigPath); err == nil {
-		fmt.Printf("[teardown] ✓ Removed %s\n", talosconfigPath)
-	}
-
-	// Remove state files
+	// Remove state files, in both layouts.
+	//
+	// State moved from .zero-ops to .state, and teardown must clean whichever a
+	// box actually has. Missing one leaves a state file behind that says a
+	// cluster exists after it has been destroyed, and the next bootstrap resumes
+	// against it instead of starting -- the failure is a phase being skipped for
+	// infrastructure that is no longer there.
+	//
+	// os.Remove on an absent path is reported as nothing by the loop below, so
+	// listing both costs nothing on a box that has only one.
 	stateFiles := []string{
+		filepath.Join(state.TenantStateDir, fmt.Sprintf("%s.json", o.ClusterName)),
+		filepath.Join(".state", "bootstrap-mgmt.json"),
+		filepath.Join(".state", "bootstrap-workload.json"),
+		// The name these two replaced. Still removed, because teardown deleting a
+		// stale file is cleanup rather than acting on it.
+		filepath.Join(".state", "bootstrap-state.json"),
+		filepath.Join(".state", "infisical-bootstrap.json"),
+		filepath.Join(".state", "kind", "kind-config-generated.yaml"),
+
+		// The layout these replaced.
 		filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", o.ClusterName)),
 		filepath.Join(".zero-ops", "bootstrap-state.json"),
 		filepath.Join(".zero-ops", "infisical-bootstrap.json"),
@@ -533,4 +793,3 @@ func (o *Orchestrator) localCleanup(ctx context.Context) error {
 	fmt.Println("[teardown] ✓ Local cleanup complete")
 	return nil
 }
-

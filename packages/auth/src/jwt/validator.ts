@@ -1,13 +1,16 @@
 import * as jose from "jose";
-import { JwksCache } from "./jwks-cache.js";
-import { type TenantClaims, claimsFromPayload } from "./claims.js";
 import {
-  TokenExpiredError,
-  InvalidIssuerError,
-  InvalidAudienceError,
-  TokenMissingError,
   AuthError,
+  CallerNotAllowedError,
+  IdTokenPresentedError,
+  InvalidAudienceError,
+  InvalidIssuerError,
+  TenantMismatchError,
+  TokenExpiredError,
+  TokenMissingError,
 } from "../types.js";
+import { claimsFromPayload, type TenantClaims } from "./claims.js";
+import { JwksCache, type JwksStatus } from "./jwks-cache.js";
 
 export interface JwtValidatorOptions {
   /** JWKS endpoint URL */
@@ -29,6 +32,113 @@ export interface JwtValidatorOptions {
    * tenant isolation is the boundary.
    */
   requireTenantId?: boolean;
+  /**
+   * The tenant this receiver belongs to. A token carrying a DIFFERENT tenant is
+   * refused (ADR-094 invariant 3).
+   *
+   * `requireTenantId` asks only that the claim exist, which is not isolation: a
+   * user of another tenant carries a valid tenant claim, just not this one.
+   * Omit this ONLY on a platform-scoped surface that no single tenant owns, and
+   * say so where you omit it.
+   */
+  expectedTenantId?: string;
+  /**
+   * Refuse a token that carries `at_hash`. Default true.
+   *
+   * A ZITADEL COMPATIBILITY INVARIANT, not a general OIDC rule. OIDC Core
+   * requires `at_hash` only where an access token is returned from the
+   * authorization endpoint (implicit and hybrid); in the authorization-code flow
+   * this platform uses it is OPTIONAL, so a conforming issuer may omit it. What
+   * holds is narrower and version-scoped:
+   *
+   *   for the pinned Zitadel, every ID token carries `at_hash` and no JWT
+   *   access token does -- `createIDToken` is the only place that sets it, and
+   *   it is called with a non-empty access token on every token-endpoint path.
+   *
+   * Re-establish it before trusting a different issuer or a Zitadel upgrade; an
+   * issuer that stops emitting it does not fail this check, it silently passes.
+   *
+   * It is a claim check rather than an audience check because in Zitadel the two
+   * tokens share an audience: `createIDToken` and `createJWT` are both handed
+   * `session.Audience`, so no audience distinguishes them.
+   *
+   * Sound against a hostile caller regardless: `at_hash` is signed, so it cannot
+   * be stripped from a genuine ID token without invalidating the signature.
+   *
+   * ORDERING. A deployment whose gateway still forwards the ID token will have
+   * EVERY request refused by this. The gateway must be forwarding an exchanged
+   * access token first (ADR-095 step 1); adopting the SDK version that carries
+   * this default is step 2, and the two are separate deploys on purpose.
+   *
+   * Set false only to stage that ordering on a box that cannot do both at once.
+   * It is not a setting to leave off: off, the confusion this exists to catch is
+   * a configuration slip away.
+   */
+  rejectIdTokens?: boolean;
+  /**
+   * The applications permitted to present a token here, by `azp`/`client_id`
+   * (ADR-094 invariant 2).
+   *
+   * THE cross-application control. An audience says a token may be accepted
+   * here; it does not say who asked for it, and Zitadel issues any project's
+   * audience to any client that requests it -- so a receiver checking only
+   * `aud` accepts a token any application on the box could mint for it. This is
+   * the check that distinguishes them.
+   *
+   * Absence of `azp` is a REFUSAL, not a pass. A token with no caller identity
+   * cannot be matched against an allowlist, and treating "cannot tell" as
+   * "allowed" is the failure this exists to prevent.
+   *
+   * Omitted (or empty) means no caller check, which is correct only where a
+   * receiver is unreachable by any other application. Say so where you omit it.
+   */
+  allowedAzp?: string[];
+  /**
+   * The callers this receiver admits, AND what each one is called:
+   * `{ "<azp>": "<applicationId>" }`.
+   *
+   * A MAP where `allowedAzp` is a list, and the difference is not cosmetic. A
+   * list says a caller may enter; it does not say who entered. A receiver that
+   * owns records per consuming application — waypoint ADR-042 partitions chat
+   * sessions and runs by `consumer_app_id` — would then have to take the name
+   * from the request, which is precisely what ADR-094 invariant 2b forbids.
+   *
+   * Only the platform can supply this. It knows both halves when it renders the
+   * allowlist, and neither end can be trusted to assert it: the caller would be
+   * naming itself, and the receiver has nothing to derive it from.
+   *
+   * Set BOTH gate and name: a token whose `azp` is absent here is refused
+   * exactly as `allowedAzp` refuses, and one that passes arrives with
+   * `consumer_app_id` set on its claims. Supply this or `allowedAzp`, not both;
+   * if both are given this one decides, because it is the stricter statement.
+   *
+   * Build it from the platform's `OIDC_ALLOWED_AZP` with `parseAllowedCallers`.
+   */
+  allowedCallers?: Record<string, string>;
+}
+
+/**
+ * Read the platform's `OIDC_ALLOWED_AZP` into a caller map.
+ *
+ * The value is space- or comma-separated `<clientId>=<applicationId>` entries.
+ * An entry with no `=` is a caller admitted before the platform rendered names,
+ * and maps to `""` — admitted, unnamed. A receiver that needs the name must
+ * treat `""` as unusable rather than as a name, which is why this returns the
+ * empty string rather than dropping the entry: dropping it would silently
+ * REVOKE a caller during the upgrade that introduces names.
+ */
+export function parseAllowedCallers(value: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of (value ?? "").replace(/,/g, " ").split(/\s+/)) {
+    if (!entry) continue;
+    const eq = entry.indexOf("=");
+    if (eq === -1) {
+      out[entry] = "";
+      continue;
+    }
+    out[entry.slice(0, eq)] = entry.slice(eq + 1);
+  }
+  return out;
 }
 
 export class JwtValidator {
@@ -37,17 +147,49 @@ export class JwtValidator {
   private readonly audience?: string;
   private readonly algorithms: string[];
   private readonly requireTenantId: boolean;
+  private readonly rejectIdTokens: boolean;
+  private readonly allowedAzp: string[];
+  private readonly allowedCallers?: Record<string, string>;
+  private readonly expectedTenantId?: string;
 
   constructor(opts: JwtValidatorOptions) {
     this.issuer = opts.issuer;
     this.audience = opts.audience;
     this.algorithms = opts.algorithms ?? ["RS256", "ES256"];
     this.requireTenantId = opts.requireTenantId ?? true;
+    this.rejectIdTokens = opts.rejectIdTokens ?? true;
+    this.allowedAzp = opts.allowedAzp ?? [];
+    this.allowedCallers = opts.allowedCallers;
+    this.expectedTenantId = opts.expectedTenantId;
 
     this.jwksCache = new JwksCache({
       jwksUrl: opts.jwksUrl,
+      algorithms: this.algorithms,
       ...opts.jwksCache,
     });
+  }
+
+  /**
+   * Keep the issuer's keys held until stop() or `signal` aborts (ADR-022). Call once
+   * at boot; report `status().ready` from the readiness probe. Never throws: an
+   * unreachable issuer leaves the service alive and unready until it returns.
+   */
+  start(options?: { signal?: AbortSignal }): void {
+    this.jwksCache.start(options);
+  }
+
+  stop(): void {
+    this.jwksCache.stop();
+  }
+
+  /** Whether tokens can be verified now, and why not. See JwksStatus. */
+  status(): JwksStatus {
+    return this.jwksCache.status();
+  }
+
+  /** One fetch of the keys, awaited. Rejects with JwksFetchError. Prefer `start()`. */
+  async warm(): Promise<void> {
+    await this.jwksCache.warm();
   }
 
   /**
@@ -73,7 +215,52 @@ export class JwtValidator {
       }
 
       const { payload } = await jose.jwtVerify(token, key, verifyOptions);
+
+      // Checked on the VERIFIED payload, and before anything is derived from it.
+      //
+      // On the verified payload because an unverified one would let a forged
+      // claim decide, and the point is to reject a genuine token of the wrong
+      // kind -- not to guess at an untrusted one. Before deriving claims because
+      // a refused token must not reach tenant or role resolution at all: those
+      // read an identity out of it, and an ID token has a perfectly good one.
+      //
+      // Presence is the whole test. The value is a hash of an access token this
+      // service was never given and cannot check, so nothing is gained by
+      // reading it -- an ID token is disqualified by HAVING one.
+      if (this.rejectIdTokens && "at_hash" in (payload as Record<string, unknown>)) {
+        throw new IdTokenPresentedError();
+      }
+
       const claims = claimsFromPayload(payload as Record<string, unknown>);
+
+      // Checked BEFORE the tenant requirement below, deliberately. A token from
+      // an application this receiver does not admit is refused for that reason
+      // and not for whatever else happens to be wrong with it -- an operator
+      // told MISSING_TENANT_ID would go looking at scopes when the answer is
+      // that the caller should not be here at all.
+      // The map decides where one is given: it is the stricter statement, and a
+      // receiver that supplied both meant the one that also names the caller.
+      if (this.allowedCallers !== undefined) {
+        const permitted = Object.keys(this.allowedCallers);
+        if (claims.azp === undefined || !(claims.azp in this.allowedCallers)) {
+          throw new CallerNotAllowedError(claims.azp, permitted);
+        }
+        // Set from the ALLOWLIST, never from the token. The token says which
+        // client asked for it; only the platform's map says which application
+        // that client belongs to, and a token cannot be allowed to assert its
+        // own application (ADR-094 invariant 2b).
+        //
+        // Empty when the entry predates names. Left undefined rather than "" so
+        // a receiver that partitions by it fails a lookup instead of writing
+        // records under an empty owner that every later caller would match.
+        const appId = this.allowedCallers[claims.azp];
+        claims.consumer_app_id = appId === "" ? undefined : appId;
+      } else if (
+        this.allowedAzp.length > 0 &&
+        (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))
+      ) {
+        throw new CallerNotAllowedError(claims.azp, this.allowedAzp);
+      }
 
       // No platform-scoped exemption, deliberately.
       //
@@ -93,6 +280,21 @@ export class JwtValidator {
           code: "MISSING_TENANT_ID",
           message: "Token missing required tenant_id claim",
         });
+      }
+
+      // COMPARED, not merely required (ADR-094 invariant 3).
+      //
+      // Requiring the claim to be PRESENT is not tenant isolation. Zitadel mints
+      // the tenant from the subject's own organisation, so a user of another
+      // tenant presents a token carrying a perfectly good tenant claim -- a
+      // different one. A receiver that only checks presence accepts it and then
+      // reads an identity out of it.
+      //
+      // Absent from `expectedTenantId`, this check does not run, which is
+      // correct only for a platform-scoped surface where no single tenant owns
+      // the receiver. Every tenant-scoped receiver must set it.
+      if (this.expectedTenantId !== undefined && claims.tenant_id !== this.expectedTenantId) {
+        throw new TenantMismatchError(this.expectedTenantId, claims.tenant_id);
       }
 
       return claims;
@@ -137,7 +339,6 @@ export class JwtValidator {
     }
   }
 }
-
 
 /**
  * Reads one claim out of an unverified token, for error messages only.

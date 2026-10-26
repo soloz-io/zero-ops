@@ -52,21 +52,30 @@ const (
 
 // BootstrapState tracks the state of the bootstrap process
 type BootstrapState struct {
-	Version          string            `json:"version"`
-	ClusterName      string            `json:"clusterName"`
-	Provider         string            `json:"provider"`
-	Region           string            `json:"region"`
-	BootstrapID      string            `json:"bootstrapId"`
-	CurrentPhase     BootstrapPhase    `json:"currentPhase"`
-	CompletedPhases  []BootstrapPhase  `json:"completedPhases"`
-	BootstrapContext string            `json:"bootstrapContext"`
-	MgmtKubeconfig   string            `json:"mgmtKubeconfig"`
-	TalosConfig      string            `json:"talosConfig"`
-	TalosImageId     string            `json:"talosImageId"`
-	NetworkCIDR      string            `json:"networkCIDR"`
-	SSHKeys          []string          `json:"sshKeys,omitempty"`
-	Timestamp        time.Time         `json:"timestamp"`
-	Metadata         map[string]string `json:"metadata"`
+	Version          string           `json:"version"`
+	ClusterName      string           `json:"clusterName"`
+	Provider         string           `json:"provider"`
+	Region           string           `json:"region"`
+	BootstrapID      string           `json:"bootstrapId"`
+	CurrentPhase     BootstrapPhase   `json:"currentPhase"`
+	CompletedPhases  []BootstrapPhase `json:"completedPhases"`
+	BootstrapContext string           `json:"bootstrapContext"`
+	// BootstrapKubeconfig is the FILE the bootstrap context lives in, recorded
+	// when the cluster is created.
+	//
+	// The context name alone is not enough to find it again. kind writes its
+	// context to whatever $KUBECONFIG named at creation, and hub-bootstrap.sh
+	// exports KUBECONFIG to the HUB's kubeconfig as soon as that file exists --
+	// so on every resumed run the ambient value names a different file than the
+	// one the context is in. Resolving by the ambient value then answers a
+	// bootstrap-cluster question with the hub, which reports the CAPI namespace
+	// missing because CAPI does not live there until pivot.
+	BootstrapKubeconfig string            `json:"bootstrapKubeconfig,omitempty"`
+	MgmtKubeconfig      string            `json:"mgmtKubeconfig"`
+	NetworkCIDR         string            `json:"networkCIDR"`
+	SSHKeys             []string          `json:"sshKeys,omitempty"`
+	Timestamp           time.Time         `json:"timestamp"`
+	Metadata            map[string]string `json:"metadata"`
 
 	// Wall-clock accounting for the bootstrap, so end-to-end cluster creation time
 	// is a recorded fact rather than something reconstructed from log lines.
@@ -98,13 +107,30 @@ type StateManager struct {
 	statePath string
 }
 
-// NewStateManager creates a new StateManager for the given cluster
+// NewStateManager creates a new StateManager for the given cluster.
+//
+// State goes under .state, the same root NewTenantStateManager uses. These were
+// two different directories -- .zero-ops/state here, .state there --
+// chosen by whether --gitops-dir was passed, so "where is this box's state" had
+// two answers and every reader had to know which call had been made. A shell
+// helper that looked in only one of them silently fell through to a convention
+// path and never used the recorded value.
 func NewStateManager(clusterName string) *StateManager {
-	// Use .zero-ops/state directory in workspace root
-	statePath := filepath.Join(".zero-ops", "state", fmt.Sprintf("%s.json", clusterName))
 	return &StateManager{
-		statePath: statePath,
+		statePath: statePathFor("", clusterName),
 	}
+}
+
+// statePathFor resolves where a cluster's state lives.
+//
+// ONE location. It briefly read .zero-ops/state as well, for boxes written
+// before the move -- which meant the answer to "where is this box's state"
+// depended on what happened to exist on disk, and a stale file left in the old
+// directory silently won over the current one. Nothing has written there since
+// the move, so the only thing the second lookup could still find is a file that
+// should not be acted on.
+func statePathFor(root, clusterName string) string {
+	return filepath.Join(root, TenantStateDir, clusterName+".json")
 }
 
 // NewTenantStateManager keeps a cluster's bootstrap state in the tenant's own
@@ -120,18 +146,31 @@ func NewStateManager(clusterName string) *StateManager {
 // useful to a tenant asking how far its bootstrap got.
 func NewTenantStateManager(gitopsDir, clusterName string) *StateManager {
 	return &StateManager{
-		statePath: filepath.Join(gitopsDir, TenantStateDir, clusterName+".json"),
+		statePath: statePathFor(gitopsDir, clusterName),
 	}
 }
 
 // TenantStateDir is where a tenant's repository keeps the state of what the
-// platform's commands have done to it, namespaced by the command that writes it.
+// platform's commands have done to it.
 //
 // Outside clusters/<name>/generated/ deliberately. That directory is reconciled
 // by an Application of its own, so its contract is "objects to apply"; a state
 // file there would be handed to ArgoCD, and the next thing put beside it might
 // not be as harmlessly ignored.
-const TenantStateDir = ".state/bootstrap"
+//
+// .state/ and not .state/. The box's state is one directory: the shell
+// half of Day-0 writes .state/bootstrap-mgmt.json and .state/bootstrap-workload.json
+// there, and hub-bootstrap.sh reads the CLI's record from .state/<cluster>.json --
+// in is_static_preflight_checkpointed, which silently answered "not checkpointed"
+// for a file that was never at that path, and in read_kubeconfig_from_state, which
+// error_exits on it. The extra path segment here was the only thing still
+// disagreeing, so the CLI wrote .state/<cluster>.json and the shell
+// looked for .state/<cluster>.json and found nothing.
+//
+// The sensitive contents of .state/ are covered by the tenant template's
+// .gitignore -- infisical-bootstrap.json holds a client secret, logs/ echo values
+// under --debug -- which is what makes staging this directory by name safe.
+const TenantStateDir = ".state"
 
 // Save persists the bootstrap state to disk using atomic write
 func (m *StateManager) Save(state *BootstrapState) error {

@@ -69,6 +69,11 @@ type OAuthClient struct {
 	// redirect URIs EXACTLY, so a client provisioned without its callback fails
 	// at the authorization endpoint before any credential is entered.
 	RedirectPaths []string
+
+	// TokenExchange enables the RFC 8693 grant on this client (ADR-095). Set by
+	// the PLATFORM for the gateway's exchange client and for nothing else; a
+	// fleet cannot ask for it, because declaredOAuthClients never reads it.
+	TokenExchange bool
 }
 
 type TenantIdentity struct {
@@ -80,10 +85,46 @@ type TenantIdentity struct {
 	// Empty means no new credential exists — not that the password is unknown —
 	// so it must never be persisted as an empty value over a stored one.
 	OwnerPassword string `json:"ownerPassword,omitempty"`
+
+	// Incomplete says what did not finish. Empty means the tenant is usable.
+	//
+	// It arrives on a SUCCESSFUL response, because the identifiers above are
+	// real and must be published even when a later step failed. A tenant is
+	// then provisioned and unusable at the same time -- its organisation
+	// exists, its application exists, its hostname serves, and a login is
+	// refused -- which is a state nothing else reports.
+	Incomplete []string `json:"incomplete,omitempty"`
+
+	// Clients are the confidential OAuth clients the fleet declared, with the
+	// credentials the issuer minted. Returned rather than stored by the identity
+	// service: it provisions at the issuer and this operator owns where secrets
+	// live, the same division OwnerPassword already follows.
+	Clients []DeclaredClient `json:"clients,omitempty"`
+
+	// ServiceClient is this application's machine identity, which it calls other
+	// applications as (ADR-097). Nil when the application declared no
+	// cross-application dependencies.
+	//
+	// ClientID is present on every reconcile once the identity exists; it is what
+	// each TARGET allowlists, and a reconcile that omitted it would look like a
+	// caller that no longer exists. ClientSecret is present only on the call that
+	// minted it, exactly as for a confidential client.
+	ServiceClient *ServiceClient `json:"serviceClient,omitempty"`
+}
+
+// ServiceClient is the client-credentials identity behind a cross-application
+// call. Its subject is the SERVICE; nothing may resolve it to a person.
+type ServiceClient struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret,omitempty"`
 }
 
 // EnsureTenantIdentity is idempotent, so it is safe on every reconcile.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient) (*TenantIdentity, error) {
+// projectName and knownProjectID select the APPLICATION's project (ADR-094):
+// knownProjectID is the immutable binding and wins; otherwise projectName is
+// found or created inside the bound organisation; both empty keeps the
+// application on the legacy shared project.
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient, serviceClientName string) (*TenantIdentity, error) {
 	// Sent as declared. The service provisions exactly this set and no more, so a
 	// fleet that declares nothing gets no clients rather than a default one.
 	clients := make([]map[string]any, 0, len(oauthClients))
@@ -92,15 +133,23 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, own
 			"name":          oc.Name,
 			"confidential":  oc.Confidential,
 			"redirectPaths": oc.RedirectPaths,
+			"tokenExchange": oc.TokenExchange,
 		})
 	}
 
 	body, err := json.Marshal(map[string]any{
 		"redirectUris":     redirectURIs,
 		"postLogoutUris":   postLogoutURIs,
+		"knownOrgId":       knownOrgID,
+		"projectName":      projectName,
+		"knownProjectId":   knownProjectID,
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
 		"oauthClients":     clients,
+		// Empty when the application declares no backend dependencies, and the
+		// service then provisions no machine identity. An unused machine
+		// credential is a standing credential nobody rotates.
+		"serviceClientName": serviceClientName,
 	})
 	if err != nil {
 		return nil, err
@@ -150,3 +199,10 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, own
 // provider has no tenant to provision. Sentinel so a caller can treat it as a
 // steady state rather than a failure to retry.
 var ErrIdentityProvisioningUnsupported = fmt.Errorf("identity service: provider does not provision tenant identities")
+
+// DeclaredClient is one confidential OAuth client and its minted credentials.
+type DeclaredClient struct {
+	Name         string `json:"name"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+}

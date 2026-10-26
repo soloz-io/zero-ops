@@ -1,0 +1,110 @@
+# ADR-108: the platform layer of preview-access: its signing-key Secret
+# access, admission webhook, the webhook's certificate, and its own ingress
+# policy. None of it exists in the local profile.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: preview-access-signing-key
+  namespace: platform-ops
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [preview-access-signing-key]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: preview-access-signing-key
+  namespace: platform-ops
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: preview-access-signing-key}
+subjects:
+  - {kind: ServiceAccount, name: preview-access, namespace: platform-ops}
+---
+# Admission for PreviewAccess (webhook.go). failurePolicy Fail: a record the
+# platform cannot check is not admitted -- the product sees the refusal at
+# create time, not a record that silently never works.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: preview-access
+  annotations:
+    cert-manager.io/inject-ca-from: platform-ops/preview-access-webhook
+webhooks:
+  - name: previewaccess.compute.nutgraf.in
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    clientConfig:
+      service:
+        name: preview-access
+        namespace: platform-ops
+        port: 443
+        path: /validate-compute-nutgraf-in-v1alpha1-previewaccess
+    rules:
+      - apiGroups: [compute.nutgraf.in]
+        apiVersions: [v1alpha1]
+        resources: [previewaccesses]
+        operations: [CREATE, UPDATE]
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  name: preview-access-selfsigned
+  namespace: platform-ops
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  name: preview-access-webhook
+  namespace: platform-ops
+spec:
+  secretName: preview-access-webhook-tls
+  dnsNames:
+    - preview-access.platform-ops.svc
+    - preview-access.platform-ops.svc.cluster.local
+  issuerRef: {name: preview-access-selfsigned, kind: Issuer}
+---
+# Who may reach the service, port by port. Having an ingress section at all
+# makes it default-deny inbound.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: preview-access-ingress
+  namespace: platform-ops
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  endpointSelector:
+    matchLabels:
+      app: preview-access
+  ingress:
+    # The app API: tenant gateways only, from any tenant namespace. Which
+    # namespace a call came from is read from the caller's pod address, so
+    # admitting all of them here grants none of them another's records.
+    - fromEndpoints:
+        - matchLabels:
+            zero-ops.io/tenant-gateway: "true"
+          matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+      toPorts:
+        - ports: [{port: "8080", protocol: TCP}]
+    # Preview hosts: the platform's public gateway only.
+    - fromEntities: [ingress]
+      toPorts:
+        - ports: [{port: "8081", protocol: TCP}]
+    # Admission calls from the API server, and kubelet probes.
+    - fromEntities: [kube-apiserver, host, remote-node]
+      toPorts:
+        - ports: [{port: "9443", protocol: TCP}, {port: "8082", protocol: TCP}]

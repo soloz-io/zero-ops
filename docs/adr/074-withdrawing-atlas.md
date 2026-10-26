@@ -42,6 +42,18 @@ This is a regression against ADR-023's own reasoning — the platform asymmetry 
 
 ### What is not decided here
 
+*Amended 2026-09-25 by ADR-089, which closes this for the TENANT BASELINE only:
+`users`, `identities`, `sessions`, `buckets` and `objects` are applied by a
+platform-owned PreSync Job in the universal-tenant chart, idempotently and with
+no ledger. An application's own schema is still its own problem and the question
+below still stands for it.*
+
+*The cost of leaving it open is recorded there. The baseline SQL survived this
+withdrawal while the thing that applied it did not, so it applied to nothing for
+a fortnight, and the symptom reached a live fleet as a swallowed log line —
+`relation "public.identities" does not exist`, once per authenticated request,
+with nothing failing and nothing alerting.*
+
 What owns schema migrations next. Atlas's replacement, if any, is a decision with its own trade-offs — in-cluster operator against pipeline step, declarative against imperative, and who holds the credential that runs DDL — and it should be taken on its merits rather than inherited from what was removed.
 
 ## Alternatives considered
