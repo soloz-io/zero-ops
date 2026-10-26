@@ -84,7 +84,7 @@
     - path: [spec, data, 3, remoteRef, key]
       value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_USER'
     - path: [spec, data, 4, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_API_KEY'
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_TELEMETRY_TOKEN'
     - path: [spec, data, 5, remoteRef, key]
       value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_RULES_TOKEN'
 

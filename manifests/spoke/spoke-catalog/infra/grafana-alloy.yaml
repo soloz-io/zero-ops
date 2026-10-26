@@ -339,7 +339,7 @@ data:
 
         basic_auth {
           username = sys.env("PROMETHEUS_USER")
-          password = sys.env("API_KEY")
+          password = sys.env("TELEMETRY_TOKEN")
         }
       }
 
@@ -364,7 +364,7 @@ data:
 
         basic_auth {
           username = sys.env("LOKI_USER")
-          password = sys.env("API_KEY")
+          password = sys.env("TELEMETRY_TOKEN")
         }
       }
     }
@@ -705,7 +705,7 @@ data:
 
         basic_auth {
           username = sys.env("PROMETHEUS_USER")
-          password = sys.env("API_KEY")
+          password = sys.env("TELEMETRY_TOKEN")
         }
       }
 

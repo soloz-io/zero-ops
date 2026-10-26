@@ -195,9 +195,9 @@ var CLISecretMappings = []SecretMapping{
 	{
 		SourceNamespace: NamespaceOps,
 		SourceName:      "grafana-cloud",
-		SourceKey:       "api-key",
-		InfisicalKey:    "GRAFANA_CLOUD_API_KEY",
-		Description:     "Grafana Cloud API key (alloy remote write)",
+		SourceKey:       "telemetry-token",
+		InfisicalKey:    "GRAFANA_CLOUD_TELEMETRY_TOKEN",
+		Description:     "Grafana Cloud telemetry token (alloy remote write of metrics and logs)",
 	},
 	{
 		SourceNamespace: NamespaceOps,

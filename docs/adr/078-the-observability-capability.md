@@ -1049,7 +1049,7 @@ cluster through the `cluster` variable.
 
 | Key | Scope | Where |
 |---|---|---|
-| `GRAFANA_CLOUD_API_KEY` | `metrics:write`, `logs:write` | every cluster's agents |
+| `GRAFANA_CLOUD_TELEMETRY_TOKEN` | `metrics:write`, `logs:write` | every cluster's agents |
 | `GRAFANA_CLOUD_RULES_TOKEN` | `rules:read`, `rules:write` | every cluster's cluster agent |
 | `GRAFANA_CLOUD_DASHBOARDS_TOKEN` | a stack service account (Editor) | the hub's Grafana Operator |
 

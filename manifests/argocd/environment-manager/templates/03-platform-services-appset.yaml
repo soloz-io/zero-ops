@@ -761,7 +761,7 @@ spec:
                   value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_LOKI_USER'
                 - op: replace
                   path: /spec/data/4/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_API_KEY'
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_TELEMETRY_TOKEN'
                 - op: replace
                   path: /spec/data/5/remoteRef/key
                   value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_RULES_TOKEN'

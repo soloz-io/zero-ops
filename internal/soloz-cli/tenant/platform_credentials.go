@@ -130,9 +130,9 @@ func platformCredentials() []platformCredential {
 			Needed:     privateImages,
 		},
 		{
-			Secret: "GRAFANA_CLOUD_API_KEY", Tier: tierDestination,
+			Secret: "GRAFANA_CLOUD_TELEMETRY_TOKEN", Tier: tierDestination,
 			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_API_KEY (metrics:write and logs:write on your stack): ",
+			Prompt:     "GRAFANA_CLOUD_TELEMETRY_TOKEN (metrics:write and logs:write on your stack): ",
 			Field:      func(s *Secrets) *string { return &s.GrafanaCloudAPIKey },
 			Needed:     always,
 		},

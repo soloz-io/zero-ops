@@ -62,7 +62,7 @@ func TestPlatformCredentialAbsentResolvesToNothing(t *testing.T) {
 	t.Setenv("ZERO_OPS_DIR", t.TempDir())
 	for _, e := range []string{
 		"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY",
-		"GRAFANA_CLOUD_API_KEY", "GRAFANA_CLOUD_PROMETHEUS_URL",
+		"GRAFANA_CLOUD_TELEMETRY_TOKEN", "GRAFANA_CLOUD_PROMETHEUS_URL",
 		"GRAFANA_CLOUD_PROMETHEUS_USER", "GRAFANA_CLOUD_LOKI_URL", "GRAFANA_CLOUD_LOKI_USER",
 	} {
 		t.Setenv(e, "")

@@ -32,7 +32,7 @@
 # data, and nothing to do with support: support telemetry is a separate channel
 # with its own enrolment (ADR-067, ADR-077). Leaving these unset costs you
 # nothing in support.
-#   GRAFANA_CLOUD_API_KEY, _PROMETHEUS_URL, _PROMETHEUS_USER,
+#   GRAFANA_CLOUD_TELEMETRY_TOKEN, _PROMETHEUS_URL, _PROMETHEUS_USER,
 #   GRAFANA_CLOUD_LOKI_URL, _LOKI_USER, _RULES_TOKEN, _DASHBOARDS_TOKEN, _ALERTS_TOKEN,
 #   GRAFANA_IRM_ALERTMANAGER_URL, GRAFANA_IRM_HEARTBEAT_URL
 #
@@ -124,7 +124,7 @@ jobs:
       # unrelated to support: support telemetry is a separate channel with its
       # own enrolment (ADR-067, ADR-077). Leaving these unset costs you nothing
       # in support and means observability has no remote destination.
-      GRAFANA_CLOUD_API_KEY: ${{ secrets.GRAFANA_CLOUD_API_KEY }}
+      GRAFANA_CLOUD_TELEMETRY_TOKEN: ${{ secrets.GRAFANA_CLOUD_TELEMETRY_TOKEN }}
       GRAFANA_CLOUD_PROMETHEUS_URL: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_URL }}
       GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
       GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}

@@ -498,8 +498,8 @@ func setOrgGitopsToken(ctx context.Context, org, token string) error {
 // reaches this code, and the operator has to delete the repository by hand. A
 // single HTTP 500 -- GitHub's, not ours -- therefore cost a whole run:
 //
-//	Error: setting GRAFANA_CLOUD_API_KEY on soloz-io/acme-gitops: exit status 1
-//	failed to set secret "GRAFANA_CLOUD_API_KEY": HTTP 500: Server Error
+//	Error: setting GRAFANA_CLOUD_TELEMETRY_TOKEN on soloz-io/acme-gitops: exit status 1
+//	failed to set secret "GRAFANA_CLOUD_TELEMETRY_TOKEN": HTTP 500: Server Error
 //
 // Secrets are set by PUT, so writing one twice is the same as writing it once
 // and a retry cannot half-apply anything.

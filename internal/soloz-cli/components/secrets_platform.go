@@ -64,7 +64,7 @@ func optionalSecrets() []optionalSecret {
 		{
 			name: "grafana-cloud", namespace: constants.NamespaceOps, dir: "grafana-cloud",
 			keys: map[string]string{
-				"api-key":         "GRAFANA_CLOUD_API_KEY",
+				"telemetry-token": "GRAFANA_CLOUD_TELEMETRY_TOKEN",
 				"prometheus-url":  "GRAFANA_CLOUD_PROMETHEUS_URL",
 				"prometheus-user": "GRAFANA_CLOUD_PROMETHEUS_USER",
 				"loki-url":        "GRAFANA_CLOUD_LOKI_URL",

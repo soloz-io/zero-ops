@@ -30,7 +30,7 @@ import glob, os, re, yaml
 EXTERNAL = {
     "S3_ACCESS_KEY_ID":              "k8-secrets/s3/access-key-id — Hetzner Object Storage key (starts 0A…, NOT the hcloud-token)",
     "S3_SECRET_ACCESS_KEY":          "k8-secrets/s3/secret-access-key — Hetzner Object Storage secret (CNPG Barman backups)",
-    "GRAFANA_CLOUD_API_KEY":         "k8-secrets/grafana-cloud/api-key",
+    "GRAFANA_CLOUD_TELEMETRY_TOKEN":         "k8-secrets/grafana-cloud/telemetry-token",
     "GRAFANA_CLOUD_LOKI_URL":        "k8-secrets/grafana-cloud/loki-url",
     "GRAFANA_CLOUD_LOKI_USER":       "k8-secrets/grafana-cloud/loki-user",
     "GRAFANA_CLOUD_PROMETHEUS_URL":  "k8-secrets/grafana-cloud/prometheus-url",

@@ -7,7 +7,7 @@ import "testing"
 // already in the environment, which Day-0 then read without asking. The operator
 // answered questions whose answers the next phase already had.
 func TestScaffoldResolvesCredentialsFromTheEnvironment(t *testing.T) {
-	t.Setenv("GRAFANA_CLOUD_API_KEY", "from-env")
+	t.Setenv("GRAFANA_CLOUD_TELEMETRY_TOKEN", "from-env")
 	t.Setenv("S3_ACCESS_KEY_ID", "from-env")
 	t.Setenv("GHCR_TOKEN", "from-env")
 
@@ -16,7 +16,7 @@ func TestScaffoldResolvesCredentialsFromTheEnvironment(t *testing.T) {
 
 	for _, c := range platformCredentials() {
 		switch c.Secret {
-		case "GRAFANA_CLOUD_API_KEY", "S3_ACCESS_KEY_ID", "GHCR_TOKEN":
+		case "GRAFANA_CLOUD_TELEMETRY_TOKEN", "S3_ACCESS_KEY_ID", "GHCR_TOKEN":
 			if got := *c.Field(&s); got != "from-env" {
 				t.Errorf("%s = %q, want it resolved from the environment", c.Secret, got)
 			}
