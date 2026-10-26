@@ -68,7 +68,7 @@ validate_onprem_vm_recreate_waits_for_release() {
         hard_fail "nothing confirms the removed VM is gone before the replacement is created"
         return
     fi
-    if ! printf '%s\n' "$body" | grep -q 'Start-VM -Name \\\$vmName -ErrorAction Stop'; then
+    if ! grep -q 'Start-VM -Name \\\$vmName -ErrorAction Stop' <<<"$body"; then
         hard_fail "Start-VM is issued without -ErrorAction Stop, so a failed start cannot be retried or reported"
         return
     fi
@@ -100,18 +100,18 @@ validate_onprem_memory_ceiling_is_enforced() {
         hard_fail "the host memory ceiling is computed but never applied; an over-large registry value reaches New-VM unchecked"
         return
     fi
-    if ! printf '%s\n' "$body" | grep -q 'finalStartup -gt \\\$hostCeiling'; then
+    if ! grep -q 'finalStartup -gt \\\$hostCeiling' <<<"$body"; then
         hard_fail "startup memory is not compared against the host ceiling"
         return
     fi
     # Hyper-V requires min <= startup <= max; clamping startup alone is invalid.
-    if ! printf '%s\n' "$body" | grep -q 'finalMin -gt \\\$finalStartup'; then
+    if ! grep -q 'finalMin -gt \\\$finalStartup' <<<"$body"; then
         hard_fail "startup can be clamped below MinimumBytes, which Set-VMMemory rejects"
         return
     fi
     # The reserve in the operator-facing line must be the one enforced, or the
     # message drifts from the code again -- which is how this arose.
-    if printf '%s\n' "$body" | grep -q "GB Max, 5 GB Host OS Reserve"; then
+    if grep -q "GB Max, 5 GB Host OS Reserve" <<<"$body"; then
         hard_fail "the capacity line hard-codes '5 GB Host OS Reserve' instead of printing the enforced value"
         return
     fi
@@ -122,7 +122,7 @@ validate_onprem_memory_ceiling_is_enforced() {
     # with "Failed to modify device 'Memory'" / InvalidParameter -- which names
     # the device, not the constraint, and every later cmdlet then fails
     # ObjectNotFound against a VM that was never created.
-    if ! printf '%s\n' "$body" | grep -q 'memAlign'; then
+    if ! grep -q 'memAlign' <<<"$body"; then
         hard_fail "memory values are not aligned to a 2 MB boundary; a clamped ceiling is not a multiple of 2 MB and New-VM rejects it"
         return
     fi
