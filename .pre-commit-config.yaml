@@ -20,6 +20,12 @@ repos:
         additional_dependencies: ['yamllint']
         pass_filenames: false
         files: 'manifests/argocd/environment-manager/.*'
+      - id: workflow-secrets
+        name: Workflow Secrets Declared And Forwarded
+        entry: python3 scripts/validate/workflow-secrets.py .
+        language: system
+        pass_filenames: false
+        files: '(\.github/workflows/.*|.*/gitops-template/\.github/workflows/.*|scripts/validate/workflow-secrets\.py)'
       - id: argocd-seed-parity
         name: ArgoCD Day-0 Seed Parity
         entry: scripts/validate-argocd-seed-parity.sh

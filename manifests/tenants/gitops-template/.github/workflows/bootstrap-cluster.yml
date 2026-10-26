@@ -38,6 +38,9 @@
 #   GRAFANA_CLOUD_LOKI_URL, _LOKI_USER, _RULES_TOKEN, _DASHBOARDS_TOKEN, _ALERTS_TOKEN,
 #   GRAFANA_IRM_ALERTMANAGER_URL, GRAFANA_IRM_HEARTBEAT_URL
 #
+# OPTIONAL -- ZITADEL_SMTP_URL, this box's outbound mail: identity mail and
+# alert email both send through it.
+#
 # TS_AUTHKEY is read only when this cluster accepts on-prem nodes (ADR-075).
 name: Bootstrap cluster
 
@@ -139,3 +142,6 @@ jobs:
       GRAFANA_CLOUD_ALERTS_TOKEN: ${{ secrets.GRAFANA_CLOUD_ALERTS_TOKEN }}
       GRAFANA_IRM_ALERTMANAGER_URL: ${{ secrets.GRAFANA_IRM_ALERTMANAGER_URL }}
       GRAFANA_IRM_HEARTBEAT_URL: ${{ secrets.GRAFANA_IRM_HEARTBEAT_URL }}
+      # This box's outbound mail (smtps://user:key@host:port). Optional; without it
+      # the issuer sends no verification or reset mail and alerts send no email.
+      ZITADEL_SMTP_URL: ${{ secrets.ZITADEL_SMTP_URL }}
