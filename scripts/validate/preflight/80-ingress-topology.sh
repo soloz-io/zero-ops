@@ -74,7 +74,10 @@ validate_hostname_zoning() {
 
     # HUB_DOMAIN minus its environment prefix, i.e. the apex the box publishes
     # under. Without it there is no zone to look for a doubling of.
-    local zone_suffix="${HUB_DOMAIN#"$ENVIRONMENT".}"
+    # `:-` first: under `set -u` a bare ${HUB_DOMAIN#...} aborts the run before
+    # the warning below can say why the check did not run.
+    local hub_domain="${HUB_DOMAIN:-}"
+    local zone_suffix="${hub_domain#"$ENVIRONMENT".}"
     if [[ -z "$zone_suffix" ]]; then
         warn "HUB_DOMAIN is not set, so doubled hostnames cannot be looked for (preflight has no cluster to read the box's domain from)"
         return 0
