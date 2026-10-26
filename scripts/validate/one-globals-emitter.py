@@ -63,7 +63,10 @@ for path in (ROOT / "manifests").rglob("templated-fields*.yaml"):
 # in this context", naming neither the template nor the tag.
 for path in TPL.glob("*.tpl"):
     for i, line in enumerate(path.read_text().split("\n"), 1):
-        if "include \"environment-manager.globalValues\"" in line and line.lstrip().startswith("{{-"):
+        # Only an include whose OUTPUT is the action's result: `{{- $g := fromYaml
+        # (include ...) -}}` assigns it and emits nothing, so there is no newline
+        # to lose.
+        if re.match(r'^\s*\{\{-\s*include\s+"environment-manager\.globalValues"', line):
             failures.append(
                 f"{path.name}:{i} includes globalValues with a chomping tag "
                 f"`{{{{-`. That removes the newline before `global:` and the "
