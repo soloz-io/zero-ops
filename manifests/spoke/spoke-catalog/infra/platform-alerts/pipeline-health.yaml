@@ -31,7 +31,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "No telemetry from this cluster for 10 minutes: its agents, their credentials or its link to the stack have failed. Data is buffered on the cluster for up to 24h."
+            summary: "No telemetry from this cluster for 10 minutes: its agents, their credentials or its link to the stack have failed. An outage or a rate limit (429) is buffered on the cluster for up to 24h; a refused credential (401) is dropped, not buffered -- check the agents' logs first."
         - alert: TelemetryDroppedUnsent
           expr: sum(increase(prometheus_remote_storage_samples_dropped_total[15m])) + sum(increase(prometheus_remote_storage_samples_failed_total[15m])) > 0
           for: 15m
