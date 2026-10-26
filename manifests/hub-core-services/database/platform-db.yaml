@@ -32,13 +32,16 @@ spec:
   # this database stayed in init, and the hub Gateway answered "no healthy
   # upstream" for every hostname.
   #
-  # limits and requests are deliberately unequal: Postgres benefits from page
-  # cache above its own allocation, so the request reserves the working set and
-  # the limit caps the blast radius.
+  # Memory request equals the limit. Postgres's page cache is charged to this
+  # container, so it fills toward the limit by design (rc.172: 1.8Gi working set,
+  # 823Mi of it unreclaimable). With the request below that, the platform
+  # database was the pod furthest over its request on its node -- the first one
+  # the kubelet evicts under memory pressure, and its PVC is node-pinned, so an
+  # eviction is an outage. Reserving the whole limit puts it last in that order.
   resources:
     requests:
       cpu: 250m
-      memory: 1Gi
+      memory: 2Gi
     limits:
       memory: 2Gi
 
