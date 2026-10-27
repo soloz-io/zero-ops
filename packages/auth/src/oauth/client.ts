@@ -109,7 +109,9 @@ export class OidcClient {
     // valid for however long a guess said, and presented after the issuer had
     // already expired it.
     if (typeof data.expires_in !== "number" || data.expires_in <= 0) {
-      throw new Error("Token exchange failed: the issuer returned no expires_in, so the token's lifetime is unknown");
+      throw new Error(
+        "Token exchange failed: the issuer returned no expires_in, so the token's lifetime is unknown",
+      );
     }
     return {
       accessToken: data.access_token,
