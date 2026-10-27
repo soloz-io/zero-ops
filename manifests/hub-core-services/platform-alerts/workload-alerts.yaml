@@ -1,0 +1,131 @@
+# Workload alerts every cluster carries, hub and spoke alike: the same file in
+# manifests/spoke/spoke-catalog/infra/platform-alerts/. Each cluster's agent syncs
+# it to the stack's ruler pinned to that cluster (ADR-078 add.3 §3), so dev and
+# prod are alerted on the same rules.
+#
+# Memory is judged by what the kernel cannot reclaim. Working set counts active
+# file cache, which a database fills to its limit by design and which the kernel
+# frees before killing anything: platform-db-1 sat at 91% working set with ~48%
+# unreclaimable and no kill. So a container is alerted on unreclaimable memory
+# nearing its limit, or on an actual kill; a node on its available memory and its
+# MemoryPressure condition, which is when the kubelet starts evicting.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-workload-alerts
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    component: alerting
+    app.kubernetes.io/managed-by: platform
+spec:
+  groups:
+  - name: platform.pod.health
+    interval: 30s
+    rules:
+    - alert: PodCrashLooping
+      expr: |
+        rate(kube_pod_container_status_restarts_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+
+    - alert: PodNotReady
+      expr: |
+        kube_pod_status_phase{phase!="Running",phase!="Succeeded"} == 1
+      for: 15m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready"
+        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} phase for more than 15 minutes"
+
+  - name: platform.memory
+    interval: 30s
+    rules:
+    # The failure itself: a container restarted, and the last reason was the
+    # kernel killing it at its memory limit.
+    - alert: ContainerOOMKilled
+      expr: |
+        (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+        and on (cluster, namespace, pod, container)
+        (increase(kube_pod_container_status_restarts_total[15m]) > 0)
+      labels:
+        severity: critical
+        component: kubernetes
+      annotations:
+        summary: "{{ $labels.namespace }}/{{ $labels.pod }} was OOM-killed"
+        description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} exceeded its memory limit and was killed. Raise the limit or find the growth."
+
+    # The warning before it: process memory plus mapped memory (which carries
+    # shared memory, e.g. Postgres shared_buffers) near the limit. Page cache is
+    # left out: it is freed before a kill. Slightly overstates (mapped libraries),
+    # the safe direction.
+    - alert: ContainerMemoryNearLimit
+      expr: |
+        (container_memory_rss{container!=""} + container_memory_mapped_file{container!=""})
+          / (container_spec_memory_limit_bytes{container!=""} > 0) > 0.9
+      for: 15m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "{{ $labels.namespace }}/{{ $labels.pod }} is near its memory limit"
+        description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} holds {{ $value | humanizePercentage }} of its memory limit in memory the kernel cannot reclaim. It will be OOM-killed if it grows."
+
+  - name: platform.node.memory
+    interval: 60s
+    rules:
+    # MemAvailable already counts reclaimable cache as available.
+    - alert: NodeMemoryLow
+      expr: |
+        node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+      for: 15m
+      labels:
+        severity: warning
+        component: kubernetes
+      annotations:
+        summary: "Node {{ $labels.instance }} has under 10% memory available"
+        description: "Node {{ $labels.instance }} has {{ $value | humanizePercentage }} of its memory available. The kubelet evicts pods when it runs out, those furthest over their requests first."
+
+    - alert: NodeMemoryPressure
+      expr: |
+        kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+      for: 5m
+      labels:
+        severity: critical
+        component: kubernetes
+      annotations:
+        summary: "Node {{ $labels.node }} is under memory pressure"
+        description: "Node {{ $labels.node }} reports MemoryPressure: the kubelet is evicting pods from it."
+
+  - name: platform.disk.usage
+    interval: 60s
+    rules:
+    - alert: HighDiskUsage
+      expr: |
+        (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 80
+      for: 10m
+      labels:
+        severity: warning
+        component: storage
+      annotations:
+        summary: "High disk usage on PVC {{ $labels.persistentvolumeclaim }}"
+        description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | humanize }}% full"
+
+    - alert: CriticalDiskUsage
+      expr: |
+        (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 90
+      for: 5m
+      labels:
+        severity: critical
+        component: storage
+      annotations:
+        summary: "Critical disk usage on PVC {{ $labels.persistentvolumeclaim }}"
+        description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value | humanize }}% full"
