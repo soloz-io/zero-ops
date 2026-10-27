@@ -2,6 +2,7 @@
 
 **Date:** 2026-09-30
 **Status:** Accepted
+**Amended:** 2026-10-27 by ADR-110 — on-behalf-of-user calls carry the user's own access token, obtained server-side through the existing delegated flow with a declared confidential client; the caller map records which clients carry a user. "What is NOT decided" is decided there.
 **Relates to:** ADR-094 (one identity project per application; the caller allowlist),
 ADR-095 (access tokens for APIs), ADR-088 (the tenant and the application are
 different axes), waypoint ADR-042 (consumer applications call the SDK directly)

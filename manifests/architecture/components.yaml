@@ -310,10 +310,12 @@ capabilities:
       - 109-the-credit-authority.md
     interacts_with: [database]
     note: >-
-      The Credit Authority: one ledger per tenant, in its own bucket, on a
-      database the platform provisions. The ledger authenticates and does not
-      authorise, so a tenant's coordinating product service reaches only its
-      own ledger's routes, never the system routes, through routing and
-      network policy. It holds credits, never money, and determines no price.
-      Planned until the ledger, its isolation and its backup ship -- see
-      ADR-109.
+      The Credit Authority: one ledger deployment per tenant, on its own
+      database, listening on loopback behind an AgentGateway sidecar. The
+      ledger authenticates and does not authorise, so the sidecar binds the
+      caller (the tenant's coordinating service, its tenant) and allows only
+      the anchored transaction, account, balance and volume routes; system
+      and administrative routes match no rule and are refused. It holds
+      credits, never money, and determines no price. Planned until the
+      ledger, the sidecar and backup ship and ADR-109's isolation proof
+      passes -- see ADR-109.
