@@ -91,7 +91,7 @@ To understand this structure, you must understand the v9.0 hub-spoke deployment 
    - KSM + Grafana Alloy (metrics scrape → remote_write → VictoriaMetrics on Hub)
    - Tenant workloads (namespaced isolation)
    - Per-tenant PostgREST (exposes tenant's app plane logical DB with RLS)
-   - AgentGateway (routes MCP requests, emits OTLP events to OpenMeter)
+   - AgentGateway (routes MCP requests)
    - Uses HubStore (PostgREST API via AgentGateway for user management)
 
 4. **Spoke Silo Cluster (Dedicated Tenants):** Runs:
@@ -118,12 +118,8 @@ Spoke Controller → Hub-side PostgREST → Hub Centralised DB
 - Spoke Pool: Per-tenant PostgREST (app plane logical DB) accessed via AgentGateway for user management
 - Spoke Silo: Local Tenant Control Plane DB → NATS Leaf Node → Hub Event Router → Control Plane Shared DB (LocalStore)
 
-**Usage Metering (OTLP):**
-AgentGateway (all spokes) → OTLP traces → OpenMeter (Hub)
-- Emits usage events for: api_calls, storage_operations, custom_api_calls, developer_api_calls
-- Includes tenant_id, user_id, meter_id in span attributes
-- Batched emission (max 100 events), async non-blocking
-- Local buffering (1-hour retention) when OpenMeter unreachable
+**Usage Metering:**
+Infrastructure usage is recorded in the usage-analytics database (ADR-098, amended). It is not billable usage.
 
 **Billing/Lifecycle Events (Asynchronous):**
 Spoke → NATS Leaf Node → Hub JetStream → Hub Event Router → Hub Centralised DB

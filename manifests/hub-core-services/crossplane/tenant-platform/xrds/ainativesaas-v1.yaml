@@ -250,6 +250,18 @@ spec:
                       It does not restrict WHO may sign up. Anyone who can reach
                       the hostname can join. Restricting that is an invitation
                       and needs a mail sender the issuer does not yet have.
+                  backendOnly:
+                    type: boolean
+                    default: false
+                    description: |
+                      An application nobody signs in to (zero-ops ADR-109): it
+                      has no gateway hostname and declares no OAuth client. It
+                      gets an identity project -- the audience other
+                      applications of this tenant are admitted to, by their own
+                      backendDependencies -- and no browser client, no gateway
+                      exchange client and no owner, and sets nothing on the
+                      tenant's organisation. A backend-only application that
+                      declares a hostname or an OAuth client is refused.
                   backendDependencies:
                     type: array
                     items:
@@ -372,6 +384,15 @@ spec:
                             missing registration.
                           items:
                             type: string
+                        actsForUser:
+                          type: boolean
+                          description: |
+                            This confidential client is the one the application's backend
+                            obtains its users' tokens with (ADR-110). Each application this
+                            one declares as a backend dependency admits it as a caller that
+                            carries a USER; every other client is admitted, if at all, as a
+                            service. At most one client may set it, and it must be
+                            confidential.
           status:
             type: object
             properties:

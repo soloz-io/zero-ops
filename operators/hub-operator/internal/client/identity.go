@@ -65,10 +65,19 @@ type OAuthClient struct {
 	// client uses PKCE and has no credential to store.
 	Confidential bool
 
-	// RedirectPaths are appended to the fleet's public host. An issuer matches
-	// redirect URIs EXACTLY, so a client provisioned without its callback fails
-	// at the authorization endpoint before any credential is entered.
-	RedirectPaths []string
+	// RedirectURIs are the client's callbacks: each declared path on each of the
+	// fleet's public hosts, resolved here because this side knows the hosts. An
+	// issuer matches redirect URIs EXACTLY, so a client provisioned without its
+	// callback fails at the authorization endpoint before any credential is
+	// entered.
+	RedirectURIs []string
+
+	// ActsForUser marks the confidential client the application's backend
+	// obtains its users' tokens with (ADR-110). Its id is what a target admits
+	// as a caller that carries a USER. Not sent to the identity service: it is
+	// how this operator renders the targets' caller maps, not a property of the
+	// registration.
+	ActsForUser bool
 
 	// TokenExchange enables the RFC 8693 grant on this client (ADR-095). Set by
 	// the PLATFORM for the gateway's exchange client and for nothing else; a
@@ -124,7 +133,7 @@ type ServiceClient struct {
 // knownProjectID is the immutable binding and wins; otherwise projectName is
 // found or created inside the bound organisation; both empty keeps the
 // application on the legacy shared project.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient, serviceClientName string) (*TenantIdentity, error) {
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration, backendOnly bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient, serviceClientName string) (*TenantIdentity, error) {
 	// Sent as declared. The service provisions exactly this set and no more, so a
 	// fleet that declares nothing gets no clients rather than a default one.
 	clients := make([]map[string]any, 0, len(oauthClients))
@@ -132,7 +141,7 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 		clients = append(clients, map[string]any{
 			"name":          oc.Name,
 			"confidential":  oc.Confidential,
-			"redirectPaths": oc.RedirectPaths,
+			"redirectUris":  oc.RedirectURIs,
 			"tokenExchange": oc.TokenExchange,
 		})
 	}
@@ -145,7 +154,10 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 		"knownProjectId":   knownProjectID,
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
-		"oauthClients":     clients,
+		// An application nobody signs in to (zero-ops ADR-109): a project and
+		// no browser client.
+		"backendOnly":  backendOnly,
+		"oauthClients": clients,
 		// Empty when the application declares no backend dependencies, and the
 		// service then provisions no machine identity. An unused machine
 		// credential is a standing credential nobody rotates.

@@ -59,11 +59,10 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **Jaeger**: Distributed tracing backend
 - **OpenTelemetry**: Observability framework (traces, metrics, logs)
 
-## Usage Metering & Billing
-- **OpenMeter**: Real-time usage metering and billing engine (Hub cluster)
-- **OTLP**: OpenTelemetry Protocol for usage event emission from AgentGateway to OpenMeter
-- **CloudEvents**: Event format for usage tracking metadata
-- **kube-sbt Metering**: Go abstractions for tenant/user-scoped usage queries and entitlements
+## Usage Metering, Credits & Billing
+- **Usage analytics** (ADR-098, amended): infrastructure usage and internal execution cost, recorded in a platform-operated usage-analytics database. Not billable usage.
+- **Credit Authority** (ADR-109): a per-tenant Formance ledger behind an authorising gateway, reached only by the tenant's coordinating product service.
+- **Monetary billing and payment collection**: the product layer's, through external providers (waypoint ADR-058). The platform runs no billing engine.
 
 ## Development Tools
 - **sqlc**: Type-safe SQL code generation for Go APIs
@@ -118,7 +117,6 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **IProvisioner**: Infrastructure provisioning (Crossplane implementation)
 - **IStorage**: Data persistence (PostgreSQL implementation)
 - **ISecretManager**: Secret management (Infisical implementation)
-- **IMetering**: Usage metering and entitlements (OpenMeter implementation)
 - **IUserManager**: Tenant user management (PostgREST + RLS implementation)
 
 ### Default Providers
@@ -127,7 +125,6 @@ update_criteria: Technology choices, tool updates, constraint changes, research 
 - **PostgreSQL + sqlc**: Storage provider (replaces DynamoDB)
 - **Infisical**: Secret manager (replaces AWS Secrets Manager)
 - **Crossplane + ArgoCD**: Provisioning provider (replaces CloudFormation)
-- **OpenMeter + OTLP**: Metering provider (replaces AWS CloudWatch + Cost Explorer)
 - **PostgREST + RLS**: User management provider (tenant database access)
 
 ### Architecture Separation

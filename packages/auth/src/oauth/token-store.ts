@@ -6,6 +6,11 @@ export interface PendingOAuthFlow {
   subject: string;
   state: string;
   createdAt: number;
+  /**
+   * The PKCE verifier the flow's authorization request was challenged with,
+   * held server-side until the callback redeems the code with it.
+   */
+  codeVerifier?: string;
 }
 
 export interface TokenStore {
@@ -14,7 +19,11 @@ export interface TokenStore {
   delete(subject: string): Promise<void>;
   acquireRefreshLock(subject: string, ttlMs?: number): Promise<string | null>;
   releaseRefreshLock(subject: string, owner: string): Promise<boolean>;
-  beginFlow(subject: string, flowTtlMs?: number): Promise<{ state: string; stateHash: string }>;
+  beginFlow(
+    subject: string,
+    flowTtlMs?: number,
+    codeVerifier?: string,
+  ): Promise<{ state: string; stateHash: string }>;
   resolveFlow(state: string, flowTtlMs?: number): Promise<PendingOAuthFlow | undefined>;
   /**
    * Mutex-protected refresh. Declared here because a consumer typing its field as
@@ -162,6 +171,7 @@ export class RedisTokenStore implements TokenStore {
   async beginFlow(
     subject: string,
     flowTtlMs?: number,
+    codeVerifier?: string,
   ): Promise<{ state: string; stateHash: string }> {
     const state = randomBytes(32).toString("hex");
     const stateHash = createHash("sha256").update(state).digest("hex");
@@ -169,6 +179,7 @@ export class RedisTokenStore implements TokenStore {
       subject,
       state,
       createdAt: Date.now(),
+      ...(codeVerifier ? { codeVerifier } : {}),
     };
     const ttl = Math.max(flowTtlMs ?? this.defaultFlowTtlMs, 1);
     await this.redis.set(this.flowKey(state), JSON.stringify(flow), "PX", ttl);

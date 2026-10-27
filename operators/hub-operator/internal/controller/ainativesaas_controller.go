@@ -132,7 +132,16 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Read here and passed to the identity service, never invented: a client's
 	// name, type and callback belong to the fleet (ADR-047 forbids a tenant
 	// identifier in platform code, and "every tenant has a bff" is one).
-	oauthClients := append(declaredOAuthClients(ainativesaas), gatewayExchangeClient(appId))
+	// An application nobody signs in to (zero-ops ADR-109) has an identity
+	// project -- other applications are admitted to it -- and no gateway, so no
+	// browser client, no exchange client and no owner. Declared, never inferred
+	// from a missing hostname: an application without one today has no identity
+	// at all, and must not acquire one by omission.
+	backendOnly, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "identity", "backendOnly")
+	oauthClients := declaredOAuthClients(ainativesaas)
+	if !backendOnly {
+		oauthClients = append(oauthClients, gatewayExchangeClient(appId))
+	}
 
 	// OAuth client credentials are NOT generated here (ADR-060).
 	//
@@ -179,9 +188,13 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// idempotent.
 	if r.IdentityClient != nil {
 		hosts := tenantGatewayHosts(ainativesaas)
-		if len(hosts) == 0 {
+		switch {
+		case backendOnly && (len(hosts) > 0 || len(oauthClients) > 0):
+			logger.Error(nil, "Refusing a backend-only application that declares a gateway hostname or OAuth clients; nobody signs in to it",
+				"tenant", tenantId, "app", appId)
+		case len(hosts) == 0 && !backendOnly:
 			logger.V(1).Info("Tenant declares no gateway hostname; skipping identity provisioning", "tenant", tenantId)
-		} else {
+		default:
 			redirects := make([]string, 0, len(hosts))
 			postLogout := make([]string, 0, len(hosts))
 			for _, h := range hosts {
@@ -193,8 +206,12 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				postLogout = append(postLogout, "https://"+h+"/")
 			}
 			// The tenant's declared owner, granted administrative access so the
-			// tenant has someone who can sign in to it at all.
-			ownerEmail, _, _ := unstructured.NestedString(ainativesaas.Object, "spec", "ownerEmail")
+			// tenant has someone who can sign in to it at all. None for a
+			// backend-only application, which nobody signs in to.
+			ownerEmail := ""
+			if !backendOnly {
+				ownerEmail, _, _ = unstructured.NestedString(ainativesaas.Object, "spec", "ownerEmail")
+			}
 			// Fleet-declared: whether people can sign themselves up into THIS
 			// tenant. Absent means false, so a fleet that says nothing gets the
 			// closed behaviour rather than inheriting somebody else's choice.
@@ -235,7 +252,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				serviceClient = serviceUserName(appId)
 			}
 
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, redirects, postLogout, oauthClients, serviceClient)
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, backendOnly, redirects, postLogout, oauthClients, serviceClient)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
@@ -346,7 +363,9 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// named.
 				exchangeKey := secrets.InfisicalOAuthClientSecretKey(gatewayExchangeClientName(appId))
 				exchangePath := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
-				if _, err := r.InfisicalClient.GetSecret(ctx, exchangePath, exchangeKey); err != nil {
+				if backendOnly {
+					// No gateway, so no exchange client to be missing.
+				} else if _, err := r.InfisicalClient.GetSecret(ctx, exchangePath, exchangeKey); err != nil {
 					logger.Error(err, "CRITICAL: the gateway exchange client credential is absent. "+
 						"The issuer discloses a generated secret once, so it cannot be re-read: the client "+
 						"must be regenerated at the issuer. Until it is, this application's gateway cannot "+
@@ -375,7 +394,10 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					logger.Error(err, "Provisioned tenant identity but could not publish its organisation id",
 						"tenant", tenantId)
 				}
-				if err := r.publishTenantClientID(ctx, cellId, tenantId, appId, identity.ClientID); err != nil {
+				if backendOnly {
+					// No browser client, so no client id for a gateway to read.
+					logger.Info("Backend-only application identity provisioned", "tenant", tenantId, "app", appId, "projectId", identity.ProjectRef)
+				} else if err := r.publishTenantClientID(ctx, cellId, tenantId, appId, identity.ClientID); err != nil {
 					logger.Error(err, "Provisioned tenant identity but could not publish its client id; will retry",
 						"tenant", tenantId)
 				} else {
@@ -406,7 +428,12 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						logger.Info("Backend dependencies waiting on the target's project",
 							"tenant", tenantId, "app", appId, "pending", pendingDeps)
 					}
-					r.publishCrossApplicationTrust(ctx, logger, cellId, tenantId, appId, deps, identity.Clients, identity.ServiceClient)
+					actingClient, aerr := actingClientOf(oauthClients)
+					if aerr != nil {
+						logger.Error(aerr, "Refusing this application's user-acting client", "tenant", tenantId, "app", appId)
+					} else {
+						r.publishCrossApplicationTrust(ctx, logger, cellId, tenantId, appId, deps, identity.Clients, identity.ServiceClient, actingClient)
+					}
 				}
 
 				// The audience the gateway's token exchange asks for (ADR-095).
@@ -485,6 +512,9 @@ const conditionTypeCacheSeeded = "TenantCacheCredentialSeeded"
 // so a client provisioned without its callback fails at the authorization
 // endpoint before any credential is entered.
 func declaredOAuthClients(obj *unstructured.Unstructured) []client2.OAuthClient {
+	// The same hosts the browser client's callbacks are built on, so a declared
+	// path is registered on every host the gateway answers.
+	hosts := tenantGatewayHosts(obj)
 	raw, found, err := unstructured.NestedSlice(obj.Object, "spec", "oauth", "clients")
 	if err != nil || !found {
 		return nil
@@ -501,18 +531,24 @@ func declaredOAuthClients(obj *unstructured.Unstructured) []client2.OAuthClient 
 			continue
 		}
 		clientType, _ := fields["type"].(string)
-		var paths []string
+		var uris []string
 		if rp, ok := fields["redirectPaths"].([]interface{}); ok {
 			for _, p := range rp {
-				if s, ok := p.(string); ok {
-					paths = append(paths, s)
+				s, ok := p.(string)
+				if !ok {
+					continue
+				}
+				for _, h := range hosts {
+					uris = append(uris, "https://"+h+s)
 				}
 			}
 		}
+		actsForUser, _ := fields["actsForUser"].(bool)
 		clients = append(clients, client2.OAuthClient{
-			Name:          name,
-			Confidential:  clientType != "public",
-			RedirectPaths: paths,
+			Name:         name,
+			Confidential: clientType != "public",
+			RedirectURIs: uris,
+			ActsForUser:  actsForUser,
 		})
 	}
 	return clients
@@ -611,45 +647,99 @@ func orgBindingAmong(items []unstructured.Unstructured, tenantId, self string) (
 // and neither the caller nor the receiver can be trusted to assert it: the caller
 // would be naming itself, and the receiver has nothing to derive it from.
 //
-// A bare `<clientId>` with no `=` is still read as admitted-but-unnamed, so a
-// value written before this change keeps working and a receiver that only checks
-// admission needs no update.
-func (r *AINativeSaaSReconciler) publishAllowedCaller(ctx context.Context, cellId, tenantId string, target resolvedDependency, callerClientID, callerAppID string) error {
-	if callerClientID == "" {
-		return fmt.Errorf("caller has no client id yet")
-	}
+// Each entry also says what the client's tokens carry (ADR-110):
+// `<clientId>=<appId>:<kind>`, where kind is
+//
+//	user      a client whose tokens are issued for a PERSON -- the confidential
+//	          client the application's backend obtains its users' tokens with
+//	service   the machine client the application calls as itself (ADR-097)
+//
+// The receiver acts for a user only on a `user` entry. The kind comes from what
+// this operator provisioned, never from the token's shape: `azp` and
+// `client_id` are one field to the receiver, so the token cannot say.
+//
+// THIS CALLER'S ENTRIES ARE REPLACED, not merged. The set published is the whole
+// of what this caller is admitted as, so an entry it no longer holds -- the
+// gateway's exchange client, or a pre-kind `<clientId>=<appId>` -- is removed by
+// the caller's own next reconcile. Other callers' entries are left exactly as
+// they are; each is rewritten by its own reconcile. A bare `<clientId>` names no
+// application and no kind, admits nothing, and is dropped.
+func (r *AINativeSaaSReconciler) publishAllowedCallers(ctx context.Context, cellId, tenantId string, target resolvedDependency, callerAppID string, entries map[string]callerKind) error {
 	if callerAppID == "" {
 		return fmt.Errorf("caller has no application id")
 	}
+	for id := range entries {
+		if id == "" {
+			return fmt.Errorf("caller %q has an entry with no client id", callerAppID)
+		}
+	}
 	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, target.AppID)
-
 	existing := ""
 	if got, err := r.InfisicalClient.GetSecret(ctx, path, allowedAzpKey); err == nil {
 		existing = got
 	}
-
-	// Keyed on the client id so re-running with a renamed application corrects the
-	// name in place rather than admitting the same client twice under two names.
-	callers := map[string]string{}
+	out := make([]string, 0, len(entries))
 	for _, v := range strings.Fields(strings.ReplaceAll(existing, ",", " ")) {
-		id, app, _ := strings.Cut(v, "=")
-		callers[id] = app
-	}
-	if app, ok := callers[callerClientID]; ok && app == callerAppID {
-		return nil // already admitted under this name; do not rewrite
-	}
-	callers[callerClientID] = callerAppID
-
-	out := make([]string, 0, len(callers))
-	for id, app := range callers {
-		if app == "" {
-			out = append(out, id) // preserve a pre-existing unnamed entry as it stands
+		id, named, hasName := strings.Cut(v, "=")
+		if !hasName {
 			continue
 		}
-		out = append(out, id+"="+app)
+		app, _, _ := strings.Cut(named, ":")
+		if app == callerAppID {
+			continue
+		}
+		if _, ours := entries[id]; ours {
+			// A client id another application's entry claims, now provisioned to
+			// this one. Ours wins: a client id names one application.
+			continue
+		}
+		out = append(out, v)
+	}
+	for id, kind := range entries {
+		out = append(out, id+"="+callerAppID+":"+string(kind))
 	}
 	sort.Strings(out)
-	return r.publishTenantSecret(ctx, cellId, tenantId, target.AppID, allowedAzpKey, strings.Join(out, " "))
+	value := strings.Join(out, " ")
+	if value == existing {
+		return nil // unchanged; do not rewrite
+	}
+	return r.publishTenantSecret(ctx, cellId, tenantId, target.AppID, allowedAzpKey, value)
+}
+
+// callerKind is what a caller-map entry's tokens carry (ADR-110).
+type callerKind string
+
+const (
+	callerKindUser    callerKind = "user"
+	callerKindService callerKind = "service"
+)
+
+// actingClientOf is the declared client this application acts for its users
+// with, or "" when it declares none.
+//
+// At most one, confidential, and without the token-exchange grant. Two would
+// leave a target unable to say which one the backend holds; a public client's
+// identity is any browser's, which is the defect ADR-094 invariant 2 records;
+// and an exchanged token takes whatever subject it was handed, a machine's
+// included, so it cannot be admitted as carrying a person.
+func actingClientOf(clients []client2.OAuthClient) (string, error) {
+	name := ""
+	for _, c := range clients {
+		if !c.ActsForUser {
+			continue
+		}
+		if !c.Confidential {
+			return "", fmt.Errorf("client %q acts for users but is public; only a confidential client may", c.Name)
+		}
+		if c.TokenExchange {
+			return "", fmt.Errorf("client %q acts for users but holds the token-exchange grant, so its tokens can carry a machine subject", c.Name)
+		}
+		if name != "" {
+			return "", fmt.Errorf("clients %q and %q both act for users; declare one", name, c.Name)
+		}
+		name = c.Name
+	}
+	return name, nil
 }
 
 // allowedAzpKey is where a receiver reads the callers it admits.
@@ -682,7 +772,7 @@ const (
 func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 	ctx context.Context, logger logr.Logger, cellId, tenantId, appId string,
 	deps []resolvedDependency, clients []client2.DeclaredClient,
-	service *client2.ServiceClient,
+	service *client2.ServiceClient, actingClient string,
 ) {
 	if err := r.publishTenantSecret(ctx, cellId, tenantId, appId,
 		"OIDC_BACKEND_AUDIENCE_SCOPES", audienceScopesFor(deps)); err != nil {
@@ -705,53 +795,56 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 		}
 	}
 
-	// The other half: each TARGET learns it must admit this caller. Published
-	// onto the target's own path, because it is the target that enforces it.
+	// The other half: each TARGET learns which of this application's clients it
+	// admits, and what each one's tokens carry (ADR-110). Published onto the
+	// target's own path, because it is the target that enforces it.
 	//
-	// The caller is named by its EXCHANGE client, which is what a receiver sees
-	// as `azp` -- see callerExchangeClientID for why the browser client is not
-	// merely wrong here but unsafe.
-	callerAzp := r.callerExchangeClientID(ctx, cellId, appId, clients)
-	if callerAzp == "" {
-		// Pending, not an error, and deliberately NOT a fallback to another
-		// client id. A target admitting the wrong caller looks configured and is
-		// not, which is worse than one that admits nobody yet: the next reconcile
-		// has the value, and until then the call fails closed.
-		logger.Info("Backend dependencies wait on this application's exchange client id",
-			"tenant", tenantId, "app", appId, "expected", gatewayExchangeClientName(appId))
-		return
+	//	user      the client the backend obtains its users' tokens with
+	//	service   the machine client it calls as itself (ADR-097)
+	//
+	// The gateway's exchange client is NOT admitted. An exchanged token takes
+	// whatever subject it was handed, a machine's included, so it cannot be a
+	// `user` entry; and the exchange cannot run on the deployed issuer (ADR-097),
+	// so no token carries it.
+	entries := map[string]callerKind{}
+	if actingClient != "" {
+		id := r.declaredClientID(ctx, cellId, appId, clients, actingClient)
+		if id == "" {
+			// Pending, and pending writes NOTHING: publishing the service entry
+			// alone would replace this caller's set and drop a `user` entry a
+			// previous reconcile published. The next reconcile has the value.
+			logger.Info("Backend dependencies wait on this application's user-acting client id",
+				"tenant", tenantId, "app", appId, "client", actingClient)
+			r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, service)
+			return
+		}
+		entries[id] = callerKindUser
 	}
-
-	for _, d := range deps {
-		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, callerAzp, appId); err != nil {
-			logger.Error(err, "Could not publish the allowed caller onto the target",
-				"tenant", tenantId, "caller", appId, "target", d.AppID)
+	if service != nil && service.ClientID != "" {
+		entries[service.ClientID] = callerKindService
+	}
+	if len(entries) > 0 {
+		for _, d := range deps {
+			if err := r.publishAllowedCallers(ctx, cellId, tenantId, d, appId, entries); err != nil {
+				logger.Error(err, "Could not publish the allowed callers onto the target",
+					"tenant", tenantId, "caller", appId, "target", d.AppID)
+			}
 		}
 	}
 
-	r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, deps, service)
+	r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, service)
 }
 
 // publishServiceIdentity puts the CALLER's client-credentials identity where the
-// caller can read it, and its client id where every TARGET will match it
-// (ADR-097).
-//
-// TWO CALLER IDENTITIES, ONE ALLOWLIST. A receiver matches `azp || client_id`,
-// and the two flows fill different claims:
-//
-//	user access token (a gateway exchange)   azp        = the exchange client
-//	client credentials (no user at all)      client_id  = the machine client
-//
-// Both are this application calling, so both map to the same application name and
-// both belong in the same allowlist. `publishAllowedCaller` is keyed on the client
-// id, so adding the second leaves the first in place.
+// caller can read it (ADR-097). Its client id reaches each TARGET as a `service`
+// entry through publishCrossApplicationTrust, beside the `user` entry.
 //
 // The ADR is explicit that client credentials does NOT produce `azp`; an
-// implementation written to that belief admits nobody. This publishes the id the
-// issuer actually stamps, which for a machine user is `client_id`.
+// implementation written to that belief admits nobody. The id published is the
+// one the issuer actually stamps, which for a machine user is `client_id`.
 func (r *AINativeSaaSReconciler) publishServiceIdentity(
 	ctx context.Context, logger logr.Logger, cellId, tenantId, appId string,
-	deps []resolvedDependency, service *client2.ServiceClient,
+	service *client2.ServiceClient,
 ) {
 	if service == nil || service.ClientID == "" {
 		// Pending, not an error, and NOT a fallback to the exchange client. The
@@ -780,46 +873,25 @@ func (r *AINativeSaaSReconciler) publishServiceIdentity(
 				"tenant", tenantId, "app", appId)
 		}
 	}
-
-	// The other half, onto each target.
-	for _, d := range deps {
-		if err := r.publishAllowedCaller(ctx, cellId, tenantId, d, service.ClientID, appId); err != nil {
-			logger.Error(err, "Could not publish the service caller onto the target",
-				"tenant", tenantId, "caller", appId, "target", d.AppID)
-		}
-	}
 }
 
-// callerExchangeClientID is the client id a receiver will actually see as `azp`
-// on a cross-application call from this application.
+// declaredClientID is the client id the issuer allocated to one of this
+// application's declared clients, by name -- the id a receiver sees as the
+// token's client when this application calls it.
 //
-// THE EXCHANGE CLIENT, NOT THE BROWSER CLIENT. Zitadel stamps an exchanged
-// token with the client that AUTHENTICATED the exchange, not the one whose token
-// was the subject: createExchangeAccessToken and createExchangeJWT both pass
-// `client.client.ClientID` into CreateOIDCSession, and that becomes `client_id`
-// on the access token and `azp` on a JWT. The gateway authenticates the exchange
-// as <appId>-gateway-exchange, so that is the value a receiver matches.
-//
-// This used to be `identity.ClientID` -- the tenant's PUBLIC PKCE client, the one
-// a browser authenticates as. Two things were wrong with it, and they pull in
-// opposite directions:
-//
-//   - the receiver would refuse every genuine cross-application call, because
-//     no exchanged token ever carries the browser client's id; and
-//   - had it matched, it would have admitted the browser client itself, so any
-//     token obtained through the caller's own login -- an ID token included --
-//     would satisfy the target's allowlist. The allowlist exists to distinguish
-//     applications, and that value cannot do it.
+// NEVER THE BROWSER CLIENT. A public client's identity is any browser's: admitted
+// as a caller, any token obtained through the application's own login -- an ID
+// token included -- would satisfy the target's allowlist. The allowlist exists to
+// distinguish applications, and that value cannot do it.
 //
 // Resolved from the mint when this reconcile created the client, and from the
 // caller's own Infisical folder otherwise: the issuer discloses a generated
 // secret once, so a later reconcile carries no Clients entry, while the id
 // published at mint time persists. Returns "" when neither has it yet, which the
 // caller must treat as pending rather than publish something else.
-func (r *AINativeSaaSReconciler) callerExchangeClientID(
-	ctx context.Context, cellId, appId string, clients []client2.DeclaredClient,
+func (r *AINativeSaaSReconciler) declaredClientID(
+	ctx context.Context, cellId, appId string, clients []client2.DeclaredClient, name string,
 ) string {
-	name := gatewayExchangeClientName(appId)
 	if id := exchangeClientIDFrom(clients, name); id != "" {
 		return id
 	}

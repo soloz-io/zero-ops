@@ -17,7 +17,12 @@ export { claimsFromPayload } from "./jwt/claims.js";
 export type { JwksCacheOptions, JwksFetchFailure, JwksStatus } from "./jwt/jwks-cache.js";
 export { fullJitterDelay, JwksCache } from "./jwt/jwks-cache.js";
 export type { JwtValidatorOptions } from "./jwt/validator.js";
-export { JwtValidator, parseAllowedCallers } from "./jwt/validator.js";
+export {
+  type AllowedCaller,
+  type CallerKind,
+  JwtValidator,
+  parseAllowedCallers,
+} from "./jwt/validator.js";
 export type { ActingUser, ActingUserOptions } from "./middleware/acting-user.js";
 // The acting user and the identity endpoint, for an app's own server (ADR-057).
 export {

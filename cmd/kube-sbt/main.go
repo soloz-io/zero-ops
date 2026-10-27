@@ -15,30 +15,11 @@ import (
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/api/middleware"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/interfaces"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/models"
-	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/openmeter"
 	"github.com/soloz-io/zero-ops/internal/kube-sbt/providers/zitadel"
 )
 
 func main() {
 	// Initialize providers with graceful retry logic
-	openMeterURL := getEnv("OPENMETER_URL", "http://openmeter-api.platform-billing.svc.cluster.local")
-
-	meteringProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
-		return openmeter.NewMeteringProvider(openMeterURL)
-	})
-	if err != nil {
-		panic(fmt.Sprintf("failed to create metering provider after retries: %v", err))
-	}
-	meteringProvider := meteringProviderRaw.(interfaces.IMetering)
-
-	billingProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
-		return openmeter.NewBillingProvider(openMeterURL)
-	})
-	if err != nil {
-		panic(fmt.Sprintf("failed to create billing provider after retries: %v", err))
-	}
-	billingProvider := billingProviderRaw.(interfaces.IBilling)
-
 	authProviderRaw, err := retryWithBackoff(func() (interface{}, error) {
 		return newAuthProvider()
 	})
@@ -68,38 +49,12 @@ func main() {
 	v1.Use(middleware.RFC7807ErrorHandler())
 	{
 		// User management endpoints
-		users := handlers.NewUserHandler(authProvider, meteringProvider)
+		users := handlers.NewUserHandler(authProvider)
 		v1.POST("/tenants/:tenantID/users", users.CreateUser)
 		v1.GET("/tenants/:tenantID/users/:userID", users.GetUser)
 		v1.PUT("/tenants/:tenantID/users/:userID", users.UpdateUser)
 		v1.DELETE("/tenants/:tenantID/users/:userID", users.DeleteUser)
 		v1.GET("/tenants/:tenantID/users", users.ListUsers)
-
-		// Usage query endpoints
-		usage := handlers.NewUsageHandler(meteringProvider)
-		v1.GET("/tenants/:tenantID/usage", usage.GetTenantUsage)
-		v1.GET("/tenants/:tenantID/users/:userID/usage", usage.GetUserUsage)
-		v1.GET("/tenants/:tenantID/entitlements", usage.CheckEntitlements)
-
-		// Read-only catalog endpoints
-		catalog := handlers.NewCatalogHandler(meteringProvider)
-		v1.GET("/meters", catalog.ListMeters)
-		v1.GET("/features", catalog.ListFeatures)
-		v1.GET("/plans", catalog.ListPlans)
-
-		// Subscription endpoints
-		subscriptions := handlers.NewSubscriptionHandler(billingProvider)
-		v1.POST("/tenants/:tenantID/subscriptions", subscriptions.CreateSubscription)
-		v1.GET("/tenants/:tenantID/subscriptions/:subscriptionID", subscriptions.GetSubscription)
-		v1.PUT("/tenants/:tenantID/subscriptions/:subscriptionID", subscriptions.UpdateSubscription)
-		v1.DELETE("/tenants/:tenantID/subscriptions/:subscriptionID", subscriptions.CancelSubscription)
-		v1.GET("/tenants/:tenantID/subscriptions", subscriptions.ListSubscriptions)
-
-		// Invoice endpoints
-		invoices := handlers.NewInvoiceHandler(billingProvider)
-		v1.GET("/tenants/:tenantID/invoices/preview", invoices.PreviewInvoice)
-		v1.GET("/tenants/:tenantID/invoices/:invoiceID", invoices.GetInvoice)
-		v1.GET("/tenants/:tenantID/invoices", invoices.ListInvoices)
 	}
 
 	// Admin endpoints (platform_admin RBAC required)

@@ -121,6 +121,17 @@ export function consumerApiValidator(opts: SurfaceValidatorOptions = {}): JwtVal
 
   const raw = platformEnv("allowedCallers", env);
   const allowedCallers = parseAllowedCallers(raw);
+  if (Object.keys(allowedCallers).length === 0 && raw?.trim()) {
+    // Entries exist and none is typed: values written before kinds (ADR-110).
+    // Refused rather than read as "no caller check", and named, so the wait is
+    // not mistaken for a surface nobody calls.
+    throw new Error(
+      `${PLATFORM_ENV.allowedCallers} holds no entry of the form ` +
+        `<clientId>=<appId>:<user|service>, so this surface admits no caller.\n\n` +
+        `The platform re-renders each caller's entries with their kind on that ` +
+        `caller's next reconcile (ADR-110).`,
+    );
+  }
   if (Object.keys(allowedCallers).length === 0) {
     throw new Error(
       `${PLATFORM_ENV.allowedCallers} is empty, so this cross-application surface would ` +

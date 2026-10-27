@@ -16,10 +16,12 @@ type OAuthClient struct {
 	// client uses PKCE and has no credential to store.
 	Confidential bool
 
-	// RedirectPaths are appended to the fleet's public host. An issuer matches
-	// redirect URIs EXACTLY, so a client provisioned without its callback fails
-	// at the authorization endpoint before any credential is entered.
-	RedirectPaths []string
+	// RedirectURIs are the client's callbacks, absolute: the fleet's declared
+	// paths on each of its public hosts, resolved by the caller, which knows the
+	// hosts. An issuer matches redirect URIs EXACTLY, so a client provisioned
+	// without its callback fails at the authorization endpoint before any
+	// credential is entered.
+	RedirectURIs []string
 
 	// TokenExchange enables the RFC 8693 grant on this client (ADR-095).
 	//

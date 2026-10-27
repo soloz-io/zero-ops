@@ -39,7 +39,8 @@ The platform already has every primitive a server-side alternative needs:
 
 ### The caller map records each client's kind
 
-- Each entry names the client, the application, and what the client's tokens carry: **user** (a client that obtains tokens for a person — the delegated client, and the gateway's exchange client) or **service** (the machine client, ADR-097).
+- Each entry names the client, the application, and what the client's tokens carry: **user** (the application's declared delegated client) or **service** (the machine client, ADR-097).
+- **Why a `user` client's tokens carry a person,** verified at Zitadel v4.15.3: the login refuses a machine user (`auth_request.go:859`), and client-credentials and JWT-profile tokens name the machine user as their client, never an application (`client_credentials.go`, `token_jwt_profile.go`). So a client holding only the authorization-code and refresh grants is issued tokens for people alone. The token-exchange grant breaks this, since an exchanged token takes whatever subject it was handed. A `user` client therefore holds no exchange grant, and the gateway's exchange client is not admitted at all.
 - The platform renders the kind from what it provisioned, never from the token's shape.
 - The validator sets the caller's kind beside `consumer_app_id`. A receiver acts for a user only on a **user** entry, and never reads a person out of a **service** token (ADR-097 invariant 8). Machine-to-machine callers keep working on **service** entries.
 - An entry without a kind is refused. Existing values are re-rendered in the new form.
@@ -88,14 +89,15 @@ What a user may do in the target once identified: ADR-094 Part 3. The target dec
 
 1. **A declared confidential client's callback is dropped.** The fleet contract requires `redirectPaths` for a client that completes a browser flow, and hub-operator sends them, but `EnsureConfidentialClient` creates the client with no redirect URIs (`providers/zitadel/tenant.go:993` passes `nil`). The code flow therefore fails at the authorization endpoint. The declared paths, on the tenant's public host, are passed through.
 2. **An existing client's configuration is never reconciled.** `ensureApp` returns an existing application as found (`tenant.go:719-730`), so a callback added later never reaches a client created earlier. Its redirect URIs are brought to the declared set on reconcile.
-3. **The caller map has no kind, and no declaration marks the delegated client.** The fleet marks which declared confidential client acts for users towards its `backendDependencies`; hub-operator publishes it onto each target's map as **user**, the exchange client as **user**, and the machine client as **service**; `parseAllowedCallers` and the validator carry the kind.
+3. **The caller map has no kind, and no declaration marks the delegated client.** The fleet marks the confidential client that acts for users (`actsForUser`: at most one, confidential, no exchange grant); hub-operator publishes it onto each target's map as **user** and the machine client as **service**, and each caller's reconcile replaces its own entries, dropping its exchange client and pre-kind entries; `parseAllowedCallers` and the validator carry the kind.
 
 **Also:**
 
 - **ADR-097** — "What is NOT decided" is decided for on-behalf-of-user calls.
 - **`zero-ops-auth`** — the caller map's grammar gains the kind; the validator exposes it.
 - **Waypoint** — consumers use the delegated flow; the consumer surface takes the acting user from the token's subject, and drops `x-consumer-user-*` (waypoint ADR-045, ADR-058).
-- **Live check** — `packages/auth/tests/jwt/zitadel-compat.live.test.ts` gains a case: a delegated code flow through a declared confidential client, requesting a target's audience and the tenant claim, yields a JWT access token that `consumerApiValidator` admits as a **user** caller with the expected subject and tenant.
+- **Waypoint** — the delegated flow is built once in `waypoint-consumer` (start and callback routes, token store, PKCE, the subject check), and each consumer's BFF forwards the user's token to its SDK over the internal channel.
+- **Live check** — `packages/auth/tests/jwt/zitadel-compat.live.test.ts` gains the ADR-110 gate: a delegated token admitted as **user** with a person's subject; a machine token admitted as **service** under another client; refusal of an unmapped client, an ID token and another tenant's token; and, when set, the access-token lifetime.
 
 ## References
 

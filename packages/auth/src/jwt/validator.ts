@@ -94,8 +94,8 @@ export interface JwtValidatorOptions {
    */
   allowedAzp?: string[];
   /**
-   * The callers this receiver admits, AND what each one is called:
-   * `{ "<azp>": "<applicationId>" }`.
+   * The callers this receiver admits, what each one is called, and what its
+   * tokens carry: `{ "<azp>": { appId, kind } }`.
    *
    * A MAP where `allowedAzp` is a list, and the difference is not cosmetic. A
    * list says a caller may enter; it does not say who entered. A receiver that
@@ -107,36 +107,58 @@ export interface JwtValidatorOptions {
    * allowlist, and neither end can be trusted to assert it: the caller would be
    * naming itself, and the receiver has nothing to derive it from.
    *
-   * Set BOTH gate and name: a token whose `azp` is absent here is refused
-   * exactly as `allowedAzp` refuses, and one that passes arrives with
-   * `consumer_app_id` set on its claims. Supply this or `allowedAzp`, not both;
-   * if both are given this one decides, because it is the stricter statement.
+   * The KIND is what the client's tokens carry (ADR-110): `user` for the client
+   * an application's backend obtains its users' tokens with, `service` for the
+   * machine client it calls as itself. The token cannot say which -- `azp` and
+   * `client_id` are one field here -- so only the platform, which provisioned
+   * the client, can.
+   *
+   * Set gate, name and kind together: a token whose `azp` is absent here is
+   * refused exactly as `allowedAzp` refuses, and one that passes arrives with
+   * `consumer_app_id` and `caller_kind` set on its claims. Supply this or
+   * `allowedAzp`, not both; if both are given this one decides, because it is
+   * the stricter statement.
    *
    * Build it from the platform's `OIDC_ALLOWED_AZP` with `parseAllowedCallers`.
    */
-  allowedCallers?: Record<string, string>;
+  allowedCallers?: Record<string, AllowedCaller>;
+}
+
+/** What a caller-map entry's tokens carry (ADR-110). */
+export type CallerKind = "user" | "service";
+
+/** One admitted caller: the application its client belongs to, and its kind. */
+export interface AllowedCaller {
+  appId: string;
+  kind: CallerKind;
 }
 
 /**
  * Read the platform's `OIDC_ALLOWED_AZP` into a caller map.
  *
- * The value is space- or comma-separated `<clientId>=<applicationId>` entries.
- * An entry with no `=` is a caller admitted before the platform rendered names,
- * and maps to `""` — admitted, unnamed. A receiver that needs the name must
- * treat `""` as unusable rather than as a name, which is why this returns the
- * empty string rather than dropping the entry: dropping it would silently
- * REVOKE a caller during the upgrade that introduces names.
+ * The value is space- or comma-separated `<clientId>=<applicationId>:<kind>`
+ * entries, kind being `user` or `service` (ADR-110).
+ *
+ * AN ENTRY WITHOUT AN APPLICATION AND A KIND ADMITS NOTHING, and is left out.
+ * Those are values written before kinds existed; the platform re-renders each
+ * caller's entries on that caller's next reconcile. Until then its tokens are
+ * refused as CALLER_NOT_ALLOWED, which fails closed -- the alternative, admitting
+ * a client without knowing whether its tokens carry a person, is the defect
+ * kinds exist to remove.
  */
-export function parseAllowedCallers(value: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
+export function parseAllowedCallers(value: string | undefined): Record<string, AllowedCaller> {
+  const out: Record<string, AllowedCaller> = {};
   for (const entry of (value ?? "").replace(/,/g, " ").split(/\s+/)) {
     if (!entry) continue;
     const eq = entry.indexOf("=");
-    if (eq === -1) {
-      out[entry] = "";
-      continue;
-    }
-    out[entry.slice(0, eq)] = entry.slice(eq + 1);
+    if (eq <= 0) continue;
+    const named = entry.slice(eq + 1);
+    const colon = named.lastIndexOf(":");
+    if (colon <= 0) continue;
+    const appId = named.slice(0, colon);
+    const kind = named.slice(colon + 1);
+    if (kind !== "user" && kind !== "service") continue;
+    out[entry.slice(0, eq)] = { appId, kind };
   }
   return out;
 }
@@ -149,7 +171,7 @@ export class JwtValidator {
   private readonly requireTenantId: boolean;
   private readonly rejectIdTokens: boolean;
   private readonly allowedAzp: string[];
-  private readonly allowedCallers?: Record<string, string>;
+  private readonly allowedCallers?: Record<string, AllowedCaller>;
   private readonly expectedTenantId?: string;
 
   constructor(opts: JwtValidatorOptions) {
@@ -250,11 +272,11 @@ export class JwtValidator {
         // that client belongs to, and a token cannot be allowed to assert its
         // own application (ADR-094 invariant 2b).
         //
-        // Empty when the entry predates names. Left undefined rather than "" so
-        // a receiver that partitions by it fails a lookup instead of writing
-        // records under an empty owner that every later caller would match.
-        const appId = this.allowedCallers[claims.azp];
-        claims.consumer_app_id = appId === "" ? undefined : appId;
+        // The kind likewise: whether this token may be read as a PERSON is the
+        // platform's statement about the client, never the token's (ADR-110).
+        const caller = this.allowedCallers[claims.azp];
+        claims.consumer_app_id = caller.appId;
+        claims.caller_kind = caller.kind;
       } else if (
         this.allowedAzp.length > 0 &&
         (claims.azp === undefined || !this.allowedAzp.includes(claims.azp))

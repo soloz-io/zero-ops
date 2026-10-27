@@ -1,0 +1,81 @@
+{{- $ledger := required "ledger.name is required" .Values.ledger.name -}}
+{{- if not (regexMatch "^[A-Za-z0-9_-]+$" $ledger) }}{{ fail (printf "ledger.name %q: letters, digits, _ and - only; the gateway's path rules are built from it" $ledger) }}{{ end -}}
+{{- $coordinator := required "coordinator is required: the one application admitted to call this Credit Authority (ADR-109)" .Values.coordinator -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $coordinator) }}{{ fail (printf "coordinator %q is not an application id" $coordinator) }}{{ end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.appId }}-gateway
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    app-id: {{ .Values.appId }}
+data:
+  # The gateway in front of the ledger (ADR-109 §4). The ledger listens on the
+  # pod's loopback, so this listener is the only way in.
+  #
+  # The gateway shell-expands this file from its environment before parsing it,
+  # so a value the platform allocates (project, organisation, caller map)
+  # reaches it at startup, and an unset one stops it starting. For the same
+  # reason no rule below uses a bare dollar sign: path rules anchor their end
+  # with RE2's \z inside CEL raw strings.
+  #
+  # Every rule is `require` or `allow`, never `deny`: a rule that fails to
+  # evaluate counts as false, so a `require` or an unmatched `allow` refuses,
+  # where a failing `deny` would admit.
+  config.yaml: |
+    binds:
+    - port: {{ .Values.workload.ports.http }}
+      listeners:
+      - protocol: HTTP
+        routes:
+        # Liveness: the gateway itself.
+        - name: health
+          matches:
+          - path: {exact: /health}
+          policies:
+            directResponse: {body: "ok", status: 200}
+        # Readiness: the ledger's own health check, and nothing else of it.
+        - name: ready
+          matches:
+          - path: {exact: /health/ready}
+          policies:
+            urlRewrite:
+              path: {full: /_healthcheck}
+          backends:
+          - host: 127.0.0.1:3068
+        # The Credit Authority API: the ledger's own, narrowed.
+        - name: ledger
+          matches:
+          - path: {pathPrefix: /v2/}
+          policies:
+            jwtAuth:
+              mode: strict
+              issuer: "${OIDC_ISSUER_URL}"
+              audiences: ["${OIDC_PROJECT_ID}"]
+              jwks:
+                url: "${OIDC_JWKS_URL}"
+            authorization:
+              rules:
+              # An access token, never an ID token (ADR-095).
+              - require: '!has(jwt.at_hash)'
+              # This tenant.
+              - require: 'jwt["urn:zitadel:iam:user:resourceowner:id"] == "${OIDC_ORG_ID}"'
+              # The coordinating application's machine client, and only it: a
+              # `service` entry for {{ $coordinator }} in this application's
+              # typed caller map (zero-ops ADR-110), matched whole.
+              - require: '(" " + "${OIDC_ALLOWED_AZP}" + " ").contains(" " + jwt.client_id + "={{ $coordinator }}:service ")'
+              # No opt-out of the balance check (ADR-109 §4): creating a
+              # transaction carries no query string, and its body names only
+              # postings, metadata and reference, matched exactly -- so `force`
+              # in any letter case, a Numscript `script` and a `timestamp` are
+              # refused, and a body that does not parse fails the rule.
+              - require: 'request.method != "POST" || (request.pathAndQuery == request.path && json(request.body).all(k, k in ["postings", "metadata", "reference"]))'
+              # The only operations (ADR-109 §4). Anchored at both ends, the
+              # ledger's name fixed, segments limited to letters, digits, _, -
+              # and, for account addresses, :.
+              - allow: 'request.method == "POST" && request.path.matches(r"^/v2/{{ $ledger }}/transactions\z")'
+              - allow: 'request.method == "GET" && request.path.matches(r"^/v2/{{ $ledger }}/transactions(/[0-9]+)?\z")'
+              - allow: 'request.method == "GET" && request.path.matches(r"^/v2/{{ $ledger }}/accounts(/[A-Za-z0-9_:-]+)?\z")'
+              - allow: 'request.method == "GET" && request.path.matches(r"^/v2/{{ $ledger }}/(aggregate/balances|volumes)\z")'
+          backends:
+          - host: 127.0.0.1:3068

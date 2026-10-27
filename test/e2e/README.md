@@ -6,27 +6,22 @@ End-to-end tests using [kubernetes-sigs/e2e-framework](https://github.com/kubern
 
 ```
 test/e2e/
-├── go.mod              # Separate test module
-├── kube-sbt/       # OpenMeter provider tests
-│   ├── openmeter_test.go
-│   └── README.md
+├── go.mod                  # Separate test module
+├── credit-authority/       # ADR-109: the Credit Authority's guarantees and isolation
+├── infisical-eso/
+├── platform-database/
+├── platform-victoriametrics/
 └── README.md
 ```
 
 ## Running Tests
 
-### Local Development
+### The Credit Authority (ADR-109)
 
-```bash
-# 1. Start port-forward (in separate terminal)
-kubectl port-forward -n platform-billing svc/openmeter-api 8080:80
-
-# 2. Run tests
-export KUBECONFIG=../k8-secrets/kubeconfig/hub.kubeconfig
-export OPENMETER_URL=http://localhost:8080
-cd test/e2e
-go test -v ./kube-sbt
-```
+Run through its gateway by `scripts/validate/cluster/109-credit-authority-isolation.sh`,
+which port-forwards to it and sets `CREDITS_URL`. The suites skip unless
+`CREDITS_URL`, `CREDITS_LEDGER` and `CREDITS_TOKEN` are set; a skipped suite proves
+nothing.
 
 ### CI/CD
 

@@ -68,7 +68,7 @@ var ErrOrgUnadopted = errors.New("zitadel: organisation exists but is not adopte
 // its clients, redirect URIs, roles and grants live there, so a second
 // application of one tenant gets its own client rather than being handed the
 // first one's.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration, backendOnly bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -100,6 +100,20 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID st
 	}
 	if err := a.ensureRoleAssertion(ctx, orgID, projectID); err != nil {
 		return nil, fmt.Errorf("ensure role assertion for %q: %w", tenantID, err)
+	}
+
+	// An application nobody signs in to stops here: its project is what other
+	// applications are admitted to, and its callers bring their own clients.
+	//
+	// It sets NOTHING on the organisation. The organisation is the tenant's,
+	// shared with the applications people do sign in to, and its self-
+	// registration policy is theirs; a backend application asserting its own
+	// on every reconcile would flip it under them.
+	if backendOnly {
+		if len(redirectURIs) > 0 || len(postLogoutURIs) > 0 || ownerEmail != "" {
+			return nil, fmt.Errorf("zitadel: backend-only application %q declares sign-in (callbacks or an owner); it has no browser client to sign in to", tenantID)
+		}
+		return &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, Incomplete: incomplete}, nil
 	}
 
 	// The browser client's NAME comes from the fleet when the fleet declared one.
@@ -681,13 +695,64 @@ const (
 // deliberately explicit act (see RegenerateClientSecret).
 func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, redirectURIs, postLogoutURIs []string, authMethod string, tokenExchange bool) (appID, clientID, clientSecret string, err error) {
 
+	// The token-exchange grant is added ONLY when asked for. Zitadel gates the
+	// grant on the client -- without it the token endpoint refuses the exchange
+	// -- and its own guidance is to put it on confidential clients only,
+	// because a client holding it can turn a token it was handed into one for a
+	// different audience. Granting it to every confidential client would hand
+	// that to fleet-declared back-ends that never asked for it; granting it to
+	// a PUBLIC client would hand it to anything that can read a browser bundle.
+	//
+	// It also decides what a client's tokens can carry (ADR-110). A client with
+	// only the authorization-code and refresh grants is issued tokens for people
+	// alone: the login refuses a machine user, and client credentials and JWT
+	// profile tokens name the machine user as their client, never an
+	// application. The exchange grant breaks that, since an exchanged token takes
+	// whatever subject it was handed -- which is why a receiver admits only a
+	// client without it as one that carries a user.
+	grantTypes := []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"}
+	if tokenExchange {
+		if authMethod != authMethodBasic {
+			return "", "", "", fmt.Errorf("zitadel: refusing token exchange on non-confidential application %q", appName)
+		}
+		grantTypes = append(grantTypes, "OIDC_GRANT_TYPE_TOKEN_EXCHANGE")
+	}
+
+	// A PUBLIC client: authMethodType NONE, no secret, PKCE carries the proof.
+	// Anything shipped to a browser is readable, so a secret here would be a
+	// published secret.
+	//
+	// Role assertion is set on the app as well as the project because both gate
+	// the claim, and only the pair produces a token carrying roles.
+	//
+	// The same body creates the application and updates it: the issuer's update
+	// REPLACES the configuration, so a field left out of an update is reset --
+	// the access token type falls back to opaque, which a receiver cannot
+	// validate without introspection (ADR-097 invariant 2).
+	config := map[string]any{
+		"redirectUris":             redirectURIs,
+		"postLogoutRedirectUris":   postLogoutURIs,
+		"responseTypes":            []string{"OIDC_RESPONSE_TYPE_CODE"},
+		"grantTypes":               grantTypes,
+		"appType":                  "OIDC_APP_TYPE_WEB",
+		"authMethodType":           authMethod,
+		"accessTokenType":          "OIDC_TOKEN_TYPE_JWT",
+		"accessTokenRoleAssertion": true,
+		"idTokenRoleAssertion":     true,
+		"idTokenUserinfoAssertion": true,
+		"devMode":                  false,
+	}
+
 	var existing struct {
 		Result []struct {
 			ID         string `json:"id"`
 			Name       string `json:"name"`
 			State      string `json:"state"`
 			OIDCConfig struct {
-				ClientID string `json:"clientId"`
+				ClientID               string   `json:"clientId"`
+				RedirectURIs           []string `json:"redirectUris"`
+				PostLogoutRedirectURIs []string `json:"postLogoutRedirectUris"`
+				GrantTypes             []string `json:"grantTypes"`
 			} `json:"oidcConfig"`
 		} `json:"result"`
 	}
@@ -727,44 +792,32 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 				return "", "", "", fmt.Errorf("reactivate application %q (%s): %w", appName, app.ID, err)
 			}
 		}
+		// A CONFIDENTIAL client is brought to its declared configuration, not
+		// returned as found. A callback declared after the client was created
+		// otherwise never reaches it, and the code flow fails at the
+		// authorization endpoint while every layer above reports the client
+		// provisioned. Its grants are asserted too, because they decide whether
+		// its tokens can carry anyone but a person (above).
+		//
+		// Public clients are left as found: their configuration is not what
+		// this reconciliation was extended to own.
+		if authMethod == authMethodBasic &&
+			(!sameSet(app.OIDCConfig.RedirectURIs, redirectURIs) ||
+				!sameSet(app.OIDCConfig.PostLogoutRedirectURIs, postLogoutURIs) ||
+				!sameSet(app.OIDCConfig.GrantTypes, grantTypes)) {
+			err := a.api.do(ctx, http.MethodPut,
+				"/management/v1/projects/"+projectID+"/apps/"+app.ID+"/oidc_config",
+				orgID, config, nil)
+			if err != nil && !isUnchanged(err) {
+				return "", "", "", fmt.Errorf("reconcile configuration of application %q (%s): %w", appName, app.ID, err)
+			}
+		}
 		return app.ID, app.OIDCConfig.ClientID, "", nil
 	}
 
-	// A PUBLIC client: authMethodType NONE, no secret, PKCE carries the proof.
-	// Anything shipped to a browser is readable, so a secret here would be a
-	// published secret.
-	//
-	// Role assertion is set on the app as well as the project because both gate
-	// the claim, and only the pair produces a token carrying roles.
-	//
-	// The token-exchange grant is added ONLY when asked for. Zitadel gates the
-	// grant on the client -- without it the token endpoint refuses the exchange
-	// -- and its own guidance is to put it on confidential clients only,
-	// because a client holding it can turn a token it was handed into one for a
-	// different audience. Granting it to every confidential client would hand
-	// that to fleet-declared back-ends that never asked for it; granting it to
-	// a PUBLIC client would hand it to anything that can read a browser bundle.
-	grantTypes := []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"}
-	if tokenExchange {
-		if authMethod != authMethodBasic {
-			return "", "", "", fmt.Errorf("zitadel: refusing token exchange on non-confidential application %q", appName)
-		}
-		grantTypes = append(grantTypes, "OIDC_GRANT_TYPE_TOKEN_EXCHANGE")
-	}
-
-	body := map[string]any{
-		"name":                     appName,
-		"redirectUris":             redirectURIs,
-		"postLogoutRedirectUris":   postLogoutURIs,
-		"responseTypes":            []string{"OIDC_RESPONSE_TYPE_CODE"},
-		"grantTypes":               grantTypes,
-		"appType":                  "OIDC_APP_TYPE_WEB",
-		"authMethodType":           authMethod,
-		"accessTokenType":          "OIDC_TOKEN_TYPE_JWT",
-		"accessTokenRoleAssertion": true,
-		"idTokenRoleAssertion":     true,
-		"idTokenUserinfoAssertion": true,
-		"devMode":                  false,
+	body := map[string]any{"name": appName}
+	for k, v := range config {
+		body[k] = v
 	}
 	var created struct {
 		AppID        string `json:"appId"`
@@ -782,6 +835,26 @@ func (a *Auth) ensureApp(ctx context.Context, orgID, projectID, appName string, 
 		return "", "", "", fmt.Errorf("zitadel: confidential application %q created without a client secret", appName)
 	}
 	return created.AppID, created.ClientID, created.ClientSecret, nil
+}
+
+// sameSet reports whether two lists hold the same values, in any order. The
+// issuer returns a configuration's lists in its own order, so comparing them as
+// sequences would rewrite an unchanged client on every reconcile.
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, v := range a {
+		seen[v]++
+	}
+	for _, v := range b {
+		if seen[v] == 0 {
+			return false
+		}
+		seen[v]--
+	}
+	return true
 }
 
 // GrantRole gives a user a role within a tenant's project.
@@ -977,7 +1050,7 @@ func (a *Auth) grantUngrantedMembers(ctx context.Context, orgID, projectID strin
 // confidential clients -- the gateway's exchange client among them -- created in
 // a different project from its browser client, and a renamed tenant had them
 // created in no organisation at all.
-func (a *Auth) EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error) {
+func (a *Auth) EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, redirectURIs []string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error) {
 	if orgID == "" || projectID == "" {
 		return "", "", fmt.Errorf("zitadel: a confidential client needs the application's resolved organisation and project; provision its identity first")
 	}
@@ -985,12 +1058,12 @@ func (a *Auth) EnsureConfidentialClient(ctx context.Context, orgID, projectID, a
 		return "", "", fmt.Errorf("zitadel: appName is required")
 	}
 
-	// A confidential client has no redirect of its own in the browser sense; the
-	// authorization code is delivered to the BFF's callback, which the caller
-	// supplies through the tenant's public host. Passing none here would make the
-	// app unusable for the code flow, so the caller's redirects are reused: both
-	// clients serve the same tenant at the same host.
-	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, nil, nil, authMethodBasic, tokenExchange)
+	// The authorization code is delivered to the workload's callback, which the
+	// fleet declares and the caller resolves onto the tenant's public hosts.
+	// Without it the code flow fails at the authorization endpoint (ADR-110). A
+	// client that runs no browser flow -- the gateway's exchange client --
+	// declares none and is given none.
+	appID, clientID, secret, err := a.ensureApp(ctx, orgID, projectID, appName, redirectURIs, nil, authMethodBasic, tokenExchange)
 	if err != nil {
 		return "", "", fmt.Errorf("ensure confidential application %q: %w", appName, err)
 	}

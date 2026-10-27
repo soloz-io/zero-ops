@@ -492,20 +492,6 @@ check_hub_operator() {
     check_argocd_app "hub-operator" "FAIL"
     check_deployment "platform-ops" "hub-operator"
 
-    # Billing CRDs installed (ops.nutgraf.in group — added in hub-operator kustomization.yaml)
-    local billing_crds=(
-        "meters.ops.nutgraf.in"
-        "features.ops.nutgraf.in"
-        "plans.ops.nutgraf.in"
-    )
-    for crd in "${billing_crds[@]}"; do
-        if kc get crd "$crd" >/dev/null 2>&1; then
-            log_pass "Billing CRD $crd: installed"
-        else
-            log_fail "Billing CRD $crd: NOT installed (check hub-operator kustomization)"
-        fi
-    done
-
     # HubEnvironment CR status
     local hub_env_name
     hub_env_name=$(kc get hubenvironment -A \

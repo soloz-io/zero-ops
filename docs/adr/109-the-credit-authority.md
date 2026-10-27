@@ -13,7 +13,8 @@ The facts this decision rests on:
 - **Formance Ledger v2.4.16 is MIT-licensed and runs on PostgreSQL**, tested against PostgreSQL 16, the version the platform's CloudNativePG clusters run. Verified at the `v2.4.16` source:
   - ordered sources drain accounts in sequence;
   - a transaction whose sources cannot cover it fails with no postings;
-  - only the issuance account may go negative;
+  - an account other than the issuance account goes negative only when the request opts in: `force`, as a query parameter or a body field, turns a posting transaction's balance check into an unbounded overdraft (`internal/api/v2/controllers_transactions_create.go:42`, `internal/api/bulking/elements.go:125`), and a Numscript source may declare its own overdraft;
+  - the request body is decoded by Go's `encoding/json`, which matches field names case-insensitively;
   - several transfers commit atomically in one transaction;
   - idempotency keys are unique per ledger, and a reused key with different input is refused;
   - balances are locked per account in a fixed order, with deadlock retry;
@@ -26,7 +27,8 @@ The facts this decision rests on:
   - JWT authentication has a strict mode that refuses a request without a valid token (`http/jwt.rs:582`);
   - authorisation rules are CEL expressions over the request and the validated JWT claims, in `allow`, `require` and `deny` modes. Every `require` must hold; when `allow` rules exist and none matches, the request is denied (`http/authorization.rs:254`);
   - an expression that fails to evaluate counts as false (`cel/types.rs:796`), so a failing `require` or `allow` denies;
-  - `request.path` is the raw URI path, without the query and without decoding (`cel/types.rs:1157`).
+  - `request.path` is the raw URI path, without the query and without decoding (`cel/types.rs:1157`); the query is in `request.uri` and `request.pathAndQuery`;
+  - `json()` parses a request body, and a rule that reads the body buffers it (`celx/src/general.rs:22`, `cel/mod.rs:357`).
 - **Ledger v3 is a release candidate** on embedded storage, with no licence file.
 - **A product's coordinating service calls the platform as itself,** with client credentials (ADR-097).
 
@@ -48,7 +50,7 @@ The platform offers a Credit Authority: an authoritative ledger of credits with 
 The platform guarantees, for every tenant's ledger:
 
 - **Atomicity.** A transaction's postings commit together or not at all.
-- **No overdraft.** No account but the issuance account goes negative. A transaction its sources cannot cover is refused whole.
+- **No overdraft.** No account but the issuance account goes negative. A transaction its sources cannot cover is refused whole. This holds because the gateway admits no request that opts out of the balance check (§4).
 - **Idempotency.** A transaction carries a caller-supplied key, unique per ledger. A repeat returns the original; a repeat with different input is refused; a failed transaction stores no key, so it can be retried.
 - **Serialisable balances.** Concurrent transactions on one account are ordered by its lock, so concurrent reservations never exceed a balance.
 - **Traceability.** Every transaction keeps its metadata and is queryable by account and metadata.
@@ -58,7 +60,14 @@ These guarantees hold however often the coordinating layer repeats a call. Finan
 
 ### 4. Tenant isolation
 
-**One Credit Authority per tenant.** Each tenant given the capability gets its own ledger deployment, in the tenant's namespace, on its own database. It holds one bucket and one ledger, created by the platform, never by a caller. No other tenant's ledger is reachable from it.
+**One Credit Authority per tenant, as a backend-only application of the tenant (`credits`).** It is deployed like any application of the tenant (ADR-088): its own namespace, its own database (ADR-099), and an identity project, with no gateway hostname, no browser client and no owner. Applications nobody signs in to are a general platform capability: they declare `identity.backendOnly`, and receive an identity project other applications are admitted to and nothing anyone signs in to, setting nothing on the tenant's organisation. It holds one bucket and one ledger. No other tenant's ledger is reachable from it.
+
+**The ledger is created by the platform, in the pod, once.** The pod starts in a fixed order:
+1. the ledger, as a native sidecar, bound to the pod's loopback for the pod's life;
+2. a one-shot provisioner, which waits for the ledger's health check, creates the tenant's ledger in its bucket over loopback, and exits. An existing ledger is accepted only when it is the expected one, by name and bucket. It never deletes, resets or recreates, and any other answer fails it;
+3. the gateway, which starts only after provisioning succeeds, so the Credit Authority is unavailable rather than half-provisioned.
+
+The ledger runs without authentication of its own: only containers of its pod can reach its loopback.
 
 **The gateway is the only way in.** The ledger runs in one pod with an AgentGateway sidecar:
 - the ledger listens on the pod's loopback address only, so nothing outside the pod reaches it except through the sidecar;
@@ -71,6 +80,12 @@ These guarantees hold however often the coordinating layer repeats a call. Finan
   - the token's client identity is the tenant's coordinating service's machine client, rendered from its declaration (ADR-097);
   - the token's tenant claim is this tenant;
   - the token is an access token, never an ID token (ADR-095).
+- **No opt-out of the balance check**, as `require` rules on creating a transaction:
+  - the body's top-level fields are exactly drawn from `postings`, `metadata` and `reference`, matched case-sensitively, so `force` in any spelling, a Numscript `script`, and a back-dated `timestamp` are refused;
+  - the request carries no query string, so the `force` query parameter is refused;
+  - a body that does not parse fails its rule, and is refused.
+
+  Credit movements are therefore posting transactions. An ordered draw across several accounts is computed by the coordinating layer; a concurrent spend makes the transaction fail whole for insufficient funds, never overdraw.
 - **Operation allowlist**, as `allow` rules over the method and the raw path, each anchored at both ends, with the tenant's ledger name fixed and path segments restricted to letters, digits, `_`, `-` and, for account addresses, `:`. A path containing `.`, `%` or an empty segment therefore never matches. Only these are allowed:
   - create a transaction; list transactions; read one transaction;
   - list accounts; read one account;
@@ -88,6 +103,10 @@ The sidecar bounds which operations a caller can perform. Which credit movements
 **The Credit Authority API** is the ledger's own API, as narrowed by this allowlist. No custom API service is built in front of it unless a required contract cannot be met this way. The platform offers credit primitives only; it offers no general billing API, and no billing or payment provider is integrated in the platform.
 
 **Applications never reach the ledger.** Consumer applications reach credits only through the coordinating product layer.
+
+**The gateway's own routes.** `/health` answers liveness; `/health/ready` is the ledger's health check and nothing else of it. Every other path matches no route.
+
+**Port-forward and exec bypass the gateway.** Either reaches the ledger's loopback. Nothing in a Credit Authority's namespace grants `pods/exec` or `pods/portforward` to anyone but platform operators, and the live check verifies it.
 
 **The Credit Authority is a target like an application.** The coordinating service declares it as a backend dependency. The platform renders its machine credential and the sidecar's caller binding from that declaration (ADR-097).
 
@@ -116,13 +135,16 @@ The sidecar bounds which operations a caller can perform. Which credit movements
 Isolation is proven, not inferred from configuration. Two checks, both named for this ADR:
 
 **At render time** (`scripts/validate/preflight/109-credit-authority-isolation.sh`), on the rendered manifests:
+- the ledger is a native sidecar on loopback, provisioning is one-shot before the gateway, and the chart refuses to render without a coordinator, with an unpinned image, or with a ledger name its rules cannot be built from;
+- a backend-only application renders no gateway, and its ingress admits only its declared consumer;
 - the ledger binds the loopback address, and the sidecar's port is the pod's only exposed port;
 - JWT authentication is strict, and the caller binding is expressed as `require` rules;
 - the authorisation uses `allow` and `require` rules only, never `deny`, since a failing `deny` expression admits;
 - every `allow` rule is anchored, names the tenant's ledger, and restricts its path characters as §4 states;
+- transaction creation requires the exact body-field allow-list and no query string;
 - network policy selects the ledger pod.
 
-**Against a deployed box**, a conformance probe through the sidecar, with each outcome asserted:
+**Against a deployed box** (`scripts/validate/cluster/109-credit-authority-isolation.sh`, running `test/e2e/credit-authority`), through the gateway, with each outcome asserted:
 
 | Request | Expected |
 |---|---|
@@ -132,9 +154,16 @@ Isolation is proven, not inferred from configuration. Two checks, both named for
 | Bulk, logs, schemas, pipelines, queries, revert, metadata writes, the v1 API | Refused |
 | Dot-segment, percent-encoded and double-slash variants of an allowed path reaching another route | Refused |
 | Another ledger's name in an allowed path | Refused |
+| Creating a transaction with `force` (query, or a body field in any letter case), a Numscript `script`, a `timestamp`, or an unparseable body | Refused |
+| Postings whose source cannot cover them | Refused for insufficient funds, with no postings |
 | A connection to the ledger's port from inside the pod network, bypassing the sidecar | No connection |
 | A connection to the sidecar from a pod other than the coordinating service | No connection |
 | Each allowed operation with the coordinating service's token | Succeeds |
+| A grant of `pods/exec` or `pods/portforward` in the namespace | None exists |
+| Concurrent spends of one balance | Exactly as many commit as it covers; it never goes below zero |
+| A repeated idempotency key; the same key with other input | The original transaction, nothing moved again; refused |
+
+A suite that skips for want of a target, or tokens it was not given, proves nothing: the capability is offered only after both suites have run against the deployment and passed.
 
 The capability is offered to a tenant only after both pass. A change to the ledger version, the gateway version or the allowlist runs both again.
 
@@ -178,6 +207,17 @@ The capability is offered to a tenant only after both pass. A change to the ledg
 ## Impact
 
 - **`manifests/architecture/components.yaml`** — a `credits` capability is declared, `status: planned`, `declared_by` this ADR.
+- **`manifests/tenants/charts/credit-authority`** — the Credit Authority's chart, on the platform workload library, published with the bundle; its images are pinned by digest in the tenant's values, and the chart refuses to render without them.
+- **`manifests/tenants/charts/platform-workload`** — a workload may declare init containers (native sidecars among them), and may drain on stop with the kubelet's sleep action, for an image without a shell (ADR-102).
+- **`scripts/package/tenant-and-catalog-charts.sh`** — a tenant chart's dependency on another chart of the same bundle is built at packaging.
+- **hub-operator and kube-sbt** — `identity.backendOnly`: an identity project and nothing anyone signs in to (XRD, universal-tenant chart).
+- **The OpenMeter billing code is removed**, not left beside this capability:
+  - hub-operator's `Meter`, `Plan` and `Feature` APIs: their controllers (registered in no manager), types, CRDs (installed on every hub with nothing reconciling them) and RBAC, and the bootstrap check that asserted the CRDs;
+  - kube-sbt's OpenMeter metering and billing providers, the usage, catalog, subscription and invoice routes they served, the metering step of user creation, `IBilling`, `IMetering` and their models;
+  - kube-sbt's `controlplane` and `systemadmin` packages, which did not compile and nothing imported.
+
+  Plans and features are the product layer's (waypoint ADR-058); meter definitions are ADR-098's.
+- **Tenant GitOps** — `environments/<env>/credits/` per tenant; the coordinating application declares `credits` in its `backendDependencies`, and `credits` declares it in `allowedConsumers`.
 - **ADR-098** — not changed by this ADR. Where infrastructure usage is recorded is decided separately.
 
 ## References

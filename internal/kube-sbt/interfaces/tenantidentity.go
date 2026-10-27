@@ -41,7 +41,12 @@ type ITenantIdentityProvisioner interface {
 	// by an upgrade or a support session with nothing to notice.
 	// project selects the APPLICATION's project within the organisation
 	// (ADR-094), bound by id once known, exactly as the organisation is.
-	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
+	//
+	// backendOnly is an application nobody signs in to (zero-ops ADR-109): it
+	// gets its organisation binding and project -- an audience other
+	// applications are admitted to -- and no browser client, and it leaves the
+	// organisation's sign-in policy to the applications people sign in to.
+	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration, backendOnly bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
 
 	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
 	//
@@ -60,7 +65,11 @@ type ITenantIdentityProvisioner interface {
 	// orgID and projectID are the TenantRef and ProjectRef EnsureTenantIdentity
 	// returned, so the client lands beside the application's browser client and
 	// never in a project or organisation resolved some other way.
-	EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
+	//
+	// redirectURIs are the client's callbacks. They are reconciled onto an
+	// existing client as well as set on a new one, so a callback declared later
+	// reaches a client created earlier.
+	EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, redirectURIs []string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
 
 	// EnsureMachineClient provisions the SERVICE identity an application calls
 	// another application with (ADR-097).

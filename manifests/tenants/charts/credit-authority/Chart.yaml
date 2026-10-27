@@ -1,0 +1,23 @@
+# The Credit Authority (ADR-109): one tenant's credit ledger, as a backend-only
+# application of that tenant (`credits`).
+#
+# One pod: the ledger on loopback (a native sidecar), a one-shot provisioner that
+# creates the tenant's ledger once the ledger answers, and the gateway that is
+# the pod's only port. The workload is the platform's (platform-workload, ADR-102).
+#
+# Published with the platform bundle (every directory under
+# manifests/tenants/charts is), at the bundle's version.
+apiVersion: v2
+name: credit-authority
+description: A tenant's credit ledger, reachable only through its authorising gateway
+type: application
+version: 0.1.0
+# Set to the bundle version at packaging. The workload's images are pinned by
+# digest in values, never taken from here.
+appVersion: "0.1.0"
+
+dependencies:
+  # In the same bundle, built into charts/ at packaging.
+  - name: platform-workload
+    version: ">=0.0.0-0"
+    repository: file://../platform-workload

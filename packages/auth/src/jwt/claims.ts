@@ -48,10 +48,20 @@ export interface TenantClaims {
    * client for. A receiver partitioning records per consuming application uses
    * this and never a field from the request.
    *
-   * Undefined when the validator was given no caller map, or when the map admits
-   * this caller without a name (an entry written before names existed).
+   * Undefined when the validator was given no caller map.
    */
   consumer_app_id?: string;
+  /**
+   * What the calling client's tokens carry, from the receiver's caller map
+   * (ADR-110): `user` -- the subject is the person the calling application acts
+   * for -- or `service` -- the subject is the calling application's machine
+   * identity, and nothing may read a person out of it (ADR-097 invariant 8).
+   *
+   * Not a claim, for the same reason as `consumer_app_id`: the token cannot say,
+   * because Zitadel spells the client claim the same way for both. Undefined
+   * when the validator was given no caller map.
+   */
+  caller_kind?: "user" | "service";
   /**
    * Platform-assigned groups (ADR-058).
    *

@@ -49,6 +49,9 @@ type ensureTenantIdentityRequest struct {
 	// OwnerEmail is granted administrative access, so the tenant has someone who
 	// can sign in to it at all.
 	OwnerEmail string `json:"ownerEmail"`
+	// BackendOnly is an application nobody signs in to (zero-ops ADR-109): a
+	// project, no browser client, and nothing set on the organisation.
+	BackendOnly bool `json:"backendOnly"`
 	// SelfRegistration lets anyone reaching this tenant's hostname create an
 	// account in it. Scoped to this tenant's organisation by the gateway, so it
 	// cannot create accounts anywhere else.
@@ -71,7 +74,7 @@ type ensureTenantIdentityRequest struct {
 		Name          string   `json:"name"`
 		Confidential  bool     `json:"confidential"`
 		TokenExchange bool     `json:"tokenExchange"`
-		RedirectPaths []string `json:"redirectPaths"`
+		RedirectURIs  []string `json:"redirectUris"`
 	} `json:"oauthClients"`
 }
 
@@ -107,13 +110,13 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		clients = append(clients, models.OAuthClient{
 			Name:          oc.Name,
 			Confidential:  oc.Confidential,
-			RedirectPaths: oc.RedirectPaths,
+			RedirectURIs:  oc.RedirectURIs,
 			TokenExchange: oc.TokenExchange,
 		})
 	}
 
 	identity, err := h.provisioner.EnsureTenantIdentity(c.Request.Context(), tenantID, req.KnownOrgID,
-		models.ProjectBinding{Name: req.ProjectName, KnownID: req.KnownProjectID}, req.OwnerEmail, req.SelfRegistration, req.RedirectURIs, req.PostLogoutURIs, clients)
+		models.ProjectBinding{Name: req.ProjectName, KnownID: req.KnownProjectID}, req.OwnerEmail, req.SelfRegistration, req.BackendOnly, req.RedirectURIs, req.PostLogoutURIs, clients)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
@@ -138,7 +141,7 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 		}
 		appName := tenantID + "-" + decl.Name
 		clientID, clientSecret, cerr := h.provisioner.EnsureConfidentialClient(
-			c.Request.Context(), identity.TenantRef, identity.ProjectRef, appName, false, decl.TokenExchange)
+			c.Request.Context(), identity.TenantRef, identity.ProjectRef, appName, decl.RedirectURIs, false, decl.TokenExchange)
 		if cerr != nil {
 			// Reported, not fatal. The tenant identity itself succeeded and is
 			// worth returning; a client that failed is named in Incomplete so

@@ -105,10 +105,16 @@ export class OidcClient {
       );
     }
 
+    // No assumed lifetime. A token whose expiry is unknown would be held as
+    // valid for however long a guess said, and presented after the issuer had
+    // already expired it.
+    if (typeof data.expires_in !== "number" || data.expires_in <= 0) {
+      throw new Error("Token exchange failed: the issuer returned no expires_in, so the token's lifetime is unknown");
+    }
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token ?? null,
-      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+      expiresAt: Date.now() + data.expires_in * 1000,
       scope: data.scope,
       tokenType: data.token_type,
     };

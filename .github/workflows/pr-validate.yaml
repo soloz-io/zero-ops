@@ -16,6 +16,9 @@ on:
       # ephemeral-vm-provisioner.yml gives: a fix to CI that CI never runs is
       # validated whenever someone next touches something else.
       - '.github/workflows/pr-validate.yaml'
+      # The e2e suites are a separate module nothing else compiles; one that no
+      # longer builds is found when a deployment needs it, not here.
+      - 'test/e2e/**'
 
 jobs:
   # The CLI's own guards. bundle_version_test.go pins both shapes chartSource
@@ -23,9 +26,10 @@ jobs:
   # path Day-0 reads -- the check that turns "works locally, fails for a tenant"
   # into a red pull request.
   #
-  # A package list rather than ./... : cmd/mcp-server and
-  # internal/kube-sbt/providers do not currently build, and sweeping them in
-  # would make this job red for reasons unrelated to the change under review.
+  # A package list rather than ./... : cmd/mcp-server does not currently build,
+  # and sweeping it in would make this job red for reasons unrelated to the
+  # change under review. kube-sbt and hub-operator are tested by their own
+  # workflows before their images are built.
   validate-cli:
     runs-on: ubuntu-latest
     steps:
@@ -35,6 +39,11 @@ jobs:
           go-version-file: go.mod
       - name: Test the CLI and the platform content it carries
         run: go test ./internal/soloz-cli/... ./internal/platform/... ./cmd/soloz/...
+      # The Credit Authority's live suites (ADR-109) run against a deployment;
+      # here they must still compile, and skip without a target.
+      - name: Compile the Credit Authority suites
+        working-directory: test/e2e
+        run: go vet ./credit-authority && go test ./credit-authority
 
       # A reusable workflow that reads an undeclared secret gets the empty
       # string, silently. That shipped: tenant-bootstrap.yml passed nine

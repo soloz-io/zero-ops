@@ -103,7 +103,7 @@ func TestEnsureConfidentialClient_CreatesWithBasicAuthAndReturnsGeneratedSecret(
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", true, false)
+	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", nil, true, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestEnsureConfidentialClient_ExistingAppIsNotRegeneratedUnlessAsked(t *test
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", false, false)
+	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", nil, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestEnsureConfidentialClient_RegeneratesExistingAppOnRequest(t *testing.T) 
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", true, false)
+	clientID, secret, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", nil, true, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestEnsureConfidentialClient_RejectsCreationWithoutASecret(t *testing.T) {
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	_, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", true, false)
+	_, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", nil, true, false)
 	if err == nil {
 		t.Fatal("expected an error when the issuer returns no client secret")
 	}
@@ -204,7 +204,7 @@ func TestEnsureConfidentialClient_ScopesEveryProjectCallToTheTenantOrg(t *testin
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", true, false); err != nil {
+	if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-bff", nil, true, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for i, call := range rec.calls {
@@ -222,10 +222,10 @@ func TestEnsureConfidentialClient_RequiresResolvedRefsAndAppName(t *testing.T) {
 	a, srv := newTestAuth(t, rec)
 	defer srv.Close()
 
-	if _, _, err := a.EnsureConfidentialClient(context.Background(), "", "", "acme-bff", true, false); err == nil {
+	if _, _, err := a.EnsureConfidentialClient(context.Background(), "", "", "acme-bff", nil, true, false); err == nil {
 		t.Error("expected an error with no resolved organisation and project")
 	}
-	if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "", true, false); err == nil {
+	if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "", nil, true, false); err == nil {
 		t.Error("expected an error for an empty appName")
 	}
 	if len(rec.calls) != 0 {
@@ -305,7 +305,7 @@ func TestEnsureConfidentialClient_GrantsTokenExchangeOnlyWhenAsked(t *testing.T)
 			a, srv := newTestAuth(t, rec)
 			defer srv.Close()
 
-			if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-x", true, tc.want); err != nil {
+			if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-1", "acme-x", nil, true, tc.want); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got := hasTokenExchange(grantTypes(t, rec)); got != tc.want {

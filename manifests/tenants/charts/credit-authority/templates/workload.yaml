@@ -1,0 +1,58 @@
+{{- /*
+The pod, composed here and rendered by the platform's workload library
+(ADR-102), in the order Kubernetes starts it (ADR-109 §4):
+
+  1. ledger       a native sidecar: Formance, bound to 127.0.0.1, for the pod's
+                  life. Nothing outside the pod can reach it.
+  2. provision    one-shot: creates the tenant's ledger over loopback, then
+                  exits. It starts once the ledger has started, and the gateway
+                  does not start until it succeeds.
+  3. the gateway  the workload's own container and the pod's only port.
+
+Names derived from appId (ADR-088), never written:
+  tenant-<appId>-db-credentials   the ledger's database (ADR-099)
+  <appId>-platform-identity       OIDC_PROJECT_ID, OIDC_ORG_ID
+  <appId>-consumer-callers        OIDC_ALLOWED_AZP, the typed caller map
+*/ -}}
+{{- $app := .Values.appId -}}
+{{- $img := .Values.images -}}
+{{- $ledgerImage := printf "%s@%s" $img.ledger.repository (required "images.ledger.digest is required: resolve it from the published image and pin it (ADR-109)" $img.ledger.digest) -}}
+{{- $provisionerImage := printf "%s@%s" $img.provisioner.repository (required "images.provisioner.digest is required: resolve it from the published image and pin it (ADR-109)" $img.provisioner.digest) -}}
+{{- $db := printf "tenant-%s-db-credentials" $app -}}
+{{- $hardened := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) -}}
+{{- $ledger := dict
+      "name" "ledger"
+      "image" $ledgerImage
+      "restartPolicy" "Always"
+      "args" (list "serve" "--bind" "127.0.0.1:3068" "--auto-upgrade")
+      "env" (list
+        (dict "name" "PGHOST" "valueFrom" (dict "secretKeyRef" (dict "name" $db "key" "host")))
+        (dict "name" "PGPORT" "valueFrom" (dict "secretKeyRef" (dict "name" $db "key" "port")))
+        (dict "name" "PGUSER" "valueFrom" (dict "secretKeyRef" (dict "name" $db "key" "username")))
+        (dict "name" "PGPASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $db "key" "password")))
+        (dict "name" "PGDATABASE" "valueFrom" (dict "secretKeyRef" (dict "name" $db "key" "database")))
+        (dict "name" "POSTGRES_URI" "value" "host=$(PGHOST) port=$(PGPORT) user=$(PGUSER) password='$(PGPASSWORD)' dbname=$(PGDATABASE) sslmode=require sslrootcert=/etc/ssl/postgres/ca.crt"))
+      "securityContext" $hardened
+      "resources" (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "cpu" "1" "memory" "512Mi"))
+      "volumeMounts" (list
+        (dict "name" "tmp" "mountPath" "/tmp")
+        (dict "name" "pg-ca" "mountPath" "/etc/ssl/postgres" "readOnly" true)) -}}
+{{- $provision := dict
+      "name" "provision"
+      "image" $provisionerImage
+      "command" (list "/bin/sh" "/provision/provision.sh")
+      "securityContext" $hardened
+      "resources" (dict "requests" (dict "cpu" "10m" "memory" "16Mi") "limits" (dict "cpu" "100m" "memory" "64Mi"))
+      "volumeMounts" (list
+        (dict "name" "tmp" "mountPath" "/tmp")
+        (dict "name" "provisioner" "mountPath" "/provision" "readOnly" true)) -}}
+{{- $w := .Values.workload -}}
+{{- $_ := set $w "initContainers" (list $ledger $provision) -}}
+{{- $_ := set $w "envFrom" (concat ($w.envFrom | default list) (list
+      (dict "secretRef" (dict "name" (printf "%s-platform-identity" $app)))
+      (dict "secretRef" (dict "name" (printf "%s-consumer-callers" $app))))) -}}
+{{- $_ := set $w "extraVolumes" (concat ($w.extraVolumes | default list) (list
+      (dict "name" "gateway-config" "configMap" (dict "name" (printf "%s-gateway" $app)))
+      (dict "name" "provisioner" "configMap" (dict "name" (printf "%s-provisioner" $app)))
+      (dict "name" "pg-ca" "secret" (dict "secretName" "shared-cnpg-ca" "items" (list (dict "key" "ca.crt" "path" "ca.crt")))))) -}}
+{{ include "platform-workload.all" . }}

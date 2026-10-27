@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as jose from "jose";
 import { JwtValidator } from "../../src/jwt/validator.js";
-import { IdTokenPresentedError } from "../../src/types.js";
+import { CallerNotAllowedError, IdTokenPresentedError, TenantMismatchError } from "../../src/types.js";
 
 // ADR-095 RELEASE GATE: the Zitadel compatibility invariant, against a real issuer.
 //
@@ -211,4 +211,119 @@ describe.skipIf(!crossConfigured)("ADR-094 experiment: cross-project roles in on
     const own = (claims[`urn:zitadel:iam:org:project:${PROJECT_ID}:roles`] ?? {}) as object;
     expect(Object.keys(own)).not.toContain(PEER_ROLE);
   });
+});
+
+// ── ADR-110 GATE: a delegated user token and a machine token, told apart ──────
+//
+// What a receiver relies on, asked of the deployed issuer rather than fixtures:
+//
+//   - a token the consumer's backend obtained through the delegated flow is
+//     admitted as a `user` caller, its subject the person who authorized;
+//   - the consumer's machine token is admitted as a `service` caller, and names
+//     a different client;
+//   - a token from a client the caller map does not hold, an ID token, and a
+//     token for another tenant are refused;
+//   - the access-token lifetime is what the instance is set to.
+//
+// SKIPPED unless pointed at an instance:
+//
+//   ZITADEL_ISSUER=https://id.example
+//   ZITADEL_TARGET_PROJECT_ID=...         the receiver's project (its audience)
+//   ZITADEL_TENANT_ORG_ID=...             the receiver's organisation
+//   ZITADEL_DELEGATED_CLIENT_ID=...       the consumer's actsForUser client
+//   ZITADEL_DELEGATED_ACCESS_TOKEN=...    a token that client obtained for a
+//                                         real person (read from the consumer's
+//                                         token store after authorizing)
+//   ZITADEL_SERVICE_CLIENT_ID=...         the consumer's machine client
+//   ZITADEL_SERVICE_CLIENT_SECRET=...
+//   ZITADEL_ID_TOKEN=...                  an ID token from a real login
+//   ZITADEL_MAX_ACCESS_TOKEN_SECONDS=900  optional: the lifetime to assert
+//
+// A gate to run before enabling delegated-user authentication, not a watch: the
+// delegated token expires within the instance's lifetime.
+
+const T_PROJECT = env("ZITADEL_TARGET_PROJECT_ID");
+const T_ORG = env("ZITADEL_TENANT_ORG_ID");
+const DELEGATED_CLIENT = env("ZITADEL_DELEGATED_CLIENT_ID");
+const DELEGATED_TOKEN = env("ZITADEL_DELEGATED_ACCESS_TOKEN");
+const SERVICE_CLIENT = env("ZITADEL_SERVICE_CLIENT_ID");
+const SERVICE_SECRET = env("ZITADEL_SERVICE_CLIENT_SECRET");
+const ID_TOKEN = env("ZITADEL_ID_TOKEN");
+const MAX_LIFETIME = Number(env("ZITADEL_MAX_ACCESS_TOKEN_SECONDS") || "0");
+
+const delegationConfigured = Boolean(
+  ISSUER && T_PROJECT && T_ORG && DELEGATED_CLIENT && DELEGATED_TOKEN && SERVICE_CLIENT && SERVICE_SECRET && ID_TOKEN,
+);
+
+// The machine token, minted exactly as serviceTokenSource mints it (ADR-097).
+async function serviceToken(): Promise<string> {
+  const res = await fetch(new URL("/oauth/v2/token", ISSUER), {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      authorization: `Basic ${Buffer.from(`${encodeURIComponent(SERVICE_CLIENT)}:${encodeURIComponent(SERVICE_SECRET)}`).toString("base64")}`,
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: `urn:zitadel:iam:org:project:id:${T_PROJECT}:aud urn:zitadel:iam:user:resourceowner`,
+    }),
+  });
+  const json = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) throw new Error(`client credentials failed (${res.status}): ${JSON.stringify(json)}`);
+  return json.access_token as string;
+}
+
+// The receiver as consumerApiValidator builds it, with the typed caller map.
+function receiver(callers: Record<string, { appId: string; kind: "user" | "service" }>, tenant = T_ORG) {
+  return new JwtValidator({
+    jwksUrl: new URL("/oauth/v2/keys", ISSUER).toString(),
+    issuer: ISSUER,
+    audience: T_PROJECT,
+    allowedCallers: callers,
+    rejectIdTokens: true,
+    requireTenantId: true,
+    expectedTenantId: tenant,
+  });
+}
+
+describe.skipIf(!delegationConfigured)("ADR-110 gate: delegated user tokens and machine tokens, live", () => {
+  const map = {
+    [DELEGATED_CLIENT]: { appId: "consumer", kind: "user" as const },
+    [SERVICE_CLIENT]: { appId: "consumer", kind: "service" as const },
+  };
+
+  it("admits the delegated token as a user caller, its subject a person", async () => {
+    const claims = await receiver(map).validate(DELEGATED_TOKEN);
+    expect(claims.caller_kind).toBe("user");
+    expect(claims.consumer_app_id).toBe("consumer");
+    expect(claims.sub).toBeTruthy();
+    // A person's token carries their address; a machine user has none.
+    expect(claims.email).toMatch(/@/);
+    expect(jose.decodeJwt(DELEGATED_TOKEN)).not.toHaveProperty("at_hash");
+  }, 30_000);
+
+  it("admits the machine token as a service caller, naming another client", async () => {
+    const token = await serviceToken();
+    const claims = await receiver(map).validate(token);
+    expect(claims.caller_kind).toBe("service");
+    expect(claims.azp).toBe(SERVICE_CLIENT);
+    expect(claims.azp).not.toBe(DELEGATED_CLIENT);
+  }, 30_000);
+
+  it("refuses a client the caller map does not hold (cross-application)", async () => {
+    const onlyService = { [SERVICE_CLIENT]: { appId: "consumer", kind: "service" as const } };
+    await expect(receiver(onlyService).validate(DELEGATED_TOKEN)).rejects.toThrow(CallerNotAllowedError);
+  }, 30_000);
+
+  it("refuses an ID token and a token for another tenant", async () => {
+    await expect(receiver(map).validate(ID_TOKEN)).rejects.toThrow(IdTokenPresentedError);
+    await expect(receiver(map, `${T_ORG}-other`).validate(DELEGATED_TOKEN)).rejects.toThrow(TenantMismatchError);
+  }, 30_000);
+
+  it.skipIf(!MAX_LIFETIME)("issues access tokens within the instance's lifetime", async () => {
+    for (const token of [DELEGATED_TOKEN, await serviceToken()]) {
+      const { iat, exp } = jose.decodeJwt(token);
+      expect(Number(exp) - Number(iat)).toBeLessThanOrEqual(MAX_LIFETIME);
+    }
+  }, 30_000);
 });

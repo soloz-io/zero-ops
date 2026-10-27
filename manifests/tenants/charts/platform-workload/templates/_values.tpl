@@ -45,6 +45,14 @@ env: []
 envFrom: []
 extraVolumes: []
 extraVolumeMounts: []
+# Containers that run before the workload's own, as Kubernetes specs. One with
+# `restartPolicy: Always` is a native sidecar: it starts first and runs for the
+# pod's life, and the init containers after it start only once it has started.
+initContainers: []
+# The 5-second drain before the process stops is an exec of /bin/sleep, which
+# an image with no shell does not have. True uses the kubelet's own sleep action
+# instead, so the drain does not depend on the image.
+preStopSleepAction: false
 podLabels: {}
 terminationGracePeriodSeconds: 30
 spreadAcrossNodes: true

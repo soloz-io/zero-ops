@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.appId }}-provisioner
+  labels:
+    tenant-id: {{ .Values.tenantId }}
+    app-id: {{ .Values.appId }}
+data:
+  # Creates the tenant's ledger, once, over the pod's loopback (ADR-109 §4).
+  #
+  # Runs as an init container after the ledger's native sidecar has started, and
+  # before the gateway: until it exits 0 the gateway is not running, so the Credit
+  # Authority is unavailable rather than half-provisioned.
+  #
+  # It never deletes, resets or recreates. An existing ledger is accepted only
+  # when it is the expected one -- this name, in this bucket. Anything else it is
+  # answered fails the container with what was answered.
+  provision.sh: |
+    set -eu
+    ledger={{ .Values.ledger.name | quote }}
+    bucket={{ required "ledger.bucket is required" .Values.ledger.bucket | quote }}
+    base=http://127.0.0.1:3068
+
+    # The ledger was started a moment ago; it migrates its schemas before it
+    # answers. Bounded, and a ledger that never answers fails provisioning.
+    tries=0
+    until curl -fsS -o /dev/null "$base/_healthcheck"; do
+      tries=$((tries + 1))
+      if [ "$tries" -ge 90 ]; then
+        echo "the ledger did not answer its health check within 180s" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+
+    status=$(curl -sS -o /tmp/ledger.json -w '%{http_code}' "$base/v2/$ledger")
+    case "$status" in
+      200) ;;
+      404)
+        created=$(curl -sS -o /tmp/create.json -w '%{http_code}' -X POST \
+          -H 'content-type: application/json' \
+          -d "{\"bucket\":\"$bucket\"}" "$base/v2/$ledger")
+        if [ "$created" != 204 ]; then
+          echo "creating ledger $ledger answered $created:" >&2
+          cat /tmp/create.json >&2
+          exit 1
+        fi
+        status=$(curl -sS -o /tmp/ledger.json -w '%{http_code}' "$base/v2/$ledger")
+        if [ "$status" != 200 ]; then
+          echo "ledger $ledger was created and then read as $status" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "reading ledger $ledger answered $status:" >&2
+        cat /tmp/ledger.json >&2
+        exit 1
+        ;;
+    esac
+
+    if ! grep -q "\"name\":\"$ledger\"" /tmp/ledger.json || ! grep -q "\"bucket\":\"$bucket\"" /tmp/ledger.json; then
+      echo "ledger $ledger is not the expected ledger (bucket $bucket):" >&2
+      cat /tmp/ledger.json >&2
+      exit 1
+    fi
+    echo "ledger $ledger is ready in bucket $bucket"

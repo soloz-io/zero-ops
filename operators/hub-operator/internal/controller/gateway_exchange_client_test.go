@@ -48,10 +48,15 @@ func TestTheExchangeClientIsAppendedWhateverTheFleetDeclared(t *testing.T) {
 				// and then the exchange is not a boundary at all.
 				t.Error("the exchange client must be confidential")
 			}
-			if len(found.RedirectPaths) != 0 {
+			if len(found.RedirectURIs) != 0 {
 				// It never runs a browser flow. A registered redirect would be a
 				// login path nobody intended to expose.
-				t.Errorf("expected no redirect paths, got %v", found.RedirectPaths)
+				t.Errorf("expected no redirect URIs, got %v", found.RedirectURIs)
+			}
+			if found.ActsForUser {
+				// An exchanged token takes whatever subject it was handed, so the
+				// exchange client never carries a person to a target (ADR-110).
+				t.Error("the exchange client must not act for users")
 			}
 		})
 	}
@@ -69,8 +74,7 @@ func TestTheExchangeClientIsPerApp(t *testing.T) {
 func TestTheFleetCannotSupplyTheExchangeClient(t *testing.T) {
 	// A fleet naming this client would be naming the holder of a credential that
 	// mints tokens for an API. The platform's entry is appended AFTER the
-	// declaration, so it is the one the publishing loop and callerExchangeClientID
-	// resolve, and a same-named fleet entry cannot stand in for it.
+	// declaration, so it is the one the gateway's credential resolves to, and a same-named fleet entry cannot stand in for it.
 	obj := xr(map[string]interface{}{
 		"name": "waypoint-gateway-exchange", "type": "public",
 	})
@@ -79,5 +83,56 @@ func TestTheFleetCannotSupplyTheExchangeClient(t *testing.T) {
 	last := got[len(got)-1]
 	if last.Name != gatewayExchangeClientName("waypoint") || !last.Confidential {
 		t.Fatalf("the platform's entry must be last and confidential, got %+v", last)
+	}
+}
+
+func TestADeclaredCallbackIsRegisteredOnEveryGatewayHost(t *testing.T) {
+	// ADR-110: the code flow fails at the authorization endpoint unless the
+	// callback is registered exactly, and the gateway answers on every host.
+	obj := xr(map[string]interface{}{
+		"name": "bff", "type": "confidential",
+		"redirectPaths": []interface{}{"/api/v1/auth/callback"},
+	})
+	_ = unstructured.SetNestedStringSlice(obj.Object, []string{"a.example", "b.example"}, "spec", "gateway", "hostnames")
+
+	got := declaredOAuthClients(obj)
+	if len(got) != 1 {
+		t.Fatalf("want one client, got %+v", got)
+	}
+	want := []string{"https://a.example/api/v1/auth/callback", "https://b.example/api/v1/auth/callback"}
+	if len(got[0].RedirectURIs) != len(want) || got[0].RedirectURIs[0] != want[0] || got[0].RedirectURIs[1] != want[1] {
+		t.Fatalf("RedirectURIs = %v; want %v", got[0].RedirectURIs, want)
+	}
+}
+
+func TestOnlyOneConfidentialClientMayActForUsers(t *testing.T) {
+	for name, tc := range map[string]struct {
+		clients []client2.OAuthClient
+		want    string
+		wantErr bool
+	}{
+		"none declared":     {clients: []client2.OAuthClient{{Name: "bff", Confidential: true}}, want: ""},
+		"one, confidential": {clients: []client2.OAuthClient{{Name: "bff", Confidential: true, ActsForUser: true}}, want: "bff"},
+		"a public client":   {clients: []client2.OAuthClient{{Name: "web", ActsForUser: true}}, wantErr: true},
+		"two clients": {clients: []client2.OAuthClient{
+			{Name: "bff", Confidential: true, ActsForUser: true},
+			{Name: "api", Confidential: true, ActsForUser: true},
+		}, wantErr: true},
+		"holds the exchange grant": {clients: []client2.OAuthClient{
+			{Name: "x", Confidential: true, ActsForUser: true, TokenExchange: true},
+		}, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := actingClientOf(tc.clients)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("want a refusal, got %q", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("actingClientOf = %q, %v; want %q", got, err, tc.want)
+			}
+		})
 	}
 }

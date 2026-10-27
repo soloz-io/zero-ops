@@ -10,27 +10,21 @@ import (
 
 // UserHandler handles user management endpoints
 type UserHandler struct {
-	auth     interfaces.IAuth
-	metering interfaces.IMetering
+	auth interfaces.IAuth
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(auth interfaces.IAuth, metering interfaces.IMetering) *UserHandler {
-	return &UserHandler{
-		auth:     auth,
-		metering: metering,
-	}
+func NewUserHandler(auth interfaces.IAuth) *UserHandler {
+	return &UserHandler{auth: auth}
 }
 
 // CreateUser handles POST /api/v1/tenants/{tenantID}/users
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	tenantID := c.Param("tenantID")
-	namespace, _ := c.Get("namespace")
 
 	var req struct {
-		Email    string            `json:"email" binding:"required,email"`
-		Password string            `json:"password" binding:"required,min=8"`
-		Metadata map[string]string `json:"metadata"`
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required,min=8"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -43,7 +37,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Step 1: Create the user at the identity provider
+	// Create the user at the identity provider
 	//
 	// TenantID is set on the FIELD, not smuggled through Traits. createIdentity
 	// reads u.TenantID and writes it to metadata_public (ADR-010); it never looks
@@ -76,36 +70,9 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Step 2: Register subject in OpenMeter
-	subjectID := models.GenerateSubjectID(tenantID, idpUser.ID)
-	metadata := map[string]string{
-		"email":     req.Email,
-		"tenant_id": tenantID,
-	}
-	if req.Metadata != nil {
-		for k, v := range req.Metadata {
-			metadata[k] = v
-		}
-	}
-
-	err = h.metering.RegisterSubject(c.Request.Context(), namespace.(string), subjectID, metadata)
-	if err != nil {
-		// Saga Rollback: delete the user at the identity provider
-		_ = h.auth.DeleteUser(c.Request.Context(), idpUser.ID)
-
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"type":   "https://kube-sbt.io/problems/internal-error",
-			"title":  "Internal Server Error",
-			"status": http.StatusInternalServerError,
-			"detail": "Failed to register subject in metering system",
-		})
-		return
-	}
-
 	c.JSON(http.StatusCreated, gin.H{
 		"id":         idpUser.ID,
 		"email":      idpUser.Email,
-		"subject_id": subjectID,
 		"created_at": idpUser.CreatedAt,
 	})
 }
@@ -169,11 +136,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 // DeleteUser handles DELETE /api/v1/tenants/{tenantID}/users/{userID}
 func (h *UserHandler) DeleteUser(c *gin.Context) {
-	tenantID := c.Param("tenantID")
 	userID := c.Param("userID")
-	namespace, _ := c.Get("namespace")
 
-	// Step 1: Delete user from Ory Kratos
+	// Delete the user at the identity provider
 	err := h.auth.DeleteUser(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -183,14 +148,6 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 			"detail": "Failed to delete user",
 		})
 		return
-	}
-
-	// Step 2: Delete subject from OpenMeter
-	subjectID := models.GenerateSubjectID(tenantID, userID)
-	err = h.metering.DeleteSubject(c.Request.Context(), namespace.(string), subjectID)
-	if err != nil {
-		// Log error but don't fail the request (subject cleanup via reconciliation)
-		// TODO: Publish to DLQ for reconciliation
 	}
 
 	c.Status(http.StatusNoContent)

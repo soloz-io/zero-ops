@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.22.0
+
+### Changed (breaking)
+
+- The caller map (`OIDC_ALLOWED_AZP`) is typed (ADR-110). Each entry is
+  `<clientId>=<appId>:<kind>`, kind `user` or `service`.
+  `parseAllowedCallers` returns `{ appId, kind }` per client, and leaves out an
+  entry without an application and a kind: it admits nothing.
+- `JwtValidator`'s `allowedCallers` takes that map, and an admitted token's
+  claims carry `caller_kind` beside `consumer_app_id`. A receiver acts for a
+  person only on `user`; a `service` token's subject is the calling
+  application's machine identity (ADR-097 invariant 8).
+- `consumerApiValidator` refuses to build when the map holds entries but none
+  is typed, naming the re-render it waits on.
+
+- `OidcClient` refuses a token response without `expires_in` instead of
+  assuming an hour.
+
+### Added
+
+- `AllowedCaller` and `CallerKind` types.
+- `TokenStore.beginFlow` takes the flow's PKCE verifier, and `resolveFlow`
+  returns it, so a delegated flow redeems its code with the verifier it was
+  challenged with.
+
 ## 0.21.1
 
 ### Fixed

@@ -177,12 +177,8 @@ The platform uses **two distinct delivery mechanisms** for different types of co
 - Notifications: `spoke.{tenant-id}.notifications.>` → notification service
 - Spoke Silo state sync: Local Tenant Control Plane DB → NATS Leaf Node → Hub Event Router → Control Plane Shared DB
 
-**Usage Metering (OTLP):**
-- AgentGateway emits OTLP traces to OpenMeter (Hub) for every authenticated request
-- Meters: api_calls, storage_operations, custom_api_calls, developer_api_calls
-- Span attributes: tenant_id, user_id, meter_id
-- Batched emission (max 100 events), async non-blocking
-- Local buffering (1-hour retention) when OpenMeter unreachable
+**Usage Metering:**
+- Infrastructure usage is recorded in the usage-analytics database (ADR-098, amended); it is not billable usage
 
 **Observability Push (Alloy):**
 - All spokes run Grafana Alloy

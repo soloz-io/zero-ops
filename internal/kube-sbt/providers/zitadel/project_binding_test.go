@@ -152,7 +152,7 @@ func ensure(t *testing.T, a *Auth, b models.ProjectBinding) (*models.TenantIdent
 	t.Helper()
 	// knownOrgID set: the org is bound, so no org search or creation happens and
 	// the test isolates the project decision.
-	return a.EnsureTenantIdentity(context.Background(), "nutgraf", "org-1", b, "", false,
+	return a.EnsureTenantIdentity(context.Background(), "nutgraf", "org-1", b, "", false, false,
 		[]string{"https://oranger.example/oauth/callback"}, nil, nil)
 }
 
@@ -247,7 +247,7 @@ func TestEnsureConfidentialClient_LandsInTheResolvedProject(t *testing.T) {
 
 	rec.calls = nil
 	if _, _, err := a.EnsureConfidentialClient(context.Background(), "org-1", "proj-oranger",
-		"nutgraf-oranger-gateway-exchange", false, true); err != nil {
+		"nutgraf-oranger-gateway-exchange", nil, false, true); err != nil {
 		t.Fatalf("EnsureConfidentialClient: %v", err)
 	}
 	if got := rec.appCreatedIn(); got != "proj-oranger" {

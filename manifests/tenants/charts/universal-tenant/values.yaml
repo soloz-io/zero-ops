@@ -93,6 +93,10 @@ identity:
   # create an account IN THIS TENANT — the gateway scopes every authorization
   # request to this fleet's organisation, so it cannot land anywhere else.
   selfRegistration: false
+  # An application nobody signs in to (zero-ops ADR-109): no gateway hostname,
+  # no OAuth client. It gets an identity project other applications of this
+  # tenant are admitted to, and nothing anyone signs in to.
+  backendOnly: false
   # Other applications OF THIS TENANT this one may call with a user's credential
   # (ADR-094 Part 2). appIds, never hostnames, never another tenant's app.
   #
@@ -199,6 +203,11 @@ oauth:
   #                     fails at the authorization endpoint before any credential
   #                     is entered — which reads as a broken login page rather than
   #                     a missing registration.
+  #   actsForUser       true on the ONE confidential client the backend obtains its
+  #                     users' tokens with, through the delegated flow (ADR-110).
+  #                     The applications this one depends on admit it as a caller
+  #                     carrying a user; without it they admit only its service
+  #                     identity, which acts for no one. Requires redirectPaths.
   #   grantTypes        default [authorization_code, refresh_token]
   #   responseTypes     default [code]
   #   scope             space-separated; default "openid offline_access"

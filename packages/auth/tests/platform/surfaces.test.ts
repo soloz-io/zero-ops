@@ -70,7 +70,10 @@ describe("browserSessionValidator", () => {
 });
 
 describe("consumerApiValidator", () => {
-  const env = { ...BASE, OIDC_ALLOWED_AZP: "oranger-gateway-exchange@nutgraf=oranger" };
+  const env = {
+    ...BASE,
+    OIDC_ALLOWED_AZP: "oranger-bff@nutgraf=oranger:user oranger-service@nutgraf=oranger:service",
+  };
 
   it("refuses ID tokens: the browser exception does not cross an application boundary", () => {
     expect(sw(consumerApiValidator({ env })).rejectIdTokens).toBe(true);
@@ -84,10 +87,17 @@ describe("consumerApiValidator", () => {
     expect(sw(consumerApiValidator({ env })).expectedTenantId).toBe(BASE.OIDC_ORG_ID);
   });
 
-  it("uses the caller MAP, so the receiver can name its caller", () => {
+  it("uses the caller MAP, so the receiver can name its caller and its kind", () => {
     expect(sw(consumerApiValidator({ env })).allowedCallers).toEqual({
-      "oranger-gateway-exchange@nutgraf": "oranger",
+      "oranger-bff@nutgraf": { appId: "oranger", kind: "user" },
+      "oranger-service@nutgraf": { appId: "oranger", kind: "service" },
     });
+  });
+
+  it("refuses to build when no entry carries a kind (ADR-110)", () => {
+    expect(() =>
+      consumerApiValidator({ env: { ...BASE, OIDC_ALLOWED_AZP: "oranger-bff@nutgraf=oranger" } }),
+    ).toThrow(/admits no caller/);
   });
 
   it("refuses to build with no callers, rather than checking nothing", () => {
@@ -101,16 +111,22 @@ describe("consumerApiValidator", () => {
 });
 
 describe("parseAllowedCallers", () => {
-  it("keeps an unnamed entry rather than dropping it", () => {
-    // Dropping it would REVOKE a caller during the upgrade that introduces names.
-    expect(parseAllowedCallers("old-client new-client=newapp")).toEqual({
-      "old-client": "",
-      "new-client": "newapp",
+  it("admits only entries naming an application and a kind (ADR-110)", () => {
+    // A bare id, a pre-kind entry and an unknown kind admit nothing: the
+    // receiver cannot know whether their tokens carry a person.
+    expect(
+      parseAllowedCallers("bare a=app b=app:user c=app:service d=app:robot e=:user"),
+    ).toEqual({
+      b: { appId: "app", kind: "user" },
+      c: { appId: "app", kind: "service" },
     });
   });
 
   it("reads both separators the platform has used", () => {
-    expect(parseAllowedCallers("a=1, b=2")).toEqual({ a: "1", b: "2" });
+    expect(parseAllowedCallers("a=1:user, b=2:service")).toEqual({
+      a: { appId: "1", kind: "user" },
+      b: { appId: "2", kind: "service" },
+    });
   });
 
   it("is empty for an absent value", () => {
