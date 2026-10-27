@@ -201,6 +201,15 @@ capabilities:
   support:
     enabled: true
 
+  # ADR-109's Credit Authority: a ledger for a box that grants and spends
+  # credits. Off by default -- a box run as an internal platform bills nobody
+  # (README, "What the platform is"). Its database, role and credential exist on
+  # every box regardless; this runs the ledger, its gateway and the
+  # credits.<hubDomain> route. An application consumes it by declaring
+  # capabilities.credits in its own fleet values.
+  credits:
+    enabled: false
+
 # On-prem nodes (ADR-075): machines on the tenant's own premises, joining over
 # their tailnet. A selectable capability (ADR-066), not a property of the
 # provider, and revisable at any point in a cluster's life -- the datapath every

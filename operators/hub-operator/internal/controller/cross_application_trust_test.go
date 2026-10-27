@@ -65,6 +65,11 @@ func (f *fakeSecretStore) UpdateSecret(_ context.Context, path, name, value stri
 	return nil
 }
 
+func (f *fakeSecretStore) DeleteSecret(_ context.Context, path, name string) error {
+	delete(f.data, k(path, name))
+	return nil
+}
+
 func (f *fakeSecretStore) EnsureTenantFolderAndCredentials(
 	_ context.Context, _, _, _ string, _ bool, _ []secrets.OAuthClient, _, _, _ bool,
 ) (*secrets.EnsureTenantCredentialsResult, error) {

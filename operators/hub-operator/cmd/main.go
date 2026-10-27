@@ -344,12 +344,19 @@ func main() {
 	// provision, so absence is a configuration rather than a fault.
 	identityClient := hubclient.NewIdentityClient(os.Getenv("IDENTITY_SERVICE_URL"))
 
-	if err := (&controller.AINativeSaaSReconciler{
+	tenantResources := &controller.AINativeSaaSReconciler{
 		Client:          mgr.GetClient(),
 		InfisicalClient: secretsInfisicalClient,
 		IdentityClient:  identityClient,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err := tenantResources.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "AINativeSaaS")
+		os.Exit(1)
+	}
+	// The box's Credit Authority (ADR-109): its identity while enabled and its
+	// one caller, with the same clients as the applications it serves.
+	if err := (&controller.CreditAuthorityReconciler{AINativeSaaSReconciler: tenantResources}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "CreditAuthority")
 		os.Exit(1)
 	}
 

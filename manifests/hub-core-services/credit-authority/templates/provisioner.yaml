@@ -1,12 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.appId }}-provisioner
-  labels:
-    tenant-id: {{ .Values.tenantId }}
-    app-id: {{ .Values.appId }}
+  name: credit-authority-provisioner
+  namespace: platform-credits
 data:
-  # Creates the tenant's ledger, once, over the pod's loopback (ADR-109 §4).
+  # Creates the box's ledger, once, over the pod's loopback (ADR-109 §4).
   #
   # Runs as an init container after the ledger's native sidecar has started, and
   # before the gateway: until it exits 0 the gateway is not running, so the Credit

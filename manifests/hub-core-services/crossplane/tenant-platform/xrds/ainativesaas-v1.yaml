@@ -147,6 +147,22 @@ spec:
                       as separated in their data as two customers, and sharing
                       takes a `sharedData` declaration naming both sides.
                     pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?-db$'
+              capabilities:
+                type: object
+                description: >-
+                  Platform capabilities this application CONSUMES (ADR-109).
+                  A declaration is the tenant's authorisation and the single
+                  source for the capability's caller identity, audience and
+                  network admission. The capability itself is its own
+                  resource (CreditAuthority); one application of a tenant owns
+                  each capability, and a later declaration is refused.
+                properties:
+                  credits:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: false
               pooler:
                 type: object
                 description: "PgBouncer pooler configuration"
@@ -250,18 +266,6 @@ spec:
                       It does not restrict WHO may sign up. Anyone who can reach
                       the hostname can join. Restricting that is an invitation
                       and needs a mail sender the issuer does not yet have.
-                  backendOnly:
-                    type: boolean
-                    default: false
-                    description: |
-                      An application nobody signs in to (zero-ops ADR-109): it
-                      has no gateway hostname and declares no OAuth client. It
-                      gets an identity project -- the audience other
-                      applications of this tenant are admitted to, by their own
-                      backendDependencies -- and no browser client, no gateway
-                      exchange client and no owner, and sets nothing on the
-                      tenant's organisation. A backend-only application that
-                      declares a hostname or an OAuth client is refused.
                   backendDependencies:
                     type: array
                     items:

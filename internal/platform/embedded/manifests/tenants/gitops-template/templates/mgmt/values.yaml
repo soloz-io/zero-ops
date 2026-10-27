@@ -173,6 +173,11 @@ dns:
 #   support        removes the Support Agent. It ships inert and reports nothing
 #                  until you enrol; turning it off is how you remove it after
 #                  ending a support subscription (ADR-077).
+#   credits        removes the Credit Authority's ledger and its credits.<domain>
+#                  endpoint and revokes its caller; its database and records stay
+#                  (ADR-109). Off unless this box grants and spends credits -- a
+#                  box run as an internal platform bills nobody. An application
+#                  declaring capabilities.credits does not render while it is off.
 capabilities:
   database:
     enabled: true
@@ -180,6 +185,8 @@ capabilities:
     enabled: true
   support:
     enabled: true
+  credits:
+    enabled: false
 
 # On-prem nodes (ADR-075). Machines on your own premises, joining this cluster
 # over your Tailscale tailnet.

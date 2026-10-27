@@ -133,7 +133,7 @@ type ServiceClient struct {
 // knownProjectID is the immutable binding and wins; otherwise projectName is
 // found or created inside the bound organisation; both empty keeps the
 // application on the legacy shared project.
-func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration, backendOnly bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient, serviceClientName string) (*TenantIdentity, error) {
+func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID, projectName, knownProjectID, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []OAuthClient, serviceClientName string) (*TenantIdentity, error) {
 	// Sent as declared. The service provisions exactly this set and no more, so a
 	// fleet that declares nothing gets no clients rather than a default one.
 	clients := make([]map[string]any, 0, len(oauthClients))
@@ -154,10 +154,7 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 		"knownProjectId":   knownProjectID,
 		"ownerEmail":       ownerEmail,
 		"selfRegistration": selfRegistration,
-		// An application nobody signs in to (zero-ops ADR-109): a project and
-		// no browser client.
-		"backendOnly":  backendOnly,
-		"oauthClients": clients,
+		"oauthClients":     clients,
 		// Empty when the application declares no backend dependencies, and the
 		// service then provisions no machine identity. An unused machine
 		// credential is a standing credential nobody rotates.
@@ -205,6 +202,53 @@ func (c *IdentityClient) EnsureTenantIdentity(ctx context.Context, tenantID, kno
 		return nil, fmt.Errorf("identity service: reported success with no client id for tenant %q", tenantID)
 	}
 	return &out, nil
+}
+
+// EnsurePlatformProject provisions a project in the platform's own
+// organisation and returns its organisation and project ids (ADR-109): the
+// audience a platform capability admits its one caller by.
+func (c *IdentityClient) EnsurePlatformProject(ctx context.Context, name string) (orgID, projectID string, err error) {
+	body, err := json.Marshal(map[string]any{"name": name})
+	if err != nil {
+		return "", "", err
+	}
+
+	url := fmt.Sprintf("%s/internal/platform/projects", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("identity service: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", "", ErrIdentityProvisioningUnsupported
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(raw))
+		if len(msg) > 300 {
+			msg = msg[:300]
+		}
+		return "", "", fmt.Errorf("identity service: POST %s -> %d: %s", url, resp.StatusCode, msg)
+	}
+
+	var out struct {
+		OrgID     string `json:"orgId"`
+		ProjectID string `json:"projectId"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", "", fmt.Errorf("identity service: decode response: %w", err)
+	}
+	if out.OrgID == "" || out.ProjectID == "" {
+		return "", "", fmt.Errorf("identity service: reported success with no organisation or project for platform project %q", name)
+	}
+	return out.OrgID, out.ProjectID, nil
 }
 
 // ErrIdentityProvisioningUnsupported is returned when the configured identity

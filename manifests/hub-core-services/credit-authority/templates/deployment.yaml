@@ -1,0 +1,130 @@
+{{- /*
+The Credit Authority's pod, in the order Kubernetes starts it (ADR-109 §4):
+
+  1. ledger       a native sidecar: Formance, bound to 127.0.0.1, for the pod's
+                  life. Nothing outside the pod can reach it.
+  2. provision    one-shot: creates the box's ledger over loopback, then exits.
+                  It starts once the ledger has started, and the gateway does
+                  not start until it succeeds.
+  3. gateway      the pod's only port, reached only through the hub Gateway.
+*/ -}}
+{{- $img := .Values.images -}}
+{{- $hardened := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credit-authority
+  namespace: platform-credits
+  labels:
+    app.kubernetes.io/name: credit-authority
+spec:
+  # One writer. The ledger serialises a balance's transactions by its lock in
+  # PostgreSQL, so a second replica would be safe, but nothing here needs it and
+  # an upgrade must not run two ledger versions against one schema.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: credit-authority
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: credit-authority
+      annotations:
+        checksum/gateway: {{ include (print $.Template.BasePath "/gateway-config.yaml") . | sha256sum }}
+        checksum/provisioner: {{ include (print $.Template.BasePath "/provisioner.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: ledger
+          image: {{ printf "%s@%s" $img.ledger.repository (required "images.ledger.digest is required (ADR-109)" $img.ledger.digest) }}
+          restartPolicy: Always
+          args: ["serve", "--bind", "127.0.0.1:3068", "--auto-upgrade"]
+          env:
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: credit-authority-db, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: credit-authority-db, key: password}}
+            - name: POSTGRES_URI
+              value: "host=platform-db-rw.platform-data.svc.cluster.local port=5432 user=$(PGUSER) password='$(PGPASSWORD)' dbname=credits sslmode=require"
+          securityContext: {{- toYaml $hardened | nindent 12 }}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+        - name: provision
+          image: {{ printf "%s@%s" $img.provisioner.repository (required "images.provisioner.digest is required (ADR-109)" $img.provisioner.digest) }}
+          command: ["/bin/sh", "/provision/provision.sh"]
+          securityContext: {{- toYaml $hardened | nindent 12 }}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: provisioner, mountPath: /provision, readOnly: true}
+      containers:
+        - name: gateway
+          image: {{ printf "%s@%s" $img.gateway.repository (required "images.gateway.digest is required (ADR-109)" $img.gateway.digest) }}
+          command: ["/app/agentgateway", "-f", "/etc/agentgateway/config.yaml"]
+          ports:
+            - {name: http, containerPort: 3000, protocol: TCP}
+          env:
+            - name: OIDC_ISSUER_URL
+              value: {{ required "oidcIssuer is required: the box's issuer" .Values.oidcIssuer | quote }}
+            - name: OIDC_JWKS_URL
+              value: {{ required "oidcJwksUrl is required: the box's JWKS" .Values.oidcJwksUrl | quote }}
+          envFrom:
+            # The capability's project, and its one caller with that caller's
+            # organisation. With no declared caller the second Secret does not
+            # exist and the gateway does not start: it admits nobody.
+            - secretRef: {name: credit-authority-identity}
+            - secretRef: {name: credit-authority-caller}
+          # The image has no shell, so the drain before stop is the kubelet's own.
+          lifecycle:
+            preStop:
+              sleep: {seconds: 5}
+          startupProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+          securityContext: {{- toYaml $hardened | nindent 12 }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: gateway-config, mountPath: /etc/agentgateway, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: gateway-config
+          configMap: {name: credit-authority-gateway}
+        - name: provisioner
+          configMap: {name: credit-authority-provisioner}
+        - name: tmp
+          emptyDir: {}
+---
+# The gateway's port, and the only one: the ledger has none.
+apiVersion: v1
+kind: Service
+metadata:
+  name: credit-authority
+  namespace: platform-credits
+spec:
+  selector:
+    app.kubernetes.io/name: credit-authority
+  ports:
+    - {name: http, port: 3000, targetPort: http, protocol: TCP}

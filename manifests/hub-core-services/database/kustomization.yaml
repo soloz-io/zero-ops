@@ -7,6 +7,7 @@ kind: Kustomization
 # Deploy a provider overlay, never this directory directly.
 resources:
   - control-plane-db-credentials-es.yaml
+  - hub-credits-db-credentials-es.yaml
   - hub-db-credentials-es.yaml
   - infisical-database.yaml
   - network-policy.yaml

@@ -424,6 +424,41 @@ func (c *InfisicalClient) UpdateSecret(ctx context.Context, secretPath, secretNa
 	return nil
 }
 
+// DeleteSecret removes a secret from Infisical. Removing one that does not exist
+// is success: the caller asked for its absence, and absence is what it has.
+func (c *InfisicalClient) DeleteSecret(ctx context.Context, secretPath, secretName string) error {
+	body, err := json.Marshal(map[string]interface{}{
+		"workspaceId": c.ProjectID,
+		"environment": c.EnvironmentSlug,
+		"secretPath":  secretPath,
+		"type":        "shared",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal delete secret request: %w", err)
+	}
+
+	req, err := c.newAuthenticatedRequest(ctx, "DELETE", c.BaseURL+fmt.Sprintf(constant.APIEndpointSecretsRawKey, secretName), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete secret %s at %s: %w", secretName, secretPath, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete secret %s at %s returned status %d: %s", secretName, secretPath, resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 // ============================================================================
 // MACHINE IDENTITY API OPERATIONS
 // ============================================================================

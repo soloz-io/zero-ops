@@ -1,0 +1,18 @@
+{{- if and (not .Values.deployXR) ((.Values.capabilities).credits).enabled }}
+{{- $url := required "capabilities.credits is declared, but this box does not run the Credit Authority: turn on capabilities.credits.enabled for the box, or remove the declaration (ADR-109)" .Values.creditAuthorityUrl }}
+---
+# Where this application reaches the box's Credit Authority (ADR-109), because
+# it declares capabilities.credits. The URL is the platform's, never the
+# fleet's; the credential it presents there is its service identity
+# (<app>-service-identity), whose audience includes the capability's project.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "universal-tenant.appId" . }}-credit-authority
+  namespace: {{ include "universal-tenant.namespace" . }}
+  labels:
+    tenant-id: {{ include "universal-tenant.tenantId" . }}
+    app-id: {{ include "universal-tenant.appId" . }}
+data:
+  CREDITS_URL: {{ $url | quote }}
+{{- end }}

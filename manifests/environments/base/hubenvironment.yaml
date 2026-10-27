@@ -83,6 +83,21 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
+
+    # The Credit Authority's ledger role (ADR-109). Declared on EVERY box, with
+    # its credential delivered by the database prerequisites
+    # (hub-credits-db-credentials), because this list is not capability-aware
+    # and stops at the first role whose Secret is missing: a role present only
+    # while the capability ran would block every role after it on boxes that
+    # leave credits off. It owns the credits database, as hub_zitadel owns
+    # zitadel's; the ledger service itself runs only when the capability is on.
+    - name: hub_credits
+      database: credits
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
   oauth:
     clients:
     - clientId: mcp-server

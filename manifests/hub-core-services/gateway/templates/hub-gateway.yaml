@@ -177,6 +177,27 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values: [platform-edge, platform-identity, platform-ops, platform-security]
+    {{- if .Values.creditAuthority.enabled }}
+    # The Credit Authority (ADR-109), only while capabilities.credits.enabled.
+    # Its own namespace is the only one whose routes it admits.
+    - name: credits
+      hostname: credits.{{ .Values.global.hubDomain }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: hub-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: [platform-credits]
+    {{- end }}
 
     - name: dashboard
       hostname: dashboard.{{ .Values.global.hubDomain }}

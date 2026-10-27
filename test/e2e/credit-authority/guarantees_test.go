@@ -4,9 +4,9 @@
 //
 // SKIPPED unless pointed at one:
 //
-//	CREDITS_URL     the Credit Authority's address (its sidecar), e.g. a port-forward
-//	CREDITS_LEDGER  the tenant's ledger name
-//	CREDITS_TOKEN   an access token of the tenant's coordinating service
+//	CREDITS_URL     the Credit Authority's address: https://credits.<hubDomain>
+//	CREDITS_LEDGER  the box's ledger name
+//	CREDITS_TOKEN   an access token of the declaring application's service client
 //
 // Every account it touches is named for the run, so runs never share a balance.
 package creditauthority_test

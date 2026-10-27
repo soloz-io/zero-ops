@@ -509,6 +509,15 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		Description: "Zitadel DB credentials",
 	},
 	{
+		// The Credit Authority's ledger role (ADR-109). Generated on every box:
+		// the role is a platform prerequisite whether or not the capability runs,
+		// because RoleManager stops at the first role whose credential is missing.
+		UsernameKey: "hub-credits-db-username",
+		PasswordKey: "hub-credits-db-password",
+		Username:    "hub_credits",
+		Description: "Credit Authority ledger DB credentials",
+	},
+	{
 		// Zitadel's masterkey encrypts everything it stores at rest, and
 		// checkMasterKeyLength compares len() of the RAW STRING against 32 —
 		// it does not decode it. So what matters is the character count.

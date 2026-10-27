@@ -1,0 +1,29 @@
+global:
+  hubDomain: ""
+
+# The box's issuer and its JWKS, set by environment-manager from the same values
+# every other consumer of the issuer reads. No default: a gateway that cannot
+# validate tokens must not start.
+oidcIssuer: ""
+oidcJwksUrl: ""
+
+# The box's ledger and its bucket, created by the provisioner (ADR-109 §4).
+# Letters, digits, `_` and `-` only: the gateway's path rules are built from it.
+ledger:
+  name: credits
+  bucket: credits
+
+# Pinned by digest by the platform, like every platform image (ADR-021).
+images:
+  # Formance Ledger v2.4.16 (MIT). The scratch build: the binary and nothing else.
+  ledger:
+    repository: ghcr.io/formancehq/ledger
+    digest: "sha256:fc624af4dde0b9fa8b43ae02b7297fc3f15266df7c9806edec794f1420b40e62"
+  # The one-shot provisioner: a shell and an HTTP client (curl 8.23.0).
+  provisioner:
+    repository: docker.io/curlimages/curl
+    digest: "sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac"
+  # The gateway: the AgentGateway release the tenant gateway runs (v1.6.0).
+  gateway:
+    repository: cr.agentgateway.dev/agentgateway
+    digest: "sha256:9d3e6044ddcdc0878b1787f77bd401252b95e22684203fb5e874c4c42d2ed90c"

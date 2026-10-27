@@ -30,18 +30,6 @@ PY
     echo "packaged $name -> $chart"
 done
 
-# A tenant chart may build on another of the same bundle (credit-authority on
-# platform-workload, ADR-102). Its dependency names the sibling by file://, so it
-# is built here, after every sibling is in place at the bundle's version -- into
-# the chart's own charts/, which is what a published chart carries.
-for src in manifests/tenants/charts/*/; do
-    chart="$OUTDIR/$(basename "$src")"
-    if grep -q 'repository: file://' "$chart/Chart.yaml"; then
-        helm dependency build "$chart" >/dev/null
-        echo "built dependencies of $(basename "$src")"
-    fi
-done
-
 # The catalogue is a Kustomize overlay per PROVIDER, the same shape as boundary
 # 02's placement classes: the overlay IS the variation, so packaging it keeps the
 # variation intact rather than reconstructing it from values.

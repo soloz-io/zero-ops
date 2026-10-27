@@ -93,6 +93,39 @@ spec:
           # where a component is declared. It was a descriptor while that target
           # arrived as a Day-0-written Kustomize patch committed under
           # generated/; removing that is what moves it here.
+          {{- if .Values.capabilities.credits.enabled }}
+          # ADR-109: the box's Credit Authority -- its ledger, gateway and
+          # provisioner. Its database, role and credential are not here: they are
+          # platform prerequisites present on every box (hub-core-services/
+          # database), so turning this off removes the service and keeps the
+          # records. Inline for the reason support-agent is (ADR-066 addendum 2).
+          - boundary: '03'
+            appName: 'credit-authority'
+            destinationNamespace: 'platform-credits'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/credit-authority'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              credit-authority:
+                enabled: true
+                oidcIssuer: {{ include "environment-manager.oidcIssuer" . | quote }}
+                oidcJwksUrl: {{ include "environment-manager.oidcJwksUrl" . | quote }}
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- else }}
+              oidcIssuer: {{ include "environment-manager.oidcIssuer" . | quote }}
+              oidcJwksUrl: {{ include "environment-manager.oidcJwksUrl" . | quote }}
+              {{- include "environment-manager.globalValues" . | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+          {{- end }}
+
           {{- if .Values.capabilities.support.enabled }}
           # ADR-077. Ships to every box and is inert until enrolled; enrolment is
           # the client certificate and the tenant-owned enrolment ConfigMap both
@@ -265,10 +298,14 @@ spec:
                 enabled: true
                 externalDns:
                   target: {{ .Values.hubIngressAddress | quote }}
+                creditAuthority:
+                  enabled: {{ .Values.capabilities.credits.enabled }}
               {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- else }}
               externalDns:
                 target: {{ .Values.hubIngressAddress | quote }}
+              creditAuthority:
+                enabled: {{ .Values.capabilities.credits.enabled }}
               {{- include "environment-manager.globalValues" . | nindent 14 }}
               {{- end }}
             helmReleaseName: ''

@@ -24,3 +24,8 @@ externalDns:
   # before the address is known, and the platform-gateway Application is
   # re-rendered with it once it is.
   target: ""
+
+# The Credit Authority's listener and route (ADR-109), set by environment-manager
+# from capabilities.credits.enabled. Off: no listener, no route, no hostname.
+creditAuthority:
+  enabled: false

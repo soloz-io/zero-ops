@@ -13,6 +13,7 @@
 #   - platform-ops        (hub-operator, infisical setup jobs)
 #   - platform-data       (internal CNPG cluster communication)
 #   - platform-security   (Infisical)
+#   - platform-credits    (the Credit Authority's ledger, ADR-109)
 #
 # CNPG operator (cnpg-system) must reach instance pods on port 8000
 # for status polling. Without this, CNPG reports "Instance Status Extraction
@@ -46,6 +47,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: platform-security
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-credits
       ports:
         - protocol: TCP
           port: 5432

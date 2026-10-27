@@ -46,8 +46,7 @@ ignore: |
   # first commit. The rule above is about a CLASS of file, so the pattern says so.
   manifests/tenants/charts/*/templates/
   manifests/argocd/environment-manager/templates/
-  manifests/hub-core-services/security/templates/
-  manifests/hub-core-services/gateway/templates/
+  manifests/hub-core-services/*/templates/
   manifests/hub-core-services/**/charts/
   manifests/spoke/**/charts/
   spoke-catalog-hybrid/templates/

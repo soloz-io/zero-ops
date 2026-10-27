@@ -34,6 +34,16 @@ metadata:
     name: platform-identity
     topology.platform.io/role: hub
 ---
+# The Credit Authority (ADR-109). Present on every box with the other platform
+# namespaces; its service runs here only when capabilities.credits.enabled.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-credits
+  labels:
+    name: platform-credits
+    topology.platform.io/role: hub
+---
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -5,6 +5,14 @@
 {{- $base := printf "/spoke-pool/%s/tenants/%s" (required "cellId must be supplied" .Values.cellId) $a }}
 {{- $consumers := (.Values.identity).allowedConsumers | default list }}
 {{- $deps := (.Values.identity).backendDependencies | default list }}
+{{- /* The Credit Authority, when this application declares it (ADR-109): its
+       project id and this application's service identity travel the same
+       path as any dependency's. Never the gateway's exchange scopes, which
+       carry users -- the capability admits this application's machine client
+       alone (agentgateway.yaml does not read this). */ -}}
+{{- if ((.Values.capabilities).credits).enabled }}
+{{- $deps = append $deps "credits" }}
+{{- end }}
 {{- $key := $a | upper | replace "-" "_" }}
 {{- /*
   The platform's own identity values, delivered to a fleet's WORKLOADS.

@@ -41,12 +41,7 @@ type ITenantIdentityProvisioner interface {
 	// by an upgrade or a support session with nothing to notice.
 	// project selects the APPLICATION's project within the organisation
 	// (ADR-094), bound by id once known, exactly as the organisation is.
-	//
-	// backendOnly is an application nobody signs in to (zero-ops ADR-109): it
-	// gets its organisation binding and project -- an audience other
-	// applications are admitted to -- and no browser client, and it leaves the
-	// organisation's sign-in policy to the applications people sign in to.
-	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration, backendOnly bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
+	EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error)
 
 	// EnsureConfidentialClient provisions a tenant's server-side OAuth client.
 	//

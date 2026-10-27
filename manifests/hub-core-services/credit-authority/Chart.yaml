@@ -1,0 +1,14 @@
+# The Credit Authority (ADR-109): the box's credit ledger, a selectable platform
+# capability run on the hub like the box's other platform services, and turned
+# on by capabilities.credits.enabled.
+#
+# One pod: the ledger on loopback (a native sidecar), a one-shot provisioner that
+# creates the box's ledger once the ledger answers, and the gateway that is the
+# pod's only port. Its database, role and credential are platform prerequisites
+# (hub-core-services/database), present on every box.
+apiVersion: v2
+name: credit-authority
+description: The box's credit ledger, reachable only through its authorising gateway
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

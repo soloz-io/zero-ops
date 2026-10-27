@@ -2,23 +2,35 @@
 # ADR-109: the Credit Authority's isolation, as rendered. The live half is
 # cluster/109-credit-authority-isolation.sh; both gate the capability.
 #
+# The Credit Authority is a selectable capability run on the hub
+# (hub-core-services/credit-authority), reached only through the hub Gateway at
+# credits.<hubDomain>.
+#
 #   I1  the pod: the ledger is a native sidecar bound to 127.0.0.1; the
 #       provisioner is a one-shot init container after it; the gateway is the
-#       only container with a port, and the pod's only port is 3000
-#   I2  the gateway's ledger route: strict JWT on the issuer and this
-#       application's project; every rule is `require` or `allow`, never `deny`
-#   I3  the caller binding: no ID token, this tenant, and the coordinator's
-#       `service` entry in the typed caller map
+#       only container with a port, and the pod's and Service's only port is 3000
+#   I2  the gateway's ledger route: strict JWT on the box's issuer and the
+#       capability's project; every rule is `require` or `allow`, never `deny`
+#   I3  the caller binding: no ID token, exactly the one client the platform
+#       publishes from the declaration, and that client's organisation
 #   I4  no opt-out of the balance check: creating a transaction requires no query
 #       string and a body whose fields are exactly postings, metadata, reference
-#   I5  every `allow` is anchored at both ends on the tenant's ledger, with the
-#       path characters ADR-109 §4 states, and nothing else is allowed
+#   I5  every `allow` is anchored at both ends on the box's ledger, with the path
+#       characters ADR-109 §4 states, and nothing else is allowed
 #   I6  the config holds no dollar sign but its environment references (it is
 #       shell-expanded before it is parsed)
-#   I7  the chart refuses to render without a coordinator, without pinned image
-#       digests, or with a ledger name its rules cannot be built from
-#   I8  a backend-only application: no gateway, and the platform's ingress admits
-#       only its declared consumer's SDK on 3000
+#   I7  the chart refuses to render without the issuer, a pinned image, or with a
+#       ledger name its rules cannot be built from
+#   I8  exposure: ingress to the pod is the hub Gateway's identity only, on 3000;
+#       the route and its listener exist only while the capability is enabled,
+#       admit only the capability's namespace, and reach only the gateway; the
+#       caller's Secret is revocable
+#   I9  the prerequisites are on every box: the credits database (owned by
+#       hub_credits, retained), the role, its generated credential delivered with
+#       the database prerequisites, the namespace, and platform-db admitting it
+#   I10 enablement: the service, the gateway's flag and the fleets' URL follow
+#       capabilities.credits.enabled, and a fleet declaring the capability on a
+#       box without it does not render
 validate_credit_authority_isolation() {
     section "ADR-109 Credit Authority isolation (rendered)"
 
@@ -29,25 +41,27 @@ validate_credit_authority_isolation() {
 
     local out
     out=$(cd "$VALIDATE_ROOT" && python3 - <<'PY'
-import json, re, shutil, subprocess, tempfile, yaml, os
+import re, subprocess, tempfile, yaml
 
-SRC = "manifests/tenants/charts"
-UT = f"{SRC}/universal-tenant"
-DIGEST = "sha256:" + "0" * 64
-FIXTURE = {
-    "tenantId": "acme", "coordinator": "waypoint",
-    "images": {"ledger": {"digest": DIGEST}, "provisioner": {"digest": DIGEST}},
-}
+CA = "manifests/hub-core-services/credit-authority"
+GW = "manifests/hub-core-services/gateway"
+EM = "manifests/argocd/environment-manager"
+UT = "manifests/tenants/charts/universal-tenant"
+DB = "manifests/hub-core-services/database"
+FIXTURE = {"oidcIssuer": "https://id.example.test", "oidcJwksUrl": "https://id.example.test/keys",
+           "global": {"hubDomain": "example.test"}}
+EM_ARGS = ["--set", "environmentSlug=dev", "--set", "provider=hybrid",
+           "--set", "instanceRepoURL=https://github.com/example-org/example-gitops",
+           "--set", "hubDomain=dev.example.test", "--set", "previewDomain=example-preview.test",
+           "--set", "grafanaCloudStackUrl=https://example.grafana.net",
+           "--set", "alerting.alertmanagerUrl=https://alertmanager.example.test",
+           "--set", "alerting.alertmanagerId=1", "--set", "alerting.emailTo[0]=alerts@example.test",
+           "--set", "topology=single", "--set", "publicTlsIssuer=letsencrypt-prod",
+           "--set", "oidcIssuer=https://auth.example.invalid"]
 
 fails, passes = [], []
 def check(ok, good, bad): (passes if ok else fails).append(good if ok else bad)
 def docs(text): return [d for d in yaml.safe_load_all(text) if d]
-
-work = tempfile.mkdtemp()
-for name in ("credit-authority", "platform-workload"):
-    shutil.copytree(f"{SRC}/{name}", f"{work}/{name}")
-dep = subprocess.run(["helm", "dependency", "build", f"{work}/credit-authority"], capture_output=True, text=True)
-CA = f"{work}/credit-authority"
 
 def render(chart, values):
     with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
@@ -56,17 +70,13 @@ def render(chart, values):
     err = next((l for l in r.stderr.splitlines() if l.startswith("Error:")), None)
     return r.stdout, err
 
-if dep.returncode != 0:
-    fails.append(f"I0 the chart's dependency did not build: {dep.stderr.strip()}")
-    out, err = "", "not rendered"
-else:
-    out, err = render(CA, FIXTURE)
+out, err = render(CA, FIXTURE)
 if err:
-    fails.append(f"I0 the fixture did not render: {err}")
+    fails.append(f"I0 the chart did not render: {err}")
 else:
     ds = docs(out)
-    rollout = next(d for d in ds if d["kind"] == "Rollout")
-    pod = rollout["spec"]["template"]["spec"]
+    dep = next(d for d in ds if d["kind"] == "Deployment")
+    pod = dep["spec"]["template"]["spec"]
     inits = pod.get("initContainers", [])
     names = [c["name"] for c in inits]
     ledger = inits[0] if inits else {}
@@ -74,33 +84,33 @@ else:
     bind = args[args.index("--bind") + 1] if "--bind" in args else ""
     ported = [c["name"] for c in inits + pod["containers"] if c.get("ports")]
     ports = [p["containerPort"] for c in inits + pod["containers"] for p in c.get("ports", [])]
+    svc_ports = [p["port"] for d in ds if d["kind"] == "Service" for p in d["spec"]["ports"]]
     check(names == ["ledger", "provision"] and ledger.get("restartPolicy") == "Always"
           and bind == "127.0.0.1:3068" and "restartPolicy" not in inits[1]
           and len(pod["containers"]) == 1 and ported == [pod["containers"][0]["name"]] and ports == [3000]
-          and not pod.get("hostNetwork"),
+          and svc_ports == [3000] and not pod.get("hostNetwork"),
           "I1 ledger is a loopback native sidecar, provisioning is one-shot before the gateway, 3000 is the only port",
-          f"I1 pod shape wrong: init={names} restartPolicy={ledger.get('restartPolicy')} bind={bind!r} ported={ported} ports={ports}")
+          f"I1 pod shape wrong: init={names} bind={bind!r} ported={ported} ports={ports} service={svc_ports}")
 
     cm = next(d for d in ds if d["kind"] == "ConfigMap" and "config.yaml" in d.get("data", {}))
     raw = cm["data"]["config.yaml"]
     cfg = yaml.safe_load(raw)
     routes = {r["name"]: r for r in cfg["binds"][0]["listeners"][0]["routes"]}
-    route = routes.get("ledger", {})
-    pol = route.get("policies", {})
+    pol = routes.get("ledger", {}).get("policies", {})
     jwt = pol.get("jwtAuth", {})
     rules = pol.get("authorization", {}).get("rules", [])
     modes = [next(iter(r)) if isinstance(r, dict) else "allow" for r in rules]
     check(jwt.get("mode") == "strict" and jwt.get("issuer") == "${OIDC_ISSUER_URL}"
           and jwt.get("audiences") == ["${OIDC_PROJECT_ID}"] and jwt.get("jwks", {}).get("url") == "${OIDC_JWKS_URL}"
           and rules and "deny" not in modes and set(modes) == {"require", "allow"},
-          "I2 the ledger route requires a strict JWT for this project, and uses only require and allow",
+          "I2 the ledger route requires a strict JWT for the capability's project, and uses only require and allow",
           f"I2 ledger route policy wrong: jwtAuth={jwt} modes={modes}")
 
     requires = [r["require"] for r in rules if isinstance(r, dict) and "require" in r]
     check("!has(jwt.at_hash)" in requires
-          and 'jwt["urn:zitadel:iam:user:resourceowner:id"] == "${OIDC_ORG_ID}"' in requires
-          and any('"${OIDC_ALLOWED_AZP}"' in r and '"=waypoint:service "' in r and "jwt.client_id" in r for r in requires),
-          "I3 the caller is the coordinator's machine client, of this tenant, with an access token",
+          and 'jwt.client_id == "${CREDITS_CALLER_CLIENT_ID}"' in requires
+          and 'jwt["urn:zitadel:iam:user:resourceowner:id"] == "${CREDITS_CALLER_ORG_ID}"' in requires,
+          "I3 the caller is the one declared client, of its own organisation, with an access token",
           f"I3 caller binding incomplete: {requires}")
 
     body = [r for r in requires if "json(request.body)" in r]
@@ -115,41 +125,93 @@ else:
     tails = sorted(pat.match(a).group(2) for a in allows) if ok else allows
     check(ok and tails == sorted(["transactions", "transactions(/[0-9]+)?", "accounts(/[A-Za-z0-9_:-]+)?",
                                   "(aggregate/balances|volumes)"]),
-          "I5 only the four operations are allowed, each anchored on the tenant's ledger",
+          "I5 only the four operations are allowed, each anchored on the box's ledger",
           f"I5 allow rules wrong: {tails}")
 
-    stray = re.sub(r"\$\{[A-Z_]+\}", "", raw)
-    check("$" not in stray, "I6 the config's only dollar signs are its environment references",
+    check("$" not in re.sub(r"\$\{[A-Z_]+\}", "", raw), "I6 the config's only dollar signs are its environment references",
           "I6 a bare dollar sign in the gateway config would be shell-expanded before it is parsed")
 
-    refused = {}
-    for what, v in {
-        "no coordinator": {**FIXTURE, "coordinator": ""},
-        "no ledger digest": {**FIXTURE, "images": {"ledger": {"digest": ""}, "provisioner": {"digest": DIGEST}}},
-        "no provisioner digest": {**FIXTURE, "images": {"ledger": {"digest": DIGEST}, "provisioner": {"digest": ""}}},
-        "a ledger name with a dot": {**FIXTURE, "ledger": {"name": "a.b", "bucket": "a"}},
-    }.items():
-        refused[what] = bool(render(CA, v)[1])
-    check(all(refused.values()), "I7 the chart refuses a missing coordinator, unpinned images and an unsafe ledger name",
+    refused = {
+        "no issuer": bool(render(CA, {**FIXTURE, "oidcIssuer": ""})[1]),
+        "no ledger digest": bool(render(CA, {**FIXTURE, "images": {"ledger": {"digest": ""}}})[1]),
+        "no gateway digest": bool(render(CA, {**FIXTURE, "images": {"gateway": {"digest": ""}}})[1]),
+        "a ledger name with a dot": bool(render(CA, {**FIXTURE, "ledger": {"name": "a.b", "bucket": "a"}})[1]),
+    }
+    check(all(refused.values()), "I7 the chart refuses a missing issuer, unpinned images and an unsafe ledger name",
           f"I7 rendered what it must refuse: {[k for k, v in refused.items() if not v]}")
 
-ut, e8 = render(UT, {"tenantId": "acme", "appId": "credits", "cellId": "cell-1",
-                     "oidcIssuer": "https://id.example.test",
-                     "identity": {"backendOnly": True, "allowedConsumers": ["waypoint"]}})
-if e8:
-    fails.append(f"I8 the backend-only fixture did not render: {e8}")
-else:
-    ds = docs(ut)
-    gw = [d for d in ds if d["kind"] == "Deployment" and "agentgateway" in d["metadata"]["name"]]
-    ing = next((d for d in ds if d["kind"] == "CiliumNetworkPolicy" and d["metadata"]["name"] == "credits-cross-app-ingress"), None)
-    froms = [(f["matchLabels"].get("app"), f["matchLabels"].get("k8s:io.kubernetes.pod.namespace"))
-             for r in (ing or {}).get("spec", {}).get("ingress", []) for f in r.get("fromEndpoints", [])]
-    check(not gw and ing and ("sdk", "tenant-acme-waypoint") in froms
-          and not any(ns and ns.startswith("tenant-acme-") and ns not in ("tenant-acme-waypoint", "tenant-acme-credits") for _, ns in froms),
-          "I8 a backend-only application has no gateway, and admits only its declared consumer's SDK",
-          f"I8 backend-only rendering wrong: gateways={[d['metadata']['name'] for d in gw]} ingress={froms}")
+    cnp = next((d for d in ds if d["kind"] == "CiliumNetworkPolicy"), {})
+    ingress = cnp.get("spec", {}).get("ingress", [])
+    sources = [(tuple(r.get("fromEntities", [])), tuple(r.get("fromEndpoints", []))) for r in ingress]
+    cnp_ports = {p["port"] for r in ingress for tp in r.get("toPorts", []) for p in tp.get("ports", [])}
+    caller = next((d for d in ds if d["kind"] == "ExternalSecret" and d["metadata"]["name"] == "credit-authority-caller"), {})
+    gw_off, e1 = render(GW, {"global": {"hubDomain": "example.test"}})
+    gw_on, e2 = render(GW, {"global": {"hubDomain": "example.test"}, "creditAuthority": {"enabled": True}})
+    if e1 or e2:
+        fails.append(f"I8 the hub gateway did not render: {e1 or e2}")
+    else:
+        on = docs(gw_on)
+        route = next((d for d in on if d["kind"] == "HTTPRoute" and d["metadata"]["name"] == "credit-authority"), None)
+        gwy = next(d for d in on if d["kind"] == "Gateway")
+        lst = next((l for l in gwy["spec"]["listeners"] if l["name"] == "credits"), None)
+        admitted = lst and lst["allowedRoutes"]["namespaces"]["selector"]["matchExpressions"][0]["values"]
+        backends = [(b["name"], b["port"]) for r in (route or {}).get("spec", {}).get("rules", []) for b in r["backendRefs"]]
+        check(sources == [(("ingress",), ())] and cnp_ports == {"3000"}
+              and "credits." not in gw_off and route and route["metadata"]["namespace"] == "platform-credits"
+              and admitted == ["platform-credits"] and backends == [("credit-authority", 3000)]
+              and caller.get("spec", {}).get("target", {}).get("deletionPolicy") == "Delete",
+              "I8 only the hub Gateway reaches the pod, on 3000; the route exists only while enabled and reaches only the gateway; the caller is revocable",
+              f"I8 exposure wrong: ingress={sources} ports={cnp_ports} listener admits={admitted} backends={backends}")
 
-shutil.rmtree(work, ignore_errors=True)
+# The prerequisites, on every box.
+dbs = docs(open(f"{DB}/platform-databases.yaml").read())
+credits_db = next((d for d in dbs if d["metadata"]["name"] == "credits"), {})
+es = yaml.safe_load(open(f"{DB}/hub-credits-db-credentials-es.yaml"))
+kust = yaml.safe_load(open(f"{DB}/kustomization.yaml"))
+pg_peers = [f["namespaceSelector"]["matchLabels"].get("kubernetes.io/metadata.name")
+            for d in docs(open(f"{DB}/network-policy.yaml").read()) if d["metadata"]["name"] == "platform-db-access"
+            for r in d["spec"]["ingress"] for f in r.get("from", []) if "namespaceSelector" in f]
+hubenv = yaml.safe_load(open("manifests/environments/base/hubenvironment.yaml"))
+roles = {r["name"]: r for r in hubenv["spec"]["database"]["roles"]}
+mappings = open("operators/hub-operator/internal/infisical/secret_mappings.go").read()
+namespaces = [d["metadata"]["name"] for d in docs(open("manifests/hub-core-services/platform-namespaces/namespaces.yaml").read())]
+check(credits_db.get("spec", {}).get("owner") == "hub_credits" and credits_db["spec"].get("databaseReclaimPolicy") == "retain"
+      and es["metadata"]["namespace"] == "platform-data" and es["metadata"]["name"] == "hub-credits-db-credentials"
+      and "hub-credits-db-credentials-es.yaml" in kust["resources"]
+      and roles.get("hub_credits", {}).get("database") == "credits"
+      and '"hub-credits-db-password"' in mappings and "platform-credits" in namespaces and "platform-credits" in pg_peers,
+      "I9 the credits database (owned, retained), role, credential, namespace and database access are on every box",
+      f"I9 prerequisite missing: database={credits_db.get('spec')} role={roles.get('hub_credits')} "
+      f"namespace={'platform-credits' in namespaces} db access={pg_peers}")
+
+# Enablement.
+def em(template, enabled):
+    r = subprocess.run(["helm", "template", "x", EM, "--show-only", template, *EM_ARGS,
+                        "--set", f"capabilities.credits.enabled={str(enabled).lower()}"], capture_output=True, text=True)
+    return r.stdout, next((l for l in r.stderr.splitlines() if l.startswith("Error:")), None)
+def elements(text):
+    return {el["appName"]: el for d in docs(text) for g in d["spec"]["generators"] for el in g.get("list", {}).get("elements", [])}
+s_off, e3 = em("templates/03-platform-services-appset.yaml", False)
+s_on, e4 = em("templates/03-platform-services-appset.yaml", True)
+f_off, e5 = em("templates/05-tenant-fleet-appset.yaml", False)
+f_on, e6 = em("templates/05-tenant-fleet-appset.yaml", True)
+if e3 or e4 or e5 or e6:
+    fails.append(f"I10 environment-manager did not render: {e3 or e4 or e5 or e6}")
+else:
+    off, on = elements(s_off), elements(s_on)
+    gw_flag = lambda els: yaml.safe_load(els["hub-gateway"]["helmValues"]).get("creditAuthority", {}).get("enabled")
+    declared = {"tenantId": "acme", "appId": "waypoint", "cellId": "cell-1", "oidcIssuer": "https://id.example.test",
+                "capabilities": {"credits": {"enabled": True}}}
+    _, refused = render(UT, declared)
+    admitted, e7 = render(UT, {**declared, "creditAuthorityUrl": "https://credits.example.test"})
+    check("credit-authority" not in off and on.get("credit-authority", {}).get("destinationNamespace") == "platform-credits"
+          and gw_flag(off) is False and gw_flag(on) is True
+          and "creditAuthorityUrl" not in f_off and "creditAuthorityUrl" in f_on
+          and refused and not e7 and "CREDITS_URL" in admitted,
+          "I10 the service, its route and the fleets' URL follow capabilities.credits.enabled; a declaration without it does not render",
+          f"I10 enablement wrong: service off={'credit-authority' in off} on={'credit-authority' in on} "
+          f"gateway off={gw_flag(off)} on={gw_flag(on)} declaration refused without it={bool(refused)}")
+
 for p in passes: print("PASS " + p)
 for f in fails: print("FAIL " + f)
 PY

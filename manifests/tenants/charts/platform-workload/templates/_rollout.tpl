@@ -88,10 +88,6 @@ spec:
         {{- with $v.extraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with $v.initContainers }}
-      initContainers:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       containers:
         - name: {{ .ctx.Chart.Name }}
           image: {{ include "platform-workload.image" . }}
@@ -102,13 +98,8 @@ spec:
           # Lets the Service stop routing before the process stops listening.
           lifecycle:
             preStop:
-              {{- if $v.preStopSleepAction }}
-              sleep:
-                seconds: 5
-              {{- else }}
               exec:
                 command: ["/bin/sleep", "5"]
-              {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

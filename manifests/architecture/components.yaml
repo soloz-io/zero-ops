@@ -303,19 +303,22 @@ capabilities:
 
   - name: credits
     kind: selectable
-    enable: credits.enabled
+    enable: capabilities.credits.enabled
     lifecycle: declared
     status: planned
     declared_by:
       - 109-the-credit-authority.md
     interacts_with: [database]
     note: >-
-      The Credit Authority: one ledger deployment per tenant, on its own
-      database, listening on loopback behind an AgentGateway sidecar. The
-      ledger authenticates and does not authorise, so the sidecar binds the
-      caller (the tenant's coordinating service, its tenant) and allows only
-      the anchored transaction, account, balance and volume routes; system
-      and administrative routes match no rule and are refused. It holds
-      credits, never money, and determines no price. Planned until the
-      ledger, the sidecar and backup ship and ADR-109's isolation proof
-      passes -- see ADR-109.
+      The Credit Authority: the box's credit ledger, run on the hub
+      (hub-core-services/credit-authority) and reached only through the hub
+      Gateway at credits.<hubDomain>. Its database, role and credential on
+      platform-db are prerequisites present on every box; the ledger, its
+      AgentGateway sidecar and the route run only when enabled. The ledger
+      listens on loopback and authenticates without authorising, so the
+      sidecar binds the one caller (the application that declares
+      capabilities.credits, and its organisation) and allows only the
+      anchored transaction, account, balance and volume routes. It holds
+      credits, never money, and determines no price. Planned until
+      ADR-109's isolation proof passes and platform-db's recovery is
+      qualified for financial records -- see ADR-109.

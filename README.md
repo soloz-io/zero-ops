@@ -80,6 +80,15 @@ because without it a box cannot reconcile anything. Above that sit capabilities
 a tenant selects: a database, an identity provider, messaging, object storage,
 metrics.
 
+What decides the side is whether every box needs it, not how central it feels.
+Credits are the clearest case. A box sold on to customers needs a way to grant
+and spend credits, but a box run as an internal platform -- a team's own
+golden path, with no customers of its own -- bills nobody and needs no credits,
+billing or metering at all. Making them machinery would run a ledger, and
+expose it, in every box to serve a business model only some boxes have, so
+they are capabilities: shipped and maintained in every box, run only where a
+tenant turns them on.
+
 **Selecting is enabling, not acquiring.** There is no catalog to choose from and
 nothing to install. Every capability the bundle provides ships to every tenant,
 and a tenant turns on what it runs. A capability left off is still maintained:

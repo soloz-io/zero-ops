@@ -152,7 +152,7 @@ func ensure(t *testing.T, a *Auth, b models.ProjectBinding) (*models.TenantIdent
 	t.Helper()
 	// knownOrgID set: the org is bound, so no org search or creation happens and
 	// the test isolates the project decision.
-	return a.EnsureTenantIdentity(context.Background(), "nutgraf", "org-1", b, "", false, false,
+	return a.EnsureTenantIdentity(context.Background(), "nutgraf", "org-1", b, "", false,
 		[]string{"https://oranger.example/oauth/callback"}, nil, nil)
 }
 

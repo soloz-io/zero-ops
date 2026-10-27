@@ -1,20 +1,16 @@
 {{- $ledger := required "ledger.name is required" .Values.ledger.name -}}
 {{- if not (regexMatch "^[A-Za-z0-9_-]+$" $ledger) }}{{ fail (printf "ledger.name %q: letters, digits, _ and - only; the gateway's path rules are built from it" $ledger) }}{{ end -}}
-{{- $coordinator := required "coordinator is required: the one application admitted to call this Credit Authority (ADR-109)" .Values.coordinator -}}
-{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $coordinator) }}{{ fail (printf "coordinator %q is not an application id" $coordinator) }}{{ end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.appId }}-gateway
-  labels:
-    tenant-id: {{ .Values.tenantId }}
-    app-id: {{ .Values.appId }}
+  name: credit-authority-gateway
+  namespace: platform-credits
 data:
   # The gateway in front of the ledger (ADR-109 §4). The ledger listens on the
   # pod's loopback, so this listener is the only way in.
   #
   # The gateway shell-expands this file from its environment before parsing it,
-  # so a value the platform allocates (project, organisation, caller map)
+  # so a value the platform allocates (project, caller, its organisation)
   # reaches it at startup, and an unset one stops it starting. For the same
   # reason no rule below uses a bare dollar sign: path rules anchor their end
   # with RE2's \z inside CEL raw strings.
@@ -24,7 +20,7 @@ data:
   # where a failing `deny` would admit.
   config.yaml: |
     binds:
-    - port: {{ .Values.workload.ports.http }}
+    - port: 3000
       listeners:
       - protocol: HTTP
         routes:
@@ -58,12 +54,13 @@ data:
               rules:
               # An access token, never an ID token (ADR-095).
               - require: '!has(jwt.at_hash)'
-              # This tenant.
-              - require: 'jwt["urn:zitadel:iam:user:resourceowner:id"] == "${OIDC_ORG_ID}"'
-              # The coordinating application's machine client, and only it: a
-              # `service` entry for {{ $coordinator }} in this application's
-              # typed caller map (zero-ops ADR-110), matched whole.
-              - require: '(" " + "${OIDC_ALLOWED_AZP}" + " ").contains(" " + jwt.client_id + "={{ $coordinator }}:service ")'
+              # The one caller: the service client of the application that
+              # declares this capability, published by the platform from that
+              # declaration (ADR-109 §4), and the organisation it belongs to. A
+              # machine client, so no person's token can match it; with no
+              # declaration both are absent and the gateway does not start.
+              - require: 'jwt.client_id == "${CREDITS_CALLER_CLIENT_ID}"'
+              - require: 'jwt["urn:zitadel:iam:user:resourceowner:id"] == "${CREDITS_CALLER_ORG_ID}"'
               # No opt-out of the balance check (ADR-109 §4): creating a
               # transaction carries no query string, and its body names only
               # postings, metadata and reference, matched exactly -- so `force`

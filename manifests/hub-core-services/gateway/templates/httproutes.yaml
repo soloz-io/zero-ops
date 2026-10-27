@@ -212,6 +212,35 @@ spec:
       backendRefs:
         - name: infisical-standalone-infisical
           port: 8080
+{{- if .Values.creditAuthority.enabled }}
+---
+# The Credit Authority (ADR-109): its gateway, and nothing else of its pod. The
+# ledger has no Service port; the gateway authenticates and authorises every
+# request before the ledger sees it.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  {{- if $target }}
+  annotations:
+    external-dns.alpha.kubernetes.io/target: {{ $target | quote }}
+  {{- end }}
+  name: credit-authority
+  namespace: platform-credits
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: credits
+  hostnames: ["credits.{{ .Values.global.hubDomain }}"]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: credit-authority
+          port: 3000
+{{- end }}
 ---
 # Headlamp Kubernetes dashboard.
 apiVersion: gateway.networking.k8s.io/v1

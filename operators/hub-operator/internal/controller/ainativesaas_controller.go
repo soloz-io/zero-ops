@@ -9,13 +9,17 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	client2 "github.com/soloz-io/zero-ops/operators/hub-operator/internal/client"
 	"github.com/soloz-io/zero-ops/operators/hub-operator/internal/secrets"
@@ -52,6 +56,7 @@ type TenantSecretStore interface {
 	SecretExists(ctx context.Context, secretPath, secretName string) (bool, error)
 	CreateSecret(ctx context.Context, secretPath, secretName, secretValue string) error
 	UpdateSecret(ctx context.Context, secretPath, secretName, secretValue string) error
+	DeleteSecret(ctx context.Context, secretPath, secretName string) error
 	EnsureTenantFolderAndCredentials(ctx context.Context, cellId, tenantId, appId string,
 		isFirstTime bool, oauthClients []secrets.OAuthClient,
 		cacheEnabled, cacheIsFirstTime, gatewayEnabled bool) (*secrets.EnsureTenantCredentialsResult, error)
@@ -132,16 +137,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Read here and passed to the identity service, never invented: a client's
 	// name, type and callback belong to the fleet (ADR-047 forbids a tenant
 	// identifier in platform code, and "every tenant has a bff" is one).
-	// An application nobody signs in to (zero-ops ADR-109) has an identity
-	// project -- other applications are admitted to it -- and no gateway, so no
-	// browser client, no exchange client and no owner. Declared, never inferred
-	// from a missing hostname: an application without one today has no identity
-	// at all, and must not acquire one by omission.
-	backendOnly, _, _ := unstructured.NestedBool(ainativesaas.Object, "spec", "identity", "backendOnly")
-	oauthClients := declaredOAuthClients(ainativesaas)
-	if !backendOnly {
-		oauthClients = append(oauthClients, gatewayExchangeClient(appId))
-	}
+	oauthClients := append(declaredOAuthClients(ainativesaas), gatewayExchangeClient(appId))
 
 	// OAuth client credentials are NOT generated here (ADR-060).
 	//
@@ -186,15 +182,12 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// point has already been provisioned, and returning an error would redo it
 	// on every attempt; the next reconcile repeats this call, which is
 	// idempotent.
+	var requeue time.Duration
 	if r.IdentityClient != nil {
 		hosts := tenantGatewayHosts(ainativesaas)
-		switch {
-		case backendOnly && (len(hosts) > 0 || len(oauthClients) > 0):
-			logger.Error(nil, "Refusing a backend-only application that declares a gateway hostname or OAuth clients; nobody signs in to it",
-				"tenant", tenantId, "app", appId)
-		case len(hosts) == 0 && !backendOnly:
+		if len(hosts) == 0 {
 			logger.V(1).Info("Tenant declares no gateway hostname; skipping identity provisioning", "tenant", tenantId)
-		default:
+		} else {
 			redirects := make([]string, 0, len(hosts))
 			postLogout := make([]string, 0, len(hosts))
 			for _, h := range hosts {
@@ -206,12 +199,8 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				postLogout = append(postLogout, "https://"+h+"/")
 			}
 			// The tenant's declared owner, granted administrative access so the
-			// tenant has someone who can sign in to it at all. None for a
-			// backend-only application, which nobody signs in to.
-			ownerEmail := ""
-			if !backendOnly {
-				ownerEmail, _, _ = unstructured.NestedString(ainativesaas.Object, "spec", "ownerEmail")
-			}
+			// tenant has someone who can sign in to it at all.
+			ownerEmail, _, _ := unstructured.NestedString(ainativesaas.Object, "spec", "ownerEmail")
 			// Fleet-declared: whether people can sign themselves up into THIS
 			// tenant. Absent means false, so a fleet that says nothing gets the
 			// closed behaviour rather than inheriting somebody else's choice.
@@ -247,12 +236,16 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// would leave a standing credential, in every tenant, that nothing
 			// uses and nobody rotates -- and a credential whose compromise has no
 			// observable effect is the hardest kind to notice (ADR-097).
+			declaredDeps := backendDependenciesOf(ainativesaas)
+			// The Credit Authority, when this application owns its declaration
+			// (ADR-109): its caller is this application's service identity.
+			ownsCredits := r.ownsCreditAuthority(ctx, logger, ainativesaas)
 			serviceClient := ""
-			if len(backendDependenciesOf(ainativesaas)) > 0 {
+			if len(declaredDeps) > 0 || ownsCredits {
 				serviceClient = serviceUserName(appId)
 			}
 
-			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, backendOnly, redirects, postLogout, oauthClients, serviceClient)
+			identity, err := r.IdentityClient.EnsureTenantIdentity(ctx, tenantId, knownOrgID, projectName, knownProjectID, ownerEmail, selfReg, redirects, postLogout, oauthClients, serviceClient)
 			switch {
 			case errors.Is(err, client2.ErrIdentityProvisioningUnsupported):
 				logger.V(1).Info("Identity provider does not provision tenants; nothing to do", "tenant", tenantId)
@@ -363,9 +356,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// named.
 				exchangeKey := secrets.InfisicalOAuthClientSecretKey(gatewayExchangeClientName(appId))
 				exchangePath := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
-				if backendOnly {
-					// No gateway, so no exchange client to be missing.
-				} else if _, err := r.InfisicalClient.GetSecret(ctx, exchangePath, exchangeKey); err != nil {
+				if _, err := r.InfisicalClient.GetSecret(ctx, exchangePath, exchangeKey); err != nil {
 					logger.Error(err, "CRITICAL: the gateway exchange client credential is absent. "+
 						"The issuer discloses a generated secret once, so it cannot be re-read: the client "+
 						"must be regenerated at the issuer. Until it is, this application's gateway cannot "+
@@ -394,10 +385,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					logger.Error(err, "Provisioned tenant identity but could not publish its organisation id",
 						"tenant", tenantId)
 				}
-				if backendOnly {
-					// No browser client, so no client id for a gateway to read.
-					logger.Info("Backend-only application identity provisioned", "tenant", tenantId, "app", appId, "projectId", identity.ProjectRef)
-				} else if err := r.publishTenantClientID(ctx, cellId, tenantId, appId, identity.ClientID); err != nil {
+				if err := r.publishTenantClientID(ctx, cellId, tenantId, appId, identity.ClientID); err != nil {
 					logger.Error(err, "Provisioned tenant identity but could not publish its client id; will retry",
 						"tenant", tenantId)
 				} else {
@@ -414,7 +402,7 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				// without the scope admits a caller whose tokens the receiver
 				// will never see. The declaration is one fact and it renders
 				// into two places.
-				deps, pendingDeps, derr := r.resolveBackendDependencies(ctx, tenantId, ainativesaas.GetName(), backendDependenciesOf(ainativesaas))
+				deps, pendingDeps, derr := r.resolveBackendDependencies(ctx, tenantId, ainativesaas.GetName(), declaredDeps)
 				if derr != nil {
 					// A dependency naming a stranger is a declaration error, not
 					// a transient one, so it is reported rather than retried into
@@ -427,6 +415,17 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						// resolves it. Logged so the wait is visible.
 						logger.Info("Backend dependencies waiting on the target's project",
 							"tenant", tenantId, "app", appId, "pending", pendingDeps)
+					}
+					if ownsCredits {
+						if capability := r.creditAuthorityDependency(ctx); capability != nil {
+							deps = append(deps, *capability)
+						} else {
+							// Written to Infisical by the capability's own reconcile, which
+							// raises no event here.
+							logger.Info("The Credit Authority has no project yet (not enabled, or not provisioned); its audience waits on it",
+								"tenant", tenantId, "app", appId)
+							requeue = creditAuthorityPendingRequeue
+						}
 					}
 					actingClient, aerr := actingClientOf(oauthClients)
 					if aerr != nil {
@@ -476,11 +475,11 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	switch result.Result {
 	case secrets.EnsureAlreadyExists:
-		return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionAlreadyExists)
+		return ctrl.Result{RequeueAfter: requeue}, r.setCondition(ctx, ainativesaas, tenantId, conditionAlreadyExists)
 	case secrets.EnsureCreated:
-		return ctrl.Result{}, r.setCondition(ctx, ainativesaas, tenantId, conditionSeeded)
+		return ctrl.Result{RequeueAfter: requeue}, r.setCondition(ctx, ainativesaas, tenantId, conditionSeeded)
 	default:
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: requeue}, nil
 	}
 }
 
@@ -825,6 +824,12 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 	}
 	if len(entries) > 0 {
 		for _, d := range deps {
+			// The Credit Authority admits ONE client, which its own reconcile
+			// publishes from the capability declaration (ADR-109). It has no
+			// caller map, and a `user` entry must never reach it.
+			if d.AppID == creditAuthorityAppID {
+				continue
+			}
 			if err := r.publishAllowedCallers(ctx, cellId, tenantId, d, appId, entries); err != nil {
 				logger.Error(err, "Could not publish the allowed callers onto the target",
 					"tenant", tenantId, "caller", appId, "target", d.AppID)
@@ -1295,8 +1300,12 @@ func (r *AINativeSaaSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Kind:    "AINativeSaaS",
 	})
 
+	// The Credit Authority being enabled or disabled changes its owner's
+	// audience, so its ConfigMap's changes reconcile the declarers.
 	return ctrl.NewControllerManagedBy(mgr).
 		For(u).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.creditAuthorityDeclarers),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isCreditAuthorityMarker))).
 		Complete(r)
 }
 

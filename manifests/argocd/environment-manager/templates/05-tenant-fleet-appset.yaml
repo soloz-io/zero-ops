@@ -298,6 +298,14 @@ spec:
                 value: {{ include "environment-manager.oidcIssuer" $ | quote }}
               - name: oidcJwksUrl
                 value: {{ include "environment-manager.oidcJwksUrl" $ | quote }}
+{{- if .Values.capabilities.credits.enabled }}
+              # ADR-109: where a fleet that declares capabilities.credits reaches
+              # the box's Credit Authority. The same hubDomain the route is built
+              # from, so the two cannot disagree. Absent while the capability is
+              # off, and a fleet declaring it then fails to render.
+              - name: creditAuthorityUrl
+                value: {{ printf "https://credits.%s" (include "environment-manager.hubDomain" $) | quote }}
+{{- end }}
 {{- if .Values.oidcScopes }}
             # A list, so it cannot go through `parameters` — those are flat
             # name/value strings.

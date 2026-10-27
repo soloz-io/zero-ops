@@ -331,6 +331,7 @@ check_namespaces() {
         platform-data
         platform-identity
         platform-billing
+        platform-credits
         platform-observability
         platform-security
         platform-edge

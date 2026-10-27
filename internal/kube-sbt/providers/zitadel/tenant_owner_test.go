@@ -92,7 +92,7 @@ func TestEnsureTenantIdentity_DoesNotAdoptAnOwnerFromAnotherOrganisation(t *test
 	defer srv.Close()
 
 	if _, err := a.EnsureTenantIdentity(context.Background(), "acme", "org-acme", models.ProjectBinding{},
-		"operator@example.test", false, false, nil, nil, nil); err != nil {
+		"operator@example.test", false, nil, nil, nil); err != nil {
 		t.Fatalf("EnsureTenantIdentity: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestEnsureTenantIdentity_ReusesAnOwnerAlreadyInThisOrganisation(t *testing.
 	defer srv.Close()
 
 	if _, err := a.EnsureTenantIdentity(context.Background(), "acme", "org-acme", models.ProjectBinding{},
-		"operator@example.test", false, false, nil, nil, nil); err != nil {
+		"operator@example.test", false, nil, nil, nil); err != nil {
 		t.Fatalf("EnsureTenantIdentity: %v", err)
 	}
 	for _, c := range rec.calls {

@@ -93,10 +93,6 @@ identity:
   # create an account IN THIS TENANT — the gateway scopes every authorization
   # request to this fleet's organisation, so it cannot land anywhere else.
   selfRegistration: false
-  # An application nobody signs in to (zero-ops ADR-109): no gateway hostname,
-  # no OAuth client. It gets an identity project other applications of this
-  # tenant are admitted to, and nothing anyone signs in to.
-  backendOnly: false
   # Other applications OF THIS TENANT this one may call with a user's credential
   # (ADR-094 Part 2). appIds, never hostnames, never another tenant's app.
   #
@@ -121,6 +117,24 @@ identity:
   # compare the two declarations and fail when they disagree -- which is the gap
   # ADR-088's amendment named and deferred.
   allowedConsumers: []
+
+# Where the box's Credit Authority answers (ADR-109). Supplied by the environment
+# while capabilities.credits.enabled, never by a fleet.
+creditAuthorityUrl: ""
+
+# Platform capabilities this application CONSUMES (ADR-109).
+#
+#   credits   the box's Credit Authority, a platform capability on the hub,
+#             turned on by the box's capabilities.credits.enabled. The
+#             declaring application is its ONE caller: the platform admits that
+#             application's service client at the capability's gateway, gives it
+#             the capability's audience and CREDITS_URL, and refuses a second
+#             application declaring it. Withdrawing the declaration removes the
+#             caller; the ledger and its records stay. Declaring it on a box that
+#             does not run it fails to render.
+capabilities:
+  credits:
+    enabled: false
 
 gateway:
   # Does this application's SDK serve workflow webhooks (ADR-024)?

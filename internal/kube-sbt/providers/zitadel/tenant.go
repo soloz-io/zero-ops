@@ -68,7 +68,7 @@ var ErrOrgUnadopted = errors.New("zitadel: organisation exists but is not adopte
 // its clients, redirect URIs, roles and grants live there, so a second
 // application of one tenant gets its own client rather than being handed the
 // first one's.
-func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration, backendOnly bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
+func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID string, project models.ProjectBinding, ownerEmail string, selfRegistration bool, redirectURIs, postLogoutURIs []string, oauthClients []models.OAuthClient) (*models.TenantIdentity, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("zitadel: tenantID is required")
 	}
@@ -100,20 +100,6 @@ func (a *Auth) EnsureTenantIdentity(ctx context.Context, tenantID, knownOrgID st
 	}
 	if err := a.ensureRoleAssertion(ctx, orgID, projectID); err != nil {
 		return nil, fmt.Errorf("ensure role assertion for %q: %w", tenantID, err)
-	}
-
-	// An application nobody signs in to stops here: its project is what other
-	// applications are admitted to, and its callers bring their own clients.
-	//
-	// It sets NOTHING on the organisation. The organisation is the tenant's,
-	// shared with the applications people do sign in to, and its self-
-	// registration policy is theirs; a backend application asserting its own
-	// on every reconcile would flip it under them.
-	if backendOnly {
-		if len(redirectURIs) > 0 || len(postLogoutURIs) > 0 || ownerEmail != "" {
-			return nil, fmt.Errorf("zitadel: backend-only application %q declares sign-in (callbacks or an owner); it has no browser client to sign in to", tenantID)
-		}
-		return &models.TenantIdentity{TenantRef: orgID, ProjectRef: projectID, Incomplete: incomplete}, nil
 	}
 
 	// The browser client's NAME comes from the fleet when the fleet declared one.
@@ -928,6 +914,31 @@ func (a *Auth) EnsurePlatformApp(ctx context.Context, appName string, redirectUR
 		return "", fmt.Errorf("ensure platform application %q: %w", appName, err)
 	}
 	return clientID, nil
+}
+
+// EnsurePlatformProject makes a project exist in the PLATFORM's own
+// organisation and returns the organisation and project ids (ADR-109).
+//
+// For a platform capability other applications are admitted to by audience --
+// the Credit Authority -- which is not a tenant and has no client of its own.
+// The issuer puts any requested project into a token's audience whatever
+// organisation the client belongs to, so a tenant application's service client
+// can carry this project's audience without the project living in its tenant.
+//
+// Idempotent: found by name, created when absent.
+func (a *Auth) EnsurePlatformProject(ctx context.Context, name string) (orgID, projectID string, err error) {
+	if name == "" {
+		return "", "", fmt.Errorf("zitadel: project name is required")
+	}
+	orgID, err = a.platformOrg(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	projectID, err = a.ensureProject(ctx, orgID, name)
+	if err != nil {
+		return "", "", fmt.Errorf("ensure platform project %q: %w", name, err)
+	}
+	return orgID, projectID, nil
 }
 
 // platformOrg resolves the organisation the platform's own clients belong to.

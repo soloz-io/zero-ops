@@ -97,6 +97,7 @@ func main() {
 		if papp, ok := authProvider.(handlers.PlatformAppProvisioner); ok {
 			pa := handlers.NewPlatformAppHandler(papp)
 			internal.POST("/platform/apps", pa.EnsureApp)
+			internal.POST("/platform/projects", pa.EnsureProject)
 		}
 	}
 
