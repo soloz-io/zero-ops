@@ -13,5 +13,9 @@ kubernetes {
     nodeExporterSelector: 'job="node-exporter"',
     showMultiCluster: true,
     clusterLabel: 'cluster',
+    // Upstream refreshes every 10s. A multi-day range takes longer than that to
+    // answer, so each refresh cancelled the queries before they returned and
+    // the panels stayed empty. Data arrives every minute; so does the refresh.
+    grafanaK8s+: { refresh: '1m' },
   },
 }
