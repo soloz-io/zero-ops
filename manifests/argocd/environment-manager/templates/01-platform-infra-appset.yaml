@@ -406,6 +406,17 @@ spec:
             helmValues: |
               installCRDs: false
 
+              # Sized from two days of peak usage, the same on every cluster
+              # (spoke: spoke-catalog/infra/kustomization.yaml). Memory is
+              # limited; CPU is requested and not limited, so a sync burst is
+              # not throttled.
+              webhook:
+                resources:
+                  requests:
+                    cpu: 10m
+                    memory: 128Mi
+                  limits:
+                    memory: 256Mi
 {{- if eq .Values.provider "hybrid" }}
               # HYBRID ONLY: the webhook runs beside the API server.
               #
@@ -432,7 +443,6 @@ spec:
               # Only the webhook is pinned even here. The controller does the
               # actual secret syncing, sits on no admission path, and belongs on
               # worker capacity.
-              webhook:
                 nodeSelector:
                   workload-location: on-prem
                   node-role.kubernetes.io/worker: ""
@@ -459,9 +469,18 @@ spec:
               resources:
                 requests:
                   cpu: 10m
-                  memory: 64Mi
+                  memory: 96Mi
                 limits:
-                  memory: 128Mi
+                  memory: 256Mi
+
+              # Peaked at 214Mi on the hub.
+              certController:
+                resources:
+                  requests:
+                    cpu: 10m
+                    memory: 256Mi
+                  limits:
+                    memory: 512Mi
 
               processClusterExternalSecret: true
               processClusterStore: true

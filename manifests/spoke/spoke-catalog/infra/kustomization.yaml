@@ -159,6 +159,54 @@ resources:
 # ADR-047: single-node spokes run on the control-plane node, which carries the
 # control-plane taint. All platform workloads on the spoke must tolerate it.
 patches:
+  # Requests and limits for the vendored controllers, which render none. Sized
+  # from two days of peak usage and identical to the hub's (01 appset values,
+  # hub-core-services/cloudnative-pg): memory is limited, CPU requested.
+  - target:
+      kind: Deployment
+      name: cnpg-cloudnative-pg
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: "1", memory: 512Mi}
+  - target:
+      kind: Deployment
+      name: argo-rollouts
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: 20m, memory: 128Mi, ephemeral-storage: 1Gi}
+          limits: {memory: 256Mi, ephemeral-storage: 1Gi}
+  - target:
+      kind: Deployment
+      name: eso-external-secrets
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: 10m, memory: 96Mi}
+          limits: {memory: 256Mi}
+  - target:
+      kind: Deployment
+      name: eso-external-secrets-cert-controller
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: 10m, memory: 256Mi}
+          limits: {memory: 512Mi}
+  - target:
+      kind: Deployment
+      name: eso-external-secrets-webhook
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: {cpu: 10m, memory: 128Mi}
+          limits: {memory: 256Mi}
   - target:
       kind: Deployment
     patch: |-
