@@ -239,12 +239,9 @@ func TestAPendingServiceIdentityLeavesTheUserEntryAlone(t *testing.T) {
 func TestTheServiceCredentialIsPublishedToTheCaller(t *testing.T) {
 	store := newFakeSecretStore()
 	r := &AINativeSaaSReconciler{InfisicalClient: store}
-	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
 
-	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps,
-		[]client2.DeclaredClient{{Name: gatewayExchangeClientName("oranger"), ClientID: orangerExchangeClientID}},
-		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"}, "")
+	r.publishServiceIdentity(context.Background(), logr.Discard(), "nutgraf-01", "nutgraf", "oranger",
+		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"})
 
 	caller := tenantPath("nutgraf-01", "oranger")
 	if got := store.data[k(caller, serviceClientIDKey)]; got != orangerServiceClientID {
@@ -266,18 +263,12 @@ func TestTheServiceCredentialIsPublishedToTheCaller(t *testing.T) {
 func TestALaterReconcileDoesNotBlankTheServiceSecret(t *testing.T) {
 	store := newFakeSecretStore()
 	r := &AINativeSaaSReconciler{InfisicalClient: store}
-	deps := []resolvedDependency{{AppID: "waypoint", ProjectID: waypointProjectID}}
-	clients := []client2.DeclaredClient{
-		{Name: gatewayExchangeClientName("oranger"), ClientID: orangerExchangeClientID},
-	}
 
-	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, clients,
-		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"}, "")
-	// The next reconcile: the identity exists, so the issuer discloses nothing.
-	r.publishCrossApplicationTrust(context.Background(), logr.Discard(),
-		"nutgraf-01", "nutgraf", "oranger", deps, clients,
-		&client2.ServiceClient{ClientID: orangerServiceClientID}, "")
+	r.publishServiceIdentity(context.Background(), logr.Discard(), "nutgraf-01", "nutgraf", "oranger",
+		&client2.ServiceClient{ClientID: orangerServiceClientID, ClientSecret: "svc-secret"})
+	// The next reconcile: the identity exists, so the issuer discloses no secret.
+	r.publishServiceIdentity(context.Background(), logr.Discard(), "nutgraf-01", "nutgraf", "oranger",
+		&client2.ServiceClient{ClientID: orangerServiceClientID})
 
 	caller := tenantPath("nutgraf-01", "oranger")
 	if got := store.data[k(caller, serviceClientSecretKey)]; got != "svc-secret" {

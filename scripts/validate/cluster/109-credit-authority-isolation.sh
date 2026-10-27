@@ -184,7 +184,11 @@ for a in json.load(sys.stdin)["items"]:
     # Through the Gateway, from the declaring application's SDK on its spoke.
     host=$(kc -n "$ns" get httproute credit-authority -o jsonpath='{.spec.hostnames[0]}')
     if [[ -n "$app" && -n "$host" ]]; then
-        public=$(kc_spoke -n "tenant-$tenant-$app" exec deploy/sdk-workload -- node -e \
+        # The SDK by its label: a workload is a Rollout or a Deployment, and the
+        # pod is what both run.
+        local sdk_pod
+        sdk_pod=$(kc_spoke -n "tenant-$tenant-$app" get pods -l app=sdk -o jsonpath='{.items[0].metadata.name}')
+        public=$(kc_spoke -n "tenant-$tenant-$app" exec "$sdk_pod" -- node -e \
             'fetch(process.argv[1]).then(r=>console.log(r.status)).catch(e=>console.log("error "+e.message))' "https://$host/health")
         if [[ "$public" == "200" ]]; then
             pass "X6 from $app's SDK, https://$host answers through the Gateway"
