@@ -17,6 +17,62 @@ tenant and the application are different axes)
 **Amends:** ADR-012, ADR-039, ADR-043, ADR-052, ADR-066, ADR-078 — status
 lines added with this ADR.
 
+**Amended:** 2026-10-27 — see "Amendment 2026-10-27: records in the
+usage-analytics database".
+
+## Amendment 2026-10-27: records in the usage-analytics database
+
+Lago is not part of the architecture. Credits are the platform's Credit
+Authority (ADR-109); monetary billing is the coordinating product layer's,
+through external providers. Infrastructure usage therefore has no billing
+engine to be recorded in.
+
+**The usage record is the usage-analytics database.**
+- Infrastructure usage and internal execution costs are stored in a
+  usage-analytics database operated by the platform, provisioned by the
+  `metering` capability (ADR-099). It is separate from the Credit Authority
+  and from every billing provider.
+- The record semantics of Decision 3 carry over unchanged — deterministic
+  record identity, resource UID, tenant identity, interval, quantity and
+  unit, source, the four timestamps, backfill flag, gap markers — as fields
+  of the record instead of Lago properties. A record is unique by its
+  identity, so a replayed object inserts nothing new.
+- `metering-ingest` writes records to this database. Decision 6's ordering
+  becomes: insert the object's records idempotently, then commit the
+  checkpoint. Its lease, fencing, outage envelope and poison isolation are
+  unchanged.
+- Internal execution-cost records (tokens, models, tools, compute per run)
+  are accepted from a tenant's coordinating product service, deduplicated by
+  their identity, and joined to infrastructure usage by pod identity.
+- The agent, its write-ahead log, the transport, coverage and lifecycle
+  recovery (Decisions 1, 4, 5, 7–11) are unchanged.
+
+**The usage record is not billable usage.** No invoice, charge or price is
+computed from it, and nothing reads it at billing time. Where a pricing
+model bills for usage, the coordinating product layer decides what is
+billable and sends it to its billing provider, identified by its billable
+fact. The commercial interpretation of usage is the product layer's.
+
+**Withdrawn:**
+- Decision 2 — Lago as the billing engine, its light profile, and box-local
+  invoicing.
+- From Decision 3 — Lago's events as the record, and the financial chain
+  from events to invoices.
+- From Decision 12 — the Lago backend of the catalog: plans, customers,
+  subscription intent and the `metering-boundaries` effective-date contract.
+  Meters remain versioned, fail-closed definitions in Git; a semantic change
+  is a new meter version.
+- From Decision 13 — every prerequisite about Lago's deployment, schema,
+  keys and invoices.
+
+**Ownership, replacing the Lago rows:**
+
+| Resource Class | System of Record | Lifecycle Owner | Reconciler | Consumer | Phase |
+|---|---|---|---|---|---|
+| Usage record (infrastructure usage, internal execution cost) | Usage-analytics database | Platform | `metering-ingest`; the coordinating product service for execution cost | Finance, SRE, the product layer's commercial interpretation | Day-1+ |
+| Meter definitions | Git | Platform | `metering-ingest` (validation) | `metering-agent`, `metering-ingest` | Day-1+ |
+| Billable usage | The product layer's billing provider | Product layer | Product layer | Finance | Day-1+ |
+
 ## Context
 
 ### The hole this decides
