@@ -1,4 +1,4 @@
-# Vendored from helm chart kyverno v3.9.1 (https://kyverno.github.io/kyverno)
+# Vendored from helm chart kyverno v3.9.2 (https://kyverno.github.io/kyverno)
 # sha256: 1b4c0bbeaeaebfd0f197a791b41fa7bdaf4b070a6e294b195144e645aabbf91c
 #
 # The version is load-bearing. Every kyverno release from v1.12.5 to v1.18.x
