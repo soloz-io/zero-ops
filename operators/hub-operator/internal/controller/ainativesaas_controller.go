@@ -338,6 +338,29 @@ func (r *AINativeSaaSReconciler) Reconcile(ctx context.Context, req ctrl.Request
 					}
 				}
 
+				// The service identity's credentials (ADR-097), published here with
+				// the declared clients' and for the same reason: the issuer
+				// discloses a generated secret on the call that minted it and never
+				// again. Publishing it only once this application's dependencies
+				// resolved lost it whenever they did not on that call, and nothing
+				// could re-read it.
+				r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, identity.ServiceClient)
+
+				// It must have landed, or this application cannot call another as
+				// itself. Checked as the gateway's exchange client is, below, and
+				// for the same reason: absent once minted, it cannot be re-read, and
+				// regenerating a credential is never a reconcile's decision.
+				if serviceClient != "" {
+					servicePath := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
+					if _, err := r.InfisicalClient.GetSecret(ctx, servicePath, serviceClientSecretKey); err != nil {
+						logger.Error(err, "CRITICAL: the service identity's credential is absent. "+
+							"The issuer discloses a generated secret once, so it cannot be re-read: the "+
+							"machine user's secret must be regenerated at the issuer. Until it is, this "+
+							"application cannot call another as itself",
+							"tenant", tenantId, "app", appId, "user", serviceClient, "path", servicePath, "key", serviceClientSecretKey)
+					}
+				}
+
 				// The gateway's exchange client must have landed, or this
 				// application has no gateway (ADR-095).
 				//
@@ -814,13 +837,12 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 			// previous reconcile published. The next reconcile has the value.
 			logger.Info("Backend dependencies wait on this application's user-acting client id",
 				"tenant", tenantId, "app", appId, "client", actingClient)
-			r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, service)
 			return
 		}
 		entries[id] = callerKindUser
 	}
-	if service != nil && service.ClientID != "" {
-		entries[service.ClientID] = callerKindService
+	if id := r.serviceClientID(ctx, cellId, appId, service); id != "" {
+		entries[id] = callerKindService
 	}
 	if len(entries) > 0 {
 		for _, d := range deps {
@@ -836,13 +858,28 @@ func (r *AINativeSaaSReconciler) publishCrossApplicationTrust(
 			}
 		}
 	}
+}
 
-	r.publishServiceIdentity(ctx, logger, cellId, tenantId, appId, service)
+// serviceClientID is this application's service client id: from the mint when
+// this reconcile created it, and from the caller's own Infisical folder
+// otherwise -- the issuer discloses it with the secret and never again, exactly
+// as for a declared client (declaredClientID). "" when neither has it, which the
+// caller treats as pending rather than publish something else.
+func (r *AINativeSaaSReconciler) serviceClientID(ctx context.Context, cellId, appId string, service *client2.ServiceClient) string {
+	if service != nil && service.ClientID != "" {
+		return service.ClientID
+	}
+	path := fmt.Sprintf(secrets.InfisicalTenantPathFormat, cellId, appId)
+	if got, err := r.InfisicalClient.GetSecret(ctx, path, serviceClientIDKey); err == nil {
+		return got
+	}
+	return ""
 }
 
 // publishServiceIdentity puts the CALLER's client-credentials identity where the
-// caller can read it (ADR-097). Its client id reaches each TARGET as a `service`
-// entry through publishCrossApplicationTrust, beside the `user` entry.
+// caller can read it (ADR-097), when the issuer disclosed it on this call. Its
+// client id reaches each TARGET as a `service` entry through
+// publishCrossApplicationTrust, beside the `user` entry.
 //
 // The ADR is explicit that client credentials does NOT produce `azp`; an
 // implementation written to that belief admits nobody. The id published is the
@@ -852,13 +889,12 @@ func (r *AINativeSaaSReconciler) publishServiceIdentity(
 	service *client2.ServiceClient,
 ) {
 	if service == nil || service.ClientID == "" {
-		// Pending, not an error, and NOT a fallback to the exchange client. The
-		// exchange client cannot authenticate client credentials -- it is an OIDC
-		// application, not a machine user -- so admitting it here would publish an
-		// allowlist entry that no service token can ever match, while looking
-		// configured. The next reconcile carries the value.
-		logger.Info("Cross-application calls wait on this application's service identity",
-			"tenant", tenantId, "app", appId, "expected", serviceUserName(appId))
+		// Nothing disclosed: no service identity was asked for, or it already
+		// existed and its stored credential is the live one. Silent, as for a
+		// declared client; a credential that never landed is reported where it
+		// is checked. NOT a fallback to the exchange client, which cannot
+		// authenticate client credentials and would publish an allowlist entry
+		// no service token can match.
 		return
 	}
 
