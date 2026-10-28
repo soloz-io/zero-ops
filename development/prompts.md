@@ -10,9 +10,9 @@ Dont delay the releases by gates. Review only the design not the deployment phas
 
 THE CODEBASE IS SPLITTED INTO PLATFORM AND PRODUCT. Product teams write no infra lines at all. ALL ABSTRATCIONS ARE PROVIDED BY THE PLATFORM TEAM. DECLARATIVE AND GITOPS TO BE RESPCTED.
 
-I WILL SHARE THE PROPOSAL WHEN YOU ARE READY.
-
 Your focus is on design approval only and not code verification or analysis.
+
+I WILL SHARE THE PROPOSAL WHEN YOU ARE READY.
 
 --------------------
 
