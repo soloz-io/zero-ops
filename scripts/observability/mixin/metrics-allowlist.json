@@ -28,6 +28,7 @@
     "container_network_transmit_packets_total",
     "container_spec_memory_limit_bytes",
     "go_goroutines",
+    "grafana_datasource_request_total",
     "kube_job_owner",
     "kube_namespace_status_phase",
     "kube_node_info",
