@@ -37,7 +37,7 @@ Decisions taken during implementation (not in the ADR text):
 
 ## Progress
 
-- [x] 1  - [x] 2  - [x] 3  - [~] 4  - [ ] 5  - [ ] TM brief
+- [x] 1  - [x] 2  - [x] 3  - [x] 4  - [x] 5  - [x] TM brief (in chat, 2026-10-28)
 
 ### Notes from phases 1–2
 - VMSingle ×2 in EVERY environment (one write topology); dev only relaxes
@@ -82,3 +82,9 @@ Remaining:
   repo values cleanup (grafanaCloudStackUrl, alerting.alertmanager*).
 - Multi-Cluster dashboard per-box composition waits on spoke datasources.
 - TM brief.
+
+### Completed 2026-10-28 — commit 6e4cffbd (local; push pending)
+All five phases implemented; pre-commit hooks green. Waiting on ListenerSet:
+spoke query route and viewer OIDC, spoke datasource pairs, Multi-Cluster
+per-box composition. Post-release: tenant repo values cleanup, obsolete
+GRAFANA_CLOUD_* keys in Infisical, per-cell heartbeat seeding.
