@@ -1392,6 +1392,13 @@ Added to the existing entry for registering the tenant's CA:
 | OTLP semantics | spec-sourced, not reference-sourced — `reference-projects/` contains no OpenTelemetry project |
 
 
+## Addendum 5: the observability query ports, with a self-hosted backend (2026-10-28) — Accepted
+
+With ADR-078 addendum 5, the in-box observability components change. The rule
+above is unchanged and reads, for that backend: **the observability query ports
+— VMSingle, VMAuth, Loki and Grafana — are never in the agent's egress list.**
+The agent's evidence stays its own; it never reads an observability store.
+
 ## References
 
 - ADR-013: Observability and Metric Forwarding

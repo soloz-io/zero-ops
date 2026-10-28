@@ -691,6 +691,43 @@ clusters a repository declares, and a set that drifts from the cluster set fails
 as a missing panel rather than an error -- which is this ADR's own negative, now
 with a gate behind it.
 
+## Addendum 3: native query entry and identity (2026-10-28) — Accepted
+
+**Status: Accepted (2026-10-28)**, with ADR-078 addendum 5, which owns the backend. This
+addendum records only the query topology.
+
+- **Restored:** §1 (independent per-cluster stores, central query only), §2
+  (alert evaluation stays with the data) and §4 (no federation tier). ADR-078
+  addendum 3 had superseded them.
+- **§3 (mTLS) stays superseded, and so does every consequence that rests on it.**
+  VMAuth's client-certificate routing is Enterprise-only, and Cilium's Gateway
+  does not validate client certificates (addendum 1 §1). Where the Consequences
+  below describe the query endpoint as protected by client certificates, they are
+  superseded: **the authoritative model is ADR-078 addendum 5 §7** — the viewer's
+  OIDC access token, checked by VMAuth for signature, expiry, issuer, audience and
+  the observability viewer role, which the issuer asserts into access tokens only.
+- **Addendum 1 §1 (the viewer's OIDC token) stands**, now verified by **VMAuth**
+  natively instead of the `spoke-query-endpoint`, which addendum 1 §6 named and
+  this retires. Service callers use a separate in-cluster route with per-service
+  credentials (ADR-078 addendum 5 §7).
+- **Addendum 1 §4's logs plugin is superseded:** the logs store is Loki, whose
+  datasource is built into Grafana.
+- **§6 (telemetry is never copied between clusters) stands, with its scope
+  stated.** No cluster's telemetry is copied to, ingested by or read from another
+  cluster. Logs are now also written **off-cluster**, to the box owner's object
+  storage. That bucket is an **external telemetry destination** (ADR-078 addendum
+  5 §4): it holds one cluster's logs, receives only what that cluster collected
+  and the platform did not remove, and is subject to addendum 2 §4's rules for
+  every path bound outside the box. It is not a cluster, a federation path or a
+  query source for any other cluster. What reaches it is bounded by collection
+  scope and structured removal, not by a guarantee about free-text log content
+  (ADR-078 addendum 5 §4).
+- **The 2026-09-21 ListenerSet block stands.** VMAuth does not create the spoke's
+  public listener; until ListenerSet ships the hub does not query spokes.
+- **Cross-cluster aggregation:** the Multi-Cluster dashboard is kept by Grafana
+  composition across per-cluster datasources (ADR-078 addendum 5 §6). One PromQL
+  expression over every cluster still needs §5's tier, which is not added.
+
 ## Consequences
 
 ### Positive

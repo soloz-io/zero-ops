@@ -1135,6 +1135,455 @@ components:
   - platform-alert-routing
 ```
 
+## Addendum 5: a self-hosted, highly available backend (2026-10-28) — Accepted
+
+**Status: Accepted (2026-10-28). Not yet implemented.** The architecture reviews of
+2026-10-28 accepted the technology selection below and, after three rounds of
+corrections, the decision as written. The first required metering
+independence (§8), the Multi-Cluster dashboard (§6), the full Loki service path
+(§4), one deduplication contract (§5) and the complete HA inventory (§9). The
+second required the vendor's evaluation-interval dedup policy and alert-state
+restore (§5), datasource selection and fleet limits (§6), compactor marker
+durability (§4), the object-storage data boundary (§4) and the viewer
+authorization contract (§7). The third required object-store deletion markers
+(§4), a dedup policy that keeps 30s resolution (§5), and an enforceable
+sensitive-content boundary with object storage treated as external (§4). The
+final review approved it with two wording refinements, both applied (§5).
+
+**Supersedes** addendum 3 (except §2 and the ADR-098 consequence of §7) and
+addendum 4's transport (the stack's Alertmanager and the `alert-routing-sync`
+CronJob). Precedence is stated in full in §11.
+
+### 1. Why
+
+Addendum 3 moved the backend to the box owner's Grafana Cloud stack "as a product
+decision" and recorded no technical cause. Its cost is now measured: a small
+cluster sends about 5,500 active series (hub 5,631, nutgraf-01 5,402 on
+2026-10-27), most of them per container, so the bill grows with every workload and
+every cluster. Logs measured 3.5 GiB/day on the hub and 0.2 GiB/day on the spoke.
+This addendum returns the backend to the box, as §1 originally decided — no vendor
+account is a precondition — and makes it highly available, which the earlier
+in-box design (addendum 1) was not. **No saving is claimed**: the per-series bill
+goes to zero, and the box carries the inventory of §9 instead. Its resource
+footprint is unmeasured.
+
+### 2. Topology
+
+Every cluster, hub and spoke, runs its own stores and alerting; Grafana runs on
+the hub only (addendum 1 §1, restored).
+
+| Component | Per cluster (HA profile) | Role |
+|---|---|---|
+| Grafana Alloy, node agent | DaemonSet | logs; kubelet, cAdvisor, node-exporter |
+| Grafana Alloy, cluster agent | StatefulSet ×2, clustered, one PVC each | KSM, platform `/metrics`, OTLP, the remote-write receiver for rule results (§5) |
+| VMSingle | ×2, independent PVCs, different nodes | metrics; every sample written to both |
+| Loki, monolithic | ×3, `replication_factor: 3` | logs; chunks and TSDB index in object storage |
+| VMAuth | ×2 | the only query entry, in-cluster and from the hub (§7) |
+| VMAlert, platform rules | ×2, identical | addendum 2 §6 |
+| VMAlert, tenant rules | ×2, identical | addendum 2 §6 |
+| VMAlertmanager | ×2, gossip cluster | routing (addendum 4's route tree) |
+| victoria-metrics-operator | ×1 | lifecycle of the VM resources |
+
+Hub only: **Grafana OSS ×2** with a shared PostgreSQL database, and
+**grafana-operator** for dashboards and datasources. External: one **Grafana IRM
+heartbeat per cluster**.
+
+No telemetry is copied between clusters and no store reads another's (ADR-083 §6).
+
+### 3. Metrics
+
+Two `VMSingle` instances per cluster are the vendor's documented single-node HA
+pattern: *"Multiple identical VictoriaMetrics instances can be run, with writes
+replicated to all of them via vmagent or similar agents configured with remote
+write to multiple endpoints"*; *"Requests can be load-balanced among replicas using
+vmauth or similar proxies that support failover capabilities"*; and
+`-dedup.minScrapeInterval` handles the duplicates (docs.victoriametrics.com,
+single-server VictoriaMetrics, High availability).
+
+- **Writes:** Alloy's `prometheus.remote_write` forwards to both instances
+  independently. Its WAL (addendum 3 §2) buffers an instance that is down, so one
+  that returns within `max_keepalive_time` is backfilled.
+- **Reads:** VMAuth `first_available` fails over to the standby, with
+  `retry_status_codes` (docs.victoriametrics.com, vmauth).
+- **Retention:** a configurable policy, default 15 days (addendum 1 §10). No
+  object storage, no tiering; metrics stay reproducible and unbacked.
+- **VMCluster is not adopted.** The requirement is node-failure tolerance, which
+  two instances meet; one cluster's ingest is far inside one node. VMCluster is a
+  new decision when it is not.
+
+### 4. Logs
+
+Loki replaces VictoriaLogs (§4), because LogQL dashboards and Explore workflows
+must stay unchanged and VictoriaLogs speaks LogsQL. This reverses §4's one-operator
+rationale; Loki is the one added storage system.
+
+**Deployment** is the official Loki Helm chart in monolithic (single binary)
+mode: *"You can configure high availability by running two Loki instances using
+`memberlist_config` configuration and a shared object store and setting the
+`replication_factor` to `3`"*, for *"small read/write volumes of up to
+approximately 20GB per day"* (grafana.com, Loki deployment modes). Three replicas,
+so a write keeps a 2-of-3 quorum through one lost replica. Past ~20 GB/day the
+upgrade is **distributed mode**; the vendor is deprecating simple-scalable.
+
+**The full service path**, as the chart supplies it, with each part decided:
+
+| Chart component | Decision | Why |
+|---|---|---|
+| Loki ×3 | enabled | the store |
+| Gateway (nginx, one replica by default) | **disabled** | it would be a single point of failure. Writes reach Loki through its native Kubernetes Service; reads through VMAuth ×2 (§7). Neither path has one replica. |
+| Chunk and results caches | **disabled** | optional at this volume; enabled when query latency requires it, as a sizing decision |
+| Loki Canary | **disabled** | delivery loss is already measured and alerted from Alloy's own counters (addendum 3 §5's loss alerts) |
+| Compactor | one active instance | Loki requires the compactor to run *"as a singleton (a single instance)"* (grafana.com, Loki retention). The single active instance is elected by `compactor_ring` — *"Election of a single compactor amongst the cluster to manage retention and perform compaction"* (grafana.com, Loki configuration, `compactor`) — on the same memberlist the replicas already share, never an independent in-memory ring. Its state is in object storage, not on any replica's disk (below). |
+
+**Retention state lives in object storage.** Loki keeps retention deletion markers
+in the object store through `deletion_marker_object_store_prefix` — *"Prefix for
+retention deletion markers in object storage"* (`-compactor.deletion-marker-object-store-prefix`,
+Loki configuration reference) — and delete requests through `delete_request_store`,
+which Loki requires when retention is enabled. Both point at the cluster's bucket.
+When the compactor ring elects a different replica, the new compactor reads the
+same markers and delete requests from the bucket and completes pending deletions;
+nothing depends on the replica that wrote them, and `working_directory` holds only
+temporary compaction files. Loki's compactor is the only thing that applies
+retention or deletes chunks: there is no bucket lifecycle rule, cleanup job or
+archival controller. The Loki version is pinned at a release that documents both
+options, and is confirmed there.
+
+**Storage:** chunks and TSDB index in one object-storage bucket per cluster; WAL
+and caches on a PVC per replica. Flushing, WAL replay, compaction and retention
+are Loki's own; no sync job, scheduled deletion or archival controller.
+Retention is a configurable policy, default 7 days (addendum 1 §10), applied by
+the compactor.
+
+**Object store contract.** Loki needs `PutObject`, `GetObject`, `HeadObject`,
+`ListObjectsV2`, `DeleteObject`/`DeleteObjects` and multipart upload. Grafana
+supports generic S3-compatible stores without listing them among those it
+recommends for production. Hetzner Object Storage documents *"basic
+compatibility with the standard Amazon S3 actions"* with listed exceptions (copy
+variants, select, notifications, replication) and publishes no list of supported
+actions. Hetzner is accepted on that qualification **as an architectural
+dependency**: its consistency, durability and API behaviour are Hetzner's, not
+AWS's, and are not assumed to be AWS-identical. A box owner may use any store that
+meets the contract.
+
+**The bucket is an external telemetry destination.** It is the box owner's, in the
+box owner's provider account, holding one cluster's logs — but it is outside the
+cluster and outside the box's compute, so it is treated exactly as addendum 2 §4
+treats any path bound outside the box. Each cluster's credentials are scoped to
+its own bucket; transport is TLS.
+
+**What reaches it, and who enforces what.** Four boundaries, each with one owner:
+
+| Boundary | Owner | Enforcement |
+|---|---|---|
+| Which workloads' logs are collected | **Platform** | Platform namespaces by their role label (§3); tenant namespaces only when the tenant opts the namespace in (addendum 1 §6, addendum 2 §5). Collection policy is the platform's, declarative, in Git. A namespace that is not opted in is never read. |
+| What a workload may write to its logs | **The workload** | The logging contract every application accepts by opting in: no secrets, credentials or tokens, and no GenAI prompt or response content, in log bodies. GenAI content belongs in the OpenTelemetry GenAI conventions' structured attributes, and those conventions' content capture is off by default; the platform-workload chart (ADR-102) keeps it off, so a product team writes no configuration to comply. |
+| What the platform removes in transit | **Platform**, via Alloy's documented processing | On the OTLP path, records and attributes the GenAI conventions define as message content are deleted before export, as addendum 2 §4 requires of every path bound outside the box. On every path, the platform's declarative `loki.process` stages drop the label and structured-field cases it can identify. These act on **structure, not on free text**. |
+| What reaches object storage | the result of the three above | Only what a collected workload wrote and the platform did not remove. |
+
+**What is and is not guaranteed.** The platform guarantees the first and third
+rows: what it collects, and the structured content it removes. It does **not**
+claim that generic pipeline filtering removes arbitrary sensitive strings from
+free-text log bodies; no supported Alloy capability can promise that, and none is
+claimed. Sensitive content in a log body is a breach of the workload's logging
+contract, and the tenant's opt-in is the tenant's acceptance that the namespace's
+logs are exported to the box owner's object storage under it. No log-sanitisation
+service is added.
+
+**Object-store outage:** ingestion continues only within the WAL's disk and the
+ingesters' memory limits. Beyond them Loki refuses pushes, Alloy retries from its
+persisted file positions, and logs are lost once the kubelet rotates a file Alloy
+has not delivered. Recent logs stay queryable from the ingesters; older chunks
+return when the store does.
+
+**Historical logs of a spoke that is down are not offered.** Reading its bucket
+from the hub would be a second Loki over another cluster's store, which ADR-083
+§6 does not take.
+
+### 5. Rules and alerting
+
+**Rules stay `PrometheusRule`.** The operator *"converts all existing Prometheus
+`ServiceMonitor`, `PodMonitor`, `PrometheusRule`, `Probe` and `ScrapeConfig`
+objects"* and *"syncs updates"*, but *"DOES NOT delete converted objects after
+original ones are deleted"* without `VM_ENABLEDPROMETHEUSCONVERTEROWNERREFERENCES=true`
+(docs.victoriametrics.com, operator Prometheus integration). That variable is set.
+Platform rules, the mixin recording rules and tenant rules (addendum 2 §5, §7)
+keep their objects, names and expressions.
+
+**Evaluators:** platform and tenant, two identical replicas each (addendum 2 §6).
+*"For High Availability(HA) user can run multiple identically configured `vmalert`
+instances"*; *"To avoid recording rules results and alerts state duplication in
+VictoriaMetrics server don't forget to configure deduplication"*
+(docs.victoriametrics.com, vmalert). Rules read through VMAuth's in-cluster route.
+
+**One deduplication contract** covers scraped samples and replicated rule output,
+as the vendor documents it: *"Multiple equally configured vmalerts should evaluate
+rules at the same timestamps, so it is recommended to set `-dedup.minScrapeInterval`
+as equal to vmalert's `-evaluationInterval`"*; *"If you have multiple different
+`interval` params for distinct rule groups, then set `-dedup.minScrapeInterval` to
+the biggest `interval` value, or value which will be a multiple for all `interval`
+values"*; and *"It is not recommended having `-dedup.minScrapeInterval` smaller
+than `-evaluationInterval`"* (docs.victoriametrics.com, vmalert).
+
+- **The platform interval is 30s.** `-evaluationInterval=30s` on every vmalert and
+  `-dedup.minScrapeInterval=30s` on both VMSingles: the vendor's recommended
+  equality. 30s is the platform's existing scrape resolution, so deduplication
+  preserves the intended 30s sampling granularity while removing the duplicate
+  copies the two write paths and the replicated evaluators produce. It keeps one
+  sample per series per discrete 30s window, so scrape-timing jitter can
+  occasionally place two samples in one window and keep only one of them: the
+  granularity is preserved, not every individual raw sample.
+- **Every rule group evaluates at 30s.** A group's `interval` is unset (it takes
+  `-evaluationInterval`) or exactly 30s. Platform groups that declare 60s today
+  move to 30s. That changes no expression, threshold or `for:` duration, but it is
+  a deliberate behaviour change: those rules are evaluated twice as often, so an
+  alert can be detected up to 30s sooner than before, and evaluator CPU rises with
+  the extra evaluations. Timing is not claimed to be identical. A tenant group with any other interval is refused
+  at admission with addendum 2 §7's other limits. No group may exceed the dedup
+  interval, which is what the vendor's caution rules out.
+- **Scrape intervals are 30s or longer.** A target scraped at 60s keeps its 60s
+  granularity, since its samples are spaced wider than the 30s window. Nothing is
+  scraped faster than 30s.
+- **Evaluation timestamps are aligned** to the group interval (`eval_alignment`,
+  default `true`), so two replicas write the same series at the same timestamps
+  and storage keeps one.
+- **Resolution is preserved.** Raw series keep their scrape granularity; recording
+  rules keep their names, expressions and labels (addendum 2 §3) and are stored at
+  30s.
+- **Grafana's rate interval follows the longest scrape interval.** Each metrics
+  datasource declares the longest scrape interval in use in its cluster (60s where
+  any target is scraped at 60s), as Grafana recommends, so `$__rate_interval` is
+  never too short for the slowest target. A panel over 30s series may set its own
+  Min step where finer windows matter.
+- **Why one interval.** Under the vendor's guidance, mixed group intervals require
+  deduplication at the largest of them, and deduplication applies to every series
+  in the store — so a single 60s group would reduce every raw 30s series to 60s.
+  One 30s interval for every group is the policy that keeps raw resolution and
+  rule semantics together.
+
+Alertmanager deduplicates *alerts*; it does nothing for duplicate *samples*. The
+two are separate responsibilities and both are configured.
+
+**Alert state survives an evaluator restart** by the vendor's mechanism: vmalert
+*"will persist alerts state … in the form of time series `ALERTS` and
+`ALERTS_FOR_STATE`"* through `-remoteWrite.url`, and *"will try to restore alerts
+state from the configured address by querying time series with name
+`ALERTS_FOR_STATE`"* through `-remoteRead.url`. The write goes to Alloy's receiver
+(below); the read goes to VMAuth's in-cluster service route, so it fails over
+between the two VMSingles like every other read.
+
+**Rule results fan out through Alloy.** vmalert writes recording results and alert
+state to the Alloy cluster agent's `prometheus.receive_http`, behind a Service over
+both replicas. Each replica forwards what it receives to both VMSingles through
+its own WAL on its own PVC. A lost replica loses only requests it had not yet
+written to its WAL; vmalert retries those to the surviving replica.
+
+**Alertmanager:** `VMAlertmanager` ×2. *"When there are two or more configured
+replicas the Operator runs the Alertmanager instances in high availability
+mode"*, gossiping *"to prevent duplicate notifications"*; *"notifications are
+guaranteed to be sent at least once"* (docs.victoriametrics.com, operator
+VMAlertmanager). Each vmalert notifies both replicas. Two, because the failure
+model is one lost replica and gossip needs no quorum.
+
+**Routing:** addendum 4's route tree, receivers and values are unchanged, rendered
+into each cluster's VMAlertmanager configuration from Git.
+
+**Heartbeat:** each cluster's `PlatformHeartbeat` reaches its external IRM
+heartbeat through its own Alertmanager. Its absence pages when the cluster, its
+network path or its alert path is down. Addendum 3 §5's silence rule, evaluated
+where data lands, is retired: a cluster cannot report its own silence.
+
+### 6. Dashboards
+
+**Grafana OSS ×2 on the hub** with a shared PostgreSQL database — Grafana's
+documented HA model, which keeps state and sessions in the database. Grafana's
+own alerting is not used. **The database is a `grafana` database on the hub's
+existing CNPG cluster, under that cluster's existing environment profile** (one
+instance in development, two in staging, three in production). Its topology is
+not changed here; Grafana's availability is that profile's.
+
+**grafana-operator** reconciles an in-cluster `Grafana` (replacing addendum 3 §4's
+external instance), the Platform folder's dashboards, and the datasources.
+
+**Datasources:** one pair per cluster, generated from the cluster registry
+(addendum 2 §10, restored): `<cell>-metrics` (Prometheus type) and `<cell>-logs`
+(Loki type, built into Grafana).
+
+**How a dashboard selects a cluster.** With one store per cluster, choosing a
+cluster *is* choosing a datasource; a `cluster` label filter alone selects
+nothing. The contract:
+
+- every shipped dashboard's **`datasource` variable** (the mixin already carries
+  one) is the cluster selector. It lists the box's `*-metrics` datasources, so its
+  values are exactly the box's clusters;
+- the existing **`cluster` variable** stays, populated from the selected
+  datasource (`label_values(up{job="kube-state-metrics"}, cluster)`), so it
+  resolves to that datasource's single cluster and every PromQL expression keeps
+  its `cluster` matcher unchanged;
+- dashboard links carry `var-datasource`, so a drill-down stays on the cluster it
+  came from;
+- a dashboard with log panels selects `<cell>-logs` through its own datasource
+  variable over `*-logs` datasources. No shipped platform dashboard has log
+  panels today; Explore selects the logs datasource directly.
+
+**The Multi-Cluster dashboard** (Kubernetes / Compute Resources / Multi-Cluster)
+is the one that aggregates across clusters. It is kept by native Grafana
+composition, generated per box from the same registry as the datasources: each
+panel uses the Mixed datasource with one query per cluster datasource; Grafana's
+merge transformation joins them into one table with a `cluster` column; fleet
+totals are Grafana server-side expressions over those queries. Two limits are
+stated rather than hidden:
+
+- **Fleet size.** Grafana allows at most 26 queries per panel, so this
+  composition covers **at most 26 clusters per box**. Beyond that the dashboard
+  needs a shared query tier (ADR-083 §5) — a new decision then.
+- **Not PromQL-equivalent.** It presents the same figures per cluster and in
+  total, but it is not one PromQL expression evaluated over every cluster's
+  series. Aggregations that cannot be composed from per-cluster results (such as
+  a quantile over the whole fleet) are not offered.
+
+**Datasource health** (addendum 2 §16's detection of unreachable datasources) moves
+to the hub's platform VMAlert, because Grafana-managed alerting is not used.
+Grafana's own `/metrics` — its datasource request counters by status code, at the
+pinned Grafana version — is collected by the hub's Alloy as a platform `/metrics`
+endpoint (§3), and a platform rule fires when a datasource's queries fail.
+
+### 7. Query identity and exposure
+
+**VMAuth is the only query entry**, for metrics and logs alike. It is *"an HTTP
+proxy, which can authorize, route, and load balance requests across
+VictoriaMetrics components or any other HTTP backends"*. It replaces the
+`spoke-query-endpoint` (ADR-083 addendum 1 §6).
+
+**Two identities, two routes:**
+
+| Identity | Who | Credential | Route |
+|---|---|---|---|
+| Viewer | a person in Grafana | the viewer's OIDC access token, forwarded by Grafana (`oauthPassThru`) | external host, from the hub |
+| Service | vmalert; the hub's own Grafana datasources | a per-service bearer credential (`VMUser`, Secret delivered by ESO) | in-cluster only; NetworkPolicy admits only those pods |
+
+**The viewer authorization contract.** VMAuth verifies viewer tokens natively: the
+vendor documents JWT authentication from v1.137.0, OIDC discovery from v1.138.0,
+and claim matching including issuer and audience. The token is the viewer's
+**OIDC access token** in JWT form, issued by the box's issuer to Grafana's client
+and forwarded by Grafana (`oauthPassThru` forwards the access token, never the ID
+token). VMAuth admits a request only when all of these hold:
+
+| Check | Requirement |
+|---|---|
+| Signature | valid against the issuer's keys, fetched and rotated by OIDC discovery |
+| Expiry | not expired |
+| Issuer (`iss`) | the box's issuer |
+| Audience (`aud`) | contains Grafana's client |
+| Role | the issuer's project-role claim contains the **observability viewer** role |
+
+**Token type is established by the role claim.** This box's issuer gives ID and
+access tokens one audience, so audience cannot tell them apart. The issuer's
+per-application role assertion is set so that project roles are asserted **into
+access tokens and not into ID tokens**. An ID token presented to the endpoint
+therefore carries no viewer role and is refused by the role check: the type check
+is the issuer's own native setting, enforced by VMAuth's native claim match, with
+no component in between. Revoking the role at the issuer stops access at the next
+token refresh; token lifetime is the issuer's access-token lifetime.
+
+**Service identities** (vmalert's reads and state restore; the hub's own Grafana
+datasources) never hold a viewer session. They use the in-cluster service route
+with a per-service bearer credential (`VMUser`, Secret delivered by ESO, rotated
+through Infisical like every other platform credential), admitted only from those
+pods by NetworkPolicy. No service credential is valid on the external route.
+
+**Read-only:** both routes admit only query paths (Prometheus `/api/v1/query*`,
+`/series`, `/labels`, `/label/*`; Loki `/loki/api/v1/query*`, `/labels`,
+`/series`). Ingestion, admin and delete APIs are never routed through VMAuth; they
+stay in-cluster behind addendum 1 §9's default-deny.
+
+**mTLS is not used.** It is Enterprise-only in VMAuth, and Cilium's Gateway does
+not validate client certificates (ADR-083 addendum 1 §1).
+
+**Exposure still waits on ADR-051.** A spoke's query host needs its own listener,
+and ADR-051 makes ListenerSet the only owner of a listener on the shared Gateway
+(ADR-083's 2026-09-21 amendment). VMAuth does not create that route. Until
+ListenerSet ships, the hub does not query spokes; spokes store, alert and send
+heartbeats without it.
+
+### 8. Metering stays independent
+
+ADR-098's quantities **do not** come from these stores. The backend is a
+selectable capability (addendum 1 §2) and best-effort telemetry; billing
+quantities have different correctness requirements. Addendum 3 §7's consequence
+stands: metering sources its own quantities, through ADR-098's own pipeline. Both
+may read the same underlying sources, such as cAdvisor; neither depends on the
+other's store.
+
+### 9. HA inventory and environments
+
+**Complete inventory per HA cluster:** VMSingle 2, VMAuth 2, VMAlert 4, VMAlertmanager
+2, Loki 3, Alloy cluster agent 2, operator 1 — **16 pods** — plus the Alloy node
+DaemonSet (one pod per node). The hub adds Grafana 2 and grafana-operator 1.
+PVCs per cluster: VMSingle 2, Loki 3, Alloy cluster agent 2, VMAlertmanager 2.
+One object-storage bucket per cluster.
+
+**Placement:** required pod anti-affinity on hostname for every replicated
+component; topology spread across zones where the provider has them; a
+`PodDisruptionBudget` of `maxUnavailable: 1`; one PVC per replica. Requests and
+limits are set from measured usage before rollout (ADR-070).
+
+**Environments:** the same components and configuration everywhere; **only
+replica counts differ.** Staging and production run the counts above and need at
+least three schedulable nodes per cluster (Loki's spread). Single-node clusters
+(ADR-047 spokes, dev) run one of each and are not HA; no configuration makes a
+single node HA.
+
+### 10. Failure behaviour
+
+| Failure | Metrics | Logs | Alerting | Dashboards |
+|---|---|---|---|---|
+| One pod | standby VMSingle serves; Alloy backfills on return | RF 3 keeps reads and writes | other evaluator replica; Alertmanager peer | other Grafana replica |
+| One node (≥3 nodes) | as above | 2 of 3 replicas remain | as above | as above |
+| Object store outage | unaffected | bounded buffering (§4); recent logs only | unaffected | log panels degrade |
+| `platform-db` outage | unaffected | unaffected | unaffected | Grafana down |
+| Hub down | spokes keep storing | spokes keep storing | spokes keep evaluating and paging | none |
+| Hub–spoke link down | spoke unaffected | spoke unaffected | spoke pages if its own internet path is up | that spoke's panels fail |
+| Whole cluster down | not viewable | not viewable | none from it; **its heartbeat stops and pages** | its panels fail |
+
+Node-level HA covers pod and node loss. Cluster, network and object-store loss
+are detected and degrade as above; they are not survived.
+
+### 11. Precedence
+
+| Provision | Status |
+|---|---|
+| §1 backend in the box | **restored** |
+| §2 signals, §3 collection, §7, §8 | stand |
+| §4 storage | **amended**: VMSingle ×2; Loki replaces VictoriaLogs |
+| §5 Grafana in the box | **restored**, hub only, HA |
+| §6 VMAlert and platform rules | **restored**; routing per addendum 4 |
+| addendum 1 §1 (stores per cluster, Grafana on the hub) | **restored**, with Loki |
+| addendum 1 §2, §3, §5–§8 | stand |
+| addendum 1 §9 default-deny | **restored**; VMAuth is the only query ingress |
+| addendum 1 §10 retention, no backup | **restored**; logs durable in object storage, still not backed up |
+| addendum 2 §2–§5, §7, §9, §11–§16 | stand |
+| addendum 2 §6 two evaluators | **restored**, HA |
+| addendum 2 §8 in-box Alertmanager | **restored** as VMAlertmanager |
+| addendum 2 §10 per-cluster datasources | **restored**; Loki datasource |
+| addendum 3 §1, §3, §4, §6 | **superseded** |
+| addendum 3 §2 buffer semantics | stand |
+| addendum 3 §5 silence detection | **superseded** by the external heartbeat |
+| addendum 3 §7 | **stands** for ADR-098 (§8); the rest superseded |
+| addendum 4 route tree, receivers, values | stand |
+| addendum 4 transport | **superseded** |
+
+### 12. Decisions left open, and dependencies stated
+
+1. Requests, limits and node sizing, from measurement on one cluster (§9, ADR-070).
+2. **Provider dependency:** Hetzner Object Storage's support for Loki's operations (§4).
+3. **Version dependencies, confirmed at the pinned versions:** Loki's compactor
+   ring election and object-store deletion markers (§4); VMAuth's JWT, OIDC discovery and claim matching (§7);
+   Grafana's datasource request metrics (§6).
+
+This addendum carries no `architecture` block until it is implemented. The block
+in addendum 3 stays what the release gate checks until the components this
+addendum adds are built and registered.
+
 ## References
 
 - **ADR-064**: Promotion via Renovate — how dashboards and rules reach a tenant
