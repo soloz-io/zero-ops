@@ -26,10 +26,10 @@ components:
     status: shipped
     path: manifests/hub-core-services/grafana-alloy
     note: >-
-      A node DaemonSet and a cluster Deployment on hub and spoke. Collects,
-      buffers on persistent storage until delivered, and sends to the box
-      owner's Grafana Cloud stack; the cluster agent also syncs the cluster's
-      PrometheusRules to the stack's ruler (ADR-078 add.3).
+      A node DaemonSet and a clustered cluster StatefulSet on hub and spoke.
+      Collects, buffers on persistent storage until delivered, and writes to
+      the cluster's own two VMSingles and its Loki; the cluster agent also
+      receives the evaluators' rule results (ADR-078 add.5).
 
   - name: platform-alerts
     declared_by: [078-the-observability-capability.md]
@@ -38,9 +38,9 @@ components:
     note: >-
       The platform's PrometheusRules -- `platform-core-alerts` and the
       pipeline-health rules (ADR-078 add.3 §5) -- with the PrometheusRule CRD
-      they are declared with. Each cluster's cluster agent syncs them to the
-      box owner's Grafana Cloud ruler, pinned to that cluster (add.3 §3). The
-      spoke's are in manifests/spoke/spoke-catalog/infra/platform-alerts.
+      they are declared with. Each cluster's VMAlert evaluates them, converted
+      to VMRule by the operator (add.5 §5). The spoke's are in
+      manifests/spoke/spoke-catalog/infra/platform-alerts.
 
   # ── Required collection machinery (ADR-078 addendum 1, ADR-066 addendum 4) ─
   # Not part of the selectable `observability` capability. Both exporters stay
@@ -48,13 +48,40 @@ components:
   # kube-state-metrics for the node capacity ADR-067 names for upgrade
   # pre-flight -- and ADR-078 §8 forbids the observability capability from being
   # a dependency of support.
-  - name: platform-alert-routing
+  - name: victoriametrics-operator
     declared_by: [078-the-observability-capability.md]
     status: shipped
-    path: manifests/hub-core-services/platform-alert-routing
+    path: manifests/hub-core-services/victoriametrics-operator
     note: >-
-      The box owner's Grafana Cloud Alertmanager configuration, rendered from
-      the box's values and loaded by a CronJob on the hub (ADR-078 add.4).
+      Reconciles each cluster's stores, evaluators, Alertmanager and query
+      gateway (ADR-078 add.5). Vendored on the hub and in the spoke catalogue.
+
+  - name: victoriametrics
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/hub-core-services/victoriametrics
+    note: >-
+      The hub's VMSingle x2, VMAuth, platform and tenant VMAlert and
+      VMAlertmanager (ADR-078 add.5 §3, §5, §7). The spoke catalogue carries the
+      same set under infra/victoriametrics.
+
+  - name: loki
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/hub-core-services/loki
+    note: >-
+      Each cluster's log store: Loki 3.7.9 monolithic, S3-backed, compactor-ring
+      retention with object-store deletion markers (ADR-078 add.5 §4). The spoke
+      catalogue carries the same render under infra/loki.
+
+  - name: platform-dashboards
+    declared_by: [078-the-observability-capability.md]
+    status: shipped
+    path: manifests/hub-core-services/platform-dashboards
+    note: >-
+      The hub's Grafana (in-cluster, HA on the grafana database), the
+      grafana-operator that runs it, the generated platform dashboards and the
+      hub's datasources (ADR-078 add.5 §6).
 
   - name: kube-state-metrics
     declared_by: [078-the-observability-capability.md]
@@ -255,11 +282,12 @@ capabilities:
     declared_by:
       - 078-the-observability-capability.md
       - 098-metering-sources-over-spoke-egress-and-records-in-lago.md
-    components: [grafana-alloy, kube-state-metrics, node-exporter, platform-alerts, platform-alert-routing]
+    components: [grafana-alloy, kube-state-metrics, node-exporter, platform-alerts, victoriametrics-operator, victoriametrics, loki, platform-dashboards]
     note: >-
-      ADR-078. `declared` rather than `supported`: the collection half ships and
-      the store, query, visualisation and rule evaluation do not, so there is
-      nothing to promise maintenance of yet.
+      ADR-078 add.5. Collection, stores, evaluation, alerting and the hub's
+      Grafana all ship in the box. Still `declared`: moving to `supported` is the
+      maintenance promise (ADR-069) and is decided once a box has run it end to
+      end.
 
   - name: support
     kind: selectable

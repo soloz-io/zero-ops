@@ -1,0 +1,178 @@
+# ADR-078 addendum 5 §7: VMAuth is the only query entry. Reads fail over from
+# platform-a to platform-b (`first_available`, retried on 5xx).
+#
+# This cluster's route is the in-cluster SERVICE route: each caller holds its own
+# bearer token, generated in-cluster by ESO's Password generator, and
+# NetworkPolicy admits only the callers' pods. The external viewer route (OIDC
+# access tokens) waits on ListenerSet (ADR-083, 2026-09-21) and is not built.
+#
+# Read-only by construction: only query, series and label paths are routed.
+# Ingestion, admin and delete APIs are never reachable through VMAuth.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAuth
+metadata:
+  name: platform
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # 2 in staging and production, 1 in development (templated-fields.yaml).
+  replicaCount: 2
+  selectAllByDefault: false
+  disableSelfServiceScrape: true
+  userSelector:
+    matchLabels:
+      observability.platform.io/vmauth: platform
+  podMetadata:
+    labels:
+      observability.platform.io/component: vmauth
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/component: vmauth
+  podDisruptionBudget:
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+---
+# The query paths every service route admits.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMUser
+metadata:
+  name: vmalert
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    observability.platform.io/vmauth: platform
+spec:
+  tokenRef:
+    name: vmauth-vmalert
+    key: password
+  load_balancing_policy: first_available
+  retry_status_codes: [500, 502, 503, 504]
+  targetRefs:
+    - static:
+        urls:
+          - http://vmsingle-platform-a.platform-observability.svc:8429
+          - http://vmsingle-platform-b.platform-observability.svc:8429
+      paths:
+        - /api/v1/query
+        - /api/v1/query_range
+        - /api/v1/series
+        - /api/v1/labels
+        - /api/v1/label/.+/values
+        - /api/v1/read
+---
+# One generated token per service caller. Never leaves the cluster: the
+# generator runs here, and nothing outside reads the Secret.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: vmauth-token
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  length: 48
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vmauth-vmalert
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # Generated once and kept: refreshing would rotate the token under the
+  # evaluators mid-flight. Rotation is deleting the Secret.
+  refreshInterval: "0"
+  target:
+    name: vmauth-vmalert
+    creationPolicy: Owner
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: vmauth-token
+---
+# The hub Grafana's service route (ADR-078 add.5 §6, §7): read-only paths of the
+# hub's two VMSingles (failover) and of its Loki. Hub only: the spoke has no
+# Grafana.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMUser
+metadata:
+  name: grafana
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    observability.platform.io/vmauth: platform
+spec:
+  tokenRef:
+    name: vmauth-grafana
+    key: password
+  load_balancing_policy: first_available
+  retry_status_codes: [500, 502, 503, 504]
+  targetRefs:
+    - static:
+        urls:
+          - http://vmsingle-platform-a.platform-observability.svc:8429
+          - http://vmsingle-platform-b.platform-observability.svc:8429
+      paths:
+        - /api/v1/query
+        - /api/v1/query_range
+        - /api/v1/series
+        - /api/v1/labels
+        - /api/v1/label/.+/values
+        - /api/v1/metadata
+        - /api/v1/status/buildinfo
+    - static:
+        url: http://loki.platform-observability.svc:3100
+      paths:
+        - /loki/api/v1/query
+        - /loki/api/v1/query_range
+        - /loki/api/v1/labels
+        - /loki/api/v1/label/.+/values
+        - /loki/api/v1/series
+        - /loki/api/v1/index/.+
+        - /loki/api/v1/detected_.+
+        - /loki/api/v1/patterns
+        - /loki/api/v1/status/buildinfo
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vmauth-grafana
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: "0"
+  target:
+    name: vmauth-grafana
+    creationPolicy: Owner
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: vmauth-token

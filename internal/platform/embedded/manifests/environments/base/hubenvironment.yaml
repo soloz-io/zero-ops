@@ -98,6 +98,16 @@ spec:
       - INSERT
       - UPDATE
       - DELETE
+
+    # The hub Grafana (ADR-078 add.5 §6). It owns the grafana database, as
+    # hub_credits owns credits, because Grafana runs its own schema migrations.
+    - name: hub_grafana
+      database: grafana
+      permissions:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
   oauth:
     clients:
     - clientId: mcp-server

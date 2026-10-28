@@ -133,6 +133,7 @@ func TestOnlyUnrotatableSecretsAreEscrowed(t *testing.T) {
 		"hub-centralized-db-password":     true,  // same
 		"hub-zitadel-db-password":         true,  // same
 		"hub-credits-db-password":         true,  // same: the ledger's records are in the database, not the credential
+		"hub-grafana-db-password":         true,  // same: Grafana's state is in the database, not the credential
 		"hub-zitadel-masterkey":           false, // encrypts every column written
 		"agentgateway-oidc-cookie-secret": true,  // rotating only ends sessions
 		"hub-secret-encryption-key":       false, // etcd AND every etcd backup are encrypted with it

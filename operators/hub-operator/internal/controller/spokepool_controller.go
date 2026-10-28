@@ -103,13 +103,13 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Fleet credentials (S3/Barman, Grafana Cloud) are issued outside the platform
+	// Fleet credentials (S3, alert delivery) are issued outside the platform
 	// and seeded once at the Infisical root. A cell SecretStore is authorised for
 	// /spoke-pool/<cellId>/ ONLY (ADR-031), so they must be copied into the cell
 	// path — never generated, since a fabricated key authenticates to nothing and
 	// fails at the first WAL archive instead of at the cause.
 	//
-	// Non-fatal: a spoke missing telemetry credentials is degraded, not
+	// Non-fatal: a spoke missing these credentials is degraded, not
 	// unprovisionable, and failing here would block the cluster lifecycle on a
 	// credential this operator may not be able to obtain.
 	if fleet, err := r.InfisicalClient.EnsureFleetCredentialsMaterialised(ctx, spokeName); err != nil {
@@ -117,6 +117,12 @@ func (r *SpokePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else if len(fleet.MissingAtRoot) > 0 {
 		logger.Error(nil, "Fleet credentials absent at the Infisical root; seed them from k8-secrets/ or the consuming feature stays down",
 			"spoke", spokeName, "missing", fleet.MissingAtRoot)
+	}
+
+	// ADR-078 add.5 §4: the spoke's Loki writes to <spoke>-logs. Non-fatal, like
+	// the fleet credentials above: without it the spoke's logs are degraded.
+	if err := ensureLogsBucket(ctx, r.UncachedClient, spokeName); err != nil {
+		logger.Error(err, "Failed to ensure the spoke's log bucket", "spoke", spokeName)
 	}
 
 	// The per-cell OIDC session signing key is produced by the hub-operator's

@@ -91,7 +91,7 @@ data:
     // container/image labels (google/cadvisor#2688), every virtual filesystem,
     // and every host interface once per host-network pod -- on the hub 279
     // series per network metric where 27 carry per-pod traffic (2026-10-25).
-    // Bounded collection is what keeps the stack's bill bounded (ADR-078 add.3 §7).
+    // Bounded collection is what keeps each cluster's stores bounded (ADR-078 add.3 §7).
     prometheus.relabel "cadvisor_tuning" {
       forward_to = [prometheus.relabel.platform_namespaces_only.receiver]
 
@@ -294,9 +294,9 @@ data:
     prometheus.relabel "add_cell_id" {
       forward_to = [prometheus.remote_write.platform.receiver]
 
-      // ADR-078 add.3 §7: only the metrics a shipped dashboard or rule reads
-      // leave the cluster; the stack refused the rest at its active-series
-      // limit (rc.167). Derived, never hand-written.
+      // ADR-078 add.3 §7, add.5: only the metrics a shipped dashboard or rule
+      // reads are stored, which bounds each cluster's stores. Derived, never
+      // hand-written.
       // BEGIN generated metric allowlist (scripts/observability/metric-allowlist.py)
       // 87 metric names: every one a shipped dashboard or rule reads.
       rule {
@@ -324,23 +324,23 @@ data:
       }
     }
 
-    // ── Destination: the box owner's Grafana Cloud stack (ADR-078 add.3) ───
+    // ── Destination: this cluster's own stores (ADR-078 add.5 §3, §4) ───────
     //
-    // The cluster keeps no telemetry database. The WAL below is the transit
-    // buffer: data is deleted once delivered (truncated every 15m below the
-    // lowest sample sent, once 5m old) and dropped, counted, after 24h unsent.
-    // Its directory is on the node (storage.path, hostPath), so a restart
-    // resumes the buffer instead of losing it.
+    // Every sample goes to both VMSingles; logs go to this cluster's Loki. The
+    // WAL below buffers a store that is down: truncated every 15m below the
+    // lowest sample sent, once 5m old, and dropped, counted, after 24h unsent.
     prometheus.remote_write "platform" {
-      endpoint {
-        // PROMETHEUS_URL is the stack's Prometheus URL as Grafana Cloud shows
-        // it (…/api/prom); remote write is its /push.
-        url = sys.env("PROMETHEUS_URL") + "/push"
 
-        basic_auth {
-          username = sys.env("PROMETHEUS_USER")
-          password = sys.env("TELEMETRY_TOKEN")
-        }
+      // ADR-078 add.5 §3: every sample to both VMSingles, as two independent
+      // endpoints draining one WAL. A store that is down is backfilled on return
+      // within max_keepalive_time.
+      endpoint {
+        name = "vmsingle-a"
+        url  = "http://vmsingle-platform-a.platform-observability.svc:8429/api/v1/write"
+      }
+      endpoint {
+        name = "vmsingle-b"
+        url  = "http://vmsingle-platform-b.platform-observability.svc:8429/api/v1/write"
       }
 
       wal {
@@ -357,15 +357,10 @@ data:
     // it is per-request, and indexing it would make the index unbounded. It is
     // read at query time out of the JSON line: {tenant="…"} | json | trace_id="…"
     loki.write "platform" {
-      endpoint {
-        // LOKI_URL is the stack's Loki URL as Grafana Cloud shows it (the host
-        // alone); the push API is under it. Used bare, every batch is 405.
-        url = sys.env("LOKI_URL") + "/loki/api/v1/push"
 
-        basic_auth {
-          username = sys.env("LOKI_USER")
-          password = sys.env("TELEMETRY_TOKEN")
-        }
+      // ADR-078 add.5 §4: this cluster's Loki, through its native Service.
+      endpoint {
+        url = "http://loki.platform-observability.svc:3100/loki/api/v1/push"
       }
     }
 
@@ -386,8 +381,45 @@ data:
 
       output {
         metrics = [otelcol.exporter.prometheus.tenant.input]
-        logs    = [otelcol.exporter.loki.tenant.input]
+        logs    = [otelcol.processor.filter.genai_content.input]
         traces  = []
+      }
+    }
+
+    // ADR-078 addendum 2 §4, addendum 5 §4: GenAI prompt and response content
+    // never leaves the box, and the log store's object storage is outside it.
+    // The OpenTelemetry GenAI conventions carry that content as message events
+    // and message attributes; both are removed here, on structure. This is not a
+    // free-text filter and claims to be none: a log BODY is the workload's
+    // logging contract.
+    otelcol.processor.filter "genai_content" {
+      error_mode = "ignore"
+      logs {
+        log_record = [
+          `IsMatch(attributes["event.name"], "^gen_ai\\.(system|user|assistant|tool)\\.message$")`,
+          `attributes["event.name"] == "gen_ai.choice"`,
+          `attributes["event.name"] == "gen_ai.client.inference.operation.details"`,
+        ]
+      }
+      output {
+        logs = [otelcol.processor.transform.genai_content.input]
+      }
+    }
+
+    otelcol.processor.transform "genai_content" {
+      error_mode = "ignore"
+      log_statements {
+        context    = "log"
+        statements = [
+          `delete_key(attributes, "gen_ai.input.messages")`,
+          `delete_key(attributes, "gen_ai.output.messages")`,
+          `delete_key(attributes, "gen_ai.system_instructions")`,
+          `delete_key(attributes, "gen_ai.prompt")`,
+          `delete_key(attributes, "gen_ai.completion")`,
+        ]
+      }
+      output {
+        logs = [otelcol.exporter.loki.tenant.input]
       }
     }
 
@@ -513,7 +545,6 @@ metadata:
     # ADR-030 #3: a rotated credential MUST trigger a rolling update. ESO
     # rewrites this Secret in place and the process would otherwise keep the
     # value it read at startup until something unrelated restarted it.
-    secret.reloader.stakater.com/reload: "grafana-cloud-credentials"
 spec:
   selector:
     matchLabels:
@@ -551,9 +582,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          envFrom:
-            - secretRef:
-                name: grafana-cloud-credentials
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
@@ -625,6 +653,9 @@ data:
     // collection machinery (ADR-066 add.4), and the address the Support
     // Agent's node-pressure collector reads (ADR-077 add.4 §13).
     prometheus.scrape "kube_state_metrics" {
+      clustering {
+        enabled = true
+      }
       job_name        = "kube-state-metrics"
       targets         = [{
         __address__ = "kube-state-metrics.platform-ops.svc:8080",
@@ -665,6 +696,12 @@ data:
     }
 
     prometheus.scrape "agent_self" {
+
+      clustering {
+
+        enabled = true
+
+      }
       targets         = discovery.relabel.agent_self.output
       forward_to      = [prometheus.relabel.add_cell_id.receiver]
       scrape_interval = "60s"
@@ -673,9 +710,9 @@ data:
     prometheus.relabel "add_cell_id" {
       forward_to = [prometheus.remote_write.platform.receiver]
 
-      // ADR-078 add.3 §7: only the metrics a shipped dashboard or rule reads
-      // leave the cluster; the stack refused the rest at its active-series
-      // limit (rc.167). Derived, never hand-written.
+      // ADR-078 add.3 §7, add.5: only the metrics a shipped dashboard or rule
+      // reads are stored, which bounds each cluster's stores. Derived, never
+      // hand-written.
       // BEGIN generated metric allowlist (scripts/observability/metric-allowlist.py)
       // 87 metric names: every one a shipped dashboard or rule reads.
       rule {
@@ -700,13 +737,17 @@ data:
 
     // The stack, through this agent's WAL on its persistent volume (add.3 §2).
     prometheus.remote_write "platform" {
-      endpoint {
-        url = sys.env("PROMETHEUS_URL") + "/push"
 
-        basic_auth {
-          username = sys.env("PROMETHEUS_USER")
-          password = sys.env("TELEMETRY_TOKEN")
-        }
+      // ADR-078 add.5 §3: every sample to both VMSingles, as two independent
+      // endpoints draining one WAL. A store that is down is backfilled on return
+      // within max_keepalive_time.
+      endpoint {
+        name = "vmsingle-a"
+        url  = "http://vmsingle-platform-a.platform-observability.svc:8429/api/v1/write"
+      }
+      endpoint {
+        name = "vmsingle-b"
+        url  = "http://vmsingle-platform-b.platform-observability.svc:8429/api/v1/write"
       }
 
       wal {
@@ -716,58 +757,64 @@ data:
       }
     }
 
-    // This cluster's PrometheusRules, synced to the stack's ruler (add.3 §3):
-    // prefixed with this cluster's name so no cluster replaces another's
-    // rules, every query pinned to this cluster and every rule stamped with
-    // it. Platform rules only; tenant rules follow the tenant opt-in.
-    mimir.rules.kubernetes "platform" {
-      address                = string.trim_suffix(sys.env("PROMETHEUS_URL"), "/api/prom")
-      prometheus_http_prefix = "/api/prom"
-      mimir_namespace_prefix = sys.env("CELL_ID")
-      external_labels        = {
-        cluster = sys.env("CELL_ID"),
+    // ADR-078 add.5 §5: vmalert writes recording-rule results and alert state
+    // (ALERTS, ALERTS_FOR_STATE) here, behind the grafana-alloy-cluster Service.
+    // Each replica forwards what it receives to both stores through its own WAL.
+    prometheus.receive_http "rules" {
+      http {
+        listen_address = "0.0.0.0"
+        listen_port    = 9091
       }
-
-      basic_auth {
-        username = sys.env("PROMETHEUS_USER")
-        password = sys.env("RULES_TOKEN")
-      }
-
-      rule_selector {
-        match_labels = {
-          "app.kubernetes.io/managed-by" = "platform",
-        }
-      }
-
-      extra_query_matchers {
-        matcher {
-          name       = "cluster"
-          match_type = "="
-          value      = sys.env("CELL_ID")
-        }
-      }
+      forward_to = [prometheus.remote_write.platform.receiver]
     }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-alloy-cluster-headless
+  namespace: platform-observability
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: grafana-alloy-cluster
+  ports:
+    - name: http
+      port: 12345
+      targetPort: 12345
+---
+# ADR-078 add.5 §5: the receiver vmalert writes rule results to, over both
+# replicas.
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-alloy-cluster
+  namespace: platform-observability
+spec:
+  selector:
+    app: grafana-alloy-cluster
+  ports:
+    - name: rules
+      port: 9091
+      targetPort: 9091
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: grafana-alloy-cluster
   namespace: platform-observability
   annotations:
     configmap.reloader.stakater.com/reload: "alloy-cluster-config"
-    secret.reloader.stakater.com/reload: "grafana-cloud-credentials"
 spec:
-  replicas: 1
-  # One writer to a ReadWriteOnce buffer: the old pod stops before the new one
-  # starts. Expressed as RollingUpdate with no surge rather than Recreate: the
-  # live Deployment already carries RollingUpdate, and server-side apply cannot
-  # switch the type -- it drops a null `rollingUpdate`, and the API server then
-  # refuses the defaulted one beside Recreate (rc.163, rc.166).
-  strategy:
+  # 2 in staging and production, 1 in development (templated-fields.yaml).
+  # Clustered (ADR-078 add.5 §2): targets are shared, so a second replica
+  # scrapes nothing twice. One WAL per replica, on its own PVC.
+  replicas: 2
+  serviceName: grafana-alloy-cluster-headless
+  podManagementPolicy: Parallel
+  updateStrategy:
     type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
   selector:
     matchLabels:
       app: grafana-alloy-cluster
@@ -785,6 +832,8 @@ spec:
             - /etc/alloy/config.alloy
             - --storage.path=/var/lib/alloy/data
             - --server.http.listen-addr=0.0.0.0:12345
+            - --cluster.enabled=true
+            - --cluster.join-addresses=grafana-alloy-cluster-headless.platform-observability.svc:12345
           ports:
             - containerPort: 12345
               name: http
@@ -794,9 +843,6 @@ spec:
               value: "PLACEHOLDER"
             - name: TENANT_ID
               value: "platform"
-          envFrom:
-            - secretRef:
-                name: grafana-cloud-credentials
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
@@ -824,22 +870,16 @@ spec:
           configMap:
             name: alloy-cluster-config
         # The transit buffer (ADR-078 add.3 §2): the WAL survives a restart.
-        - name: data
-          persistentVolumeClaim:
-            claimName: grafana-alloy-cluster-data
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: grafana-alloy-cluster-data
-  namespace: platform-observability
-spec:
-  accessModes: [ReadWriteOnce]
-  # Substituted per spoke by templated-fields.yaml (local-path on hybrid).
-  storageClassName: PLACEHOLDER_STORAGE_CLASS
-  resources:
-    requests:
-      storage: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        # Substituted per box by templated-fields.yaml (local-path on hybrid).
+        storageClassName: PLACEHOLDER_STORAGE_CLASS
+        resources:
+          requests:
+            storage: 2Gi
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -868,11 +908,6 @@ rules:
     verbs: ["get"]
   - nonResourceURLs: ["/metrics"]
     verbs: ["get"]
-  # ADR-078 add.3 §3: the cluster agent's rule sync reads this cluster's
-  # PrometheusRules (rc.167: forbidden without it, so no rule reached the stack).
-  - apiGroups: ["monitoring.coreos.com"]
-    resources: ["prometheusrules"]
-    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

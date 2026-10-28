@@ -30,16 +30,11 @@ import glob, os, re, yaml
 EXTERNAL = {
     "S3_ACCESS_KEY_ID":              "k8-secrets/s3/access-key-id — Hetzner Object Storage key (starts 0A…, NOT the hcloud-token)",
     "S3_SECRET_ACCESS_KEY":          "k8-secrets/s3/secret-access-key — Hetzner Object Storage secret (CNPG Barman backups)",
-    "GRAFANA_CLOUD_TELEMETRY_TOKEN":         "k8-secrets/grafana-cloud/telemetry-token",
-    "GRAFANA_CLOUD_LOKI_URL":        "k8-secrets/grafana-cloud/loki-url",
-    "GRAFANA_CLOUD_LOKI_USER":       "k8-secrets/grafana-cloud/loki-user",
-    "GRAFANA_CLOUD_PROMETHEUS_URL":  "k8-secrets/grafana-cloud/prometheus-url",
-    "GRAFANA_CLOUD_PROMETHEUS_USER": "k8-secrets/grafana-cloud/prometheus-user",
-    "GRAFANA_CLOUD_RULES_TOKEN":     "k8-secrets/grafana-cloud/rules-token — rules:read + rules:write (ADR-078 add.3 §6)",
-    "GRAFANA_CLOUD_DASHBOARDS_TOKEN": "k8-secrets/grafana-cloud/dashboards-token — stack service-account token (Editor)",
-    "GRAFANA_CLOUD_ALERTS_TOKEN":    "k8-secrets/grafana-cloud/alerts-token — alerts:read + alerts:write (ADR-078 add.4)",
     "GRAFANA_IRM_ALERTMANAGER_URL":  "k8-secrets/grafana-cloud/irm-alertmanager-url — IRM Alertmanager integration URL",
-    "GRAFANA_IRM_HEARTBEAT_URL":     "k8-secrets/grafana-cloud/irm-heartbeat-url — IRM heartbeat URL",
+    "GRAFANA_IRM_HEARTBEAT_URL":     "k8-secrets/grafana-cloud/irm-heartbeat-url (hub) and irm-heartbeat-url-<cell> (each spoke) — one IRM heartbeat per cluster",
+    # Uploaded from the zitadel-smtp Secret as the URL's PASSWORD, at the root,
+    # for every cluster's Alertmanager; hub-operator copies it into each cell.
+    "ALERT_SMTP_PASSWORD":           "k8-secrets/smtp/resend (or ZITADEL_SMTP_URL) — the same SMTP URL; its password",
     # Uploaded from the zitadel-smtp Secret as the URL's PASSWORD only, to the
     # owner's /<tenant>-mgmt folder (CLISecretMappings, TransformURLPassword).
     "zitadel_smtp_password":         "k8-secrets/smtp/resend (or ZITADEL_SMTP_URL) — the Resend SMTP URL, smtps://resend:<api-key>@smtp.resend.com:465",

@@ -30,12 +30,10 @@
 #   S3_ACCESS_KEY_ID     object storage for database backups. A production box
 #   S3_SECRET_ACCESS_KEY without these has no backups.
 #
-# OPTIONAL -- where this box ships YOUR OWN metrics and logs. Your account, your
-# data, and nothing to do with support: support telemetry is a separate channel
-# with its own enrolment (ADR-067, ADR-077). Leaving these unset costs you
-# nothing in support.
-#   GRAFANA_CLOUD_TELEMETRY_TOKEN, _PROMETHEUS_URL, _PROMETHEUS_USER,
-#   GRAFANA_CLOUD_LOKI_URL, _LOKI_USER, _RULES_TOKEN, _DASHBOARDS_TOKEN, _ALERTS_TOKEN,
+# OPTIONAL -- where this box's alerts page you (ADR-078 add.5 §5): the IRM
+# integration URL that critical and warning alerts go to, and the hub's IRM
+# heartbeat, which pages when the hub stops reporting. Metrics, logs and
+# dashboards run in the box and need no account.
 #   GRAFANA_IRM_ALERTMANAGER_URL, GRAFANA_IRM_HEARTBEAT_URL
 #
 # OPTIONAL -- ZITADEL_SMTP_URL, this box's outbound mail: identity mail and
@@ -128,18 +126,8 @@ jobs:
       # without it has no backups -- the bootstrap says so and continues.
       S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
       S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
-      # Where this box ships YOUR metrics and logs. Optional, your account, and
-      # unrelated to support: support telemetry is a separate channel with its
-      # own enrolment (ADR-067, ADR-077). Leaving these unset costs you nothing
-      # in support and means observability has no remote destination.
-      GRAFANA_CLOUD_TELEMETRY_TOKEN: ${{ secrets.GRAFANA_CLOUD_TELEMETRY_TOKEN }}
-      GRAFANA_CLOUD_PROMETHEUS_URL: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_URL }}
-      GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
-      GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}
-      GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
-      GRAFANA_CLOUD_RULES_TOKEN: ${{ secrets.GRAFANA_CLOUD_RULES_TOKEN }}
-      GRAFANA_CLOUD_DASHBOARDS_TOKEN: ${{ secrets.GRAFANA_CLOUD_DASHBOARDS_TOKEN }}
-      GRAFANA_CLOUD_ALERTS_TOKEN: ${{ secrets.GRAFANA_CLOUD_ALERTS_TOKEN }}
+      # Where this box's alerts page you (ADR-078 add.5 §5). Optional: without
+      # them alerts are emailed only, and nothing pages when the hub goes silent.
       GRAFANA_IRM_ALERTMANAGER_URL: ${{ secrets.GRAFANA_IRM_ALERTMANAGER_URL }}
       GRAFANA_IRM_HEARTBEAT_URL: ${{ secrets.GRAFANA_IRM_HEARTBEAT_URL }}
       # This box's outbound mail (smtps://user:key@host:port). Optional; without it

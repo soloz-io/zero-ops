@@ -1,5 +1,6 @@
 # The PrometheusRule CRD (prometheus-operator v0.87.1), so this cluster can declare
-# rules the cluster agent syncs to the stack's ruler (ADR-078 add.3 §3). No
+# rules the cluster's VMAlert evaluates (ADR-078 add.5 §5; the VictoriaMetrics
+# operator converts them to VMRule). No
 # prometheus-operator runs: the CRD is the rule format, nothing more.
 # Source: https://github.com/prometheus-operator/prometheus-operator (tag v0.87.1,
 #         example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml)

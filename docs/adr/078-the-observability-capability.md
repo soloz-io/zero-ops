@@ -1130,14 +1130,14 @@ Every alert is grouped by `cluster` and `alertname`.
   identity provider already sends with -- from `no-reply@<hubDomain>`. The stack's
   Alertmanager has no SMTP of its own.
 
-```architecture
-components:
-  - platform-alert-routing
-```
+Its transport (the stack's Alertmanager and the sync CronJob) is superseded by
+addendum 5, whose `architecture` block carries the components that replace it.
 
 ## Addendum 5: a self-hosted, highly available backend (2026-10-28) — Accepted
 
-**Status: Accepted (2026-10-28). Not yet implemented.** The architecture reviews of
+**Status: Accepted (2026-10-28). Implemented** (tracked in
+`docs/plans/adr-078-add5-implementation.md`); the parts that wait on ListenerSet
+are named in §7 and §6. The architecture reviews of
 2026-10-28 accepted the technology selection below and, after three rounds of
 corrections, the decision as written. The first required metering
 independence (§8), the Multi-Cluster dashboard (§6), the full Loki service path
@@ -1404,6 +1404,12 @@ not changed here; Grafana's availability is that profile's.
 **grafana-operator** reconciles an in-cluster `Grafana` (replacing addendum 3 §4's
 external instance), the Platform folder's dashboards, and the datasources.
 
+**Sign-in, until the viewer route exists:** the operator's generated admin
+credential. Viewer OIDC sign-in is the §7 contract and is built with it, when
+ListenerSet lets the hub query spokes; until then the hub's Grafana shows the
+hub's own stores. The Multi-Cluster composition below is generated with the
+spoke datasources, by the same change.
+
 **Datasources:** one pair per cluster, generated from the cluster registry
 (addendum 2 §10, restored): `<cell>-metrics` (Prometheus type) and `<cell>-logs`
 (Loki type, built into Grafana).
@@ -1487,9 +1493,11 @@ token refresh; token lifetime is the issuer's access-token lifetime.
 
 **Service identities** (vmalert's reads and state restore; the hub's own Grafana
 datasources) never hold a viewer session. They use the in-cluster service route
-with a per-service bearer credential (`VMUser`, Secret delivered by ESO, rotated
-through Infisical like every other platform credential), admitted only from those
-pods by NetworkPolicy. No service credential is valid on the external route.
+with a per-service bearer token (`VMUser`, generated in the cluster by ESO's
+`Password` generator and never stored outside it; rotation is deleting the
+Secret). The observability namespace admits only its own pods (addendum 1 §9),
+so the token is checked on traffic that is already in-namespace. No service
+credential is valid on the external route.
 
 **Read-only:** both routes admit only query paths (Prometheus `/api/v1/query*`,
 `/series`, `/labels`, `/label/*`; Loki `/loki/api/v1/query*`, `/labels`,
@@ -1527,11 +1535,13 @@ component; topology spread across zones where the provider has them; a
 `PodDisruptionBudget` of `maxUnavailable: 1`; one PVC per replica. Requests and
 limits are set from measured usage before rollout (ADR-070).
 
-**Environments:** the same components and configuration everywhere; **only
-replica counts differ.** Staging and production run the counts above and need at
-least three schedulable nodes per cluster (Loki's spread). Single-node clusters
-(ADR-047 spokes, dev) run one of each and are not HA; no configuration makes a
-single node HA.
+**Environments:** the same components and configuration everywhere. Development
+runs one replica of each replicated component, and **two VMSingles in every
+environment**, so the write path is the same everywhere; it prefers rather than
+requires spreading pods across nodes (`ScheduleAnyway`). Staging and production
+run the counts above and need at least three schedulable nodes per cluster
+(Loki's spread). Single-node clusters (ADR-047 spokes, dev) are not HA; no
+configuration makes a single node HA.
 
 ### 10. Failure behaviour
 
@@ -1580,9 +1590,22 @@ are detected and degrade as above; they are not survived.
    ring election and object-store deletion markers (§4); VMAuth's JWT, OIDC discovery and claim matching (§7);
    Grafana's datasource request metrics (§6).
 
-This addendum carries no `architecture` block until it is implemented. The block
-in addendum 3 stays what the release gate checks until the components this
-addendum adds are built and registered.
+```architecture
+capabilities:
+  - observability
+components:
+  - grafana-alloy
+  - kube-state-metrics
+  - node-exporter
+  - platform-alerts
+  - victoriametrics-operator
+  - victoriametrics
+  - loki
+  - platform-dashboards
+acceptance:
+  - scripts/validate/cluster/078-collection-floor.sh
+  - scripts/validate/preflight/078-pod-discovery-attaches-namespace-labels.sh
+```
 
 ## References
 

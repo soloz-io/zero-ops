@@ -158,7 +158,7 @@ if ! helm template platform-bundle "$CHART" \
         --set instanceRepoURL=https://github.com/example-org/example-gitops \
         --set hubDomain=dev.example.test \
         --set previewDomain=example-preview.test \
-        --set grafanaCloudStackUrl=https://example.grafana.net --set alerting.alertmanagerUrl=https://alertmanager.example.test --set alerting.alertmanagerId=1 --set 'alerting.emailTo[0]=alerts@example.test' \
+        --set 'alerting.emailTo[0]=alerts@example.test' \
         --set bundleVersion="$VERSION" > /dev/null 2>"$CHART/.err"; then
     echo "platform-bundle: released render failed:" >&2; sed 's/^/  /' "$CHART/.err" >&2
     rm -rf "$CHART"; exit 1

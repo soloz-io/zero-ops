@@ -12,7 +12,7 @@
 # Why it is here: the hub installs Reloader as an Argo component
 # (manifests/argocd/components/01/stakater-reloader.yaml) and the spoke had
 # none, so on the spoke every reload annotation was inert -- a rotated
-# credential (tenant gateway OIDC secrets, hetzner-dns, grafana-cloud-credentials)
+# credential (tenant gateway OIDC secrets, hetzner-dns)
 # kept its old value in memory, and a ConfigMap change shipped by a release was
 # never loaded (2026-10-23: rc.159's Alloy config sat unloaded on every node).
 # Preflight 030 fails a catalogue that carries a reload annotation without this.

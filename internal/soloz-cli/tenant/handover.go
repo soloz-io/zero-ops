@@ -81,16 +81,7 @@ type Secrets struct {
 	S3AccessKeyID     string
 	S3SecretAccessKey string
 
-	GrafanaCloudAPIKey         string
-	GrafanaCloudPrometheusURL  string
-	GrafanaCloudPrometheusUser string
-	GrafanaCloudLokiURL        string
-	GrafanaCloudLokiUser       string
-	// ADR-078 add.3 §6: rule sync, and dashboard provisioning into the stack.
-	GrafanaCloudRulesToken      string
-	GrafanaCloudDashboardsToken string
-	// ADR-078 add.4: alert routing through the stack's Alertmanager and IRM.
-	GrafanaCloudAlertsToken   string
+	// ADR-078 add.5 §5: where the hub's Alertmanager pages, and its heartbeat.
 	GrafanaIRMAlertmanagerURL string
 	GrafanaIRMHeartbeatURL    string
 
@@ -286,7 +277,7 @@ func promptPlatformCredentials(spec Spec, s Secrets) (Secrets, error) {
 	//
 	// Without this there were two resolution paths with different rules.
 	// Scaffold filled Secrets from FLAGS only -- and there are no flags for
-	// object storage, the registry or Grafana Cloud -- so it prompted for them
+	// object storage or the registry -- so it prompted for them
 	// even when the values were sitting in the environment. Day-0 then read the
 	// same values from the environment without asking. The operator was
 	// answering questions whose answers the next phase already had.
@@ -498,8 +489,8 @@ func setOrgGitopsToken(ctx context.Context, org, token string) error {
 // reaches this code, and the operator has to delete the repository by hand. A
 // single HTTP 500 -- GitHub's, not ours -- therefore cost a whole run:
 //
-//	Error: setting GRAFANA_CLOUD_TELEMETRY_TOKEN on soloz-io/acme-gitops: exit status 1
-//	failed to set secret "GRAFANA_CLOUD_TELEMETRY_TOKEN": HTTP 500: Server Error
+//	Error: setting S3_ACCESS_KEY_ID on soloz-io/acme-gitops: exit status 1
+//	failed to set secret "S3_ACCESS_KEY_ID": HTTP 500: Server Error
 //
 // Secrets are set by PUT, so writing one twice is the same as writing it once
 // and a retry cannot half-apply anything.

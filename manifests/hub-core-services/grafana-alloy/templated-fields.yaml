@@ -14,7 +14,7 @@
 # reads sys.env("CLUSTER_NAME"), so one substitution reaches every label that
 # names the cluster, and the collection rules stay reviewable as written.
 # Both workloads, because ADR-078 add.1 §5 splits Alloy into a DaemonSet
-# (node-local) and a Deployment (cluster singletons), and telemetry from either
+# (node-local) and a StatefulSet (cluster-wide targets), and telemetry from either
 # has to say which box it came from.
 - kind: DaemonSet
   name: grafana-alloy
@@ -24,16 +24,16 @@
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
 
-- kind: Deployment
+- kind: StatefulSet
   name: grafana-alloy-cluster
   fields:
+    - path: [spec, replicas]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+    - path: [spec, volumeClaimTemplates, 0, spec, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
     - path: [spec, template, spec, containers, 0, env, 0, value]
       value: '{{ .Values.global.clusterName }}'
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
 
-- kind: PersistentVolumeClaim
-  name: grafana-alloy-cluster-data
-  fields:
-    - path: [spec, storageClassName]
-      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

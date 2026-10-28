@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Wrap the mixin's raw output as the objects the platform ships.
 
-Dashboards become GrafanaDashboard objects reconciled into the box owner's stack
-(ADR-078 add.3 §4); recording rules become PrometheusRule objects that each
-cluster's agent syncs to the stack's ruler, pinned to that cluster (add.3 §3).
+Dashboards become GrafanaDashboard objects reconciled into the hub's Grafana
+(ADR-078 add.5 §6); recording rules become PrometheusRule objects that each
+cluster's VMAlert evaluates (add.5 §5).
 Only the selected dashboards are shipped: control-plane, proxy, Windows and
 persistent-volume dashboards read series this platform does not collect, and a
 dashboard that renders empty is a defect (add.2 §2).
@@ -51,7 +51,7 @@ for fname in sorted(DASHBOARDS):
             "labels": {"app.kubernetes.io/managed-by": "platform"},
         },
         "spec": {
-            "instanceSelector": {"matchLabels": {"dashboards": "grafana-cloud"}},
+            "instanceSelector": {"matchLabels": {"dashboards": "platform"}},
             "folderRef": "platform",
             "json": json.dumps(board, indent=2, sort_keys=True),
         },

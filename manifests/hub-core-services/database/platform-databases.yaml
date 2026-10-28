@@ -101,3 +101,19 @@ spec:
   owner: hub_credits
   ensure: present
   databaseReclaimPolicy: retain
+---
+# The hub Grafana's database (ADR-078 add.5 §6): dashboards' state, users and
+# sessions for every Grafana replica. owner: hub_grafana, because Grafana runs its
+# own migrations. Retained on removal: deleting this resource must not drop it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: grafana
+  namespace: platform-data
+spec:
+  cluster:
+    name: platform-db
+  name: grafana
+  owner: hub_grafana
+  ensure: present
+  databaseReclaimPolicy: retain

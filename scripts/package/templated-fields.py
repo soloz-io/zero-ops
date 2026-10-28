@@ -29,7 +29,9 @@ protected instead.
 A field either assigns a whole value (`value:`), substitutes a literal inside
 one (`replace: {from:, with:}`) for values buried in an opaque blob no path can
 address, or substitutes it throughout the object (`replaceAll: {from:, with:}`)
-for objects that carry the same per-instance value in every field.
+for objects that carry the same per-instance value in every field. A `value:`
+field marked `type: int` renders as an integer, not a quoted string (replica
+counts that differ per environment).
 
 A component may render into several files. All of them are passed at once and a
 declared object must appear in exactly one of them: checked per file, a
@@ -181,14 +183,40 @@ def _templated_str(dumper, data):
     # re-encodes newlines and what helm renders is no longer the YAML the
     # component meant to emit.
     style = "'" if "{{" in data and "\n" not in data else None
+    if "{{" in data and "\n" in data:
+        # Force the literal block style that comment demands. PyYAML refuses `|`
+        # for text with trailing spaces or a leading newline and falls back to a
+        # double-quoted scalar, which escapes the template's own quotes (`eq
+        # .Values.x "dev"`) and helm then cannot parse it. Trailing whitespace
+        # and a leading blank line carry no meaning in the configs these are.
+        data = "\n".join(line.rstrip() for line in data.split("\n")).lstrip("\n")
+        style = "|"
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
 
 _Dumper.add_representer(str, _templated_str)
 
 
+# An integer field (`type: int`) carries a template that must render bare:
+# `replicas: '{{ ... }}'` is a string and the API server refuses it. The dumper
+# cannot emit `{{` unquoted (it reads as a flow mapping), so the field is
+# assigned a plain placeholder and the template is put back after dumping. Helm
+# renders the template before anything parses the YAML, so the result is an
+# integer.
+_INT_TEMPLATES = {}
+
+
+def int_placeholder(template):
+    key = f"ZZTEMPLATEDINT{len(_INT_TEMPLATES)}ZZ"
+    _INT_TEMPLATES[key] = template
+    return key
+
+
 def _dump(doc):
-    return yaml.dump(doc, Dumper=_Dumper, sort_keys=False, width=10**6)
+    text = yaml.dump(doc, Dumper=_Dumper, sort_keys=False, width=10**6)
+    for key, template in _INT_TEMPLATES.items():
+        text = text.replace(key, template)
+    return text
 
 
 def _dump_all(docs, handle):
@@ -290,6 +318,8 @@ def main() -> int:
                 elif "replace" in field:
                     substitute(doc, field["path"],
                                field["replace"]["from"], field["replace"]["with"])
+                elif field.get("type") == "int":
+                    assign(doc, field["path"], int_placeholder(field["value"]))
                 else:
                     assign(doc, field["path"], field["value"])
             except (KeyError, IndexError, TypeError) as exc:

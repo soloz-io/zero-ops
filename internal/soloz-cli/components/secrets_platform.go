@@ -64,21 +64,13 @@ func optionalSecrets() []optionalSecret {
 		{
 			name: "grafana-cloud", namespace: constants.NamespaceOps, dir: "grafana-cloud",
 			keys: map[string]string{
-				"telemetry-token": "GRAFANA_CLOUD_TELEMETRY_TOKEN",
-				"prometheus-url":  "GRAFANA_CLOUD_PROMETHEUS_URL",
-				"prometheus-user": "GRAFANA_CLOUD_PROMETHEUS_USER",
-				"loki-url":        "GRAFANA_CLOUD_LOKI_URL",
-				"loki-user":       "GRAFANA_CLOUD_LOKI_USER",
-				// ADR-078 add.3 §6.
-				"rules-token":      "GRAFANA_CLOUD_RULES_TOKEN",
-				"dashboards-token": "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
-				// ADR-078 add.4: alert routing.
-				"alerts-token":         "GRAFANA_CLOUD_ALERTS_TOKEN",
+				// ADR-078 add.5 §5: where the hub's Alertmanager pages, and its
+				// heartbeat. Metrics, logs and dashboards run in the box.
 				"irm-alertmanager-url": "GRAFANA_IRM_ALERTMANAGER_URL",
 				"irm-heartbeat-url":    "GRAFANA_IRM_HEARTBEAT_URL",
 			},
 			secType:     corev1.SecretTypeOpaque,
-			what:        "the box's observability backend: the tenant's own Grafana Cloud stack (ADR-078 add.3)",
+			what:        "where the box's alerts page (ADR-078 add.5 §5)",
 			destination: true,
 		},
 		{

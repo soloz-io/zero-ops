@@ -1,7 +1,6 @@
-# ADR-078 add.3 §5: the pipeline reports its own failure, from where the data
-# lands. These rules are synced to the stack's ruler by THIS cluster's agent and
-# pinned to this cluster, so they keep evaluating in the stack when this cluster
-# goes silent -- which is the failure they exist to report.
+# ADR-078 add.5 §5: the pipeline reports its own failure. A cluster cannot report
+# its own silence; its heartbeat does, by its absence at the external IRM
+# heartbeat. The rules below report loss the agents can still see.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -15,7 +14,7 @@ metadata:
 spec:
   groups:
     - name: platform.pipeline.health
-      interval: 1m
+      interval: 30s
       rules:
         # Always firing. Its ABSENCE at a receiver means the alert path itself
         # (ruler, Alertmanager, receiver) is broken -- which no other alert
@@ -26,12 +25,6 @@ spec:
             severity: none
           annotations:
             summary: "Heartbeat: this cluster's alert path is alive. Route it to a dead-man's-switch receiver."
-        - alert: ClusterTelemetrySilent
-          expr: absent_over_time(up{job="kubelet"}[10m])
-          labels:
-            severity: critical
-          annotations:
-            summary: "No telemetry from this cluster for 10 minutes: its agents, their credentials or its link to the stack have failed. An outage or a rate limit (429) is buffered on the cluster for up to 24h; a refused credential (401) is dropped, not buffered -- check the agents' logs first."
         - alert: TelemetryDroppedUnsent
           expr: sum(increase(prometheus_remote_storage_samples_dropped_total[15m])) + sum(increase(prometheus_remote_storage_samples_failed_total[15m])) > 0
           for: 15m

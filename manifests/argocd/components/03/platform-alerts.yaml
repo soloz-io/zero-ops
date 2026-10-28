@@ -1,9 +1,9 @@
 ---
-# ADR-078 §6 and add.3 §3: the platform's own health rules, and the
-# PrometheusRule CRD they are declared with. The cluster agent syncs every
-# platform-labelled rule here to the stack's ruler, pinned to this cluster.
+# ADR-078 §6 and add.5 §5: the platform's own health rules, and the
+# PrometheusRule CRD they are declared with. The cluster's platform VMAlert
+# evaluates every platform-labelled rule here, converted to VMRule.
 #
-# syncWave 3: after the agents (wave 2 and earlier) that sync them.
+# syncWave 3: after the agents (wave 2 and earlier).
 boundary: '03'
 appName: platform-alerts
 destinationNamespace: platform-observability

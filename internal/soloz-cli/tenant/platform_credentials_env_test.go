@@ -3,11 +3,10 @@ package tenant
 import "testing"
 
 // Scaffold filled Secrets from flags only, and there are no flags for object
-// storage, the registry or Grafana Cloud -- so it prompted for values that were
+// storage or the registry -- so it prompted for values that were
 // already in the environment, which Day-0 then read without asking. The operator
 // answered questions whose answers the next phase already had.
 func TestScaffoldResolvesCredentialsFromTheEnvironment(t *testing.T) {
-	t.Setenv("GRAFANA_CLOUD_TELEMETRY_TOKEN", "from-env")
 	t.Setenv("S3_ACCESS_KEY_ID", "from-env")
 	t.Setenv("GHCR_TOKEN", "from-env")
 
@@ -16,7 +15,7 @@ func TestScaffoldResolvesCredentialsFromTheEnvironment(t *testing.T) {
 
 	for _, c := range platformCredentials() {
 		switch c.Secret {
-		case "GRAFANA_CLOUD_TELEMETRY_TOKEN", "S3_ACCESS_KEY_ID", "GHCR_TOKEN":
+		case "S3_ACCESS_KEY_ID", "GHCR_TOKEN":
 			if got := *c.Field(&s); got != "from-env" {
 				t.Errorf("%s = %q, want it resolved from the environment", c.Secret, got)
 			}

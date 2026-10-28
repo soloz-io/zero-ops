@@ -1,0 +1,102 @@
+# ADR-078 addendum 5 §3: two VMSingle instances, the vendor's single-node HA
+# pattern. Alloy writes every sample to both (its two remote-write endpoints);
+# reads fail over between them through VMAuth. Each has its own PVC. Both exist
+# in every environment, so the write path is the same everywhere; staging and
+# production require them on different nodes, development prefers it.
+#
+# Deduplication (§5): -dedup.minScrapeInterval equals vmalert's
+# -evaluationInterval (30s). It removes the duplicate copies the two write paths
+# and the replicated evaluators produce, and keeps the 30s sampling granularity.
+#
+# Neither store scrapes: Alloy is the only collector (§2). Scrape selection is
+# off and the store ingests only what is written to it.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata:
+  name: platform-a
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+    observability.platform.io/store: metrics
+spec:
+  retentionPeriod: "15d"
+  removePvcAfterDelete: false
+  ingestOnlyMode: true
+  selectAllByDefault: false
+  disableSelfServiceScrape: true
+  storage:
+    storageClassName: PLACEHOLDER_STORAGE_CLASS
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  extraArgs:
+    dedup.minScrapeInterval: 30s
+    maxLabelsPerTimeseries: "50"
+  podMetadata:
+    labels:
+      observability.platform.io/store: metrics
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      # DoNotSchedule in staging and production; ScheduleAnyway in development,
+      # where a cluster may have one node (templated-fields.yaml).
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/store: metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata:
+  name: platform-b
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+    observability.platform.io/store: metrics
+spec:
+  retentionPeriod: "15d"
+  removePvcAfterDelete: false
+  ingestOnlyMode: true
+  selectAllByDefault: false
+  disableSelfServiceScrape: true
+  storage:
+    storageClassName: PLACEHOLDER_STORAGE_CLASS
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  extraArgs:
+    dedup.minScrapeInterval: 30s
+    maxLabelsPerTimeseries: "50"
+  podMetadata:
+    labels:
+      observability.platform.io/store: metrics
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      # DoNotSchedule in staging and production; ScheduleAnyway in development,
+      # where a cluster may have one node (templated-fields.yaml).
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/store: metrics

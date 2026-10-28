@@ -1,0 +1,191 @@
+# ADR-078 addendum 5 §6: the box's Grafana, on the hub only.
+#
+# Grafana OSS, two replicas in staging and production, sharing one PostgreSQL
+# database (the `grafana` database on the hub's CNPG cluster), which holds state
+# and sessions for every replica: Grafana's documented HA model. Grafana's own
+# alerting is not used; alerting is VMAlert and VMAlertmanager.
+#
+# Sign-in: the operator's generated admin credential (Secret
+# platform-admin-credentials). The viewer OIDC route of §7 waits on ListenerSet
+# with the spoke query endpoints, and arrives with it.
+#
+# Datasources: the hub's own pair, through VMAuth's service route with Grafana's
+# own token. Spoke pairs are generated when spokes can be queried (ADR-083,
+# 2026-09-21 amendment).
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-db
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: grafana-db
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: hub-grafana-db-username
+    - secretKey: password
+      remoteRef:
+        key: hub-grafana-db-password
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: platform
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    dashboards: platform
+spec:
+  config:
+    server:
+      root_url: https://grafana.PLACEHOLDER_HUB_DOMAIN
+    database:
+      type: postgres
+      host: platform-db-rw.platform-data.svc.cluster.local:5432
+      name: grafana
+      ssl_mode: require
+    users:
+      allow_sign_up: "false"
+    auth.anonymous:
+      enabled: "false"
+    analytics:
+      reporting_enabled: "false"
+      check_for_updates: "false"
+    unified_alerting:
+      enabled: "false"
+  deployment:
+    spec:
+      # 2 in staging and production, 1 in development (templated-fields.yaml).
+      replicas: 2
+      template:
+        metadata:
+          labels:
+            observability.platform.io/component: grafana
+        spec:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  observability.platform.io/component: grafana
+          containers:
+            - name: grafana
+              env:
+                - name: GF_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-db
+                      key: username
+                - name: GF_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-db
+                      key: password
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaFolder
+metadata:
+  name: platform
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  title: Platform
+  instanceSelector:
+    matchLabels:
+      dashboards: platform
+---
+# The hub's metrics: both VMSingles behind VMAuth. timeInterval is the longest
+# scrape interval in this cluster, so $__rate_interval suits its slowest target
+# (§5).
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: hub-metrics
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: platform
+  valuesFrom:
+    - targetPath: secureJsonData.httpHeaderValue1
+      valueFrom:
+        secretKeyRef:
+          name: vmauth-grafana
+          key: password
+  datasource:
+    name: hub-metrics
+    uid: hub-metrics
+    type: prometheus
+    access: proxy
+    isDefault: true
+    url: http://vmauth-platform.platform-observability.svc:8427
+    jsonData:
+      timeInterval: 30s
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: Bearer ${password}
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: hub-logs
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: platform
+  valuesFrom:
+    - targetPath: secureJsonData.httpHeaderValue1
+      valueFrom:
+        secretKeyRef:
+          name: vmauth-grafana
+          key: password
+  datasource:
+    name: hub-logs
+    uid: hub-logs
+    type: loki
+    access: proxy
+    url: http://vmauth-platform.platform-observability.svc:8427
+    jsonData:
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: Bearer ${password}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: platform-observability
+spec:
+  parentRefs:
+    - name: hub-gateway
+      namespace: platform-ops
+      sectionName: grafana
+  hostnames:
+    - grafana.PLACEHOLDER_HUB_DOMAIN
+  rules:
+    - backendRefs:
+        - name: platform-service
+          port: 3000

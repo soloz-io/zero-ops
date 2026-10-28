@@ -102,12 +102,8 @@ global:
   {{- /* ADR-108: the registrable domain session previews are served from. The
          preview-access service refuses to start without it. */}}
   previewDomain: {{ $root.Values.previewDomain | quote }}
-  {{- /* ADR-078 add.3: the stack dashboards are provisioned into. */}}
-  grafanaCloudStackUrl: {{ $root.Values.grafanaCloudStackUrl | quote }}
-  {{- /* ADR-078 addendum 4: the stack's Alertmanager and the box's receivers. */}}
+  {{- /* ADR-078 addenda 4 and 5: who each cluster's Alertmanager emails. */}}
   alerting:
-    alertmanagerUrl: {{ $root.Values.alerting.alertmanagerUrl | quote }}
-    alertmanagerId: {{ $root.Values.alerting.alertmanagerId | quote }}
     emailTo: {{ $root.Values.alerting.emailTo | toJson }}
   clusterName: {{ include "environment-manager.clusterName" $root | quote }}
   {{- /*

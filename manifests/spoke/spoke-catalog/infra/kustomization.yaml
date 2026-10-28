@@ -54,11 +54,22 @@ resources:
   - platform-alerts/cnpg-backup-alerts.yaml
   # ADR-078 add.3 §5: the pipeline's own failure, detected in the stack.
   - platform-alerts/pipeline-health.yaml
+  # ADR-078 addendum 5: the spoke's own stores, evaluators and Alertmanager.
+  - victoriametrics/crd.yaml
+  - victoriametrics/controller.yaml
+  - victoriametrics/stores.yaml
+  - victoriametrics/vmauth.yaml
+  - victoriametrics/vmalert.yaml
+  - victoriametrics/vmalertmanager.yaml
+  # §5: tenant rule groups evaluate at the platform interval.
+  - kyverno-tenant-rules.yaml
+  # §4: the spoke's Loki and its object-storage credentials.
+  - loki/loki.yaml
+  - loki/object-storage-es.yaml
   # Workload alerts, identical to the hub's (pods, memory, nodes, disk).
   - platform-alerts/workload-alerts.yaml
   # Generated: the kubernetes-mixin recording rules (ADR-078 add.3 §3).
   - platform-alerts/kubernetes-mixin-rules.yaml
-  - grafana-cloud-es.yaml
   - kyverno-tenant-abi.yaml
   - s3-credentials-es.yaml
   # ADR-035: Spoke-side cert-manager for certificate lifecycle management

@@ -187,14 +187,11 @@ spec:
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
 
-          # ADR-078 add.3 §4: the Grafana Operator and the dashboards it
-          # reconciles into the box owner's Grafana Cloud stack. Gated with the
+          # ADR-078 add.5 §6: the Grafana Operator, the hub's Grafana and the
+          # dashboards and datasources it reconciles. Gated with the
           # capability for the reason grafana-alloy is. Flat: the bundle packages
           # a directory component's top-level files only.
-          {{- $_ := required "grafanaCloudStackUrl is required while observability is enabled: the box owner's Grafana Cloud stack is the backend and UI (ADR-078 add.3)" .Values.grafanaCloudStackUrl }}
-          {{- $_ := required "alerting.alertmanagerUrl is required while observability is enabled: the stack's Alertmanager receives the platform's alerts (ADR-078 add.4)" .Values.alerting.alertmanagerUrl }}
-          {{- $_ := required "alerting.alertmanagerId is required while observability is enabled: the stack's Alertmanager instance ID (ADR-078 add.4)" .Values.alerting.alertmanagerId }}
-          {{- if not .Values.alerting.emailTo }}{{ fail "alerting.emailTo is required while observability is enabled: at least one address receives platform alerts (ADR-078 add.4)" }}{{ end }}
+          {{- if not .Values.alerting.emailTo }}{{ fail "alerting.emailTo is required while observability is enabled: at least one address receives platform alerts (ADR-078 add.4, add.5 §5)" }}{{ end }}
           - boundary: '03'
             appName: 'platform-dashboards'
             destinationNamespace: 'platform-observability'
@@ -215,20 +212,65 @@ spec:
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
 
-          # ADR-078 add.4: the stack's Alertmanager configuration, from Git.
+          # ADR-078 add.5: the operator that reconciles the hub's stores, evaluators,
+          # Alertmanager and query gateway. Its CRDs apply server-side.
           - boundary: '03'
-            appName: 'platform-alert-routing'
+            appName: 'victoriametrics-operator'
             destinationNamespace: 'platform-observability'
             isPlatformOwned: 'true'
             repoURL: ''
             targetRevision: ''
-            path: 'manifests/hub-core-services/platform-alert-routing'
+            path: 'manifests/hub-core-services/victoriametrics-operator'
             chart: ''
             directoryRecurse: ''
             directoryInclude: ''
             helmValues: |
               {{- if $released }}
-              platform-alert-routing:
+              victoriametrics-operator:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
+          # ADR-078 add.5: the hub's own stores (VMSingle x2), query gateway (VMAuth),
+          # evaluators (platform, tenant) and Alertmanager. Its resources skip the
+          # dry-run until the operator's CRDs exist, then reconcile.
+          - boundary: '03'
+            appName: 'victoriametrics'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/victoriametrics'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              victoriametrics:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
+          # ADR-078 add.5 §4: the hub's Loki (monolithic, S3-backed).
+          - boundary: '03'
+            appName: 'loki'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/loki'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              loki:
                 enabled: true
               {{- include "environment-manager.globalValues" $ | nindent 14 }}
               {{- end }}
@@ -770,9 +812,9 @@ spec:
             # which is what made it look like a seeding gap rather than an
             # authorisation contract violation.
             #
-            # GRAFANA_CLOUD_* is one fleet credential materialised into each cell's
-            # own path — deliberate duplication, chosen over a privileged cross-cell
-            # read path that would weaken ADR-031's invariant.
+            # S3_* and the alert-delivery keys are fleet credentials materialised into
+            # each cell's own path — deliberate duplication, chosen over a privileged
+            # cross-cell read path that would weaken ADR-031's invariant.
             #
             # The agentgateway-oidc-cookie-secret patch that stood here was removed
             # on 2026-09-02. d3b7303d moved the gateway to one instance per tenant,
@@ -780,28 +822,31 @@ spec:
             # tenant chart reads its own per-tenant path directly. A kustomize patch
             # whose target does not exist is a BUILD error, so this did not merely
             # do nothing — it would fail the whole spoke-catalog Application.
+            # ADR-078 add.5 §5: the spoke Alertmanager's credentials, in its own cell.
             - target:
                 kind: ExternalSecret
-                name: grafana-cloud-credentials
+                name: alertmanager-credentials
               patch: |
                 - op: replace
                   path: /spec/data/0/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_PROMETHEUS_URL'
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/ALERT_SMTP_PASSWORD'
                 - op: replace
                   path: /spec/data/1/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_PROMETHEUS_USER'
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_IRM_ALERTMANAGER_URL'
                 - op: replace
                   path: /spec/data/2/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_LOKI_URL'
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_IRM_HEARTBEAT_URL'
+            # ADR-078 add.5 §4: the spoke Loki's object-storage keys, in its own cell.
+            - target:
+                kind: ExternalSecret
+                name: loki-object-storage
+              patch: |
                 - op: replace
-                  path: /spec/data/3/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_LOKI_USER'
+                  path: /spec/data/0/remoteRef/key
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/S3_ACCESS_KEY_ID'
                 - op: replace
-                  path: /spec/data/4/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_TELEMETRY_TOKEN'
-                - op: replace
-                  path: /spec/data/5/remoteRef/key
-                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/GRAFANA_CLOUD_RULES_TOKEN'
+                  path: /spec/data/1/remoteRef/key
+                  value: '/spoke-pool/{{"{{"}}.name{{"}}"}}/shared/S3_SECRET_ACCESS_KEY'
             # WS3: external-dns blast-radius + record ownership.
             # --domain-filter scopes which zone this spoke may write, so a dev
             # spoke can never touch prod records. --txt-owner-id keys the TXT

@@ -14,12 +14,12 @@ import (
 // operator has to delete the repository by hand. One transient 500 did exactly
 // that:
 //
-//	Error: setting GRAFANA_CLOUD_TELEMETRY_TOKEN on soloz-io/acme-gitops: exit status 1
-//	failed to set secret "GRAFANA_CLOUD_TELEMETRY_TOKEN": HTTP 500: Server Error
+//	Error: setting S3_ACCESS_KEY_ID on soloz-io/acme-gitops: exit status 1
+//	failed to set secret "S3_ACCESS_KEY_ID": HTTP 500: Server Error
 func TestTransientGitHubFailuresAreRetried(t *testing.T) {
 	// 5xx, timeouts and reset connections are GitHub's problem: retry.
 	for _, out := range []string{
-		`failed to set secret "GRAFANA_CLOUD_TELEMETRY_TOKEN": HTTP 500: Server Error`,
+		`failed to set secret "S3_ACCESS_KEY_ID": HTTP 500: Server Error`,
 		"HTTP 502: Bad Gateway",
 		"HTTP 503: Service Unavailable",
 		"error connecting to api.github.com: connection reset by peer",

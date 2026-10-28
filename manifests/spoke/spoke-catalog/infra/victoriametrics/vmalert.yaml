@@ -1,0 +1,146 @@
+# ADR-078 addendum 5 §5: two evaluators, platform and tenant (addendum 2 §6), each
+# identical replicas. Every rule group evaluates at 30s; -dedup.minScrapeInterval
+# on both stores is the same 30s, the vendor's recommended equality, so the two
+# replicas' identical results (aligned timestamps, eval_alignment default true)
+# are stored once.
+#
+# - datasource and remoteRead: VMAuth's service route, so reads and alert-state
+#   restore (ALERTS_FOR_STATE) fail over between the two stores;
+# - remoteWrite: the Alloy cluster agent's receiver, which forwards each result to
+#   both stores through its own WAL;
+# - notifiers: every VMAlertmanager replica, which deduplicate between them.
+#
+# PrometheusRule objects are converted to VMRule by the operator (converter and
+# owner references on), so rules stay PrometheusRule in Git.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: platform
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # ADR-047: single-node spokes run on the control-plane node. The catalogue's
+  # toleration patch reaches only the objects it renders, not the pods the
+  # operator creates, so each resource carries it.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  # 2 in staging and production, 1 in development (templated-fields.yaml).
+  replicaCount: 2
+  evaluationInterval: 30s
+  disableSelfServiceScrape: true
+  datasource:
+    url: http://vmauth-platform.platform-observability.svc:8427
+    bearerTokenSecret:
+      name: vmauth-vmalert
+      key: password
+  remoteRead:
+    url: http://vmauth-platform.platform-observability.svc:8427
+    bearerTokenSecret:
+      name: vmauth-vmalert
+      key: password
+  remoteWrite:
+    url: http://grafana-alloy-cluster.platform-observability.svc:9091/api/v1/metrics/write
+  notifiers:
+    - selector:
+        labelSelector:
+          matchLabels:
+            observability.platform.io/alertmanager: platform
+  selectAllByDefault: false
+  ruleNamespaceSelector: {}
+  ruleSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: platform
+  podMetadata:
+    labels:
+      observability.platform.io/component: vmalert-platform
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/component: vmalert-platform
+  podDisruptionBudget:
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+---
+# Tenant rules: rule objects in opted-in namespaces only (addendum 2 §5), never a
+# platform rule. A broken or expensive tenant rule set cannot stall platform
+# evaluation.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: tenant
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  # ADR-047: single-node spokes run on the control-plane node. The catalogue's
+  # toleration patch reaches only the objects it renders, not the pods the
+  # operator creates, so each resource carries it.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  replicaCount: 2
+  evaluationInterval: 30s
+  disableSelfServiceScrape: true
+  datasource:
+    url: http://vmauth-platform.platform-observability.svc:8427
+    bearerTokenSecret:
+      name: vmauth-vmalert
+      key: password
+  remoteRead:
+    url: http://vmauth-platform.platform-observability.svc:8427
+    bearerTokenSecret:
+      name: vmauth-vmalert
+      key: password
+  remoteWrite:
+    url: http://grafana-alloy-cluster.platform-observability.svc:9091/api/v1/metrics/write
+  notifiers:
+    - selector:
+        labelSelector:
+          matchLabels:
+            observability.platform.io/alertmanager: platform
+  selectAllByDefault: false
+  ruleNamespaceSelector:
+    matchLabels:
+      observability.platform.io/otlp: enabled
+  ruleSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/managed-by
+        operator: NotIn
+        values: [platform]
+  podMetadata:
+    labels:
+      observability.platform.io/component: vmalert-tenant
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/component: vmalert-tenant
+  podDisruptionBudget:
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi

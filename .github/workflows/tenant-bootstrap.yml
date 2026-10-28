@@ -115,37 +115,6 @@ on:
       S3_SECRET_ACCESS_KEY:
         description: The matching secret access key.
         required: false
-      GRAFANA_CLOUD_TELEMETRY_TOKEN:
-        description: >-
-          Where this box ships its OWN metrics and logs: the tenant's account and
-          the tenant's data. Nothing to do with support -- ADR-067 makes support
-          telemetry a separate channel with its own enrolment (ADR-077), and
-          conflating the two is how a tenant's private monitoring account came to
-          look like a licence check. Required: the tenant's Grafana Cloud stack is
-          the box's observability backend (ADR-078 add.3). metrics:write and
-          logs:write.
-        required: true
-      GRAFANA_CLOUD_PROMETHEUS_URL:
-        description: The tenant's stack Prometheus URL (…/api/prom).
-        required: true
-      GRAFANA_CLOUD_PROMETHEUS_USER:
-        description: The matching Prometheus user.
-        required: true
-      GRAFANA_CLOUD_LOKI_URL:
-        description: The tenant's stack Loki URL (the host).
-        required: true
-      GRAFANA_CLOUD_LOKI_USER:
-        description: The matching Loki user.
-        required: true
-      GRAFANA_CLOUD_RULES_TOKEN:
-        description: A stack token with rules:read and rules:write, for rule sync.
-        required: true
-      GRAFANA_CLOUD_DASHBOARDS_TOKEN:
-        description: A stack service-account token (Editor), for dashboard provisioning.
-        required: true
-      GRAFANA_CLOUD_ALERTS_TOKEN:
-        description: A stack token with alerts:read and alerts:write, for alert routing.
-        required: true
       GRAFANA_IRM_ALERTMANAGER_URL:
         description: The stack's IRM Alertmanager integration URL.
         required: true
@@ -269,14 +238,6 @@ jobs:
           # them into the cluster.
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
-          GRAFANA_CLOUD_TELEMETRY_TOKEN: ${{ secrets.GRAFANA_CLOUD_TELEMETRY_TOKEN }}
-          GRAFANA_CLOUD_PROMETHEUS_URL: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_URL }}
-          GRAFANA_CLOUD_PROMETHEUS_USER: ${{ secrets.GRAFANA_CLOUD_PROMETHEUS_USER }}
-          GRAFANA_CLOUD_LOKI_URL: ${{ secrets.GRAFANA_CLOUD_LOKI_URL }}
-          GRAFANA_CLOUD_LOKI_USER: ${{ secrets.GRAFANA_CLOUD_LOKI_USER }}
-          GRAFANA_CLOUD_RULES_TOKEN: ${{ secrets.GRAFANA_CLOUD_RULES_TOKEN }}
-          GRAFANA_CLOUD_DASHBOARDS_TOKEN: ${{ secrets.GRAFANA_CLOUD_DASHBOARDS_TOKEN }}
-          GRAFANA_CLOUD_ALERTS_TOKEN: ${{ secrets.GRAFANA_CLOUD_ALERTS_TOKEN }}
           GRAFANA_IRM_ALERTMANAGER_URL: ${{ secrets.GRAFANA_IRM_ALERTMANAGER_URL }}
           GRAFANA_IRM_HEARTBEAT_URL: ${{ secrets.GRAFANA_IRM_HEARTBEAT_URL }}
           ZITADEL_SMTP_URL: ${{ secrets.ZITADEL_SMTP_URL }}

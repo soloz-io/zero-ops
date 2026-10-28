@@ -1,0 +1,44 @@
+# ADR-078 addendum 5 §5: one deduplication contract. Every rule group evaluates
+# at 30s, the stores' -dedup.minScrapeInterval, because the vendor rules out a
+# group interval longer than the dedup interval and a shorter one is below the
+# scrape resolution. A tenant rule group that declares any other interval is
+# refused at admission; one that declares none takes the evaluator's 30s.
+#
+# Platform rules (app.kubernetes.io/managed-by: platform) are the platform's own
+# and already conform; they are not this policy's to judge.
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tenant-rule-interval
+  labels:
+    app.kubernetes.io/component: tenant-governance
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: rule-groups-evaluate-at-30s
+      match:
+        any:
+          - resources:
+              kinds:
+                - monitoring.coreos.com/v1/PrometheusRule
+                - operator.victoriametrics.com/v1beta1/VMRule
+      exclude:
+        any:
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/managed-by: platform
+      validate:
+        message: >-
+          Every rule group evaluates at 30s (ADR-078 addendum 5 §5). Leave
+          `interval` unset, or set it to 30s.
+        pattern:
+          spec:
+            groups:
+              - =(interval): "30s"

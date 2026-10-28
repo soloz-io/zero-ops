@@ -130,71 +130,15 @@ func platformCredentials() []platformCredential {
 			Needed:     privateImages,
 		},
 		{
-			Secret: "GRAFANA_CLOUD_TELEMETRY_TOKEN", Tier: tierDestination,
-			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_TELEMETRY_TOKEN (metrics:write and logs:write on your stack): ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudAPIKey },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_PROMETHEUS_URL", Tier: tierDestination,
-			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_PROMETHEUS_URL: ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudPrometheusURL },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_PROMETHEUS_USER", Tier: tierDestination,
-			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_PROMETHEUS_USER: ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudPrometheusUser },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_LOKI_URL", Tier: tierDestination,
-			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_LOKI_URL: ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudLokiURL },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_LOKI_USER", Tier: tierDestination,
-			Capability: "shipping this box's metrics and logs to your own Grafana Cloud",
-			Prompt:     "GRAFANA_CLOUD_LOKI_USER: ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudLokiUser },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_RULES_TOKEN", Tier: tierDestination,
-			Capability: "syncing this box's alert and recording rules to your Grafana Cloud stack",
-			Prompt:     "GRAFANA_CLOUD_RULES_TOKEN (rules:read and rules:write): ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudRulesToken },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_DASHBOARDS_TOKEN", Tier: tierDestination,
-			Capability: "provisioning this box's dashboards into your Grafana Cloud stack",
-			Prompt:     "GRAFANA_CLOUD_DASHBOARDS_TOKEN (a stack service-account token, Editor): ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudDashboardsToken },
-			Needed:     always,
-		},
-		{
-			Secret: "GRAFANA_CLOUD_ALERTS_TOKEN", Tier: tierDestination,
-			Capability: "routing this box's alerts through your Grafana Cloud stack's Alertmanager",
-			Prompt:     "GRAFANA_CLOUD_ALERTS_TOKEN (alerts:read and alerts:write on your stack's Alertmanager): ",
-			Field:      func(s *Secrets) *string { return &s.GrafanaCloudAlertsToken },
-			Needed:     always,
-		},
-		{
 			Secret: "GRAFANA_IRM_ALERTMANAGER_URL", Tier: tierDestination,
-			Capability: "paging on this box's critical and warning alerts through your Grafana IRM",
+			Capability: "paging on this box's critical and warning alerts through your IRM",
 			Prompt:     "GRAFANA_IRM_ALERTMANAGER_URL (your IRM Alertmanager integration's URL): ",
 			Field:      func(s *Secrets) *string { return &s.GrafanaIRMAlertmanagerURL },
 			Needed:     always,
 		},
 		{
 			Secret: "GRAFANA_IRM_HEARTBEAT_URL", Tier: tierDestination,
-			Capability: "being paged when this box's alert path itself stops",
+			Capability: "being paged when this box's hub stops reporting (ADR-078 add.5 §5)",
 			Prompt:     "GRAFANA_IRM_HEARTBEAT_URL (the same integration's heartbeat URL): ",
 			Field:      func(s *Secrets) *string { return &s.GrafanaIRMHeartbeatURL },
 			Needed:     always,
@@ -253,23 +197,24 @@ func (s Secrets) RequireSelectedCapabilities(spec Spec) error {
 		strings.Join(why, "\n"), strings.Join(names, ", "))
 }
 
-// ObservabilityDestination says where this box's telemetry goes, if anywhere.
+// ObservabilityDestination says where this box's alerts page, if anywhere.
 //
 // Reported, never refused, and carrying no consequence beyond itself. The
-// observability stack ships to every tenant and runs either way; without a
-// destination it has nowhere remote to send, which is a configuration a tenant
-// may well want and is not a degraded platform.
+// observability stack runs in the box either way (ADR-078 add.5); without an
+// IRM destination alerts are emailed only, which a tenant may well want and is
+// not a degraded platform.
 //
 // It says nothing about support. A tenant pays for the platform to be
 // accountable for their box, not for permission to use it, so no capability is
 // conditioned on that relationship and this message must not imply one.
 func (s Secrets) ObservabilityDestination(spec Spec) string {
 	if len(s.missingInTier(spec, tierDestination)) == 0 {
-		return "Observability: metrics and logs ship to your Grafana Cloud."
+		return "Observability: runs in this box; alerts page through your IRM."
 	}
-	return "Observability: no remote destination configured.\n" +
-		"The stack still runs and still collects; nothing is withheld. Add a\n" +
-		"destination whenever you want it shipped somewhere you can read it."
+	return "Observability: runs in this box; no remote destination configured for paging.\n" +
+		"Metrics, logs, dashboards and alerts all run; nothing is withheld. Alerts are\n" +
+		"emailed only, and nothing pages when the hub stops reporting, until the IRM\n" +
+		"URLs are added."
 }
 
 // fillFromEnvironment supplies any credential still empty from the environment.

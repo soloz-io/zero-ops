@@ -34,7 +34,7 @@ validate_manifest_renders() {
     local em_values=(--set environmentSlug=prod --set provider=hetzner
                      --set topology=single --set publicTlsIssuer=letsencrypt-prod
                      --set environmentRevision=main \
-                     --set instanceRepoURL=https://github.com/example-org/example-gitops --set hubDomain=dev.example.test --set previewDomain=example-preview.test --set grafanaCloudStackUrl=https://example.grafana.net --set alerting.alertmanagerUrl=https://alertmanager.example.test --set alerting.alertmanagerId=1 --set 'alerting.emailTo[0]=alerts@example.test')
+                     --set instanceRepoURL=https://github.com/example-org/example-gitops --set hubDomain=dev.example.test --set previewDomain=example-preview.test --set 'alerting.emailTo[0]=alerts@example.test')
 
     # ADR-088: the tenant chart renders one APP of one TENANT, and neither
     # identifier defaults to the other. A fixture short of either reports the

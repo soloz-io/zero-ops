@@ -71,7 +71,7 @@ spec:
   # hand six times in one session. None of that was visible without going and
   # looking at a specific field.
   - name: platform.gitops.delivery
-    interval: 60s
+    interval: 30s
     rules:
     # The controller cannot determine desired state at all.
     #
@@ -141,3 +141,20 @@ spec:
         description: >-
           Auto-sync is enabled and has not converged. Git and the cluster
           disagree about this application and nothing is correcting it.
+
+  # ADR-078 add.5 §6 (addendum 2 §16): a datasource Grafana cannot query. Grafana's
+  # own alerting is not used, so the hub's platform VMAlert evaluates this.
+  - name: platform.grafana.datasources
+    interval: 30s
+    rules:
+    - alert: GrafanaDatasourceErrors
+      expr: |
+        sum by (datasource) (rate(grafana_datasource_request_total{code!~"2..|3.."}[5m])) > 0
+      for: 10m
+      labels:
+        severity: warning
+        component: observability
+      annotations:
+        summary: "Grafana datasource {{ $labels.datasource }} is failing queries"
+        description: "Queries from Grafana to datasource {{ $labels.datasource }} have failed for 10 minutes."
+

@@ -68,21 +68,12 @@ hubDomain: ""
 # admission, and the preview listener is not rendered.
 previewDomain: ""
 
-# ADR-078 add.3: the box owner's Grafana Cloud stack, https://<stack>.grafana.net
-# -- the box's observability backend and UI. Required while observability is
-# enabled: the dashboards are provisioned into it, and the render fails without
-# it rather than provisioning nowhere.
-grafanaCloudStackUrl: ""
 
-# ADR-078 addendum 4: where the stack's alerts are delivered. Required while
-# observability is enabled: an Alertmanager with no route delivers nothing.
+# ADR-078 addenda 4 and 5: where each cluster's Alertmanager delivers. Required
+# while observability is enabled: an Alertmanager with no route delivers nothing.
 alerting:
-  # The stack's Alertmanager (https://alertmanager-<region>.grafana.net) and its
-  # instance ID, from the stack's details.
-  alertmanagerUrl: ""
-  alertmanagerId: ""
   # Who receives platform alerts by email. Critical and warning alerts also go
-  # to the stack's IRM; the heartbeat goes to IRM's heartbeat.
+  # to IRM; each cluster's heartbeat goes to its own IRM heartbeat.
   emailTo: []
 
 # Where this box's stateful services run (ADR-046 §11, ADR-075).

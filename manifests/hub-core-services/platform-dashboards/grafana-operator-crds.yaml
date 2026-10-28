@@ -1,6 +1,5 @@
-# Grafana Operator v5.24.0 -- CRDs. Reconciles this box's dashboards into the owner's
-# Grafana Cloud stack, which it manages as an EXTERNAL instance (ADR-078 add.3 §4).
-# It runs no Grafana: the only Grafana is the stack's.
+# Grafana Operator v5.24.0 -- CRDs. Runs the hub's Grafana and reconciles its
+# dashboards and datasources (ADR-078 add.5 §6).
 # Source: https://grafana.github.io/helm-charts (chart grafana-operator 5.24.0)
 # Source chart sha256: ffde0a5b1efab88d
 # Vendored from `helm template grafana-operator grafana-operator-5.24.0.tgz

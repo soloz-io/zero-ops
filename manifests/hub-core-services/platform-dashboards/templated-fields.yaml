@@ -1,10 +1,17 @@
-# ADR-078 add.3 §4: the stack this box provisions into is a per-box fact. It is
-# required where the box's values enter -- the environment-manager refuses to
-# render without grafanaCloudStackUrl -- and the Grafana CRD rejects an empty
-# URL at apply (pattern ^https?://.+$). Not `required` here: a component chart is
-# also rendered without a box's values, at packaging, and would render nothing.
+# Per-box and per-environment values for the hub Grafana (ADR-078 addendum 5 §6).
 - kind: Grafana
-  name: grafana-cloud
+  name: platform
   fields:
-    - path: [spec, external, url]
-      value: '{{ .Values.global.grafanaCloudStackUrl }}'
+    - path: [spec, config, server, root_url]
+      value: 'https://grafana.{{ .Values.global.hubDomain }}'
+    - path: [spec, deployment, spec, replicas]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+    - path: [spec, deployment, spec, template, spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+
+- kind: HTTPRoute
+  name: grafana
+  fields:
+    - path: [spec, hostnames, 0]
+      value: 'grafana.{{ .Values.global.hubDomain }}'

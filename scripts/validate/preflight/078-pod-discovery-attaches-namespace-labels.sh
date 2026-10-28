@@ -14,16 +14,15 @@
 #          attach_metadata { namespace = true };
 #   078-2  every grafana/alloy image in a manifest carrying such a block is
 #          v1.12 or later;
-#   078-3  a Grafana Cloud writer appends its push path to the URL secret, which
-#          holds the URL as Grafana Cloud shows it (Loki: the host; Prometheus:
-#          …/api/prom). Used bare, every write is refused (405);
+#   078-3  retired with the Grafana Cloud destination (ADR-078 add.5): the
+#          writers now name the cluster's own stores literally;
 #   078-4  pod logs reach the box's own store (loki.write "platform"), never
 #          only an external destination (§7.1);
 #   078-5  the spoke agent's CELL_ID and TENANT_ID (the cluster and tenant
 #          labels, add.1 §7) are literals the spoke catalogue's templated-fields
 #          substitute at their exact env index. A value read from anywhere else
 #          (2026-10-24: a pod label nothing set) leaves the label empty. Checked
-#          for every spoke agent (node DaemonSet, cluster Deployment);
+#          for every spoke agent (node DaemonSet, cluster StatefulSet);
 #   078-6  every series-level tenant-exclusion list in one manifest is the same
 #          list, so no agent admits a namespace another excludes;
 #   078-7  every node-agent DaemonSet tolerates the control-plane taint (in its
@@ -80,10 +79,6 @@ for root in ROOTS:
                 print(f'FAIL {path}: discovery.relabel "{m.group(1)}" reads namespace labels, but '
                       f'discovery.kubernetes "{src.group(1)}" has no attach_metadata {{ namespace = true }}; '
                       f'its keep rule drops every pod')
-        for var, suffix in (("LOKI_URL", "/loki/api/v1/push"), ("PROMETHEUS_URL", "/push")):
-            for u in re.finditer(r'url\s*=\s*sys\.env\("' + var + r'"\)([^\n]*)', text):
-                if f'+ "{suffix}"' not in u.group(1):
-                    print(f'FAIL {path}: url = sys.env("{var}") must append "{suffix}"; the secret holds the URL Grafana Cloud shows, not its write endpoint')
         for s in re.finditer(r'loki\.source\.file\s+"([^"]+)"\s*\{', text):
             fb = body(text, s.end() - 1)
             if "loki.write.platform.receiver" not in fb:
@@ -96,7 +91,7 @@ import yaml
 spoke = pathlib.Path("manifests/spoke/spoke-catalog/infra/grafana-alloy.yaml")
 fields = [e for doc in yaml.safe_load_all(pathlib.Path("manifests/spoke/spoke-catalog/templated-fields.yaml").read_text())
           for e in (doc if isinstance(doc, list) else [doc])]
-AGENTS = {("DaemonSet", "grafana-alloy"), ("Deployment", "grafana-alloy-cluster")}
+AGENTS = {("DaemonSet", "grafana-alloy"), ("StatefulSet", "grafana-alloy-cluster")}
 paths = {(d.get("kind"), d.get("name")): [f["path"] for f in d.get("fields", []) if "path" in f]
          for d in fields if d}
 seen = set()

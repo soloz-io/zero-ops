@@ -259,7 +259,7 @@ load_credentials() {
         fi
         for f in "$dir"/*; do
             [ -f "$f" ] || continue
-            # access-key-id -> S3_ACCESS_KEY_ID, loki-url -> GRAFANA_CLOUD_LOKI_URL
+            # access-key-id -> S3_ACCESS_KEY_ID, irm-heartbeat-url -> GRAFANA_IRM_HEARTBEAT_URL
             key="${prefix}_$(basename "$f" | tr 'a-z-' 'A-Z_')"
             export "$key=$(tr -d '\r\n' < "$f")"
         done

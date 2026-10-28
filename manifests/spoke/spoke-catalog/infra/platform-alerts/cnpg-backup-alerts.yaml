@@ -41,7 +41,7 @@ metadata:
 spec:
   groups:
     - name: platform.cnpg.recoverability
-      interval: 60s
+      interval: 30s
       rules:
         # THE one that would have caught 2026-09-25 within fifteen minutes.
         #

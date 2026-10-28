@@ -1,7 +1,6 @@
 # Workload alerts every cluster carries, hub and spoke alike: the same file in
-# manifests/spoke/spoke-catalog/infra/platform-alerts/. Each cluster's agent syncs
-# it to the stack's ruler pinned to that cluster (ADR-078 add.3 §3), so dev and
-# prod are alerted on the same rules.
+# manifests/spoke/spoke-catalog/infra/platform-alerts/. Each cluster's own VMAlert
+# evaluates it (ADR-078 add.5 §5), so dev and prod are alerted on the same rules.
 #
 # Memory is judged by what the kernel cannot reclaim. Working set counts active
 # file cache, which a database fills to its limit by design and which the kernel
@@ -83,7 +82,7 @@ spec:
         description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} holds {{ $value | humanizePercentage }} of its memory limit in memory the kernel cannot reclaim. It will be OOM-killed if it grows."
 
   - name: platform.node.memory
-    interval: 60s
+    interval: 30s
     rules:
     # MemAvailable already counts reclaimable cache as available.
     - alert: NodeMemoryLow
@@ -109,7 +108,7 @@ spec:
         description: "Node {{ $labels.node }} reports MemoryPressure: the kubelet is evicting pods from it."
 
   - name: platform.disk.usage
-    interval: 60s
+    interval: 30s
     rules:
     - alert: HighDiskUsage
       expr: |

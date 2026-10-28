@@ -1,0 +1,117 @@
+# ADR-078 addendum 5 §5: VMAlertmanager, two replicas in staging and production.
+# The operator runs two or more as a gossip cluster that deduplicates
+# notifications; delivery is at least once.
+#
+# Routing is addendum 4's route tree, unchanged as content: PlatformHeartbeat to
+# this cluster's external IRM heartbeat (its ABSENCE pages), warning and critical
+# to email and IRM, everything else to email.
+#
+# The config holds no secret: credentials are files from the mounted
+# `alertmanager-credentials` Secret (spec.secrets mounts it at
+# /etc/vm/secrets/alertmanager-credentials/). Per-box addresses are substituted by
+# templated-fields.yaml.
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlertmanager
+metadata:
+  name: platform
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+    observability.platform.io/alertmanager: platform
+spec:
+  # 2 in staging and production, 1 in development (templated-fields.yaml).
+  replicaCount: 2
+  disableSelfServiceScrape: true
+  disableNamespaceMatcher: true
+  selectAllByDefault: false
+  secrets:
+    - alertmanager-credentials
+  podMetadata:
+    labels:
+      observability.platform.io/component: vmalertmanager
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/component: vmalertmanager
+  podDisruptionBudget:
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  configRawYaml: |
+    global:
+      smtp_smarthost: 'smtp.resend.com:587'
+      smtp_from: 'PLACEHOLDER_ALERT_EMAIL_FROM'
+      smtp_auth_username: 'resend'
+      smtp_auth_password_file: /etc/vm/secrets/alertmanager-credentials/smtp_password
+      smtp_require_tls: true
+    route:
+      receiver: platform-email
+      group_by: [cluster, alertname]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # The heartbeat: always firing, re-sent every 50s. IRM pages when it stops.
+        - receiver: irm-heartbeat
+          matchers: ['alertname="PlatformHeartbeat"']
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 50s
+        - receiver: platform-email-and-irm
+          matchers: ['severity=~"critical|warning"']
+    receivers:
+      - name: platform-email
+        email_configs:
+          - to: 'PLACEHOLDER_ALERT_EMAIL_TO'
+            send_resolved: true
+      - name: platform-email-and-irm
+        email_configs:
+          - to: 'PLACEHOLDER_ALERT_EMAIL_TO'
+            send_resolved: true
+        webhook_configs:
+          - url_file: /etc/vm/secrets/alertmanager-credentials/irm_alertmanager_url
+            send_resolved: true
+      - name: irm-heartbeat
+        webhook_configs:
+          - url_file: /etc/vm/secrets/alertmanager-credentials/irm_heartbeat_url
+            send_resolved: false
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: alertmanager-credentials
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: alertmanager-credentials
+    creationPolicy: Owner
+  data:
+    # The box's outbound-mail password, uploaded at the root by hub-operator from
+    # the owner's SMTP URL (the same credential the issuer sends with).
+    - secretKey: smtp_password
+      remoteRef:
+        key: ALERT_SMTP_PASSWORD
+    - secretKey: irm_alertmanager_url
+      remoteRef:
+        key: GRAFANA_IRM_ALERTMANAGER_URL
+    # This cluster's own heartbeat: one IRM heartbeat per cluster.
+    - secretKey: irm_heartbeat_url
+      remoteRef:
+        key: GRAFANA_IRM_HEARTBEAT_URL

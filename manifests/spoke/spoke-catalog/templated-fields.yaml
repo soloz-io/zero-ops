@@ -63,31 +63,6 @@
     - path: [spec, data, 1, remoteRef, key]
       value: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_SECRET_ACCESS_KEY'
 
-- kind: ExternalSecret
-  name: grafana-cloud-credentials
-  # ADR-031 cell-scoped authorisation: the cell Machine Identity may read
-  # /spoke-pool/<cell-id>/ only, so every spoke ExternalSecret must resolve
-  # inside that prefix. These previously used ROOT-path keys and so could never
-  # resolve on any spoke, while the hub read the same keys fine -- which made an
-  # authorisation contract violation look like a seeding gap.
-  #
-  # GRAFANA_CLOUD_* is one fleet credential materialised into each cell's own
-  # path: deliberate duplication, chosen over a privileged cross-cell read path
-  # that would weaken ADR-031's invariant.
-  fields:
-    - path: [spec, data, 0, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_PROMETHEUS_URL'
-    - path: [spec, data, 1, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_PROMETHEUS_USER'
-    - path: [spec, data, 2, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_URL'
-    - path: [spec, data, 3, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_LOKI_USER'
-    - path: [spec, data, 4, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_TELEMETRY_TOKEN'
-    - path: [spec, data, 5, remoteRef, key]
-      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_CLOUD_RULES_TOKEN'
-
 - kind: Deployment
   name: preview-access
   # ADR-108: the issuer this box's tenants sign in at, and the box's preview
@@ -208,18 +183,119 @@
       value: '{{ .Values.spokeName }}'
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
-- kind: Deployment
+- kind: StatefulSet
   name: grafana-alloy-cluster
   fields:
+    - path: [spec, replicas]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+    - path: [spec, volumeClaimTemplates, 0, spec, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
     - path: [spec, template, spec, containers, 0, env, 0, value]
       value: '{{ .Values.spokeName }}'
     - path: [spec, template, spec, containers, 0, env, 1, value]
       value: '{{ .Values.global.tenantId }}'
 
-# ADR-078 add.3 §2: the cluster agent's transit buffer. A hybrid box's workers
-# are on-prem and a Hetzner volume attaches only to a Hetzner server.
-- kind: PersistentVolumeClaim
-  name: grafana-alloy-cluster-data
+# ── ADR-078 addendum 5: the spoke's observability stores ──────────────────────
+# Replica counts are the only difference between environments (§9); stores and
+# PVCs follow the provider's storage class.
+- kind: VMSingle
+  name: platform-a
   fields:
-    - path: [spec, storageClassName]
+    - path: [spec, storage, storageClassName]
       value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+
+- kind: VMSingle
+  name: platform-b
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+
+- kind: VMAuth
+  name: platform
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+
+- kind: VMAlert
+  name: platform
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+
+- kind: VMAlert
+  name: tenant
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+
+- kind: VMAlertmanager
+  name: platform
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+    - path: [spec, configRawYaml]
+      replace:
+        from: PLACEHOLDER_ALERT_EMAIL_FROM
+        with: 'Platform alerts <no-reply@{{ .Values.global.hubDomain }}>'
+    - path: [spec, configRawYaml]
+      replace:
+        from: PLACEHOLDER_ALERT_EMAIL_TO
+        with: '{{ join ", " (dig "alerting" "emailTo" (list) .Values.global) }}'
+
+- kind: ExternalSecret
+  name: alertmanager-credentials
+  fields:
+    - path: [spec, data, 0, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/ALERT_SMTP_PASSWORD'
+    - path: [spec, data, 1, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_IRM_ALERTMANAGER_URL'
+    - path: [spec, data, 2, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/GRAFANA_IRM_HEARTBEAT_URL'
+
+# ── ADR-078 addendum 5 §4: the spoke's Loki ──────────────────────────────────
+- kind: ConfigMap
+  name: loki
+  fields:
+    - path: [data, config.yaml]
+      replace:
+        from: PLACEHOLDER_LOGS_BUCKET
+        with: '{{ .Values.spokeName }}-logs'
+    - path: [data, config.yaml]
+      replace:
+        from: 'replication_factor: 3'
+        with: 'replication_factor: {{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}3{{ end }}'
+
+- kind: StatefulSet
+  name: loki
+  fields:
+    - path: [spec, replicas]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}3{{ end }}'
+    - path: [spec, volumeClaimTemplates, 0, spec, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+
+- kind: ExternalSecret
+  name: loki-object-storage
+  fields:
+    - path: [spec, data, 0, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_ACCESS_KEY_ID'
+    - path: [spec, data, 1, remoteRef, key]
+      value: '/spoke-pool/{{ .Values.spokeName }}/shared/S3_SECRET_ACCESS_KEY'
+

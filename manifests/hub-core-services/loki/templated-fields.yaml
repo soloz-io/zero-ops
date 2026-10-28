@@ -1,0 +1,23 @@
+# Per-box and per-environment values for the hub's Loki (ADR-078 addendum 5 §4,
+# §9): the bucket is this cluster's own; development runs one replica, which needs
+# a replication factor of 1.
+- kind: ConfigMap
+  name: loki
+  fields:
+    - path: [data, config.yaml]
+      replace:
+        from: PLACEHOLDER_LOGS_BUCKET
+        with: '{{ .Values.global.clusterName }}-logs'
+    - path: [data, config.yaml]
+      replace:
+        from: 'replication_factor: 3'
+        with: 'replication_factor: {{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}3{{ end }}'
+
+- kind: StatefulSet
+  name: loki
+  fields:
+    - path: [spec, replicas]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}3{{ end }}'
+    - path: [spec, volumeClaimTemplates, 0, spec, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'

@@ -1,31 +1,21 @@
 #!/usr/bin/env bash
-# ADR-078 addendum 2 §15, addendum 3: the collection floor is accepted on
-# end-to-end evidence, never on a green sync. LIVE checks, read-only, against
-# the box owner's Grafana Cloud stack -- where every dashboard and rule reads.
+# ADR-078 addendum 2 §15, addendum 5: the collection floor is accepted on
+# end-to-end evidence, never on a green sync. LIVE checks, read-only, against each
+# cluster's OWN stores -- where its dashboards and rules read.
 #
 #   C1  each expected job has targets for this cluster, and every target is up
 #   C2  node-local jobs (kubelet, cadvisor, node-exporter) have one up target
 #       per node -- a node with no agent is a node nobody is watching
-#   C3  a known series from each job is queryable in the stack
+#   C3  a known series from each job is queryable
 #   C4  that series carries the cluster's own `cluster` label (the agent's
 #       configured identity), never empty and never a placeholder
-#   C5  this cluster's pod logs are queryable in the stack
-#   C6  this cluster's platform rules are in the stack's ruler, under its prefix
+#   C5  this cluster's pod logs are queryable in its Loki
+#   C6  this cluster's platform rules are loaded by its platform VMAlert
+#   C7  both VMSingles hold this cluster's series (addendum 5 §3: every sample
+#       is written to both)
 #
-# Credentials (ADR-078 add.3 §6), read from the environment or, failing that,
-# from k8-secrets/grafana-cloud/ in this checkout -- the same two sources Day-0
-# reads:
-#   GRAFANA_CLOUD_PROMETHEUS_URL / _USER, GRAFANA_CLOUD_LOKI_URL / _USER
-#   GRAFANA_CLOUD_READ_TOKEN   metrics:read, logs:read (validation only)
-#   GRAFANA_CLOUD_RULES_TOKEN  rules:read (C6)
-
-_c078_cred() {
-    local var="$1" file="$2" v="${!1:-}"
-    if [[ -z "$v" && -f "$VALIDATE_ROOT/k8-secrets/grafana-cloud/$file" ]]; then
-        v="$(tr -d '\n' < "$VALIDATE_ROOT/k8-secrets/grafana-cloud/$file")"
-    fi
-    printf '%s' "$v"
-}
+# Every query goes through the Kubernetes API server's service proxy with the
+# kubeconfig's own identity: no credential of its own, nothing published.
 
 # _c078_check <label> <kubeconfig> <identity env name> <jobs...>
 _c078_check() {
@@ -40,16 +30,15 @@ _c078_check() {
     fi
     nodes=$(kubectl --kubeconfig="$kubeconfig" get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
 
-    out=$(C078_JOBS="$jobs" C078_CLUSTER="$expected" C078_NODES="$nodes" python3 - <<'PY'
-import base64, json, os, time, urllib.error, urllib.parse, urllib.request
-import yaml
+    out=$(C078_KUBECONFIG="$kubeconfig" C078_JOBS="$jobs" C078_CLUSTER="$expected" C078_NODES="$nodes" python3 - <<'PY'
+import json, os, subprocess, time, urllib.parse
 
 cluster = os.environ["C078_CLUSTER"]
 jobs = os.environ["C078_JOBS"].split()
 nodes = sorted(n for n in os.environ["C078_NODES"].split() if n)
-prom, puser = os.environ["C078_PROM_URL"], os.environ["C078_PROM_USER"]
-loki, luser = os.environ["C078_LOKI_URL"], os.environ["C078_LOKI_USER"]
-read, rules = os.environ["C078_READ_TOKEN"], os.environ["C078_RULES_TOKEN"]
+kubeconfig = os.environ["C078_KUBECONFIG"]
+NS = "/api/v1/namespaces/platform-observability/services"
+STORES = ("vmsingle-platform-a:8429", "vmsingle-platform-b:8429")
 NODE_LOCAL = {"kubelet", "cadvisor", "node-exporter"}
 KNOWN = {
     "kubelet": "kubelet_running_pods",
@@ -59,33 +48,37 @@ KNOWN = {
     # The series the CNPG recovery alerts read (cnpg-backup-alerts).
     "cnpg": "cnpg_collector_pg_wal_archive_status",
 }
-# Each probe must be a metric the agents send (ADR-078 add.3 §7): a probe for a
-# series the allowlist drops fails for a reason that is not a fault.
+# Each probe must be a metric the agents send: a probe for a series the
+# allowlist drops fails for a reason that is not a fault.
 allowed = set(json.load(open(os.environ["C078_ALLOWLIST"]))["metrics"])
 for job, m in KNOWN.items():
     if m not in allowed:
         print(f"FAIL C3 {job}: this check probes {m}, which the metric allowlist does not send; probe an allowlisted series")
 
-def get(url, user, token, parse=json.load):
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", "Basic " + base64.b64encode(f"{user}:{token}".encode()).decode())
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return parse(r)
+class Unreachable(Exception):
+    pass
 
-def q(expr):
-    return get(prom + "/api/v1/query?" + urllib.parse.urlencode({"query": expr}), puser, read)["data"]["result"]
+def raw(path):
+    r = subprocess.run(["kubectl", f"--kubeconfig={kubeconfig}", "get", "--raw", path],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        raise Unreachable(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "no answer")
+    return json.loads(r.stdout)
+
+def q(expr, store=STORES[0]):
+    return raw(f"{NS}/{store}/proxy/api/v1/query?" + urllib.parse.urlencode({"query": expr}))["data"]["result"]
 
 try:
     q("vector(1)")
-except urllib.error.HTTPError as e:
-    print(f"FAIL C3 the stack refused a query ({e.code}): GRAFANA_CLOUD_READ_TOKEN needs metrics:read")
+except Unreachable as e:
+    print(f"FAIL C3 {STORES[0].split(':')[0]} did not answer a query through the service proxy: {e}")
     raise SystemExit
 
 c = f'cluster="{cluster}"'
 for job in jobs:
     up = q(f'up{{job="{job}",{c}}}')
     if not up:
-        print(f"FAIL C1 {job}: no targets for {cluster} in the stack -- not scraped, or not delivered")
+        print(f"FAIL C1 {job}: no targets for {cluster} -- not scraped, or not delivered")
         continue
     down = [r["metric"].get("instance", "?") for r in up if r["value"][1] != "1"]
     print(f"FAIL C1 {job}: {len(down)}/{len(up)} target(s) down: {', '.join(down)}" if down
@@ -102,28 +95,31 @@ for job in jobs:
         got = sorted({r["metric"].get("cluster", "") for r in q(f'{m}{{job="{job}"}}')})
         print(f"FAIL C4 {job}: {m} carries cluster={got}, expected {cluster!r}")
     else:
-        print(f"FAIL C3 {job}: {m} is not in the stack although the job is scraped")
+        print(f"FAIL C3 {job}: {m} is not stored although the job is scraped")
+
+for store in STORES:
+    try:
+        n = q(f'count(up{{{c}}})', store)
+        print(f"PASS C7 {store.split(':')[0]} holds {cluster}'s series" if n
+              else f"FAIL C7 {store.split(':')[0]} holds none of {cluster}'s series: one write path is not delivering")
+    except Unreachable as e:
+        print(f"FAIL C7 {store.split(':')[0]} did not answer: {e}")
 
 try:
     now = int(time.time())
-    res = get(loki + "/loki/api/v1/query_range?" + urllib.parse.urlencode({
-        "query": f'sum(count_over_time({{{c}}}[10m]))', "start": now - 900, "end": now, "step": 300}),
-        luser, read)["data"]["result"]
-    print(f"PASS C5 logs from {cluster} are queryable in the stack" if res
-          else f"FAIL C5 no log lines from {cluster} in the stack in the last 15 minutes")
-except urllib.error.HTTPError as e:
-    print(f"FAIL C5 the stack refused a log query ({e.code}): GRAFANA_CLOUD_READ_TOKEN needs logs:read")
+    res = raw(f"{NS}/loki:3100/proxy/loki/api/v1/query_range?" + urllib.parse.urlencode({
+        "query": f'sum(count_over_time({{{c}}}[10m]))', "start": now - 900, "end": now, "step": 300}))["data"]["result"]
+    print(f"PASS C5 logs from {cluster} are queryable in its Loki" if res
+          else f"FAIL C5 no log lines from {cluster} in its Loki in the last 15 minutes")
+except Unreachable as e:
+    print(f"FAIL C5 Loki did not answer a query through the service proxy: {e}")
 
 try:
-    # The ruler's configuration API answers in YAML (namespace -> groups).
-    groups = get(prom + "/config/v1/rules", puser, rules, parse=yaml.safe_load)
-    names = [ns for ns in (groups or {}) if ns.startswith(cluster + "/")]
-    print(f"PASS C6 {len(names)} rule namespace(s) under {cluster}/ in the ruler" if names
-          else f"FAIL C6 no rules under {cluster}/ in the ruler -- the cluster agent's rule sync has not run or is failing")
-except urllib.error.HTTPError as e:
-    print(f"FAIL C6 the ruler refused a read ({e.code}): GRAFANA_CLOUD_RULES_TOKEN needs rules:read")
-except yaml.YAMLError:
-    print("FAIL C6 the ruler answered with something that is not its rule configuration; check GRAFANA_CLOUD_PROMETHEUS_URL")
+    groups = raw(f"{NS}/vmalert-platform:8080/proxy/api/v1/rules")["data"]["groups"]
+    print(f"PASS C6 the platform VMAlert has {len(groups)} rule group(s) loaded" if groups
+          else "FAIL C6 the platform VMAlert has no rule groups: PrometheusRule conversion or selection is not working")
+except (Unreachable, KeyError) as e:
+    print(f"FAIL C6 the platform VMAlert did not report its rules: {e}")
 PY
 )
     while IFS= read -r line; do
@@ -137,26 +133,10 @@ PY
 }
 
 validate_adr078_collection_floor() {
-    section "ADR-078: the collection floor lands in the box owner's Grafana Cloud stack"
+    section "ADR-078: the collection floor lands in each cluster's own stores"
 
-    local k missing=()
-    C078_PROM_URL="$(_c078_cred GRAFANA_CLOUD_PROMETHEUS_URL prometheus-url)"
-    C078_PROM_USER="$(_c078_cred GRAFANA_CLOUD_PROMETHEUS_USER prometheus-user)"
-    C078_LOKI_URL="$(_c078_cred GRAFANA_CLOUD_LOKI_URL loki-url)"
-    C078_LOKI_USER="$(_c078_cred GRAFANA_CLOUD_LOKI_USER loki-user)"
-    C078_READ_TOKEN="$(_c078_cred GRAFANA_CLOUD_READ_TOKEN read-token)"
-    C078_RULES_TOKEN="$(_c078_cred GRAFANA_CLOUD_RULES_TOKEN rules-token)"
-    for k in C078_PROM_URL:PROMETHEUS_URL C078_PROM_USER:PROMETHEUS_USER C078_LOKI_URL:LOKI_URL \
-             C078_LOKI_USER:LOKI_USER C078_READ_TOKEN:READ_TOKEN C078_RULES_TOKEN:RULES_TOKEN; do
-        local var="${k%%:*}"
-        [[ -n "${!var}" ]] || missing+=("GRAFANA_CLOUD_${k#*:}")
-    done
-    if (( ${#missing[@]} )); then
-        hard_fail "Grafana Cloud credentials missing: ${missing[*]} (environment, or k8-secrets/grafana-cloud/)"
-        return 0
-    fi
     C078_ALLOWLIST="$VALIDATE_ROOT/scripts/observability/mixin/metrics-allowlist.json"
-    export C078_PROM_URL C078_PROM_USER C078_LOKI_URL C078_LOKI_USER C078_READ_TOKEN C078_RULES_TOKEN C078_ALLOWLIST
+    export C078_ALLOWLIST
 
     _c078_check hub "$HUB_KUBECONFIG" CLUSTER_NAME kubelet cadvisor node-exporter kube-state-metrics
 

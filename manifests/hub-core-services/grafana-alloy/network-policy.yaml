@@ -74,6 +74,13 @@ spec:
     # The OTLP receiver, from namespaces the tenant has opted in (ADR-078 §7.2).
     # Opting a namespace in is what grants it this path; a namespace without the
     # label reaches nothing here.
+    # The Gateway reaching Grafana (ADR-078 add.5 §6). Port-wise with an empty
+    # `from`: Cilium's Envoy runs on the host network and belongs to no pod or
+    # namespace, so no selector can admit it. 3000 serves only Grafana, which
+    # has its own authentication.
+    - ports:
+        - protocol: TCP
+          port: 3000
     - from:
         - namespaceSelector:
             matchLabels:

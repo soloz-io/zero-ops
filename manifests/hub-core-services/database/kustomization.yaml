@@ -18,4 +18,5 @@ resources:
   - platform-db.yaml
   - s3-credentials-es.yaml
   - zitadel-db-credentials-es.yaml
+  - hub-grafana-db-credentials-es.yaml
   - scheduled-backup.yaml

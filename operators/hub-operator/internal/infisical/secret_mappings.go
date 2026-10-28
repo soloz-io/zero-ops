@@ -183,70 +183,14 @@ var CLISecretMappings = []SecretMapping{
 		SourceName:      "s3-object-storage",
 		SourceKey:       "access-key-id",
 		InfisicalKey:    "S3_ACCESS_KEY_ID",
-		Description:     "Hetzner Object Storage access key (CNPG Barman backups)",
+		Description:     "Hetzner Object Storage access key (CNPG backups, Loki log storage)",
 	},
 	{
 		SourceNamespace: NamespaceOps,
 		SourceName:      "s3-object-storage",
 		SourceKey:       "secret-access-key",
 		InfisicalKey:    "S3_SECRET_ACCESS_KEY",
-		Description:     "Hetzner Object Storage secret key (CNPG Barman backups)",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "telemetry-token",
-		InfisicalKey:    "GRAFANA_CLOUD_TELEMETRY_TOKEN",
-		Description:     "Grafana Cloud telemetry token (alloy remote write of metrics and logs)",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "prometheus-url",
-		InfisicalKey:    "GRAFANA_CLOUD_PROMETHEUS_URL",
-		Description:     "Grafana Cloud Prometheus remote-write endpoint",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "prometheus-user",
-		InfisicalKey:    "GRAFANA_CLOUD_PROMETHEUS_USER",
-		Description:     "Grafana Cloud Prometheus user id",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "loki-url",
-		InfisicalKey:    "GRAFANA_CLOUD_LOKI_URL",
-		Description:     "Grafana Cloud Loki push endpoint",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "loki-user",
-		InfisicalKey:    "GRAFANA_CLOUD_LOKI_USER",
-		Description:     "Grafana Cloud Loki user id",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "rules-token",
-		InfisicalKey:    "GRAFANA_CLOUD_RULES_TOKEN",
-		Description:     "Grafana Cloud token with rules:read and rules:write (rule sync)",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "dashboards-token",
-		InfisicalKey:    "GRAFANA_CLOUD_DASHBOARDS_TOKEN",
-		Description:     "Grafana Cloud stack service-account token (dashboard provisioning)",
-	},
-	{
-		SourceNamespace: NamespaceOps,
-		SourceName:      "grafana-cloud",
-		SourceKey:       "alerts-token",
-		InfisicalKey:    "GRAFANA_CLOUD_ALERTS_TOKEN",
-		Description:     "Grafana Cloud token with alerts:read and alerts:write (Alertmanager routing)",
+		Description:     "Hetzner Object Storage secret key (CNPG backups, Loki log storage)",
 	},
 	{
 		SourceNamespace: NamespaceOps,
@@ -386,6 +330,17 @@ var CLISecretMappings = []SecretMapping{
 		Transform:       TransformURLPassword,
 		Description:     "Zitadel SMTP password (Resend), from the owner's SMTP URL",
 	},
+	// ADR-078 add.5 §5: every cluster's Alertmanager mails through the same
+	// outbound account. Uploaded again at the root, where the hub's Alertmanager
+	// reads it and from where FleetCredentialKeys copies it into each cell.
+	{
+		SourceNamespace: NamespaceOps,
+		SourceName:      "zitadel-smtp",
+		SourceKey:       "resend",
+		InfisicalKey:    "ALERT_SMTP_PASSWORD",
+		Transform:       TransformURLPassword,
+		Description:     "Outbound-mail password for every cluster's Alertmanager, from the owner's SMTP URL",
+	},
 }
 
 // ============================================================================
@@ -516,6 +471,15 @@ var ApplicationSecretMappings = []ApplicationSecretDefinition{
 		PasswordKey: "hub-credits-db-password",
 		Username:    "hub_credits",
 		Description: "Credit Authority ledger DB credentials",
+	},
+	{
+		// The hub Grafana's state and sessions (ADR-078 add.5 §6): Grafana's HA
+		// model keeps both in a shared database. Generated on every box with the
+		// other roles, for the same all-or-nothing reason as hub_credits.
+		UsernameKey: "hub-grafana-db-username",
+		PasswordKey: "hub-grafana-db-password",
+		Username:    "hub_grafana",
+		Description: "Hub Grafana DB credentials",
 	},
 	{
 		// Zitadel's masterkey encrypts everything it stores at rest, and

@@ -129,10 +129,6 @@ func TestRegistryCredentialFollowsTheDeclaration(t *testing.T) {
 func TestSecretNamesMatchWhatDayZeroReads(t *testing.T) {
 	dayZero := map[string]bool{
 		"S3_ACCESS_KEY_ID": true, "S3_SECRET_ACCESS_KEY": true,
-		"GRAFANA_CLOUD_TELEMETRY_TOKEN": true, "GRAFANA_CLOUD_PROMETHEUS_URL": true,
-		"GRAFANA_CLOUD_PROMETHEUS_USER": true, "GRAFANA_CLOUD_LOKI_URL": true,
-		"GRAFANA_CLOUD_LOKI_USER": true, "GRAFANA_CLOUD_RULES_TOKEN": true,
-		"GRAFANA_CLOUD_DASHBOARDS_TOKEN": true, "GRAFANA_CLOUD_ALERTS_TOKEN": true,
 		"GRAFANA_IRM_ALERTMANAGER_URL": true, "GRAFANA_IRM_HEARTBEAT_URL": true,
 		"ZITADEL_SMTP_URL": true,
 		"GHCR_USERNAME":    true, "GHCR_TOKEN": true,

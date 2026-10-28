@@ -95,6 +95,12 @@ func (r *HubEnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
+	// ADR-078 add.5 §4: the hub's Loki writes to <clusterName>-logs. Non-fatal:
+	// the hub's logs are degraded without it, the box is not.
+	if err := ensureLogsBucket(ctx, r.UncachedClient, hubEnv.Spec.ClusterName); err != nil {
+		logger.Error(err, "Failed to ensure the hub's log bucket", "cluster", hubEnv.Spec.ClusterName)
+	}
+
 	// Requirement 9.4: Handle reconcile-trigger annotation
 	if triggerTime, ok := hubEnv.Annotations["ops.nutgraf.in/reconcile-trigger"]; ok {
 		logger.Info("Manual reconciliation triggered", "timestamp", triggerTime)

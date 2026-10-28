@@ -7,7 +7,7 @@
 #
 #   Most platform secrets are produced by the hub-operator: it generates them,
 #   writes them to Infisical, and ESO delivers them. A handful cannot be, because
-#   they are issued by third parties — Hetzner, Grafana Cloud, GitHub. When
+#   they are issued by third parties — Hetzner, the IRM, GitHub. When
 #   Infisical is reinitialised those keys are simply gone, every ExternalSecret
 #   that reads one reports "could not get secret data from provider", and nothing
 #   in the platform can recover them. They live in k8-secrets/ and have to be put
@@ -70,19 +70,11 @@ SHARED="/spoke-pool/${CELL_ID}/shared"
 MAPPINGS=(
   "S3_ACCESS_KEY_ID:s3/access-key-id:${SHARED}"
   "S3_SECRET_ACCESS_KEY:s3/secret-access-key:${SHARED}"
-  "GRAFANA_CLOUD_TELEMETRY_TOKEN:grafana-cloud/telemetry-token:${SHARED}"
-  "GRAFANA_CLOUD_LOKI_URL:grafana-cloud/loki-url:${SHARED}"
-  "GRAFANA_CLOUD_LOKI_USER:grafana-cloud/loki-user:${SHARED}"
-  "GRAFANA_CLOUD_PROMETHEUS_URL:grafana-cloud/prometheus-url:${SHARED}"
-  "GRAFANA_CLOUD_PROMETHEUS_USER:grafana-cloud/prometheus-user:${SHARED}"
-  "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:${SHARED}"
-  # ADR-078 add.3 §6: the hub reads these at the root (its ExternalSecrets have
-  # no cell prefix); the dashboards token is the hub's alone.
-  "GRAFANA_CLOUD_TELEMETRY_TOKEN:grafana-cloud/telemetry-token:/"
-  "GRAFANA_CLOUD_RULES_TOKEN:grafana-cloud/rules-token:/"
-  "GRAFANA_CLOUD_DASHBOARDS_TOKEN:grafana-cloud/dashboards-token:/"
-  # ADR-078 add.4: the hub's alert routing, at the root.
-  "GRAFANA_CLOUD_ALERTS_TOKEN:grafana-cloud/alerts-token:/"
+  # ADR-078 add.5 §5: one IRM heartbeat per cluster. This cell's own, from its
+  # own file; the hub's is at the root, below. The IRM alert URL and the mail
+  # password reach each cell through hub-operator's fleet copy.
+  "GRAFANA_IRM_HEARTBEAT_URL:grafana-cloud/irm-heartbeat-url-${CELL_ID}:${SHARED}"
+  # The hub's alert delivery, at the root.
   "GRAFANA_IRM_ALERTMANAGER_URL:grafana-cloud/irm-alertmanager-url:/"
   "GRAFANA_IRM_HEARTBEAT_URL:grafana-cloud/irm-heartbeat-url:/"
   "hcloud-token:hetzner/token:/"

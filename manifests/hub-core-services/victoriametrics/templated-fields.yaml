@@ -1,0 +1,63 @@
+# Per-box and per-environment values for the hub's observability stores
+# (ADR-078 addendum 5 §9). Replica counts are the only difference between
+# environments: development runs one of each replicated component and prefers,
+# rather than requires, spreading across nodes.
+- kind: VMSingle
+  name: platform-a
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+
+- kind: VMSingle
+  name: platform-b
+  fields:
+    - path: [spec, storage, storageClassName]
+      value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+
+- kind: VMAuth
+  name: platform
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+
+- kind: VMAlert
+  name: platform
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+
+- kind: VMAlert
+  name: tenant
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+
+- kind: VMAlertmanager
+  name: platform
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+    - path: [spec, configRawYaml]
+      replace:
+        from: PLACEHOLDER_ALERT_EMAIL_FROM
+        with: 'Platform alerts <no-reply@{{ .Values.global.hubDomain }}>'
+    - path: [spec, configRawYaml]
+      replace:
+        from: PLACEHOLDER_ALERT_EMAIL_TO
+        with: '{{ join ", " (dig "alerting" "emailTo" (list) .Values.global) }}'

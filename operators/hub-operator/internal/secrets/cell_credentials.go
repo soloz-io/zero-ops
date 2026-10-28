@@ -15,7 +15,7 @@ import (
 // the material exists at the root path and the hub reads it fine — but a missing
 // producer for the cell path:
 //
-//   - S3_* and GRAFANA_CLOUD_* are single fleet credentials that must be
+//   - S3_* and the alert-delivery keys are single fleet credentials that must be
 //     materialised into each cell's own path. The alternative — granting each
 //     cell a cross-cell read path to the root — would weaken the ADR-031
 //     invariant that a cell can read only its own prefix. Duplication is the
@@ -40,13 +40,10 @@ import (
 var FleetCredentialKeys = []string{
 	"S3_ACCESS_KEY_ID",
 	"S3_SECRET_ACCESS_KEY",
-	"GRAFANA_CLOUD_TELEMETRY_TOKEN",
-	"GRAFANA_CLOUD_LOKI_URL",
-	"GRAFANA_CLOUD_LOKI_USER",
-	"GRAFANA_CLOUD_PROMETHEUS_URL",
-	"GRAFANA_CLOUD_PROMETHEUS_USER",
-	// ADR-078 add.3 §6: each spoke's cluster agent syncs its rules to the stack.
-	"GRAFANA_CLOUD_RULES_TOKEN",
+	// ADR-078 add.5 §5: each spoke's Alertmanager delivers mail and IRM alerts
+	// with the box's credentials. Its heartbeat URL is per cell, seeded per cell.
+	"ALERT_SMTP_PASSWORD",
+	"GRAFANA_IRM_ALERTMANAGER_URL",
 }
 
 // MaterialiseFleetCredentialsResult reports per-key outcomes so a partially seeded
@@ -68,7 +65,7 @@ type MaterialiseFleetCredentialsResult struct {
 // Values are copied, never generated. A key absent at the root is recorded in
 // MissingAtRoot and skipped — the operator cannot invent an external credential,
 // and failing the whole reconcile would block a spoke over an optional one
-// (Grafana Cloud) as readily as a required one (S3/Barman).
+// (IRM alert delivery) as readily as a required one (S3).
 //
 // Existing cell values are left alone. Overwriting on every reconcile would make
 // the operator fight any deliberate per-cell override, and rotation at the root is
