@@ -227,15 +227,11 @@ patches:
           - key: node-role.kubernetes.io/control-plane
             operator: Exists
             effect: NoSchedule
-  - target:
-      kind: StatefulSet
-    patch: |-
-      - op: add
-        path: /spec/template/spec/tolerations
-        value:
-          - key: node-role.kubernetes.io/control-plane
-            operator: Exists
-            effect: NoSchedule
+  # No StatefulSet toleration. The only StatefulSets in this catalogue are the
+  # observability stores, which hold data: ADR-014 bans a stateful workload from
+  # tolerating the control-plane taint, and they declare a worker nodeSelector
+  # instead. Deployments and DaemonSets keep theirs -- they are stateless, and the
+  # node agent must run on every node including the control plane.
   - target:
       kind: DaemonSet
     patch: |-

@@ -46,6 +46,27 @@ var FleetCredentialKeys = []string{
 	"GRAFANA_IRM_ALERTMANAGER_URL",
 }
 
+// ExternalPerCellCredentialKeys are per-cell credentials the platform does not and
+// must not generate: each cell has its OWN value, issued by an external system, and
+// copying the hub's into every cell would point every cell's alerts at one
+// integration (ADR-078 add.5 §5, 2026-10-30).
+//
+// Declared here so the producer check can tell "externally provisioned per cell"
+// apart from "nothing produces this", and so that a key added to a consumer without
+// a seeding contract still fails. Declaration is NOT evidence the value exists: that
+// is verified live, per cell, by scripts/validate/cluster/078-alert-credentials.sh,
+// because a credential that is merely declared is a credential that silently is not
+// there.
+//
+//	key                         source                                   seeded by
+//	GRAFANA_IRM_HEARTBEAT_URL   one heartbeat integration per cell,       the box owner,
+//	                            created in the incident-response tool;    into
+//	                            each cell needs its own, so this is       /spoke-pool/<cell>/shared/
+//	                            never derived from the hub's
+var ExternalPerCellCredentialKeys = []string{
+	"GRAFANA_IRM_HEARTBEAT_URL",
+}
+
 // MaterialiseFleetCredentialsResult reports per-key outcomes so a partially seeded
 // fleet is visible rather than reduced to a single pass/fail.
 type MaterialiseFleetCredentialsResult struct {

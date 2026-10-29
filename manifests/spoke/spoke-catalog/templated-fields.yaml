@@ -186,9 +186,11 @@
 - kind: StatefulSet
   name: grafana-alloy-cluster
   fields:
+    - path: [spec, template, spec, nodeSelector, workload-location]
+      value: '{{ if eq .Values.global.provider "hybrid" }}on-prem{{ else }}hetzner{{ end }}'
     - path: [spec, replicas]
       type: int
-      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
     - path: [spec, volumeClaimTemplates, 0, spec, storageClassName]
       value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
     - path: [spec, template, spec, containers, 0, env, 0, value]
@@ -202,6 +204,8 @@
 - kind: VMSingle
   name: platform-a
   fields:
+    - path: [spec, nodeSelector, workload-location]
+      value: '{{ if eq .Values.global.provider "hybrid" }}on-prem{{ else }}hetzner{{ end }}'
     - path: [spec, storage, storageClassName]
       value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
     - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
@@ -210,6 +214,8 @@
 - kind: VMSingle
   name: platform-b
   fields:
+    - path: [spec, nodeSelector, workload-location]
+      value: '{{ if eq .Values.global.provider "hybrid" }}on-prem{{ else }}hetzner{{ end }}'
     - path: [spec, storage, storageClassName]
       value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
     - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
@@ -222,7 +228,7 @@
       value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
     - path: [spec, replicaCount]
       type: int
-      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
 
 - kind: VMAlert
   name: platform
@@ -231,7 +237,7 @@
       value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
     - path: [spec, replicaCount]
       type: int
-      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
 
 - kind: VMAlert
   name: tenant
@@ -240,7 +246,7 @@
       value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
     - path: [spec, replicaCount]
       type: int
-      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
 
 - kind: VMAlertmanager
   name: platform
@@ -249,7 +255,7 @@
       value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
     - path: [spec, replicaCount]
       type: int
-      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
     - path: [spec, configRawYaml]
       replace:
         from: PLACEHOLDER_ALERT_EMAIL_FROM
@@ -280,14 +286,16 @@
     - path: [data, config.yaml]
       replace:
         from: 'replication_factor: 3'
-        with: 'replication_factor: {{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}3{{ end }}'
+        with: 'replication_factor: {{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
 
 - kind: StatefulSet
   name: loki
   fields:
+    - path: [spec, template, spec, nodeSelector, workload-location]
+      value: '{{ if eq .Values.global.provider "hybrid" }}on-prem{{ else }}hetzner{{ end }}'
     - path: [spec, replicas]
       type: int
-      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}3{{ end }}'
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
     - path: [spec, volumeClaimTemplates, 0, spec, storageClassName]
       value: '{{ if eq .Values.global.provider "hybrid" }}local-path{{ else }}hcloud-volumes{{ end }}'
 

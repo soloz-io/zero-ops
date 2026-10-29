@@ -502,7 +502,8 @@ for root in roots:
             vcts = spec.get("volumeClaimTemplates") or []
             if not vcts:
                 continue
-            sel = (spec.get("template", {}).get("spec", {}) or {}).get("nodeSelector") or {}
+            pod = spec.get("template", {}).get("spec", {}) or {}
+            sel = pod.get("nodeSelector") or {}
             scs = [v.get("spec", {}).get("storageClassName") for v in vcts]
         elif kind == "Cluster" and "storage" in spec:   # CNPG
             sel = (spec.get("affinity", {}) or {}).get("nodeSelector") or {}
@@ -514,12 +515,16 @@ for root in roots:
         if sel.get("node-role.kubernetes.io/worker") is None:
             print(f"BAD\t{root}\t{kind}/{name} has no node-role.kubernetes.io/worker selector (ADR-014)")
 
+        # A value substituted per provider by templated-fields is a PLACEHOLDER here:
+        # this builds the overlay, and the substitution happens at package time. The
+        # DECLARATION is asserted instead, by validate_observability_placement below.
+        # The worker key above is literal, so it is checked either way.
         loc = sel.get("workload-location")
-        if loc != want_loc:
+        if loc != want_loc and not str(loc).startswith("PLACEHOLDER_"):
             print(f"BAD\t{root}\t{kind}/{name} workload-location={loc!r}, expected {want_loc!r}")
 
         for sc in scs:
-            if sc != want_sc:
+            if sc != want_sc and not str(sc).startswith("PLACEHOLDER_"):
                 print(f"BAD\t{root}\t{kind}/{name} storageClass={sc!r}, expected {want_sc!r} for a {want_loc} workload")
 PY
 )
@@ -788,4 +793,114 @@ PYEOF
     while IFS= read -r line; do
         [[ -n "$line" ]] && hard_fail "coredns-nodelocal.yaml: $line"
     done <<< "$findings"
+}
+
+# ──────────────────────────────────────────────────────────────────────────
+# §11 + ADR-014 — observability is stateful, so it is worker-pinned too
+# ──────────────────────────────────────────────────────────────────────────
+# ADR-014's Platform-Wide Placement Rule is unconditional: "every stateful workload
+# pod" runs on worker nodes only, "in every cluster, every provider cell, and every
+# environment", with "no exceptions and no per-cluster opt-outs", and a stateful
+# workload "SHALL NOT tolerate" the control-plane taint.
+#
+# ADR-078 add.5 shipped four PVC-backed observability workloads per cluster -- the
+# Alloy cluster agent, Loki and two VMSingles -- with no placement at all, and the
+# spoke catalogue patched the control-plane toleration onto every StatefulSet. On
+# nutgraf-01 (one control-plane node, TWO idle workers) that put loki-0,
+# grafana-alloy-cluster-0 and vmsingle-platform-b on the control-plane node: the
+# exact co-location ADR-014's rationale names, on the node whose memory exhaustion
+# caused the 2026-10-28 outage. Observed 2026-10-30, corrected by that date.
+#
+# Two mechanisms own the contract, so each is asserted where it is readable:
+#
+#   the worker key   literal in the manifest, asserted at build time by
+#                    validate_placement_class above, which no longer exempts these
+#   location + class per provider, substituted by templated-fields, so a kustomize
+#                    build shows a placeholder and the DECLARATION is asserted here
+validate_observability_placement() {
+    section "ADR-014: stateful observability declares worker placement in every cluster"
+
+    local out line
+    out=$(cd "$VALIDATE_ROOT" && python3 - <<'PYCHECK'
+import glob, subprocess, yaml
+
+WORKER = "node-role.kubernetes.io/worker"
+CP_TAINT = "node-role.kubernetes.io/control-plane"
+# Component -> the declaration that must carry its provider-specific half.
+DECLS = {
+    "manifests/spoke/spoke-catalog/templated-fields.yaml":
+        [("StatefulSet", "loki"), ("StatefulSet", "grafana-alloy-cluster"),
+         ("VMSingle", "platform-a"), ("VMSingle", "platform-b")],
+    "manifests/hub-core-services/loki/templated-fields.yaml": [("StatefulSet", "loki")],
+    "manifests/hub-core-services/grafana-alloy/templated-fields.yaml":
+        [("StatefulSet", "grafana-alloy-cluster")],
+    "manifests/hub-core-services/victoriametrics/templated-fields.yaml":
+        [("VMSingle", "platform-a"), ("VMSingle", "platform-b")],
+}
+
+for decl, wanted in sorted(DECLS.items()):
+    specs = yaml.safe_load(open(decl))
+    by_key = {(s.get("kind"), s.get("name")): s for s in specs}
+    for kind, name in wanted:
+        spec = by_key.get((kind, name))
+        where = decl.split("/")[-2] + "/" + kind + "/" + name
+        if spec is None:
+            print("FAIL %s declares no templated fields, so its location and storage "
+                  "class ship as placeholders" % where)
+            continue
+        fields = {tuple(f["path"]): f.get("value", "") for f in spec["fields"] if "path" in f}
+        loc = next((v for k, v in fields.items() if k[-1] == "workload-location"), None)
+        sc = next((v for k, v in fields.items() if k[-1] in ("storageClassName", "storageClass")), None)
+        if loc is None:
+            print("FAIL %s declares no workload-location; a PVC can then bind on a node "
+                  "whose class cannot serve it, which §11 calls a placement violation" % where)
+        elif "hybrid" not in loc:
+            print("FAIL %s workload-location does not vary by provider: %r" % (where, loc))
+        else:
+            print("PASS %s: location and storage follow the provider" % where)
+        if sc is None:
+            print("FAIL %s declares no storage class, so the placeholder ships" % where)
+
+# Nothing may put a stateful workload back on the control plane. Asserted on the
+# rendered overlay, where the catalogue's own patches are visible.
+for root in sorted(glob.glob("manifests/spoke/spoke-catalog/providers/*")):
+    r = subprocess.run(["kubectl", "kustomize", root], capture_output=True, text=True)
+    if r.returncode != 0:
+        print("FAIL %s does not build, so its placement cannot be read" % root)
+        continue
+    bad = []
+    for doc in yaml.safe_load_all(r.stdout):
+        if not isinstance(doc, dict):
+            continue
+        kind, meta = doc.get("kind"), doc.get("metadata") or {}
+        spec = doc.get("spec") or {}
+        if kind == "StatefulSet":
+            if not (spec.get("volumeClaimTemplates") or []):
+                continue
+            pod = (spec.get("template") or {}).get("spec") or {}
+        elif kind == "VMSingle":
+            pod = spec
+        else:
+            continue
+        name = "%s/%s" % (kind, meta.get("name", "?"))
+        if (pod.get("nodeSelector") or {}).get(WORKER) != "":
+            bad.append("%s has no key-only %s selector" % (name, WORKER))
+        if any(t.get("key") == CP_TAINT for t in (pod.get("tolerations") or [])):
+            bad.append("%s tolerates the control-plane taint, which ADR-014 bans for a "
+                       "stateful workload" % name)
+    if bad:
+        for b in bad:
+            print("FAIL %s: %s" % (root, b))
+    else:
+        print("PASS %s: every PVC-backed workload is worker-pinned and tolerates no "
+              "control-plane taint" % root)
+PYCHECK
+    )
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        case "$line" in
+            PASS\ *) pass "${line#PASS }" ;;
+            FAIL\ *) hard_fail "${line#FAIL }" ;;
+        esac
+    done <<< "$out"
 }

@@ -1643,3 +1643,96 @@ agree with it. What it settles for this capability:
 | required machinery | `grafana-alloy`, `kube-state-metrics` — descriptors, outside the capability gate |
 | ordering between them | none; retry with capped backoff, and `ComparisonError` until the CRDs exist |
 | selection | provisioning-time; a running backend is not disabled by the flag |
+
+## Addendum 7: capacity policy, per-cell alert credentials, and the store inventory (2026-10-30)
+
+### Replica policy
+
+Addendum 5 §9 made replica counts the only per-environment difference and set them at
+one in development and two or three elsewhere, inconsistently. The policy is now one
+ladder, applied to every replicated observability workload — Loki, the Alloy cluster
+agent, VMAuth, both VMAlerts and Alertmanager, on the hub and on every spoke:
+
+| environment | replicas | eligible workers assumed |
+|---|---|---|
+| development | 1, non-HA, single-node spokes supported | none required (ADR-014 amendment 2026-10-30) |
+| staging | 2 | 2 |
+| production | 3 | 3 |
+
+Vendor-required singletons are preserved: Loki's compactor and the operators stay
+single-instance, and the node-tier Alloy is a DaemonSet, not a replica count.
+
+**Loki's replication factor moves with its replicas** — 1, 2, 3 — because a factor
+above the replica count means every write is under-replicated and Loki reports it
+only as a ring warning.
+
+**Scale-down retains volumes.** Both Loki StatefulSets declared
+`whenScaled: Delete`, so moving staging from three replicas to two would have deleted
+the departing replica's PVC along with its unflushed WAL: log lines accepted and
+never written to object storage, which nothing afterwards reports as missing. Both
+now retain on scale-down.
+
+### Placement: the stores are stateful, so they are worker-pinned
+
+Addendum 5 shipped four PVC-backed workloads per cluster — the Alloy cluster agent,
+Loki and two VMSingles — with **no placement declared at all**, and the spoke
+catalogue patched the control-plane toleration onto every StatefulSet. ADR-014's
+Platform-Wide Placement Rule covers them without qualification: "every stateful
+workload pod" runs on worker nodes only, "in every cluster, every provider cell, and
+every environment", with "no exceptions and no per-cluster opt-outs", and a stateful
+workload "SHALL NOT tolerate" the control-plane taint.
+
+Observed on nutgraf-01, 2026-10-30 — one control-plane node and **two idle workers**:
+`loki-0`, `grafana-alloy-cluster-0` and `vmsingle-platform-b` were all running on the
+control-plane node, with `vmalertmanager-platform-0`, both VMAlerts, VMAuth and the
+operator beside them. That is the co-location ADR-014's rationale names — disk
+pressure and I/O contention next to etcd and the API server — on the node whose memory
+exhaustion caused the 2026-10-28 outage. The hub's four were on its worker by luck,
+declared nowhere.
+
+Corrected, in every environment and on both hub and spoke:
+
+| | |
+|---|---|
+| selector | `node-role.kubernetes.io/worker: ""` — key-only; `"true"` never matches and silently schedules onto the control plane |
+| location | `workload-location`, per provider (`on-prem` on hybrid, `hetzner` otherwise), because a PVC must bind on a node whose storage class can serve it (ADR-046 §11) |
+| toleration | none. The catalogue's StatefulSet toleration patch is removed; its only targets were these two StatefulSets |
+| node-tier Alloy | unchanged — a DaemonSet with no PVC, which must run on every node including the control plane to collect that node's metrics, and which ADR-014 does not cover |
+
+**The consequence is named rather than absorbed.** A genuinely single-node spoke
+(ADR-047) now has no observability: the pods stay Pending, which is what ADR-014 calls
+the rule working. Every spoke the platform runs today has workers, so nothing is
+Pending now — but if single-node spokes are to be supported, that is a decision for
+ADR-014 and ADR-047 together, not something this capability resolves by tolerating a
+taint.
+
+### The per-cell heartbeat credential
+
+`GRAFANA_IRM_HEARTBEAT_URL` is one heartbeat integration **per cluster**. It is
+externally provisioned, it is never derived from the hub's, and copying the hub's into
+every cell would make one integration receive every cluster's heartbeat — so a dead
+cluster would look alive.
+
+It is therefore declared as an external per-cell credential in
+`ExternalPerCellCredentialKeys`, with its source and seeding contract recorded beside
+it, which lets the static producer check (`preflight/95`) distinguish "provisioned
+outside the platform, per cell" from "nothing produces this". **That declaration is
+not evidence the value exists.** Presence is asserted on the live cluster, per cell,
+by `scripts/validate/cluster/078-alert-credentials.sh`, which fails when a cell's
+Alertmanager credential secret has no usable heartbeat URL. A missing key otherwise
+leaves Alertmanager running normally and simply never sending a heartbeat, which the
+monitoring system reports as nothing at all.
+
+### The store inventory is not yet aligned — open
+
+The capacity policy calls for one metric store in development, two in staging and
+three in production. Addendum 5 §3 ships exactly two `VMSingle` resources in every
+environment, and **aligning the count needs a mechanism the platform does not have**:
+a store is a whole resource, `templated-fields` substitutes values inside resources
+and cannot add or remove one, and both delivery paths — a directory Application in
+development and a packaged chart when released — emit every file in the component.
+Stores therefore remain at two in all environments until that mechanism is decided.
+The dependent paths that would move with it are recorded here so none is missed:
+Alloy's remote-write targets, VMAuth's route map, the per-store PVCs and health
+checks, and `scripts/validate/cluster/078-collection-floor.sh`, whose C7 asserts that
+both stores hold every cluster's series.

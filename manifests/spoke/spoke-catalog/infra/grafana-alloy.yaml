@@ -824,6 +824,15 @@ spec:
         app: grafana-alloy-cluster
     spec:
       serviceAccountName: grafana-alloy
+      # ADR-014 Platform-Wide Placement Rule: every stateful workload pod runs on
+      # worker nodes only, in every cluster and every environment, and the selector
+      # is the key-only CAPI/kubeadm label -- `"true"` never matches and would
+      # schedule onto the control plane instead. This store holds data, so it is a
+      # stateful workload: a Pending pod here is the rule working, not a fault to
+      # route around with a toleration.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        workload-location: PLACEHOLDER_WORKLOAD_LOCATION
       containers:
         - name: alloy
           image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f

@@ -150,7 +150,11 @@ spec:
   revisionHistoryLimit: 10
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Delete
-    whenScaled: Delete
+    # Retain on scale-down: the replica ladder moves staging from 3 to 2
+    # (ADR-078 add.5 §9, 2026-10-30) and `Delete` would take the departing
+    # replica's PVC with its unflushed WAL -- log lines accepted and never
+    # written to object storage, which nothing afterwards reports as missing.
+    whenScaled: Retain
   selector:
     matchLabels:
       app.kubernetes.io/name: loki
@@ -168,6 +172,15 @@ spec:
         app.kubernetes.io/part-of: memberlist
     spec:
       serviceAccountName: loki
+      # ADR-014 Platform-Wide Placement Rule: every stateful workload pod runs on
+      # worker nodes only, in every cluster and every environment, and the selector
+      # is the key-only CAPI/kubeadm label -- `"true"` never matches and would
+      # schedule onto the control plane instead. This store holds data, so it is a
+      # stateful workload: a Pending pod here is the rule working, not a fault to
+      # route around with a toleration.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        workload-location: PLACEHOLDER_WORKLOAD_LOCATION
       automountServiceAccountToken: true
       enableServiceLinks: true
       securityContext:

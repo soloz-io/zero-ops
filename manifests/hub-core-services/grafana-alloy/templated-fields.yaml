@@ -27,6 +27,8 @@
 - kind: StatefulSet
   name: grafana-alloy-cluster
   fields:
+    - path: [spec, template, spec, nodeSelector, workload-location]
+      value: '{{ if eq .Values.global.provider "hybrid" }}on-prem{{ else }}hetzner{{ end }}'
     - path: [spec, replicas]
       type: int
       value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else }}2{{ end }}'

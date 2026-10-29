@@ -83,6 +83,21 @@ if os.path.exists(CELL_SRC):
     if block:
         cell_produced |= set(re.findall(r'"([^"]+)"', block.group(1)))
 
+# Externally provisioned PER CELL: each cell has its own value, issued outside the
+# platform, so no producer here writes it and the hub's must never be copied in
+# (ADR-078 add.5 §5). Declared in the operator source next to the keys that ARE
+# copied, so a consumer added without a seeding contract still fails this check.
+#
+# Being declared is not evidence the value exists. These are reported, and presence
+# is asserted live per cell by cluster/078-alert-credentials.sh -- a static
+# allowlist would turn a missing credential into a permanent pass.
+external_cell = set()
+if os.path.exists(CELL_SRC):
+    block = re.search(r'ExternalPerCellCredentialKeys\s*=\s*\[\]string\{(.*?)\}',
+                      open(CELL_SRC).read(), re.S)
+    if block:
+        external_cell = set(re.findall(r'"([^"]+)"', block.group(1)))
+
 # GENERATED into each cell by the application-secret uploader. These are produced,
 # not copied, so they are declared alongside the other generated secrets: any
 # mapping carrying CellScopedKey is written once per SpokePool into that cell's
@@ -190,6 +205,11 @@ for leaf in sorted(wanted_cell):
         continue
     # PENDING applies to a cell path too. It is keyed by the leaf because that is
     # the name a producer would create; the cell prefix is per-spoke.
+    if leaf in external_cell:
+        print("\t".join(["EXTCELL", full,
+                          "externally provisioned per cell; presence is verified live, "
+                          "not by this check (cluster/078-alert-credentials.sh)"]))
+        continue
     if leaf in PENDING:
         print("\t".join(["PENDING", full, PENDING[leaf]]))
         continue
@@ -235,6 +255,11 @@ PY
         [[ "$tag" == "PENDING" ]] || continue
         warn "Infisical key '$a' has no producer (tracked gap, not yet closed)"
         note "$b"
+    done <<< "$out"
+
+    while IFS=$'\t' read -r tag a b; do
+        [[ "$tag" == "EXTCELL" ]] || continue
+        note "per-cell external credential '$a' — $b"
     done <<< "$out"
 
     note "externally issued — seeded by hub-bootstrap step 6b from k8-secrets/:"
