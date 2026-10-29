@@ -75,13 +75,25 @@ components:
       catalogue carries the same render under infra/loki.
 
   - name: platform-dashboards
-    declared_by: [078-the-observability-capability.md]
+    declared_by: [078-the-observability-capability.md, 021-boundary-driven-gitops-and-day-0-choreography.md]
     status: shipped
     path: manifests/hub-core-services/platform-dashboards
     note: >-
-      The hub's Grafana (in-cluster, HA on the grafana database), the
-      grafana-operator that runs it, the generated platform dashboards and the
-      hub's datasources (ADR-078 add.5 §6).
+      The grafana-operator and its vendored CRDs, nothing else: the ownership
+      anchor for the Grafana API (ADR-078 add.5 §6, ADR-021 amendment
+      2026-10-29). CRDs apply at resource wave -5, the operator at 1, so the
+      API is Established before the controller that serves it starts.
+
+  - name: grafana
+    declared_by: [078-the-observability-capability.md, 021-boundary-driven-gitops-and-day-0-choreography.md]
+    status: shipped
+    path: manifests/hub-core-services/grafana
+    note: >-
+      What the operator reconciles: the hub's Grafana (in-cluster, HA on the
+      grafana database), its datasources, the platform folder, the public route
+      and the generated dashboards. A separate Application from the operator
+      because its readiness depends on the operator running (ADR-021 addendum
+      2026-08-22).
 
   - name: kube-state-metrics
     declared_by: [078-the-observability-capability.md]
@@ -282,7 +294,7 @@ capabilities:
     declared_by:
       - 078-the-observability-capability.md
       - 098-metering-sources-over-spoke-egress-and-records-in-lago.md
-    components: [grafana-alloy, kube-state-metrics, node-exporter, platform-alerts, victoriametrics-operator, victoriametrics, loki, platform-dashboards]
+    components: [grafana-alloy, kube-state-metrics, node-exporter, platform-alerts, victoriametrics-operator, victoriametrics, loki, platform-dashboards, grafana]
     note: >-
       ADR-078 add.5. Collection, stores, evaluation, alerting and the hub's
       Grafana all ship in the box. Still `declared`: moving to `supported` is the

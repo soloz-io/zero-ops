@@ -212,6 +212,33 @@ spec:
             ignoreDifferencesNamespace: ''
             extraManifestsPath: ''
 
+          # ADR-021 amendment 2026-10-29: the Grafana operator and its CRDs are the
+          # ownership anchor above; what the operator RECONCILES is this Application --
+          # the instance, its datasources, the folder, the route and the dashboards.
+          # Separated because the readiness of every resource here depends on the
+          # operator above being up, and ArgoCD treats one Application's sync as one
+          # unit (ADR-021 addendum 2026-08-22). Inline rather than a descriptor because
+          # its presence is selectable (ADR-066 add.2), as for the operator.
+          - boundary: '03'
+            appName: 'grafana'
+            destinationNamespace: 'platform-observability'
+            isPlatformOwned: 'true'
+            repoURL: ''
+            targetRevision: ''
+            path: 'manifests/hub-core-services/grafana'
+            chart: ''
+            directoryRecurse: ''
+            directoryInclude: ''
+            helmValues: |
+              {{- if $released }}
+              grafana:
+                enabled: true
+              {{- include "environment-manager.globalValues" $ | nindent 14 }}
+              {{- end }}
+            helmReleaseName: ''
+            ignoreDifferencesNamespace: ''
+            extraManifestsPath: ''
+
           # ADR-078 add.5: the operator that reconciles the hub's stores, evaluators,
           # Alertmanager and query gateway. Its CRDs apply server-side.
           - boundary: '03'

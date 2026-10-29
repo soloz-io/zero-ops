@@ -151,6 +151,10 @@ package_path grafana-alloy manifests/hub-core-services/grafana-alloy
 # ADR-078 add.3 §4: the Grafana Operator and the dashboards it reconciles into
 # the box owner's stack, inline and capability-gated with grafana-alloy.
 package_path platform-dashboards manifests/hub-core-services/platform-dashboards
+# ADR-021 amendment 2026-10-29: the Grafana operator and its CRDs stay in
+# platform-dashboards; the instance, datasources, folder and dashboards it
+# reconciles are a separate Application with its own lifecycle.
+package_path grafana manifests/hub-core-services/grafana
 
 # ADR-078 add.5: the cluster's stores, evaluators, Alertmanager and Loki, inline
 # and capability-gated likewise.
