@@ -156,9 +156,12 @@ spec:
           {{- end }}
 
           {{- if .Values.capabilities.observability.enabled }}
-          # ADR-078: collection, and the store, query and rules that go with it.
+          # ADR-078 add.5: the selectable observability BACKEND -- the stores, the
+          # query gateway, the evaluators, Loki and Grafana. Collection itself is
+          # required machinery and is declared as a descriptor, outside this gate
+          # (ADR-066 add.4, ADR-021 amendment 2026-10-29).
           #
-          # Declared here rather than as a descriptor because its PRESENCE is a
+          # Declared here rather than as descriptors because their PRESENCE is a
           # function of a value, which is the same test ADR-061 applies to a
           # source that is. A descriptor cannot carry that test: the released
           # path globs descriptors out of the chart and the development path
@@ -167,30 +170,9 @@ spec:
           # and not in a development one. ADR-068 is explicit that the two paths
           # must not diverge, and two defects have already reached clusters
           # through exactly that gap.
-          - boundary: '03'
-            appName: 'grafana-alloy'
-            destinationNamespace: 'platform-observability'
-            isPlatformOwned: 'true'
-            repoURL: ''
-            targetRevision: ''
-            path: 'manifests/hub-core-services/grafana-alloy'
-            chart: ''
-            directoryRecurse: ''
-            directoryInclude: ''
-            helmValues: |
-              {{- if $released }}
-              grafana-alloy:
-                enabled: true
-              {{- include "environment-manager.globalValues" $ | nindent 14 }}
-              {{- end }}
-            helmReleaseName: ''
-            ignoreDifferencesNamespace: ''
-            extraManifestsPath: ''
-
-          # ADR-078 add.5 §6: the Grafana Operator, the hub's Grafana and the
-          # dashboards and datasources it reconciles. Gated with the
-          # capability for the reason grafana-alloy is. Flat: the bundle packages
-          # a directory component's top-level files only.
+          #
+          # ADR-078 add.5 §6: the Grafana Operator and its CRDs. Flat: the bundle
+          # packages a directory component's top-level files only.
           {{- if not .Values.alerting.emailTo }}{{ fail "alerting.emailTo is required while observability is enabled: at least one address receives platform alerts (ADR-078 add.4, add.5 §5)" }}{{ end }}
           - boundary: '03'
             appName: 'platform-dashboards'

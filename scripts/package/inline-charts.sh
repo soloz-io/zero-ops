@@ -136,20 +136,15 @@ done
 
 package_path platform-storage manifests/hub-core-services/storage
 
-# ADR-078's collection layer. Inline rather than a descriptor because its
-# PRESENCE is a function of a value (capabilities.observability.enabled), and a
-# descriptor cannot carry that test -- the released path globs descriptors out
-# of the chart and the development path reads them from git, so a gate on a
-# descriptor would take effect in one and not the other.
-#
-# Moving it out of manifests/argocd/components/03/ also moved it out of the
-# packager's reach: component-chart.sh iterates descriptors, so without this line
-# the bundle would name a chart no release published -- the exact defect
+# ADR-078's collection layer is NOT here any more: ADR-066 addendum 4 makes it
+# required machinery, so it is a descriptor again (components/03/grafana-alloy.yaml)
+# and component-chart.sh packages it with every other descriptor. A component
+# changing declaration route changes packager too, and a component in neither
+# publishes a bundle naming a chart no release produced -- the defect
 # bundle-completeness.py exists to catch, and the reason this script exists.
-package_path grafana-alloy manifests/hub-core-services/grafana-alloy
 
-# ADR-078 add.3 §4: the Grafana Operator and the dashboards it reconciles into
-# the box owner's stack, inline and capability-gated with grafana-alloy.
+# ADR-078 add.5 §6: the Grafana Operator and its vendored CRDs, inline because the
+# backend's presence is capabilities.observability.enabled.
 package_path platform-dashboards manifests/hub-core-services/platform-dashboards
 # ADR-021 amendment 2026-10-29: the Grafana operator and its CRDs stay in
 # platform-dashboards; the instance, datasources, folder and dashboards it
@@ -162,8 +157,8 @@ package_path victoriametrics-operator manifests/hub-core-services/victoriametric
 package_path victoriametrics manifests/hub-core-services/victoriametrics
 package_path loki manifests/hub-core-services/loki
 
-# ADR-077's agent, inline for the same reason as grafana-alloy: its presence is a
-# function of capabilities.support.enabled. Leaving it out here would publish a
+# ADR-077's agent, inline because its presence is a function of
+# capabilities.support.enabled. Leaving it out here would publish a
 # bundle naming a chart no release produced.
 package_path support-agent manifests/hub-core-services/support-agent
 
