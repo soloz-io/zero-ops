@@ -651,13 +651,6 @@ spec:
         app: grafana-alloy
     spec:
       serviceAccountName: grafana-alloy
-      # ADR-014 Platform-Wide Placement Rule: every stateful workload pod runs on
-      # worker nodes only, in every cluster and every environment, with the key-only
-      # CAPI/kubeadm label -- `"true"` never matches and would schedule onto the
-      # control plane instead.
-      nodeSelector:
-        node-role.kubernetes.io/worker: ""
-        workload-location: PLACEHOLDER_WORKLOAD_LOCATION
       # A node agent belongs on every node, the control plane included: without
       # this the hub's control-plane node had no kubelet, cAdvisor, node or log
       # collection at all (2026-10-24, collection-floor C2). The cluster agent
@@ -796,6 +789,13 @@ spec:
         app: grafana-alloy-cluster
     spec:
       serviceAccountName: grafana-alloy
+      # ADR-014 Platform-Wide Placement Rule: every stateful workload pod runs on
+      # worker nodes only, in every cluster and every environment, with the key-only
+      # CAPI/kubeadm label -- `"true"` never matches and would schedule onto the
+      # control plane instead.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        workload-location: PLACEHOLDER_WORKLOAD_LOCATION
       containers:
       - name: alloy
         image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
