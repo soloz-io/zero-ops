@@ -248,6 +248,28 @@ helmValues: |
     volumeMounts:
       - name: dev-shm
         mountPath: /dev/shm
+    # Bounded, because it runs on the control-plane node beside the API server
+    # and etcd. Unbounded, a sync of a large manifest set grew it until the
+    # node ran out of memory: on 2026-10-28 (rc.177, ~2 MB of CRDs) the kernel's
+    # node-wide OOM killed this controller AND the API server, and every
+    # controller on the hub then lost the API server
+    # (docs/Administer/Troubleshooting/Cilium/Repair/01-API-server-service-has-no-backend.md).
+    # With a limit, the kernel kills only this container, inside its cgroup; it
+    # restarts and resumes the sync, and the control plane is untouched.
+    #
+    # The limit covers the process (~1.5Gi observed at that sync) and the
+    # /dev/shm above, whose sizeLimit counts against this pod's memory.
+    # GOMEMLIMIT keeps the Go heap below the limit by collecting harder as it
+    # nears it, rather than meeting the limit as an OOM kill.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1536Mi
+      limits:
+        memory: 3Gi
+    env:
+      - name: GOMEMLIMIT
+        value: 2GiB
   server:
     {{- with include "environment-manager.cloudControlPlacement" . }}{{ . | nindent 2 }}{{- end }}
     ingress:
