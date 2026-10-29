@@ -3,7 +3,6 @@ boundary: '01'
 appName: platform-capi-resources
 destinationNamespace: platform-capi
 isPlatformOwned: 'true'
-syncWave: '2'
 repoURL: ''
 targetRevision: ''
 path: manifests/platform-capi

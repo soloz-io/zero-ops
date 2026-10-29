@@ -3,7 +3,6 @@ boundary: '01'
 appName: platform-crossplane-config
 destinationNamespace: platform-ops
 isPlatformOwned: 'true'
-syncWave: '4'
 repoURL: ''
 targetRevision: ''
 path: manifests/hub-core-services/crossplane/config

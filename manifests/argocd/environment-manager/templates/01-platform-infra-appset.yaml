@@ -91,12 +91,12 @@ spec:
           # stateful workloads (platform-db). Previously present in the repo but
           # referenced by NO ApplicationSet, so the class never existed on the hub
           # and platform-db's PVC stayed Pending forever, hanging the bootstrap at
-          # inject-ca-cert. Wave 1: the class must exist before boundary-02 creates
-          # the CNPG cluster that asks for it.
+          # inject-ca-cert. The class must exist before boundary-02 creates the CNPG
+          # cluster that asks for it; boundary activation provides that order (ADR-055),
+          # not a wave on this Application (ADR-021 amendment 2026-10-29).
           - appName: 'platform-storage'
             destinationNamespace: 'kube-system'
             isPlatformOwned: 'true'
-            syncWave: '1'
             # Empty means platform-owned, resolved once in the source block
             # below (ADR-068). Naming platformRepoURL here made this the one
             # element the released path never converted, so a released cluster
@@ -138,7 +138,6 @@ spec:
           - appName: 'platform-security-infra'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'true'
-            syncWave: '1'
             repoURL: ''
             targetRevision: ''
             path: 'manifests/hub-core-services/security'
@@ -171,7 +170,6 @@ spec:
           - appName: 'platform-kyverno'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'false'
-            syncWave: '-1'
             repoURL: 'https://kyverno.github.io/kyverno'
             # 3.9.1 (app v1.19.1). The version is load-bearing, not housekeeping.
             #
@@ -396,7 +394,6 @@ spec:
           - appName: 'platform-external-secrets'
             destinationNamespace: 'platform-ops'
             isPlatformOwned: 'false'
-            syncWave: '4'
             repoURL: 'https://charts.external-secrets.io'
             targetRevision: '2.2.0'
             path: ''
@@ -505,8 +502,6 @@ spec:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
       namespace: platform-ops
-      annotations:
-        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: boundary-01
       source:
@@ -553,6 +548,19 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+        # Native failed-sync recovery, the only mechanism that exists between
+        # independently reconciled Applications (ADR-021 amendment 2026-10-29).
+        # An Application whose CRDs are owned by a different Application fails
+        # until those CRDs are Established; unlimited attempts under a capped
+        # backoff converge without a Git revision change or a manual sync, and
+        # selfHeal alone is not a failed-sync retry policy. A permanent failure
+        # stays visible: the Application reports it, and retries are not health.
+        retry:
+          limit: -1
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
   templatePatch: |
 {{- if not $released }}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}

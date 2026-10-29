@@ -20,6 +20,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanaalertrulegroups.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -465,6 +466,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanacontactpoints.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -926,6 +928,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanadashboards.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -1571,6 +1574,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanadatasources.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -1960,6 +1964,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanafolders.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -2230,6 +2235,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanalibrarypanels.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -2862,6 +2868,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanamanifests.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -3241,6 +3248,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanamutetimings.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -3542,6 +3550,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafananotificationpolicies.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -3952,6 +3961,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafananotificationpolicyroutes.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -4233,6 +4243,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafananotificationtemplates.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -4481,6 +4492,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanas.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org
@@ -16226,6 +16238,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: grafanaserviceaccounts.grafana.integreatly.org
 spec:
   group: grafana.integreatly.org

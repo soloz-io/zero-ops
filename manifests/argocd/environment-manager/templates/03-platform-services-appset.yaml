@@ -498,6 +498,19 @@ spec:
           - CreateNamespace=true
           - ServerSideApply=true
           - RespectIgnoreDifferences=true
+        # Native failed-sync recovery, the only mechanism that exists between
+        # independently reconciled Applications (ADR-021 amendment 2026-10-29).
+        # An Application whose CRDs are owned by a different Application fails
+        # until those CRDs are Established; unlimited attempts under a capped
+        # backoff converge without a Git revision change or a manual sync, and
+        # selfHeal alone is not a failed-sync retry policy. A permanent failure
+        # stays visible: the Application reports it, and retries are not health.
+        retry:
+          limit: -1
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
   templatePatch: |
 {{- if not $released }}
     {{"{{-"}} if eq .directoryRecurse "true" {{"}}"}}

@@ -21,7 +21,6 @@ spec:
           # issuers -- it is the issuer.
           - appName: 'zitadel'
             destinationNamespace: 'platform-identity'
-            syncWave: ''
             repoURL: 'https://charts.zitadel.com'
             targetRevision: '10.0.4'
             chart: 'zitadel'
@@ -46,8 +45,6 @@ spec:
     metadata:
       name: '{{"{{"}} .appName {{"}}"}}'
       namespace: platform-ops
-      annotations:
-        argocd.argoproj.io/sync-wave: '{{"{{"}} .syncWave {{"}}"}}'
     spec:
       project: boundary-04
 {{- if $released }}

@@ -5,7 +5,7 @@ metadata:
   name: platform-cluster-total
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
   labels:
     app.kubernetes.io/managed-by: platform
 spec:

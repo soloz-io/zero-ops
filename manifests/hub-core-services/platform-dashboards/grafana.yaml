@@ -19,7 +19,7 @@ metadata:
   name: grafana-db
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
 spec:
   refreshInterval: 5m
   secretStoreRef:
@@ -42,7 +42,7 @@ metadata:
   name: platform
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
   labels:
     dashboards: platform
 spec:
@@ -105,7 +105,7 @@ metadata:
   name: platform
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
 spec:
   title: Platform
   instanceSelector:
@@ -121,7 +121,7 @@ metadata:
   name: hub-metrics
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
 spec:
   instanceSelector:
     matchLabels:
@@ -151,7 +151,7 @@ metadata:
   name: hub-logs
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
 spec:
   instanceSelector:
     matchLabels:
@@ -178,6 +178,8 @@ kind: HTTPRoute
 metadata:
   name: grafana
   namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   parentRefs:
     - name: hub-gateway

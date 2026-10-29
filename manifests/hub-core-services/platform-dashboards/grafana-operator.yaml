@@ -17,6 +17,8 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: grafana-operator
   namespace: platform-observability
   labels:
@@ -28,6 +30,8 @@ automountServiceAccountToken: true
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: grafana-operator
   labels:
     app.kubernetes.io/name: grafana-operator
@@ -122,6 +126,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: grafana-operator
   labels:
     app.kubernetes.io/name: grafana-operator
@@ -139,6 +145,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   namespace: platform-observability
   name: grafana-operator-leases
   labels:
@@ -162,6 +170,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: grafana-operator-leases
   namespace: platform-observability
   labels:
@@ -180,6 +190,8 @@ roleRef:
 apiVersion: v1
 kind: Service
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: grafana-operator-metrics-service
   namespace: platform-observability
   labels:
@@ -204,6 +216,8 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   name: grafana-operator
   namespace: platform-observability
   labels:

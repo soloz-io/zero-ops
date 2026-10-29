@@ -24,7 +24,6 @@ boundary: '03'
 appName: kube-state-metrics
 destinationNamespace: platform-ops
 isPlatformOwned: 'false'
-syncWave: '1'
 repoURL: https://prometheus-community.github.io/helm-charts
 targetRevision: 5.27.0
 path: ''

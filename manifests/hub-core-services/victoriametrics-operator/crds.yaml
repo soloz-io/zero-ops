@@ -15,6 +15,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vlagents.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -1567,6 +1568,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vlclusters.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -4309,6 +4311,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vldistributed.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -8244,6 +8247,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vlogs.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -8341,6 +8345,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vlsingles.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -9327,6 +9332,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmagents.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -12804,6 +12810,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmalertmanagerconfigs.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -15646,6 +15653,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmalertmanagers.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -17323,6 +17331,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmalerts.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -18703,6 +18712,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmanomalies.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -20521,6 +20531,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmanomalyconfigs.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -20608,6 +20619,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmauths.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -22566,6 +22578,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmclusters.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -25777,6 +25790,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmdistributed.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -30194,6 +30208,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmnodescrapes.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -30804,6 +30819,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmpodscrapes.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -31460,6 +31476,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmprobes.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -32287,6 +32304,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmrules.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -32460,6 +32478,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmscrapeconfigs.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -39313,6 +39332,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmservicescrapes.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -39975,6 +39995,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmsingles.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -42522,6 +42543,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmstaticscrapes.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -43122,6 +43144,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vmusers.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -43624,6 +43647,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vtagents.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -45642,6 +45666,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vtclusters.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com
@@ -48325,6 +48350,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    argocd.argoproj.io/sync-wave: "-5"
   name: vtsingles.operator.victoriametrics.com
 spec:
   group: operator.victoriametrics.com

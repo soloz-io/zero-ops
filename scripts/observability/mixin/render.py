@@ -47,7 +47,15 @@ for fname in sorted(DASHBOARDS):
         "metadata": {
             "name": name,
             "namespace": "platform-observability",
-            "annotations": {"argocd.argoproj.io/sync-options": "SkipDryRunOnMissingResource=true"},
+            "annotations": {"argocd.argoproj.io/sync-options":
+                            # Prune=false is TRANSITIONAL: these resources move from the
+                            # platform-dashboards Application to the grafana Application
+                            # (ADR-021 amendment 2026-10-29). Two independently reconciled
+                            # Applications cannot be ordered, so the live objects must refuse
+                            # pruning before the move commit lands, or whichever Application
+                            # syncs first decides whether they survive. Removed once the
+                            # transfer is verified.
+                            "SkipDryRunOnMissingResource=true,Prune=false"},
             "labels": {"app.kubernetes.io/managed-by": "platform"},
         },
         "spec": {
