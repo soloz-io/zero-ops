@@ -71,8 +71,16 @@ for doc in yaml.safe_load_all(run(["kubectl", "kustomize", CATALOG],
         # dataFrom has no /spec/data/N index for a JSON6902 patch to target, so it
         # cannot be re-scoped per cell at all.
         print(f"BAD\t{name}\tuses dataFrom — no index for a per-cell patch to target")
+    # An entry sourced from a GENERATOR reads nothing from the secret store, so the
+    # cell prefix does not apply to it: ADR-031 constrains what a spoke's SecretStore
+    # is authorised to read, and a generatorRef never consults the store. Its
+    # remoteRef.key names a field of the generated secret (the Password generator's
+    # `password`), not an Infisical path -- reported as a root-path consumer, it would
+    # push the manifest back to `dataFrom`, which has no index for a per-cell patch
+    # and is the shape this check exists to forbid.
     secrets[name] = [d.get("remoteRef", {}).get("key", "")
-                     for d in (doc["spec"].get("data") or [])]
+                     for d in (doc["spec"].get("data") or [])
+                     if not (d.get("sourceRef") or {}).get("generatorRef")]
 
 if not secrets:
     print("NONE")

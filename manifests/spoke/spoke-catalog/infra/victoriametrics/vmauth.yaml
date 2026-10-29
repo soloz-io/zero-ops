@@ -107,15 +107,35 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  # Generated once and kept: refreshing would rotate the token under the
-  # evaluators mid-flight. Rotation is deleting the Secret.
-  refreshInterval: "0"
+  # ADR-030 #1 mandates a non-zero refreshInterval for an ExternalSecret tied to a
+  # Generator -- for drift detection, recovery from accidental deletion, and
+  # readiness for time-based rotation. `refreshInterval: "0"` is ESO's "never
+  # reconcile" setting and defeats all three: a Secret deleted by hand stayed
+  # deleted, and VMAuth answered 401 until someone noticed.
+  #
+  # refreshPolicy CreatedOnce is how both halves hold at once (ESO v2.2.0, the API
+  # served on this cluster): ESO keeps reconciling and recreates the Secret whenever
+  # it does not exist, and does not rewrite it thereafter -- so the generator does
+  # not mint a new token under running consumers every interval. Rotation becomes a
+  # policy change to `Periodic`, which ADR-030 #3 then pairs with rolling-update
+  # triggers on the consumers; it is not a manifest redesign.
+  refreshInterval: 24h
+  refreshPolicy: CreatedOnce
   target:
     name: vmauth-vmalert
     creationPolicy: Owner
-  dataFrom:
-    - sourceRef:
+  # An indexed `data` entry, not `dataFrom` (ADR-031). A spoke's ExternalSecrets are
+  # patched per cell at `spec.data[N]`, and `dataFrom` offers no index for that patch
+  # to target -- so a generated secret declared that way is the one shape a per-cell
+  # patch cannot reach. The Password generator exposes a single `password` key, and
+  # `data[].sourceRef.generatorRef` is served by the ExternalSecret v1 API this
+  # platform runs (verified against the vendored CRD, eso-crd-03.yaml).
+  data:
+    - secretKey: password
+      sourceRef:
         generatorRef:
           apiVersion: generators.external-secrets.io/v1alpha1
           kind: Password
           name: vmauth-token
+      remoteRef:
+        key: password
