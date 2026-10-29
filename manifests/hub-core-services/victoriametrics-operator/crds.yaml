@@ -1,7 +1,7 @@
 # VictoriaMetrics Operator v0.75.0 -- CRDs. Reconciles the observability stores,
 # evaluators, Alertmanager and query gateway (ADR-078 addendum 5).
-# Source: https://victoriametrics.github.io/helm-charts/ (chart victoria-metrics-operator 0.68.1)
-# Source chart sha256: cd6aff3b6f25013e
+# Source: https://victoriametrics.github.io/helm-charts/
+# Provenance and digests: manifests/provenance/victoriametrics-operator/ (chart victoria-metrics-operator 0.68.1)
 # Vendored from `helm template victoriametrics-operator victoria-metrics-operator-0.68.1
 # -n platform-observability --include-crds --kube-version 1.31.6` with: the
 # PrometheusRule converter on, converter ownership (owner references) on and Argo CD

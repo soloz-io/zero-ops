@@ -1,7 +1,7 @@
 # Grafana Operator v5.24.0 -- CRDs. Runs the hub's Grafana and reconciles its
 # dashboards and datasources (ADR-078 add.5 §6).
-# Source: https://grafana.github.io/helm-charts (chart grafana-operator 5.24.0)
-# Source chart sha256: ffde0a5b1efab88d
+# Source: https://grafana.github.io/helm-charts
+# Provenance and digests: manifests/provenance/platform-dashboards/ (chart grafana-operator 5.24.0)
 # Vendored from `helm template grafana-operator grafana-operator-5.24.0.tgz
 # -n platform-observability --include-crds` with resources set, Helm bookkeeping
 # labels removed and the image pinned by digest (ADR-021).

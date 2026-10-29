@@ -1,0 +1,21 @@
+---
+# ADR-029 §1 provenance for a vendored third-party CRD artifact.
+#
+# Two digests, deliberately distinct: one covers the upstream chart archive as
+# fetched, the other the artifact as committed here. They are stored OUTSIDE the
+# artifact because a digest written into the file it covers changes those bytes
+# and can never verify.
+artifact: manifests/hub-core-services/victoriametrics-operator/crds.yaml
+artifact_sha256: 6650b95c8522ffac4ae0b57fbf69d231bcc3bcbace6aba140bdf2d0c2a1e9842          # shasum -a 256 -c manifests/provenance/victoriametrics-operator/crds.yaml.sha256
+upstream:
+  repository: https://victoriametrics.github.io/helm-charts/
+  chart: victoria-metrics-operator
+  version: "0.68.1"
+  # The full SHA-256 of the fetched .tgz. Recorded at re-vendor time by whoever
+  # fetches it; the truncated 16-character value the artifact header
+  # used to carry (cd6aff3b6f25013e...) is not extended into a full digest, because a
+  # prefix is not evidence of the rest.
+  archive_sha256: UNVERIFIED
+  archive_sha256_note: >-
+    Record on the next re-vendor: `helm pull victoria-metrics-operator --repo https://victoriametrics.github.io/helm-charts/ --version 0.68.1`
+    then `shasum -a 256 victoria-metrics-operator-0.68.1.tgz`.
