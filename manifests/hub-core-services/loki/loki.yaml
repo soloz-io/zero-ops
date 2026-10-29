@@ -127,6 +127,10 @@ kind: StatefulSet
 metadata:
   name: loki
   namespace: platform-observability
+  annotations:
+    # ADR-030 #3: the box's S3 credential rotates and ESO rewrites
+    # loki-object-storage in place; Loki reads it once at startup.
+    secret.reloader.stakater.com/reload: "loki-object-storage"
   labels:
     app.kubernetes.io/name: loki
     app.kubernetes.io/instance: loki
