@@ -325,3 +325,48 @@ already the case, before ADR-078's toggle could have quietly changed it.
 - ADR-062: Onboarding and Scaffolding a Tenant
 - ADR-063: The Platform Bundle and its Version
 - ADR-065: The Control Plane Ships Into the Box
+
+## Addendum 5: required machinery is declared outside the gate, and what selection means today (2026-10-29)
+
+Addendum 4 classified Grafana Alloy, `kube-state-metrics` and `node-exporter` as
+required machinery and the observability backend as the selectable capability. The
+declaration did not follow: Alloy had moved inline under
+`capabilities.observability.enabled` a week earlier, by addendum 2's rule, and stayed
+there. A box that deselected the backend would therefore have lost collection too —
+the opposite of what addendum 4 decided, and it would have taken the agent that
+addendum 4 defends with *"a tenant may choose where their telemetry goes, including
+nowhere"*.
+
+**A capability gate expresses selectable presence. Required machinery has none, so it
+is never declared under one.** Alloy is a descriptor again
+(`manifests/argocd/components/03/grafana-alloy.yaml`), `kube-state-metrics` already
+was, and `node-exporter` ships inside the Alloy DaemonSet. Addendum 2's rule is
+untouched for what it governs: the backend — stores, query gateway, evaluators, Loki,
+the Grafana operator and the Grafana instance — stays inline under the gate.
+
+A declaration route is also a packaging route: inline components are packaged by
+`scripts/package/inline-charts.sh` and descriptors by `scripts/package/component-chart.sh`,
+so Alloy moved between them in the same change. A component in neither publishes a
+bundle naming a chart no release produced, which is the defect addendum 2 recorded
+when Alloy moved the other way.
+
+### What selection means in this release
+
+`capabilities.observability.enabled` is an **initial-provisioning selection**. A box
+provisioned with it false does not get the backend. On a box that already runs the
+backend, setting it false stops the Applications being generated and **does not stop
+the backend**: the ApplicationSets declare `applicationsSync: create-update`, which
+keeps Applications the generator no longer emits, and that policy is deliberate —
+*"deletion must never be the mechanism that removes platform state"*.
+
+So **runtime disablement is not a supported operation and is not documented as one**.
+Nothing here claims a tenant can turn a running backend off by flipping this value.
+Permanent decommissioning remains a separate, explicitly approved act, and every
+capability default stays `true` for the reason addendum 2 gives: a promotion must not
+delete a tenant's data.
+
+One consequence must be verified rather than assumed: the effective ApplicationSet
+controller policy. A controller-level `--policy` can override the per-ApplicationSet
+field, and this repository sets no `applicationsetcontroller.*` parameter, so the
+retention this addendum relies on is only as true as the deployed controller's flags.
+It is checked on the live cluster, not inferred from the manifests.

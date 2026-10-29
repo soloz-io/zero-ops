@@ -124,3 +124,31 @@ No change to ADR-039 or ADR-040. Git remains the System of Record for all bounda
 - ADR-040: Day-0 vs Day-1 Lifecycle Boundary
 - ADR-047: Fleet Tenant Deployment Contract
 - ADR-055: AppSet Boundary Activation Gating
+
+## Amendment (2026-10-29): §48's two wave statements — **Proposed**
+
+**Status:** Proposed. The descriptor model, the source-parameterisation test and the
+conditional-presence exception of ADR-066 addendum 2 are unchanged and correct.
+
+Two statements in the sync-wave paragraph are withdrawn.
+
+**"Every component in boundary 01 carries a wave, and no component in boundary 03
+carries one at all."** True when written (2026-09-10) and false since 2026-10-24,
+when `bfbcd0d3` introduced waves on `kube-state-metrics` and `platform-alerts`.
+Both are now removed, along with every other `syncWave` declaration: boundary 03's
+template never consumed the field, and the boundary 01 and 04 templates rendered it
+onto an `Application`, where ArgoCD does not use it (ADR-021 amendment 2026-10-29).
+
+**"Where waves are declared they must be unique within the boundary."** Withdrawn.
+It is not an ArgoCD requirement — several resources may share a wave, and ArgoCD
+applies them together and assesses their health before the next wave — and it was
+never satisfied here: the boundary-01 descriptors landed on 2026-09-05 with CNPG and
+Crossplane both at wave 2, five days before this ADR recorded the rule, and nine of
+twelve shared a wave when it was removed. Nothing is claimed in its place about
+concurrency between independently reconciled Applications, because nothing is true.
+
+**The replacement rule is about consumption, not uniqueness.** A descriptor declares
+only fields its boundary's template dereferences. A field no template consumes is
+dead, and a dead field is indistinguishable from a live one by reading it — which is
+how an ordering nobody provided was documented in two descriptors for five months.
+`scripts/validate/preflight/021-boundary-composition.sh` asserts this.

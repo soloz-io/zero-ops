@@ -1622,3 +1622,24 @@ acceptance:
 - **ADR-051**: Environment DNS Naming and Public Gateway TLS — the query endpoint's host and its withheld listener
 - **ADR-088**: The Tenant and the Application Are Different Axes — the identity labels
 - **ADR-102**: The Platform Workload Library Chart — the application-facing telemetry values
+
+## Addendum 6: the GitOps composition of this capability is governed elsewhere (2026-10-29)
+
+Addendum 5 delivered the self-hosted backend and said nothing about how its
+Applications are composed. That omission is why rc.177 shipped 2.8 MB of vendored
+CRDs converging in one sync with the stack that needed them, Alloy behind the
+backend's capability gate, and two descriptors declaring an ordering no mechanism
+provided.
+
+This ADR does not restate the rules. The composition contract is **ADR-021's
+amendment of 2026-10-29**, with ADR-029, ADR-061 and ADR-066 addendum 5 amended to
+agree with it. What it settles for this capability:
+
+| | |
+|---|---|
+| boundary | 03 — neither observability operator is a bootstrap dependency |
+| operator Applications | `victoriametrics-operator`, `platform-dashboards` (the Grafana operator and its CRDs), each with CRDs at resource wave `-5` and the operator at `1` |
+| dependent Applications | `victoriametrics`, `loki`, `grafana` (the instance, datasources, folder, route and dashboards) |
+| required machinery | `grafana-alloy`, `kube-state-metrics` — descriptors, outside the capability gate |
+| ordering between them | none; retry with capped backoff, and `ComparisonError` until the CRDs exist |
+| selection | provisioning-time; a running backend is not disabled by the flag |
