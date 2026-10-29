@@ -15,6 +15,8 @@ import (
 	"text/template"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/soloz-io/zero-ops/internal/assets"
 	"github.com/soloz-io/zero-ops/internal/platform/escrow"
 	"github.com/soloz-io/zero-ops/internal/soloz-cli/health"
@@ -170,13 +172,27 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 		return err
 	}
 
-	// Apply ClusterResourceSet (CNI, CCM, Secrets)
-	if err := p.applyCRS(ctx); err != nil {
+	// Generate and apply Cluster resource
+	if err := p.applyCluster(ctx); err != nil {
 		return err
 	}
 
-	// Generate and apply Cluster resource
-	if err := p.applyCluster(ctx); err != nil {
+	// The CNI addon is applied AFTER the Cluster, because its cilium-config carries
+	// the API server endpoint and the endpoint does not exist until the infrastructure
+	// provider has created the control-plane load balancer (ADR-046 §24.6).
+	//
+	// The ordering invariant §24.1 relies on holds here: the provider sets
+	// Cluster.spec.controlPlaneEndpoint before any machine boots, so the endpoint is
+	// readable while the control plane is still being created. The ClusterResourceSet
+	// delivers its payload later still — once the workload cluster answers — so a
+	// Secret written now is in place before the first agent reads it.
+	host, port, err := p.controlPlaneEndpoint(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Apply ClusterResourceSet (CNI, CCM, Secrets)
+	if err := p.applyCRS(ctx, host, port); err != nil {
 		return err
 	}
 
@@ -672,7 +688,132 @@ func (p *Provisioner) kubeconfigPath() string {
 	return filepath.Join(os.Getenv("HOME"), ".kube", "config")
 }
 
-func (p *Provisioner) applyCRS(ctx context.Context) error {
+// controlPlaneEndpoint reads Cluster.spec.controlPlaneEndpoint, waiting for the
+// infrastructure provider to set it.
+//
+// ADR-046 §24.6: this is the address every Cilium agent on the cluster is given, so
+// that an agent never has to reach the API server through the Service it is itself
+// serving. It is read from the Cluster, not from the infrastructure object, because
+// the Cluster is the contract: whichever provider is underneath, CAPI surfaces the
+// endpoint there, and hub-operator reads the same field when it renders a spoke's copy.
+//
+// No fallback. If the endpoint does not appear, provisioning stops: a cluster whose
+// agents resolve the API server through 10.96.0.1 deadlocks permanently the first time
+// that endpoint is withdrawn (the 2026-10-28 hub outage), and there is nothing to
+// recover with afterwards but a manual patch.
+func (p *Provisioner) controlPlaneEndpoint(ctx context.Context) (string, string, error) {
+	const (
+		timeout = 5 * time.Minute
+		every   = 10 * time.Second
+	)
+	deadline := time.Now().Add(timeout)
+	for {
+		out, err := exec.CommandContext(ctx, "kubectl", p.kubectlArgs(
+			"get", "cluster", p.Config.ClusterName, "-n", p.Config.Namespace,
+			"-o", "jsonpath={.spec.controlPlaneEndpoint.host} {.spec.controlPlaneEndpoint.port}",
+		)...).Output()
+		if err == nil {
+			host, port, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
+			if host != "" && port != "" && port != "0" {
+				fmt.Printf("[cluster-provision] API server endpoint for the CNI: %s:%s\n", host, port)
+				return host, port, nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return "", "", fmt.Errorf(
+				"cluster %s/%s has no spec.controlPlaneEndpoint after %s; its Cilium agents cannot be "+
+					"given the API server's address, and a cluster that reaches the API server only "+
+					"through 10.96.0.1 cannot recover when that endpoint is withdrawn (ADR-046 §24.6). "+
+					"Check the infrastructure provider: the control-plane load balancer is what sets this field",
+				p.Config.Namespace, p.Config.ClusterName, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		case <-time.After(every):
+		}
+	}
+}
+
+// injectAPIServerEndpoint writes the API server's address into the cilium-config
+// document of a rendered addon stream (ADR-046 §24.6).
+//
+// The hub's own copy, the one the CLI delivers at Day-0. A spoke's copy is rendered by
+// hub-operator from the same base with the same two keys; this is the hub's single
+// owner, and the two never touch the same cluster.
+//
+// Only the cilium-config document is re-serialized. The stream also carries the
+// Gateway API CRDs and the Cilium workloads, ~700 KiB that nothing here parses, and
+// round-tripping all of it to set two keys would rewrite manifests this code does not
+// own. The document is found by what it is, not by its position in the stream.
+func injectAPIServerEndpoint(manifest, host, port string) (string, error) {
+	if host == "" || port == "" {
+		return "", fmt.Errorf("no API server endpoint to write into cilium-config (ADR-046 §24.6)")
+	}
+
+	const sep = "\n---\n"
+	docs := strings.Split(manifest, sep)
+	found := -1
+	for i, doc := range docs {
+		var cm struct {
+			Kind     string `yaml:"kind"`
+			Metadata struct {
+				Name string `yaml:"name"`
+			} `yaml:"metadata"`
+		}
+		// A document that does not parse is one of the workload manifests this code
+		// does not own, and is not the one being looked for.
+		if err := yaml.Unmarshal([]byte(doc), &cm); err != nil {
+			continue
+		}
+		if cm.Kind != "ConfigMap" || cm.Metadata.Name != "cilium-config" {
+			continue
+		}
+		if found >= 0 {
+			return "", fmt.Errorf("the rendered CNI addon carries two cilium-config ConfigMaps; " +
+				"exactly one component renders the copy a cluster receives (ADR-046 §24)")
+		}
+		found = i
+	}
+	if found < 0 {
+		return "", fmt.Errorf("the rendered CNI addon has no cilium-config ConfigMap to carry the API " +
+			"server endpoint; with kube-proxy-replacement on, the cluster would have no route to the " +
+			"API server at all (ADR-046 §24.6)")
+	}
+
+	var cm map[string]interface{}
+	if err := yaml.Unmarshal([]byte(docs[found]), &cm); err != nil {
+		return "", fmt.Errorf("failed to parse the cilium-config ConfigMap in the rendered CNI addon: %w", err)
+	}
+	data, ok := cm["data"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("the cilium-config ConfigMap in the rendered CNI addon has no data block " +
+			"to write the API server endpoint into (ADR-046 §24.6)")
+	}
+	if _, pinned := data["k8s-service-host"]; pinned {
+		return "", fmt.Errorf("the cilium-config base already pins k8s-service-host; the endpoint is " +
+			"per-cluster and is written here, by this renderer alone (ADR-046 §24.6)")
+	}
+	// Strings, both. Cilium reads these as ConfigMap values, and an unquoted port is
+	// an int to YAML and a rejected ConfigMap to the API server.
+	data["k8s-service-host"] = host
+	data["k8s-service-port"] = port
+
+	out, err := yaml.Marshal(cm)
+	if err != nil {
+		return "", fmt.Errorf("failed to render cilium-config with the API server endpoint: %w", err)
+	}
+	docs[found] = string(out)
+	return strings.Join(docs, sep), nil
+}
+
+// InjectAPIServerEndpointForTest exposes injectAPIServerEndpoint to tests in sibling
+// packages. Not for production use.
+func InjectAPIServerEndpointForTest(manifest, host, port string) (string, error) {
+	return injectAPIServerEndpoint(manifest, host, port)
+}
+
+func (p *Provisioner) applyCRS(ctx context.Context, apiHost, apiPort string) error {
 	manifest, err := assets.ReadManifest("addons/crs.yaml")
 	if err != nil {
 		return err
@@ -689,8 +830,16 @@ func (p *Provisioner) applyCRS(ctx context.Context) error {
 		return fmt.Errorf("failed to read node-labeler manifest: %w", err)
 	}
 
+	// The API server's address, before indentation: every Cilium agent on this
+	// cluster is given it (ADR-046 §24.6).
+	ciliumManifest, err := injectAPIServerEndpoint(
+		scaleCiliumOperator(p.Config.CiliumManifest, p.Config.CiliumOperatorReplicas), apiHost, apiPort)
+	if err != nil {
+		return err
+	}
+
 	// Indent manifests for YAML embedding
-	ciliumIndented := indentYAML(scaleCiliumOperator(p.Config.CiliumManifest, p.Config.CiliumOperatorReplicas), 4)
+	ciliumIndented := indentYAML(ciliumManifest, 4)
 	ccmIndented := indentYAML(p.Config.CCMManifest, 4)
 	nodeLabelerIndented := indentYAML(string(nodeLabelerManifest), 4)
 

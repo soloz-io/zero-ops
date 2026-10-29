@@ -181,9 +181,10 @@ PY
     #
     #     configMapKeyRef keeps one owner: the DaemonSet names a KEY, the rendered
     #     ConfigMap supplies the VALUE, and kubelet resolves it at pod creation over
-    #     its own kubeconfig. optional:true is required — the hub's base has no such
-    #     key and must keep using the ClusterIP, which is correct there because the
-    #     hub retains kube-proxy.
+    #     its own kubeconfig. optional:true stays after §24.6 gave the hub the same
+    #     two keys: a rendered copy that is somehow missing one then leaves the agent
+    #     dialling the ClusterIP and failing loudly on it, rather than refusing to
+    #     start with CreateContainerConfigError and no diagnosis at all.
     for addon in "manifests/providers/hybrid/k8s/cilium-addon-hybrid.yaml" \
                  "manifests/spoke/spoke-bootstrap/cilium-addon-template.yaml"; do
         [[ -f "$VALIDATE_ROOT/$addon" ]] || continue
@@ -342,14 +343,56 @@ PY
         hard_fail "spoke ClusterClass does not default controlPlaneLoadBalancerEnabled=true; without the LB there is no controlPlaneEndpoint and cilium-config can never render"
     fi
 
-    # 6. The hub is not a spoke: it has no SpokePool and no renderer, and it keeps
-    #    kube-proxy. It therefore installs the base verbatim, joined back on at Day-0.
-    #    If that concatenation is dropped the hub boots with no cilium-config at all.
+    # 6. The hub has no SpokePool and no renderer, so the CLI composes its copy at
+    #    Day-0 from the same base. If that concatenation is dropped the hub boots with
+    #    no cilium-config at all.
     local day0="$VALIDATE_ROOT/internal/soloz-cli/bootstrap/provider_cloud.go"
     if grep -q 'cilium-config-base.yaml' "$day0" 2>/dev/null; then
         pass "hub Day-0 install recomposes the addon with the cilium-config base"
     else
         hard_fail "hub Day-0 CNI install no longer reads cilium-config-base.yaml — the hub would boot with no cilium-config"
+    fi
+
+    # 7. The hub's endpoint is injected too (§24.6). §24.1 exempted the hub because it
+    #    "keeps kube-proxy"; it does not — the base it installs sets kube-proxy-replacement
+    #    true and the ClusterClass deletes kube-proxy — so the hub's own agents resolved
+    #    the API server through 10.96.0.1 and deadlocked on 2026-10-28 when the API
+    #    server was OOM-killed. The CLI is the single owner of the hub's two keys, and
+    #    it must read the endpoint from the Cluster and render after the Cluster exists.
+    local prov="$VALIDATE_ROOT/internal/soloz-cli/cluster/provisioner.go"
+    if grep -q 'func injectAPIServerEndpoint' "$prov" 2>/dev/null &&
+        grep -q 'func (p \*Provisioner) controlPlaneEndpoint' "$prov" 2>/dev/null; then
+        pass "hub Day-0 CNI render injects the API server endpoint into cilium-config"
+    else
+        hard_fail "the hub Day-0 CNI render no longer injects k8s-service-host/port (ADR-046 §24.6) — the hub would boot reaching the API server only through 10.96.0.1, which cannot recover when that endpoint is withdrawn"
+    fi
+
+    # The render must FOLLOW the Cluster: the endpoint does not exist until the
+    # infrastructure provider has created the control-plane load balancer. Applying the
+    # addon first is how the exemption was able to exist at all, and an injection that
+    # runs before applyCluster silently has nothing to inject.
+    if python3 - "$prov" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+body = re.search(r"func \(p \*Provisioner\) Provision\(ctx context\.Context\) error \{(.*?)\n\}", src, re.S)
+if not body:
+    sys.exit(1)
+b = body.group(1)
+cluster, crs = b.find("p.applyCluster(ctx)"), b.find("p.applyCRS(ctx")
+sys.exit(0 if 0 <= cluster < crs else 1)
+PY
+    then
+        pass "the CNI addon is applied after the Cluster, so the endpoint exists when it renders"
+    else
+        hard_fail "Provision applies the CNI addon before (or without) the Cluster; Cluster.spec.controlPlaneEndpoint is not set yet, so cilium-config would render with no API server address (ADR-046 §24.6)"
+    fi
+
+    # The endpoint is read from the Cluster, the same field hub-operator reads for a
+    # spoke: one contract, whichever provider is underneath.
+    if grep -q 'spec.controlPlaneEndpoint.host' "$prov" 2>/dev/null; then
+        pass "the hub's endpoint is read from Cluster.spec.controlPlaneEndpoint"
+    else
+        hard_fail "the hub Day-0 render no longer reads Cluster.spec.controlPlaneEndpoint; the endpoint contract is that field, not an infrastructure object (ADR-046 §24.6)"
     fi
 }
 

@@ -510,3 +510,57 @@ validate_pdb_permits_eviction() {
         pass "${total} PodDisruptionBudget(s) permit an eviction or are transiently constrained"
     fi
 }
+
+# ──────────────────────────────────────────────────────────────────────────
+# §24.6 — the HUB's agents are given the API server's address too
+# ──────────────────────────────────────────────────────────────────────────
+# The rule §24 encodes holds for every cluster running kube-proxy replacement, and
+# the hub is one. §24.1 exempted it on the grounds that it "keeps kube-proxy": it
+# does not, so its own agents resolved the API server through 10.96.0.1 and, when
+# the API server was OOM-killed on 2026-10-28, Cilium synced the empty backend set
+# and could not reach the API server to learn the endpoint was back. Every
+# controller on the hub failed with `connect: operation not permitted` until an
+# operator patched cilium-config by hand. The spoke chain above checks this on the
+# spoke; this checks the cluster the chain itself runs on.
+validate_hub_cilium_apiserver_endpoint() {
+    section "ADR-046 §24.6: the hub's Cilium agents know where the API server is"
+
+    local kpr host port
+    kpr=$(kc get cm cilium-config -n kube-system -o jsonpath='{.data.kube-proxy-replacement}' 2>/dev/null)
+    host=$(kc get cm cilium-config -n kube-system -o jsonpath='{.data.k8s-service-host}' 2>/dev/null)
+    port=$(kc get cm cilium-config -n kube-system -o jsonpath='{.data.k8s-service-port}' 2>/dev/null)
+
+    if [[ "$kpr" != "true" ]]; then
+        pass "hub cilium-config does not claim kube-proxy-replacement (${kpr:-<unset>}) — the endpoint keys are not required"
+        return 0
+    fi
+    if [[ -z "$host" || -z "$port" ]]; then
+        hard_fail "hub cilium-config has kube-proxy-replacement=true and no k8s-service-host/port (${host:-<empty>}:${port:-<empty>}) — its agents reach the API server only through 10.96.0.1, the state that deadlocked the hub on 2026-10-28 (ADR-046 §24.6)"
+        return 0
+    fi
+
+    # The address has to be the one this cluster's control plane actually answers on.
+    # A populated but wrong value is the same outage with a healthier-looking
+    # ConfigMap, so it is compared against the Cluster object, the field hub-operator
+    # reads for a spoke and the CLI reads for the hub. The hub's own Cluster is the
+    # one in platform-capi that is not the spoke pool: CAPI self-manages after the
+    # pivot, so it is here to be read.
+    local hub_cluster expected_host expected_port name
+    while IFS= read -r name; do
+        [[ -z "$name" || "$name" == "$SPOKEPOOL_NAME" ]] && continue
+        hub_cluster="$name"
+    done < <(kc get clusters.cluster.x-k8s.io -n platform-capi -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+
+    if [[ -z "$hub_cluster" ]]; then
+        hard_fail "no hub Cluster object in platform-capi besides ${SPOKEPOOL_NAME:-the spoke pool} — the endpoint the hub's agents use cannot be checked against its source (ADR-046 §24.6)"
+        return 0
+    fi
+    expected_host=$(kc get clusters.cluster.x-k8s.io "$hub_cluster" -n platform-capi -o jsonpath='{.spec.controlPlaneEndpoint.host}' 2>/dev/null)
+    expected_port=$(kc get clusters.cluster.x-k8s.io "$hub_cluster" -n platform-capi -o jsonpath='{.spec.controlPlaneEndpoint.port}' 2>/dev/null)
+
+    if [[ "$host" == "$expected_host" && "$port" == "$expected_port" ]]; then
+        pass "hub cilium-config carries its own controlPlaneEndpoint (${host}:${port})"
+    else
+        hard_fail "hub cilium-config points at ${host}:${port} but Cluster/${hub_cluster} publishes ${expected_host:-<empty>}:${expected_port:-<empty>} — the agents are looking for the API server at the wrong address (ADR-046 §24.6)"
+    fi
+}

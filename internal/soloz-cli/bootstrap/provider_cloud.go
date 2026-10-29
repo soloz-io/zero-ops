@@ -121,10 +121,17 @@ func (p *CloudProvider) ProvisionManagementCluster(ctx context.Context, cfg *Pro
 	//
 	// ADR-046 §24 split the cilium-config ConfigMap out of the addon Secret so that
 	// exactly one component renders the copy a SPOKE receives (hub-operator, which
-	// injects the spoke's control-plane endpoint). The HUB is not a spoke: it has no
-	// SpokePool and no renderer, and it keeps kube-proxy, so the in-cluster ClusterIP
-	// resolves and no endpoint injection is needed. It therefore installs the static
-	// base verbatim, joined back onto the addon here.
+	// injects the spoke's control-plane endpoint). The HUB has no SpokePool and no
+	// renderer, so this is where the hub's copy is composed: the provider's static
+	// base, retargeted below and joined back onto the addon here.
+	//
+	// The base carries no endpoint, for the hub either. §24.1 exempted the hub on the
+	// grounds that it "keeps kube-proxy", which it does not: the base it installs sets
+	// kube-proxy-replacement true and no kube-proxy DaemonSet runs on the hub, so its
+	// agents resolved the API server through 10.96.0.1 and deadlocked permanently when
+	// that endpoint was withdrawn (2026-10-28). §24.6 withdrew the exemption. The two
+	// endpoint keys are written by the provisioner, once the infrastructure provider
+	// has set Cluster.spec.controlPlaneEndpoint — see injectAPIServerEndpoint.
 	//
 	// Reading the same base file both halves use is deliberate: a second copy of 160
 	// cilium settings would drift, and drift in this file is a cluster that boots

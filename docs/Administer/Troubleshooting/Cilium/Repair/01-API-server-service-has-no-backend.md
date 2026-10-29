@@ -34,7 +34,9 @@ Cilium's documentation requires `k8sServiceHost` and `k8sServicePort` when kube-
 replacement is on (docs.cilium.io, "Kubernetes Without kube-proxy"). Spokes get
 them: hub-operator renders each spoke's `cilium-config` with its control-plane
 endpoint. The hub did not: its `cilium-config` is written by the CLI at bootstrap,
-which assumed the hub keeps kube-proxy.
+which assumed the hub keeps kube-proxy. It does not, and ADR-046 §24.6 withdrew that
+assumption — the CLI now injects the hub's endpoint at Day-0 as well. A hub
+bootstrapped before that change still needs the repair below.
 
 ### The 2026-10-28 trigger
 
@@ -117,12 +119,17 @@ is deleted.
 
 ## Prevention
 
-- **Every cluster running kube-proxy replacement must have `k8s-service-host`.**
-  Spokes do (hub-operator). The hub's bootstrap must write it too: a code fix in
-  `internal/soloz-cli/bootstrap/provider_cloud.go` is pending; until it ships, a newly
-  bootstrapped hub needs the patch in Repair step 1.
-- **Argo CD's application controller needs a memory limit**, so a sync-time spike
-  kills that container and not the API server beside it (pending).
+- **Every cluster running kube-proxy replacement has `k8s-service-host`.** Spokes get
+  it from hub-operator; the hub gets it from the CLI at Day-0 (ADR-046 §24.6). The CLI
+  reads `Cluster.spec.controlPlaneEndpoint` after the Cluster exists and stops the
+  bootstrap if it never appears. Two checks hold the rule: `validate/preflight/046-…`
+  asserts the render, and `validate/cluster/046-…`
+  (`validate_hub_cilium_apiserver_endpoint`) asserts the hub's live ConfigMap against
+  its own endpoint. A hub bootstrapped before that change keeps the patched value
+  until it is rebuilt.
+- **Argo CD's application controller has a memory limit**, so a sync-time spike kills
+  that container and not the API server beside it
+  (`manifests/argocd/components/01/platform-argocd.yaml`).
 - **Large CRD sets should not land in one sync** with a whole new stack (pending:
   an earlier wave for CRDs, or only the CRDs in use).
 
