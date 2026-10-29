@@ -14,8 +14,11 @@
 #   C7  both VMSingles hold this cluster's series (addendum 5 §3: every sample
 #       is written to both)
 #
-# Every query goes through the Kubernetes API server's service proxy with the
-# kubeconfig's own identity: no credential of its own, nothing published.
+# Every query goes through `kubectl port-forward` with the kubeconfig's own
+# identity: no credential of its own, nothing published. Not the API server's
+# service proxy: the API server dials pod IPs from the control-plane host, which
+# the namespace's default-deny (addendum 1 §9) rightly refuses. A port-forward
+# reaches the pod through its kubelet, as an operator would.
 
 # _c078_check <label> <kubeconfig> <identity env name> <jobs...>
 _c078_check() {
@@ -31,13 +34,12 @@ _c078_check() {
     nodes=$(kubectl --kubeconfig="$kubeconfig" get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
 
     out=$(C078_KUBECONFIG="$kubeconfig" C078_JOBS="$jobs" C078_CLUSTER="$expected" C078_NODES="$nodes" python3 - <<'PY'
-import json, os, subprocess, time, urllib.parse
+import atexit, json, os, re, subprocess, time, urllib.parse, urllib.request
 
 cluster = os.environ["C078_CLUSTER"]
 jobs = os.environ["C078_JOBS"].split()
 nodes = sorted(n for n in os.environ["C078_NODES"].split() if n)
 kubeconfig = os.environ["C078_KUBECONFIG"]
-NS = "/api/v1/namespaces/platform-observability/services"
 STORES = ("vmsingle-platform-a:8429", "vmsingle-platform-b:8429")
 NODE_LOCAL = {"kubelet", "cadvisor", "node-exporter"}
 KNOWN = {
@@ -58,20 +60,42 @@ for job, m in KNOWN.items():
 class Unreachable(Exception):
     pass
 
-def raw(path):
-    r = subprocess.run(["kubectl", f"--kubeconfig={kubeconfig}", "get", "--raw", path],
-                       capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        raise Unreachable(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "no answer")
-    return json.loads(r.stdout)
+_forwards = {}
+
+def _local(service):
+    """A local port forwarded to service ("name:port"), opened once per run."""
+    if service in _forwards:
+        return _forwards[service][0]
+    name, port = service.split(":")
+    p = subprocess.Popen(["kubectl", f"--kubeconfig={kubeconfig}", "-n", "platform-observability",
+                          "port-forward", f"svc/{name}", f"0:{port}"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    atexit.register(p.terminate)
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        line = p.stdout.readline()
+        m = re.search(r"Forwarding from 127\.0\.0\.1:(\d+)", line or "")
+        if m:
+            _forwards[service] = (int(m.group(1)), p)
+            return int(m.group(1))
+        if p.poll() is not None:
+            break
+    raise Unreachable(f"no port-forward to {service}: {(line or '').strip() or 'kubectl exited'}")
+
+def raw(service, path):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{_local(service)}{path}", timeout=30) as r:
+            return json.load(r)
+    except (OSError, ValueError) as e:
+        raise Unreachable(str(e))
 
 def q(expr, store=STORES[0]):
-    return raw(f"{NS}/{store}/proxy/api/v1/query?" + urllib.parse.urlencode({"query": expr}))["data"]["result"]
+    return raw(store, "/api/v1/query?" + urllib.parse.urlencode({"query": expr}))["data"]["result"]
 
 try:
     q("vector(1)")
 except Unreachable as e:
-    print(f"FAIL C3 {STORES[0].split(':')[0]} did not answer a query through the service proxy: {e}")
+    print(f"FAIL C3 {STORES[0].split(':')[0]} did not answer a query: {e}")
     raise SystemExit
 
 c = f'cluster="{cluster}"'
@@ -107,15 +131,15 @@ for store in STORES:
 
 try:
     now = int(time.time())
-    res = raw(f"{NS}/loki:3100/proxy/loki/api/v1/query_range?" + urllib.parse.urlencode({
+    res = raw("loki:3100", "/loki/api/v1/query_range?" + urllib.parse.urlencode({
         "query": f'sum(count_over_time({{{c}}}[10m]))', "start": now - 900, "end": now, "step": 300}))["data"]["result"]
     print(f"PASS C5 logs from {cluster} are queryable in its Loki" if res
           else f"FAIL C5 no log lines from {cluster} in its Loki in the last 15 minutes")
 except Unreachable as e:
-    print(f"FAIL C5 Loki did not answer a query through the service proxy: {e}")
+    print(f"FAIL C5 Loki did not answer a query: {e}")
 
 try:
-    groups = raw(f"{NS}/vmalert-platform:8080/proxy/api/v1/rules")["data"]["groups"]
+    groups = raw("vmalert-platform:8080", "/api/v1/rules")["data"]["groups"]
     print(f"PASS C6 the platform VMAlert has {len(groups)} rule group(s) loaded" if groups
           else "FAIL C6 the platform VMAlert has no rule groups: PrometheusRule conversion or selection is not working")
 except (Unreachable, KeyError) as e:
