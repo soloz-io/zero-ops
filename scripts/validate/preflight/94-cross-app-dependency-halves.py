@@ -57,8 +57,22 @@ def declarations(root: Path):
                 print(f"BAD\t{values}: not parseable as YAML ({exc})")
                 continue
             identity = doc.get("identity") or {}
+            deps = list(identity.get("backendDependencies") or [])
+            # A CAPABILITY declaration is the other form of the caller half, and the
+            # renderer already treats it as one: universal-tenant's
+            # workload-platform-identity.yaml does `$deps = append $deps "credits"`
+            # when capabilities.credits.enabled is true, so the platform mints that
+            # application's audience scope and service identity for the Credit
+            # Authority from the capability alone (ADR-109). Reading only
+            # backendDependencies here reported waypoint as declaring nothing while
+            # the chart was declaring it, and the only way to satisfy that was to add
+            # a second, redundant declaration of the same dependency.
+            capabilities = doc.get("capabilities") or {}
+            for name, cfg in sorted(capabilities.items()):
+                if isinstance(cfg, dict) and cfg.get("enabled") and name not in deps:
+                    deps.append(name)
             out[(env_dir.name, app_dir.name)] = (
-                list(identity.get("backendDependencies") or []),
+                deps,
                 list(identity.get("allowedConsumers") or []),
             )
     return out
