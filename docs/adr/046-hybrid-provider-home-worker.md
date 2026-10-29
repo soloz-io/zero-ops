@@ -1815,6 +1815,101 @@ that merely looks broken.
 - `operators/hub-operator/internal/controller/cilium_config_wrapper_test.go` —
   12 regression tests.
 
+#### 24.6 The hub's API endpoint is injected too (2026-10-29) — **Proposed**, pending review
+
+**Status:** Proposed. Nothing below is implemented. It amends §24.1 and the Day-0
+recomposition it codifies.
+
+##### What §24.1 got wrong
+
+§24.1 says that the hub "keeps kube-proxy, so it needs no injection". That premise is
+false, and the rest of this ADR already says so. The provider base that the hub
+installs verbatim sets `kube-proxy-replacement: 'true'`. The NodeLocal DNS section
+treats KPR as an invariant on every box: the socket load balancer acts before a
+packet exists, and kube-proxy is never consulted. The hub runs no kube-proxy
+DaemonSet. So the hub's agents reach the API server through `10.96.0.1`, which is
+the state §24.1 calls a deadlock on spokes.
+
+Evidence, 2026-10-28, the 0.1.16-rc.177 sync (full timeline in
+`docs/Administer/Troubleshooting/Cilium/Repair/01-API-server-service-has-no-backend.md`):
+
+1. The sync overloaded the 7.6 GiB control-plane node.
+2. The kernel's OOM killer took Argo CD's application controller, and the API
+   server exited 137.
+3. Cilium synced the empty backend set for `10.96.0.1` and could not learn that the
+   backend was back.
+4. Every controller using the Service failed with `connect: operation not
+   permitted` until an operator patched `cilium-config` with `k8s-service-host` /
+   `k8s-service-port` and restarted the agents.
+
+The cluster did not recover by itself, which is the failure §24.1 exists to prevent.
+
+The checks did not catch it because they encode the false premise. Check 6 of
+`scripts/validate/preflight/046-hybrid-provider.sh` passes the hub because "it keeps
+kube-proxy". The live check in `scripts/validate/cluster/046-hybrid-provider.sh` asserts
+the endpoint on the spoke only.
+
+##### Decision (proposed)
+
+1. **Every box running KPR has its endpoint injected, the hub included.** The
+   exemption in §24.1 is withdrawn.
+2. **The owner of the hub's copy is the soloz CLI, at Day-0, and only the CLI.** It
+   renders the hub's `cilium-config` from the same base with the hub
+   `Cluster.spec.controlPlaneEndpoint` as `k8s-service-host` / `k8s-service-port`.
+   This follows §24.1's ordering invariant: CAPH sets the endpoint before any
+   machine boots, and the first agent on the hub starts with it. The base stays
+   endpoint-free (check 5 still holds). The endpoint is per-cluster, and each
+   cluster has exactly one renderer: hub-operator for spokes, the CLI for the hub.
+3. **Fail closed.** If the endpoint is not set when the CLI renders, provisioning
+   stops with that reason. The CLI never renders a hub `cilium-config` without it,
+   never falls back to the Service path, and never patches afterwards. A post-boot
+   patch is the imperative path that ADR-048 rejected (candidate 2).
+4. **hub-operator does not own the hub's copy.** It runs on the hub, so it would
+   start only after the agents it would configure. It would also be a second owner
+   over the cluster's life, beside the Day-0 render. This option is rejected.
+5. **The existing hub converges on the owner, not on the patch.** The live
+   `k8s-service-host: 65.109.41.89`, `k8s-service-port: 6443` was set by an
+   operator during the repair, and nothing owns it. The implementation must:
+   - bring the hub's delivered `cilium-config` (the Day-0 resource that installs
+     it) to the value the owner renders for this hub;
+   - show that the rendered value equals the live one, so convergence changes
+     nothing on the datapath.
+
+   Until then, the troubleshooting doc's Repair step 1 is the only record of the
+   value.
+6. **The checks state the rule, not the exemption.**
+   - Preflight check 6 asserts that the hub Day-0 render injects the endpoint and
+     fails if the render can complete without one.
+   - The live check asserts, on the hub as on the spoke, that `cilium-config`
+     carries `Cluster.spec.controlPlaneEndpoint` whenever
+     `kube-proxy-replacement` is `true`.
+
+##### Consequences
+
+- The `KUBERNETES_SERVICE_HOST` / `KUBERNETES_SERVICE_PORT` env wiring stays
+  `optional: true`. §24.1 called that "load-bearing" because the hub's base had no
+  such keys. Under this amendment, every cluster's rendered copy has them. The flag
+  is kept so that an agent with a missing key fails loudly on the Service path,
+  instead of failing to start with `CreateContainerConfigError`. Whether to make
+  the keys required is for review.
+- The comment in `internal/soloz-cli/bootstrap/provider_cloud.go` that repeats the
+  "keeps kube-proxy" premise is corrected with the code.
+- Separately, Argo CD's application controller now has a memory request and limit
+  (`manifests/argocd/components/01/platform-argocd.yaml`). A sync-time spike is
+  then contained in that container rather than taking the API server beside it.
+  That change reduces how often the trigger occurs; this amendment removes the
+  deadlock that made it permanent.
+
+##### Open for review
+
+- The render point. The CLI currently composes `CiliumManifest` before
+  `provisioner.Provision`, when the endpoint may not exist yet. The implementation
+  has to read the endpoint after CAPH sets it and before the resource delivering
+  `cilium-config` is applied. Moving the composition is part of this change, not a
+  detail of it.
+- The hybrid hub. The same rule applies wherever the hub runs KPR. Confirm the
+  endpoint source on that provider.
+
 ### 25. The control-plane LB's 443 belongs to the apiserver; hub ingress needs a targetable node (2026-08-23)
 
 §23 item 1 — "public ingress on the hub joins the CAPH-managed control-plane LB via
