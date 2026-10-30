@@ -1881,3 +1881,55 @@ What is already verified: `VMUser` v1beta1 carries `spec.jwt` with `oidc.issuer`
 OSS `vmauth` `v1.152.0` binary has the `jwt`, `oidc` and `vm_access_claim` code paths
 compiled in. A custom issuer Action is not on the table unless native matching
 demonstrably fails.
+
+## Addendum 9: the data plane is pinned, and what the audit found (2026-10-31)
+
+**Status:** Proposed.
+
+### The operator does not choose the data plane
+
+`VMSingle`, `VMAlert`, `VMAuth` and `VMAlertmanager` carried no image, so the
+operator selected one — `victoriametrics/vmsingle:v1.152.0` and
+`prom/alertmanager:v0.34.1` on both clusters — and nothing in Git recorded the
+expectation. An operator bump therefore moved the stores, the evaluators, the query
+gateway and Alertmanager in one step, invisibly, and the only way to learn which
+versions a box ran was to ask the cluster.
+
+**Each resource now declares `spec.image.tag`,** set to what both clusters already
+run, so declaring it changes nothing today and every later move is a commit someone
+reviewed. The CRDs expose `image.repository`, `image.tag` and `componentVersion`;
+the tag is used because it says exactly what will run rather than what the operator
+will resolve.
+
+This is the same rule ADR-029 §1 applies to vendored CRDs, reaching the one part of
+this capability that had escaped it: what runs is declared where it can be reviewed.
+
+### State at the audit (2026-10-31)
+
+Hub and spoke agree on every shared component, and every explicitly pinned component
+runs what it declares.
+
+| Component | Running | Upstream | Position |
+|---|---|---|---|
+| Loki | `3.7.9` | `3.7.9` | current |
+| VictoriaMetrics data plane | `v1.152.0` | `v1.155.0`; LTS `v1.148.8` | behind, now pinned |
+| victoria-metrics-operator | `v0.75.0` (chart `0.68.1`) | `v0.75.2` (chart `0.68.2`) | patch available |
+| Grafana Alloy | `v1.20.1` | `v1.21.3` | minor available |
+| kube-state-metrics | `v2.14.0` (chart `5.27.0`) | `v2.20.0` (chart `8.8.0`) | three chart generations behind |
+| stakater/Reloader | `v1.2.1` (chart `1.2.1`) | `v1.4.23` (chart `2.2.19`) | major chart jump |
+| grafana-operator / Grafana | `v5.24.0` / `13.0.1` | `v5.25.0` / `13.3.0` | **blocked**: 5.25.0's CRDs need CEL `format.uuid()`, absent in Kubernetes 1.31 |
+
+**An LTS line exists for VictoriaMetrics** (`v1.148.x`, `v1.136.x`). Whether this
+platform tracks LTS or current is a decision this addendum does not take; it is worth
+taking deliberately now that the version is declared.
+
+### Order
+
+Pinning first, because it changes nothing and makes every later step reviewable.
+Then the operator patch, which is also the moment to fill the `archive_sha256:
+UNVERIFIED` fields the provenance files carry. Then Alloy. Then kube-state-metrics,
+whose 5.x → 8.x jump keeps all four values we set but moves RBAC from `endpoints` to
+`endpointslices` and renames container ports — a render to read, not a version to
+bump. Then Reloader's chart major. The Grafana pair moves with the Kubernetes
+upgrade tracked in `docs/plans/k8s-cnpg-upgrade-and-restore-drill.md`, never ahead
+of it.

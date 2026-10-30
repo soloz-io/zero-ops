@@ -23,6 +23,13 @@ metadata:
     app.kubernetes.io/part-of: observability
     observability.platform.io/store: metrics
 spec:
+  # Pinned (ADR-078 add.9). The operator chooses this image when it is unset, so
+  # an operator bump moved the stores, the evaluators and the query gateway in one
+  # step with nothing in Git recording the expectation. Set to what both clusters
+  # already run, so declaring it changes nothing today and every later move is a
+  # commit someone reviewed.
+  image:
+    tag: v1.152.0
   # ADR-014 Platform-Wide Placement Rule: stateful workloads run on worker nodes
   # only. The operator passes this to the pods it creates, which is where the
   # control-plane toleration that used to sit here was reaching.
@@ -74,6 +81,13 @@ metadata:
     app.kubernetes.io/part-of: observability
     observability.platform.io/store: metrics
 spec:
+  # Pinned (ADR-078 add.9). The operator chooses this image when it is unset, so
+  # an operator bump moved the stores, the evaluators and the query gateway in one
+  # step with nothing in Git recording the expectation. Set to what both clusters
+  # already run, so declaring it changes nothing today and every later move is a
+  # commit someone reviewed.
+  image:
+    tag: v1.152.0
   # ADR-014 Platform-Wide Placement Rule: stateful workloads run on worker nodes
   # only. The operator passes this to the pods it creates, which is where the
   # control-plane toleration that used to sit here was reaching.

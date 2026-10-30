@@ -20,6 +20,13 @@ metadata:
     app.kubernetes.io/managed-by: platform
     app.kubernetes.io/part-of: observability
 spec:
+  # Pinned (ADR-078 add.9). The operator chooses this image when it is unset, so
+  # an operator bump moved the stores, the evaluators and the query gateway in one
+  # step with nothing in Git recording the expectation. Set to what both clusters
+  # already run, so declaring it changes nothing today and every later move is a
+  # commit someone reviewed.
+  image:
+    tag: v1.152.0
   # 2 in staging and production, 1 in development (templated-fields.yaml).
   replicaCount: 2
   selectAllByDefault: false
