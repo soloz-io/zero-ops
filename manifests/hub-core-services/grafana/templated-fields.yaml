@@ -15,3 +15,11 @@
   fields:
     - path: [spec, hostnames, 0]
       value: 'grafana.{{ .Values.global.hubDomain }}'
+
+# The redirect URI the viewer client is registered with (ADR-078 add.5 §7). Same
+# host as the route above, from the same value, so the two cannot disagree.
+- kind: ConfigMap
+  name: observability-viewer
+  fields:
+    - path: [data, grafanaUrl]
+      value: 'https://grafana.{{ .Values.global.hubDomain }}'

@@ -1,0 +1,32 @@
+---
+# ADR-078 add.5 §7: the marker that asks hub-operator to provision this box's
+# observability viewer identity.
+#
+# Its PRESENCE is the enablement. This whole component is rendered only while
+# capabilities.observability.enabled is true, so the ConfigMap exists exactly
+# when the backend does, and hub-operator needs no other signal.
+#
+# It carries the Grafana URL because the client's redirect URI is a fact about
+# this box: templated-fields substitutes the domain at render time, and the
+# operator reads what was actually published rather than deriving a URL of its
+# own that could disagree with the route Grafana is served on.
+#
+# What the operator does with it: ensures the `observability` project in the
+# platform's own organisation, ensures Grafana's confidential OIDC client in that
+# project, and publishes the project id and the client's credentials to Infisical
+# as hub-observability-project-id, hub-grafana-oidc-client-id and
+# hub-grafana-oidc-client-secret. The project id is then declared ONCE in the
+# box's Git registry and rendered into every spoke's VMUser (approved
+# 2026-10-31); nothing copies it per spoke.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-viewer
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+data:
+  grafanaUrl: https://grafana.PLACEHOLDER_HUB_DOMAIN

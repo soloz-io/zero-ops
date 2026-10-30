@@ -262,3 +262,63 @@ type DeclaredClient struct {
 	ClientID     string `json:"clientId"`
 	ClientSecret string `json:"clientSecret"`
 }
+
+// EnsurePlatformConfidentialClient provisions a platform capability's
+// confidential OIDC client in a project the caller has already resolved, and
+// returns its credentials (ADR-078 add.5 §7).
+//
+// The secret comes back ONLY when the issuer just minted it: it discloses a
+// secret once, so an existing client returns an empty one and the caller keeps
+// what it published. That is why this never asks for regeneration — rotating on
+// a reconcile would invalidate the credential the running workload holds, and
+// the failure would land on the next sign-in rather than here.
+func (c *IdentityClient) EnsurePlatformConfidentialClient(
+	ctx context.Context, orgID, projectID, name string, redirectURIs []string,
+) (clientID, clientSecret string, err error) {
+	body, err := json.Marshal(map[string]any{
+		"orgId":        orgID,
+		"projectId":    projectID,
+		"name":         name,
+		"redirectUris": redirectURIs,
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	url := fmt.Sprintf("%s/internal/platform/clients", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("identity service: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotImplemented {
+		return "", "", ErrIdentityProvisioningUnsupported
+	}
+	if resp.StatusCode != http.StatusOK {
+		msg := strings.TrimSpace(string(raw))
+		if len(msg) > 300 {
+			msg = msg[:300]
+		}
+		return "", "", fmt.Errorf("identity service: POST %s -> %d: %s", url, resp.StatusCode, msg)
+	}
+
+	var out struct {
+		ClientID     string `json:"clientId"`
+		ClientSecret string `json:"clientSecret"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", "", fmt.Errorf("identity service: decode response: %w", err)
+	}
+	if out.ClientID == "" {
+		return "", "", fmt.Errorf("identity service: reported success with no client id for platform client %q", name)
+	}
+	return out.ClientID, out.ClientSecret, nil
+}

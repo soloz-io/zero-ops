@@ -360,6 +360,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The box's observability viewer identity (ADR-078 add.5 §7): one project for
+	// the box and the Grafana client that signs viewers in, provisioned while the
+	// capability is enabled.
+	if err := (&controller.ObservabilityViewerReconciler{AINativeSaaSReconciler: tenantResources}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "ObservabilityViewer")
+		os.Exit(1)
+	}
+
 	// The UserGroups controller was removed with ADR-059.
 	//
 	// It reconciled an identity-user-groups ConfigMap into Kratos
