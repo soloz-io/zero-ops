@@ -244,6 +244,16 @@ func (h *TenantIdentityHandler) EnsureIdentity(c *gin.Context) {
 type PlatformAppProvisioner interface {
 	EnsurePlatformApp(ctx context.Context, appName string, redirectURIs, postLogoutURIs []string) (string, error)
 	EnsurePlatformProject(ctx context.Context, name string) (orgID, projectID string, err error)
+	// EnsureConfidentialClient provisions a client that authenticates with a
+	// SECRET, in a project the caller has already resolved.
+	//
+	// Grafana is the first platform capability that needs one: it runs a browser
+	// flow from a server it controls, so a public client buys nothing a secret
+	// does not, and its OIDC library expects a secret. The project is passed in
+	// rather than taken from configuration because a capability's project is its
+	// own -- that is what makes projectRoleCheck mean "an observability viewer"
+	// instead of "any platform user" (ADR-078 add.5 §7).
+	EnsureConfidentialClient(ctx context.Context, orgID, projectID, appName string, redirectURIs []string, regenerateIfExists, tokenExchange bool) (clientID, clientSecret string, err error)
 }
 
 type ensurePlatformProjectRequest struct {
@@ -287,6 +297,42 @@ type ensurePlatformAppRequest struct {
 	Name           string   `json:"name"`
 	RedirectURIs   []string `json:"redirectUris"`
 	PostLogoutURIs []string `json:"postLogoutUris"`
+}
+
+type ensureConfidentialClientRequest struct {
+	OrgID        string   `json:"orgId" binding:"required"`
+	ProjectID    string   `json:"projectId" binding:"required"`
+	Name         string   `json:"name" binding:"required"`
+	RedirectURIs []string `json:"redirectUris"`
+}
+
+// EnsureConfidentialClient provisions a platform capability's confidential OIDC
+// client and returns its credentials.
+//
+// The secret is returned ONLY when the issuer just minted it -- it discloses a
+// secret once -- so an existing client comes back with an empty secret and the
+// caller keeps the one it already published. Regenerating on every reconcile
+// would invalidate the credential the running workload holds, and the failure
+// would land on the next sign-in rather than on the reconcile that caused it.
+func (h *PlatformAppHandler) EnsureConfidentialClient(c *gin.Context) {
+	if h.provisioner == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"error": "the configured identity provider does not provision platform clients",
+		})
+		return
+	}
+	var req ensureConfidentialClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	clientID, secret, err := h.provisioner.EnsureConfidentialClient(
+		c.Request.Context(), req.OrgID, req.ProjectID, req.Name, req.RedirectURIs, false, false)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"name": req.Name, "clientId": clientID, "clientSecret": secret})
 }
 
 func (h *PlatformAppHandler) EnsureApp(c *gin.Context) {

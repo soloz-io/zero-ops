@@ -98,6 +98,7 @@ func main() {
 			pa := handlers.NewPlatformAppHandler(papp)
 			internal.POST("/platform/apps", pa.EnsureApp)
 			internal.POST("/platform/projects", pa.EnsureProject)
+			internal.POST("/platform/clients", pa.EnsureConfidentialClient)
 		}
 	}
 
