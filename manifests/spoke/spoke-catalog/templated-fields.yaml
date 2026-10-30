@@ -221,6 +221,27 @@
     - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
       value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
 
+# ADR-078 add.5 §7: the viewer entry point. The issuer is this box's, and the
+# audience and role claim come from the viewer application registered there --
+# both are per box, and both are pinned against a real token before the query
+# endpoint is published.
+- kind: VMAuth
+  name: viewer
+  fields:
+    - path: [spec, topologySpreadConstraints, 0, whenUnsatisfiable]
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}ScheduleAnyway{{ else }}DoNotSchedule{{ end }}'
+    - path: [spec, replicaCount]
+      type: int
+      value: '{{ if eq .Values.global.environmentSlug "dev" }}1{{ else if eq .Values.global.environmentSlug "staging" }}2{{ else }}3{{ end }}'
+
+- kind: VMUser
+  name: viewer
+  fields:
+    - path: [spec, jwt, oidc, issuer]
+      value: 'https://id.{{ .Values.global.hubDomain }}'
+    - path: [spec, jwt, matchClaims, aud]
+      value: '{{ required "observability.viewer.audience is required while the query endpoint is declared: a JWT with no audience match is accepted by any client of this issuer" (dig "observability" "viewer" "audience" "" .Values.global) }}'
+
 - kind: VMAuth
   name: platform
   fields:

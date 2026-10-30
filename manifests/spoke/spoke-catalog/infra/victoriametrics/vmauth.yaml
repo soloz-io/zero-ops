@@ -139,3 +139,154 @@ spec:
           name: vmauth-token
       remoteRef:
         key: password
+---
+# ADR-078 add.5 §7: the VIEWER entry point, a second VMAuth and not a second user
+# on the one above.
+#
+# Separate because exposure is the difference. VMAuth/platform answers only
+# in-cluster callers holding generated bearer tokens, and those tokens never leave
+# the cluster; publishing its Service would put that credential's authentication
+# path on the internet, where a leaked token is a working query. This instance
+# accepts one thing -- a JWT from the box's issuer -- and nothing it admits can
+# authenticate against the other.
+#
+# Read-only by construction, as above: only query, series and label paths are
+# routed, and the write, ingest, delete and admin APIs are absent from targetRefs
+# rather than denied by a rule that could be edited.
+#
+# NOT PUBLISHED YET. No listener and no HTTPRoute exist for it: the hostname is
+# declared only when the box's registry turns the query endpoint on, and that
+# happens after the authentication path is proven against a real token. Until
+# then this answers inside the cluster, where it can be tested without exposing
+# anything (ADR-078 add.5 §7, 2026-10-31).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAuth
+metadata:
+  name: viewer
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    app.kubernetes.io/part-of: observability
+spec:
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  # 1 in development, 2 in staging, 3 in production (templated-fields.yaml).
+  replicaCount: 2
+  # The selector is what isolates the two instances. VMAuth/platform selects
+  # `vmauth: platform` and this one `vmauth: viewer`, and neither selects all --
+  # a VMUser reaches an entry point only by carrying its label.
+  selectAllByDefault: false
+  disableSelfServiceScrape: true
+  userSelector:
+    matchLabels:
+      observability.platform.io/vmauth: viewer
+  podMetadata:
+    labels:
+      observability.platform.io/component: vmauth-viewer
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          observability.platform.io/component: vmauth-viewer
+  podDisruptionBudget:
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+---
+# The viewer identity: a person signed in at the box's issuer, whose access token
+# Grafana forwards (oauthPassThru, ADR-083 add.1 §1).
+#
+# Verification is the operator's native JWT support, confirmed on this box before
+# it was written: VMUser v1beta1 carries spec.jwt with oidc.issuer, matchClaims
+# and publicKeyRefs (operator v0.75.0), and the OSS vmauth binary v1.152.0 has the
+# jwt and vm_access_claim code paths compiled in.
+#
+#   issuer    oidc.issuer -- keys are fetched from the issuer's JWKS, so a token
+#             signed by anything else fails signature verification. Expiry is
+#             checked by the verifier itself.
+#   audience  matchClaims aud -- a token minted for another client is refused
+#             even though the issuer and signature are good.
+#   role      matchClaims -- the viewer role. The claim NAME is the one value
+#             that cannot be read off this repository: it comes from how the
+#             viewer application is configured at the issuer, and Zitadel nests
+#             project roles under a URN key rather than emitting a flat string.
+#             It is substituted per box, and the rollout pins it against a real
+#             token before the endpoint is published.
+#
+# skipVerify is absent, which means false: a verifier that does not verify is the
+# one failure this design cannot survive.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMUser
+metadata:
+  name: viewer
+  namespace: platform-observability
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+  labels:
+    app.kubernetes.io/managed-by: platform
+    observability.platform.io/vmauth: viewer
+spec:
+  jwt:
+    oidc:
+      issuer: PLACEHOLDER_OIDC_ISSUER
+    matchClaims:
+      aud: PLACEHOLDER_VIEWER_AUDIENCE
+      # The claim NAME is a platform constant, not a per-box value: the platform
+      # owns the issuer and therefore owns what the token says. A per-box name
+      # could not be rendered anyway -- templated-fields substitutes values and
+      # cannot rename a key -- and a box-specific claim name would mean every
+      # spoke's VMUser disagreeing about what to look for.
+      #
+      # The issuer must emit it FLAT. Zitadel nests project roles under a URN key
+      # whose value is a map, and matchClaims compares strings, so the viewer
+      # application is configured to add `observability_role` as a string claim.
+      # That configuration is part of the viewer identity work; until it exists,
+      # no token carries this claim and every request is refused, which is the
+      # correct state for an endpoint that is not published.
+      observability_role: viewer
+  load_balancing_policy: first_available
+  retry_status_codes: [500, 502, 503, 504]
+  targetRefs:
+    # Metrics: /prometheus/... -> the stores' own /api/v1/...
+    #
+    # The prefix is dropped rather than rewritten per path: Grafana's prometheus
+    # datasource appends its own paths to the datasource URL, so the endpoint
+    # carries one extra segment that the backend must never see.
+    - static:
+        urls:
+          - http://vmsingle-platform-a.platform-observability.svc:8429
+          - http://vmsingle-platform-b.platform-observability.svc:8429
+      drop_src_path_prefix_parts: 1
+      paths:
+        - /prometheus/api/v1/query
+        - /prometheus/api/v1/query_range
+        - /prometheus/api/v1/series
+        - /prometheus/api/v1/labels
+        - /prometheus/api/v1/label/.+/values
+        - /prometheus/api/v1/metadata
+    # Logs: /logs/... -> Loki's own /loki/api/v1/...
+    #
+    # Loki, not VictoriaLogs: addendum 5 §4 made this cluster's log store Loki,
+    # and the datasource that queries it is Grafana's `loki` type. §10's
+    # victoriametrics-logs-datasource predates that decision and does not apply.
+    - static:
+        urls:
+          - http://loki.platform-observability.svc:3100
+      drop_src_path_prefix_parts: 1
+      paths:
+        - /logs/loki/api/v1/query
+        - /logs/loki/api/v1/query_range
+        - /logs/loki/api/v1/labels
+        - /logs/loki/api/v1/label/.+/values
+        - /logs/loki/api/v1/series
+        - /logs/loki/api/v1/index/stats
