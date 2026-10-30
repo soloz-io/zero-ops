@@ -33,13 +33,14 @@ const (
 	SecretPlatformGit        = "platform-git-secret"
 
 	// Namespaces - unified across Hub and Spoke
-	NamespaceCAPI        = "platform-capi"
-	NamespaceOps         = "platform-ops"
-	NamespaceCloudSystem = "kube-system"
-	NamespaceEdge        = "platform-edge"
-	NamespaceData        = "platform-data"
-	NamespaceIdentity    = "platform-identity"
-	NamespaceSecurity    = "platform-security"
+	NamespaceCAPI          = "platform-capi"
+	NamespaceOps           = "platform-ops"
+	NamespaceCloudSystem   = "kube-system"
+	NamespaceEdge          = "platform-edge"
+	NamespaceData          = "platform-data"
+	NamespaceIdentity      = "platform-identity"
+	NamespaceSecurity      = "platform-security"
+	NamespaceObservability = "platform-observability"
 
 	// Infisical Secret Keys
 	KeyHetznerDNSAPIKey      = "hetzner-dns-api-key"

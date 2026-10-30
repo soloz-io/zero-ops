@@ -208,6 +208,38 @@ var CLISecretMappings = []SecretMapping{
 	},
 
 	// ========================================================================
+	// 5b. THE HUB GRAFANA'S ADMIN CREDENTIAL
+	// ========================================================================
+	// grafana-operator generates it and owns the Secret (ownerReferences:
+	// Grafana/platform), which is why it is published from the cluster rather
+	// than generated here -- the same shape as the CNPG-created database
+	// credentials above.
+	//
+	// It is published because a credential that exists only in a Kubernetes
+	// Secret has no access path but `kubectl get secret | base64 -d`: no
+	// per-person access, no audit of who read it, and nothing to revoke. ADR-003
+	// makes Infisical the system of record for exactly that reason, and this
+	// credential is the only way into the hub's Grafana until the OIDC route of
+	// ADR-078 add.5 §7 arrives.
+	//
+	// Deleting the Secret rotates it: grafana-operator regenerates, and the next
+	// reconcile republishes the new value here.
+	{
+		SourceNamespace: NamespaceObservability,
+		SourceName:      "platform-admin-credentials",
+		SourceKey:       "GF_SECURITY_ADMIN_USER",
+		InfisicalKey:    "hub-grafana-admin-username",
+		Description:     "Hub Grafana admin username (grafana-operator generated)",
+	},
+	{
+		SourceNamespace: NamespaceObservability,
+		SourceName:      "platform-admin-credentials",
+		SourceKey:       "GF_SECURITY_ADMIN_PASSWORD",
+		InfisicalKey:    "hub-grafana-admin-password",
+		Description:     "Hub Grafana admin password (grafana-operator generated)",
+	},
+
+	// ========================================================================
 	// 6. GITHUB CONTAINER REGISTRY PULL SECRET
 	// ========================================================================
 	// Purpose: Pull private images from ghcr.io
