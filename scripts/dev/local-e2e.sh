@@ -250,11 +250,17 @@ load_credentials() {
     # script states -- the same implicitness that let the registry credential go
     # unnoticed until it failed mid-bootstrap.
     local d
-    for d in "$SECRETS/s3:S3" "$SECRETS/grafana-cloud:GRAFANA_CLOUD"; do
+    # The prefix is GRAFANA, not GRAFANA_CLOUD: the files left in that directory are
+    # the IRM integration URLs, and hub-bootstrap's SEED_SPECS reads them as
+    # GRAFANA_IRM_*. With the old prefix this exported GRAFANA_CLOUD_IRM_HEARTBEAT_URL,
+    # which nothing reads -- so a local box seeded no alert destination and said
+    # nothing about it. The stack's own metrics credentials are gone with Grafana
+    # Cloud (ADR-078 add.5): the stores run on the box now.
+    for d in "$SECRETS/s3:S3" "$SECRETS/grafana-cloud:GRAFANA"; do
         local dir="${d%%:*}" prefix="${d##*:}" f key
         if [ ! -d "$dir" ]; then
             say "no ${dir}: this box will bootstrap without $( [ "$prefix" = S3 ] \
-                && echo "database backups" || echo "a telemetry destination" )"
+                && echo "database backups" || echo "an alert destination" )"
             continue
         fi
         for f in "$dir"/*; do
