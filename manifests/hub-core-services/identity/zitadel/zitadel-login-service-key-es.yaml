@@ -1,0 +1,66 @@
+# The login service's signing keypair, owned by the platform rather than minted
+# by a chart render.
+#
+# THE DEFECT THIS REPLACES. The chart only reuses an existing keypair when Helm's
+# `lookup` can read the cluster:
+#
+#   {{- $existingSecret := lookup "v1" "Secret" .Release.Namespace $secretName }}
+#   {{- if and $existingSecret $existingSecret.data ... }}   # reuse
+#   {{- else }}  $cert := genSelfSignedCert "login-service" ...   # generate
+#
+# ArgoCD renders with `helm template`, where `lookup` ALWAYS returns empty. So
+# every sync of the zitadel Application minted a fresh keypair, rolled both
+# Deployments, and opened a window in which the login service signed assertions
+# with a key the running Zitadel did not yet trust -- it reads SystemAPIUsers once,
+# at startup. On 2026-10-30 that window never closed: the replacement Zitadel pod
+# could not schedule (the hub worker was 25Mi short), so the old pod kept the old
+# certificate in memory while the new login pod presented the new one, and every
+# assertion failed AUTH-7fs1e for five hours. Sign-in survived only because the old
+# login pod was still serving.
+#
+# THE MATERIAL IS THE ONE ALREADY TRUSTED, not a new pair. The keypair in use was
+# published to Infisical as-is (hub-operator CLISecretMappings), so switching the
+# chart to this Secret changes nothing either service is holding: no rotation, no
+# session disruption, no second rollout.
+#
+# deletionPolicy Retain and Prune=false, together: the chart no longer renders a
+# login-service-key Secret, so ArgoCD sees this one as belonging to no rendered
+# manifest. Pruned, the login service loses the key it signs with, and the issuer
+# refuses every sign-in on this box.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: zitadel-login-service-key-managed
+  namespace: platform-identity
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: infisical-backend
+    kind: ClusterSecretStore
+  target:
+    name: zitadel-login-service-key-managed
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      # kubernetes.io/tls, because that is what the chart's own Secret was and
+      # what its volume mount expects. An Opaque Secret with the same two keys
+      # mounts identically today and is a trap on the next chart version.
+      type: kubernetes.io/tls
+      engineVersion: v2
+      mergePolicy: Replace
+      metadata:
+        annotations:
+          argocd.argoproj.io/sync-options: Prune=false
+      data:
+        tls.crt: "{{ .crt }}"
+        tls.key: "{{ .key }}"
+  data:
+    - secretKey: crt
+      remoteRef:
+        key: hub-zitadel-login-service-cert
+    - secretKey: key
+      remoteRef:
+        key: hub-zitadel-login-service-key

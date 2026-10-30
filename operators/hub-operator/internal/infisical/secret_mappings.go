@@ -224,6 +224,38 @@ var CLISecretMappings = []SecretMapping{
 	//
 	// Deleting the Secret rotates it: grafana-operator regenerates, and the next
 	// reconcile republishes the new value here.
+	// ========================================================================
+	// 5c. THE LOGIN SERVICE'S SIGNING KEYPAIR
+	// ========================================================================
+	// Published from the Secret the chart generated, so the material Infisical
+	// holds is the pair Zitadel ALREADY trusts. Switching the chart to the
+	// managed Secret then rotates nothing: no new key, no second rollout, no
+	// session disruption.
+	//
+	// Why it is published at all: ArgoCD renders with `helm template`, where
+	// Helm's `lookup` always returns empty, so the chart's reuse branch could
+	// never fire and every sync minted a new keypair (2026-10-30, AUTH-7fs1e for
+	// five hours). The platform owns this credential now.
+	//
+	// The source Secret disappears once login.loginServiceKeySecretName points
+	// elsewhere and the chart stops rendering it. That is not a problem: the
+	// uploader skips a source Secret that does not exist, and Infisical keeps
+	// what was published.
+	{
+		SourceNamespace: NamespaceIdentity,
+		SourceName:      "zitadel-login-service-key",
+		SourceKey:       "tls.crt",
+		InfisicalKey:    "hub-zitadel-login-service-cert",
+		Description:     "Zitadel login service certificate (the pair the issuer trusts)",
+	},
+	{
+		SourceNamespace: NamespaceIdentity,
+		SourceName:      "zitadel-login-service-key",
+		SourceKey:       "tls.key",
+		InfisicalKey:    "hub-zitadel-login-service-key",
+		Description:     "Zitadel login service private key (the pair the issuer trusts)",
+	},
+
 	{
 		SourceNamespace: NamespaceObservability,
 		SourceName:      "platform-admin-credentials",

@@ -10,3 +10,6 @@ resources:
   # own initialisation or password-reset flows and the platform is forced to
   # invent a credential it cannot deliver.
   - zitadel-smtp-es.yaml
+  # The login service's signing keypair, published once rather than minted by
+  # every render (2026-10-30 incident; see the file's header).
+  - zitadel-login-service-key-es.yaml

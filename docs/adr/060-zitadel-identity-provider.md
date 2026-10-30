@@ -385,3 +385,66 @@ already is, and the authorization request carrying
 - ADR-057: Tenant User Management
 - ADR-058: OIDC Group-Based Kubernetes RBAC (superseded by ADR-059)
 - ADR-059: Provider-Agnostic OIDC Contract
+
+## Addendum (2026-10-31): the login service's keypair is the platform's, not a render's — **Proposed**
+
+The chart generates the login service's signing keypair unless it is given one.
+Its reuse branch is guarded by Helm's `lookup`:
+
+```
+{{- $existingSecret := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- if and $existingSecret $existingSecret.data ... }}   # reuse
+{{- else }}  $cert := genSelfSignedCert "login-service" ...
+```
+
+**ArgoCD renders with `helm template`, where `lookup` always returns empty.** The
+reuse branch could therefore never fire on this platform: every sync of the
+`zitadel` Application minted a new keypair, server-side-applied it, and rolled both
+Deployments through the `checksum/secret-login-service-key` annotation.
+
+### Why that was survivable until it wasn't
+
+Zitadel reads `SystemAPIUsers` **once, at startup**. Kubernetes keeps the mounted
+file current, but the process does not re-read it. So each regeneration opened a
+window in which the login service signed assertions with a key the running issuer
+did not trust, and the window closed only when the replacement Zitadel pod became
+Ready.
+
+On 2026-10-30 it did not close. The replacement pod could not schedule — the hub's
+single worker was 25Mi short of its 512Mi request — so the old pod held the old
+certificate in memory while the new login pod presented the new one. Every assertion
+failed `AUTH-7fs1e` for five hours. Interactive sign-in survived only because the
+superseded login pod was still serving; the deployment was deadlocked, not degraded,
+because `maxUnavailable: 0` means the old pod cannot go until the new one is Ready
+and the new one could not schedule until the old one went.
+
+Deleting the old Zitadel pod resolved it in nine seconds: the replacement scheduled,
+loaded the current certificate, and the login pod passed readiness two seconds later.
+
+### Decision
+
+**The platform owns this credential.** `login.loginServiceKeySecretName` names an
+ESO-delivered Secret, `zitadel-login-service-key-managed`, so the chart's generation
+branch is never reached.
+
+- **The material is the pair already trusted**, published to Infisical by
+  `CLISecretMappings` from the Secret the chart last generated. Naming it rotates
+  nothing: no new key, no second rollout, no session disruption.
+- **`kubernetes.io/tls` with `tls.crt` and `tls.key`**, the shape the chart's own
+  Secret had and its volume mount expects.
+- **`deletionPolicy: Retain` and `Prune=false`.** Once the chart stops rendering a
+  login-service-key Secret, ArgoCD sees the managed one as belonging to no rendered
+  manifest. Pruned, the login service loses the key it signs with and the issuer
+  refuses every sign-in on the box.
+
+### What this does not fix
+
+The hub worker runs at 96% of allocatable memory with 381Mi of headroom, so any
+rollout of a 512Mi pod can deadlock the same way for a different reason. That is a
+capacity decision — a second hub worker, or the dev store count ADR-078 add.9 leaves
+open — and it is recorded here because this incident was its first symptom, not its
+last.
+
+A chart whose correctness depends on `lookup` is a general hazard under ArgoCD, not
+a Zitadel one. Any chart that generates a credential when it cannot see the cluster
+regenerates it on every sync here.
