@@ -57,23 +57,22 @@ def declarations(root: Path):
                 print(f"BAD\t{values}: not parseable as YAML ({exc})")
                 continue
             identity = doc.get("identity") or {}
-            deps = list(identity.get("backendDependencies") or [])
-            # A CAPABILITY declaration is the other form of the caller half, and the
-            # renderer already treats it as one: universal-tenant's
-            # workload-platform-identity.yaml does `$deps = append $deps "credits"`
-            # when capabilities.credits.enabled is true, so the platform mints that
-            # application's audience scope and service identity for the Credit
-            # Authority from the capability alone (ADR-109). Reading only
-            # backendDependencies here reported waypoint as declaring nothing while
-            # the chart was declaring it, and the only way to satisfy that was to add
-            # a second, redundant declaration of the same dependency.
-            capabilities = doc.get("capabilities") or {}
-            for name, cfg in sorted(capabilities.items()):
-                if isinstance(cfg, dict) and cfg.get("enabled") and name not in deps:
-                    deps.append(name)
+            # A CAPABILITY an application declares is NOT a sibling dependency, and
+            # must not be checked as one. ADR-109: the Credit Authority "is not an
+            # application" -- it is a platform capability that runs on the hub in
+            # platform-credits, with no tenant application, no allowedConsumers and
+            # nothing for a sibling lookup to find. The two halves ADR-088 pairs do
+            # not exist for it; the capability rule below applies instead.
+            #
+            # Keeping them in one list is what produced the opposite false failure:
+            # the caller was reported as depending on an application of the tenant
+            # that does not and should not exist.
+            caps = sorted(name for name, cfg in (doc.get("capabilities") or {}).items()
+                          if isinstance(cfg, dict) and cfg.get("enabled"))
             out[(env_dir.name, app_dir.name)] = (
-                deps,
+                list(identity.get("backendDependencies") or []),
                 list(identity.get("allowedConsumers") or []),
+                caps,
             )
     return out
 
@@ -141,7 +140,7 @@ def main() -> int:
 
     pairs = 0
     bad = False
-    for (env, app), (deps, _) in sorted(decls.items()):
+    for (env, app), (deps, _, _) in sorted(decls.items()):
         for target in deps:
             pairs += 1
             key = (env, target)
@@ -153,7 +152,7 @@ def main() -> int:
                 )
                 bad = True
                 continue
-            _, consumers = decls[key]
+            _, consumers, _ = decls[key]
             if app not in consumers:
                 print(
                     f"BAD\t{env}/{app} -> {target}: {target} does not list {app!r} in "
@@ -166,10 +165,10 @@ def main() -> int:
                 print(f"OK\t{env}/{app} -> {target}: both halves declared")
 
     # The reverse direction: an admission nobody asked for.
-    for (env, app), (_, consumers) in sorted(decls.items()):
+    for (env, app), (_, consumers, _) in sorted(decls.items()):
         for caller in consumers:
             key = (env, caller)
-            deps = decls.get(key, ([], []))[0]
+            deps = decls.get(key, ([], [], []))[0]
             if app not in deps:
                 print(
                     f"BAD\t{env}/{app} admits {caller!r}, but {caller} declares no dependency "
@@ -178,7 +177,57 @@ def main() -> int:
                 )
                 bad = True
 
-    if pairs == 0 and not bad:
+    # ── capabilities, which are not sibling applications (ADR-109) ───────────
+    #
+    # A capability has no second half to pair: it runs on the box, not in the
+    # tenant, so there is no application to admit a caller and no allowedConsumers
+    # to read. What must hold instead is that the box grants it and that its one
+    # caller is unambiguous -- ADR-109 names "the single source of its one caller",
+    # and two applications declaring it would make the platform mint two callers for
+    # a ledger that admits one.
+    #
+    # The box's own declaration is read from the registry rather than assumed: an
+    # application declaring a capability the box has switched off renders nothing,
+    # and the chart fails with "this box does not run the Credit Authority" at sync
+    # time instead of here.
+    box_caps = {}
+    for values in sorted((root / "registry" / "clusters").glob("*/values.yaml")):
+        try:
+            doc = yaml.safe_load(values.read_text()) or {}
+        except yaml.YAMLError as exc:
+            print(f"BAD\t{values}: not parseable as YAML ({exc})")
+            bad = True
+            continue
+        for name, cfg in (doc.get("capabilities") or {}).items():
+            if isinstance(cfg, dict) and cfg.get("enabled"):
+                box_caps.setdefault(name, []).append(values.parent.name)
+
+    declared_by = {}
+    for (env, app), (_, _, caps) in sorted(decls.items()):
+        for cap in caps:
+            declared_by.setdefault((env, cap), []).append(app)
+
+    for (env, cap), apps in sorted(declared_by.items()):
+        if cap not in box_caps:
+            print(
+                f"BAD\t{env}: {', '.join(apps)} declares capability {cap!r}, which no cluster "
+                f"in registry/clusters enables. The capability's resources do not render, so "
+                f"the declaration buys an audience scope for something that is not running."
+            )
+            bad = True
+            continue
+        if len(apps) > 1:
+            print(
+                f"BAD\t{env}: capability {cap!r} is declared by {', '.join(apps)}. ADR-109 "
+                f"gives it one caller, and a second declaration mints a second service "
+                f"identity for a ledger that admits one."
+            )
+            bad = True
+            continue
+        print(f"OK\t{env}/{apps[0]} declares capability {cap!r}, enabled on "
+              f"{', '.join(box_caps[cap])}; no sibling application is required (ADR-109)")
+
+    if pairs == 0 and not declared_by and not bad:
         print("OK\tno cross-application dependencies declared")
 
     key_grammar_agrees()
