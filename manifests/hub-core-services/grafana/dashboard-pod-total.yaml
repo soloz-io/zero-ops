@@ -5,7 +5,7 @@ metadata:
   name: platform-pod-total
   namespace: platform-observability
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
   labels:
     app.kubernetes.io/managed-by: platform
 spec:

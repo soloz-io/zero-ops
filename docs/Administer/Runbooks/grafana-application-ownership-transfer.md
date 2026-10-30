@@ -102,9 +102,17 @@ The resources leave `platform-dashboards`' path and arrive in
    its state is in the `grafana` database on the hub's CNPG cluster, not in a PVC.
    Confirm the dashboards still render and the datasources still answer.
 
-## Stage 3 — remove the transitional protection (not yet in Git)
+## Stage 3 — remove the transitional protection (landed 2026-10-30)
 
-Only once stages 1 and 2 are verified on the development hub. `Prune=false` left in
+Stages 1 and 2 were verified on the development hub on 2026-10-30: 19 objects kept
+their UIDs and creation timestamps (2026-09-19 and 2026-10-28), the live `Grafana`
+carried `Prune=false`, its `argocd.argoproj.io/instance` label had flipped from
+`platform-dashboards` to `grafana`, and the namespace recorded no `Delete` events.
+Invariants I1–I4 hold on evidence rather than on a green sync.
+
+Stage 3 is therefore in Git. `Prune=false` left in place means a resource deleted
+from Git is never removed from the cluster, which is a GitOps hole, so this stage was
+never optional. `Prune=false` left in
 place means a resource deleted from Git is never removed from the cluster, which is a
 GitOps hole, so this stage is not optional:
 
