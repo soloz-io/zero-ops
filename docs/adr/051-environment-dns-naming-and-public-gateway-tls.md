@@ -574,3 +574,44 @@ scope change; this addendum installs the solver infrastructure only.
 - ADR-046: Hybrid Provider Cell (Hetzner Control Plane + Home-Lab Workers)
 - ADR-049: Dev Infrastructure Simplification, Managed Telemetry, and Load Balancer Consolidation
 - ADR-050: Tenant Authentication via AgentGateway
+
+## Amendment (2026-10-31): the implemented single-writer mechanism — **Proposed**
+
+**Status:** Proposed. It corrects what the 2026-09-21 amendment describes as the
+model, without weakening the property that amendment exists to protect.
+
+That amendment requires each fleet and each platform capability serving a public
+hostname to own a **ListenerSet** attached to the shared Gateway. Its 2026-09-29
+successor records that the arrangement it refused "was still in the code, and it
+broke", and that the delegated model "was never implemented". It still is not:
+
+- no `XListenerSet` CRD is installed on the hub or on nutgraf-01;
+- the Gateway API bundle on the spoke is the **standard** channel, `v1.5.1`, and
+  `XListenerSet` ships in the experimental one;
+- Cilium is `v1.17.18`, and whether that build implements the resource is unverified.
+
+**What is implemented, and is the platform's actual contract:** one shared Gateway
+per cluster, one named listener per published hostname, and **one writer owning the
+whole `listeners` list**. `hub-gateway` carries ten listeners from a single template;
+the spoke's `tenant-tls-gateway` carries the fleets' listeners, all rendered by
+`platform-spoke-gateway` from the generated `publicHosts` aggregate (ADR-096).
+`tenant-public-tls` renders certificates and routes only — it no longer writes the
+Gateway.
+
+**A platform capability publishes the same way.** Its hostname joins the aggregate
+and becomes a named listener on that Gateway, with `allowedRoutes` admitting only
+the capability's own namespace — which is how `hub-gateway` already serves Grafana,
+Argo CD and the rest. The hazard the 2026-09-21 amendment names, two ArgoCD
+Applications writing one `spec.listeners` under a single field manager, cannot occur
+here: there is one writer, and adding a hostname adds an element to the list it
+already owns.
+
+The number of consumers this supports is bounded by that one writer's inputs rather
+than by the number of Applications, which is the practical difference from the
+delegated model and the reason it is sufficient today.
+
+**ListenerSet remains the target**, and migrating to it is a property of the Gateway
+API and Cilium upgrade (ADR-085) rather than a decision this ADR takes on its own.
+When the experimental channel is installed and the resource is supported, fleets and
+platform capabilities migrate together; until then, a ListenerSet is an object nothing
+can reconcile.

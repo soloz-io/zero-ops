@@ -846,9 +846,11 @@ holds one datasource pair per cluster and no federation:
 - the hub's own pair queries the hub's stores in-cluster;
 - each spoke's pair — `<cell>-metrics` (`prometheus`) at
   `https://victoriametrics.<cell>.<subdomain>.<domain>/prometheus` and `<cell>-logs`
-  (`victoriametrics-logs-datasource`) at `…/logs` — queries that spoke's
-  `spoke-query-endpoint`, which authenticates the caller and forwards to the spoke's
-  own stores;
+  at `…/logs` — queries that spoke's `spoke-query-endpoint`, which authenticates the
+  caller and forwards to the spoke's own stores.
+  **Corrected 2026-10-31:** the logs datasource is Grafana's `loki` type, not
+  ~~`victoriametrics-logs-datasource`~~. Addendum 5 §4 made every cluster's log store
+  Loki, and this line was written before it;
 - authentication is the viewer's OIDC token from the box's issuer, forwarded with
   `oauthPassThru` (ADR-083 addendum 1 §1), so revocation at the issuer stops a
   query;
@@ -882,7 +884,10 @@ Found on the dev box and recorded as acceptance gates, not open design:
   Alertmanager exists;
 - the Grafana sidecar watches one namespace;
 - the spoke query endpoint's listener and route are withheld (ADR-051, 2026-09-21
-  amendment), and nothing generates spoke datasource pairs;
+  amendment), and nothing generates spoke datasource pairs.
+  **Superseded 2026-10-31 by addendum 8**: the endpoint does not wait on ListenerSet.
+  It is published through a platform-owned listener on the spoke's shared Gateway,
+  which is how every public hostname on this platform is already served;
 - job names are the collector's component names, not the conventional ones the
   mixins select on.
 
@@ -1760,3 +1765,119 @@ The dependent paths that would move with it are recorded here so none is missed:
 Alloy's remote-write targets, VMAuth's route map, the per-store PVCs and health
 checks, and `scripts/validate/cluster/078-collection-floor.sh`, whose C7 asserts that
 both stores hold every cluster's series.
+
+## Addendum 8: the viewer query path — hub and every spoke in one Grafana (2026-10-31)
+
+**Status:** Proposed. It supersedes §12's deferral of the spoke query endpoint and
+records the decisions taken between 2026-10-30 and 2026-10-31. One question is open
+and named at the end.
+
+The requirement is one URL: `https://grafana.<hubDomain>` showing the hub and every
+spoke, with the `cluster` variable selecting between them. §10 already specified the
+datasource topology; what was missing was a way to publish each spoke's query
+endpoint, and an authorization model for it.
+
+### The endpoint is published the way every other hostname is
+
+ADR-051's 2026-09-21 amendment delegates listeners to a ListenerSet per consumer.
+**No `XListenerSet` CRD exists on any cluster** — the Gateway API bundle on nutgraf-01
+is the standard channel, `v1.5.1` — and ADR-051's own 2026-09-29 amendment records
+that the delegated model "was never implemented". What *is* implemented, on fourteen
+live listeners, is one shared Gateway per cluster with one named listener per
+hostname, written by a single owner: `hub-gateway` carries ten, including Grafana's
+own, and the spoke's `tenant-tls-gateway` carries the fleets' four, all rendered by
+`platform-spoke-gateway` from the `publicHosts` aggregate.
+
+The query endpoint joins that aggregate. The single-writer property ADR-051 protects
+is unaffected, because one chart still owns the whole `listeners` list.
+
+| | |
+|---|---|
+| listener name | derived by `platform-spoke-gateway.listenerName` — `host \| replace "." "-"`. A hardcoded `sectionName` attaches to nothing while every status reports Programmed |
+| `allowedRoutes` | that listener alone admits `platform-observability`, by `kubernetes.io/metadata.name`, exactly as the hub's Grafana listener does. Tenant listeners keep `from: Same`, so ADR-050's no-bypass is untouched |
+| HTTPRoute | in `platform-observability`, beside the backend, so no `ReferenceGrant` exists to widen |
+| hostname | declared in the box registry and emitted by `AggregatePublicHosts` as a second declaration source. One producer, exact set equality and duplicate refusal are unchanged, so ADR-096 needs no amendment |
+
+### The viewer is a second VMAuth, not a second user
+
+`VMAuth/platform` answers in-cluster callers holding generated bearer tokens that
+never leave the cluster. Publishing its Service would put that credential's
+authentication path on the internet, where a leaked token is a working query. So the
+viewer gets its own instance, isolated by selector — neither sets
+`selectAllByDefault`, so a user reaches an entry point only by carrying its label.
+
+Read-only by construction: only query, series, label and metadata paths appear in
+`targetRefs`, and write, ingest, delete and admin paths are absent rather than denied
+by a rule that could be edited. Each target drops one path prefix, so `/prometheus/…`
+reaches the stores as `/api/v1/…` and `/logs/…` reaches Loki as `/loki/api/v1/…`.
+
+### One observability project per box
+
+The identity is a **dedicated platform project**, not the shared one, and one per box
+rather than one per spoke.
+
+Per box, because what is authorised is a person's access to this box's telemetry
+rather than to one cluster of it. That is what lets the project id be declared **once**
+in the box's Git registry and rendered into every spoke's `VMUser`; a per-spoke
+project would put a different id in each spoke's configuration and give a mismatch
+nowhere to be noticed.
+
+Dedicated, because `projectRoleCheck` is what gives a role meaning: the issuer refuses
+a token to a user with no role in the project. In the shared platform project that
+would admit any platform user; in this one it admits only those granted an
+observability role.
+
+The client is **confidential** — Grafana runs the browser flow from a server it
+controls — and its secret is published only when the issuer mints it, because
+publishing an empty value would delete the credential Grafana holds. Nothing is
+revoked when the capability is switched off: deleting the project would invalidate
+every viewer's sign-in and mint a new id on re-enable, which the registry would then
+disagree with silently.
+
+Two properties were already true and are recorded here because they were nearly
+rebuilt: `ensureApp` sets `accessTokenType: OIDC_TOKEN_TYPE_JWT` and
+`accessTokenRoleAssertion: true`, so access tokens are JWTs carrying project roles,
+and `projectSettings` sets `projectRoleAssertion`, `projectRoleCheck` and
+`hasProjectCheck` on every project.
+
+### `projectRoleCheck` is not authorization
+
+It admits **any** role in the project, and the platform provisions `admin`, `member`
+and `viewer`. A member-only user therefore signs in and receives a token. **VMAuth
+must match the viewer role itself**; the issuer's gate is a precondition, not the
+decision.
+
+So the authorization boundary is three things together: the issuer verifies the
+signature and expiry through `jwt.oidc.issuer`; `matchClaims` requires the
+observability project's audience; and `matchClaims` requires the viewer role.
+Audience alone is not sufficient and is not used alone.
+
+### `VMUser/viewer` has one owner
+
+The spoke catalogue and Argo CD own it. No ClusterResourceSet copy, no imperative
+patch, no operator writing the object. The delivery mechanism of ADR-048 was weighed
+and rejected for this: it delivers whole objects, so routing the audience through it
+would make the renderer a second producer of an object the catalogue already owns —
+the condition ADR-096 removed for the Gateway and ADR-046 §24 removed for
+`cilium-config`. ADR-048's own amendment also states that CRS is "creation/delivery
+assurance, not steady-state enforcement": a delivered resource that is pruned stays
+pruned until the payload hash changes.
+
+A missing project id fails rendering rather than producing a `VMUser` that matches
+nothing, and the declared id is verified against the issuer's actual id during
+provisioning and operational validation — reported on mismatch, never silently
+overwritten in Git.
+
+### Open: how the role is matched
+
+`VMUser.matchClaims` is `map[string]string` in the installed CRD, and Zitadel asserts
+roles **nested** — `urn:zitadel:iam:org:project:roles` carrying a map keyed by role.
+Whether vmauth can match a leaf of that natively is unresolved, and it is being
+settled against a real token on the dev spoke before anything is written to the
+registry or published.
+
+What is already verified: `VMUser` v1beta1 carries `spec.jwt` with `oidc.issuer`,
+`matchClaims`, `publicKeyRefs` and `defaultVMAccessClaim` (operator `v0.75.0`), and the
+OSS `vmauth` `v1.152.0` binary has the `jwt`, `oidc` and `vm_access_claim` code paths
+compiled in. A custom issuer Action is not on the table unless native matching
+demonstrably fails.
